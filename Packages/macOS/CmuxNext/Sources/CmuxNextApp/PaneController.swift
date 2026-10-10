@@ -16,7 +16,7 @@ import Observation
 final class PaneController: SurfacePresenter, PresentablePane {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
-    let pane: PaneModel
+    var pane: PaneModel // set only by adopt(_:): the daemon pane replacing a provisional one
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
     let stripModel = TabStripModel()
@@ -87,8 +87,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Sync
 
-    private func observe() {
-        observation = Task { [weak self] in
+    func observe() {
+        observation?.cancel(); observation = Task { [weak self] in
             guard let self else { return }
             for await snapshot in ObservationStream({ [weak self] in self?.snapshot() }) {
                 guard let snapshot else { return }

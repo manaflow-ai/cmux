@@ -476,7 +476,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard (Default) and Fast with Codex's own line.",
+      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard and Fast with Codex's own line.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
