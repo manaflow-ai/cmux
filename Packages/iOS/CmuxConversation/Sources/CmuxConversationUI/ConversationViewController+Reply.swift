@@ -360,7 +360,11 @@ extension ConversationViewController {
         previous.message.senderID == next.message.senderID ? 4 : 10
     }
 
-    /// Keeps the thread bottom-aligned just above the composer as the keyboard moves.
+    /// Keeps the thread bottom-aligned just above the composer as the
+    /// keyboard moves and the draft grows: Messages moves the thread with
+    /// each line added to or removed from the draft in the same frame as
+    /// the field, keeping the bottom bubble 16.7 pt above it, and jumps it
+    /// to the risen keyboard's layout at once (iOS 26.5 and 27.0).
     func layoutReplyOverlay() {
         guard let overlay = replyOverlay else { return }
         overlay.frame = view.bounds

@@ -38,9 +38,12 @@ public struct ReplyTrip: Equatable, Sendable {
 
     public var isResting: Bool { y == targetY && offsetX == 0 }
 
-    /// The row's container moved by `delta`: it keeps its place on screen,
-    /// so its start and current position move the other way.
+    /// The row's container moved by `delta`. A row still travelling keeps
+    /// its place on screen, so its start and current position move the
+    /// other way; a landed row rides the container (a reply draft growing a
+    /// line carries the thread up with the field).
     public mutating func containerMoved(by delta: CGFloat) {
+        guard y != targetY else { return }
         startY -= delta
         y -= delta
     }
