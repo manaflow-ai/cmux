@@ -167,6 +167,10 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 420,
   checks: {
+    layoutShiftMax: {
+      value: 0.05,
+      reason: "Opening an in-flow permission detail intentionally moves the decision controls below the revealed request.",
+    },
     longFrameFailMs: {
       value: 33,
       reason: "Permission expansion and decisions should remain responsive on the gallery host.",
