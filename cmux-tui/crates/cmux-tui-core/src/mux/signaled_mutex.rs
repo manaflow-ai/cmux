@@ -328,6 +328,9 @@ impl Mux {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
+        // Best effort: an unanswered one stays for a later holder, and the
+        // commit paths refuse to build on it (drain_unsettled).
+        let _ = registry.connection.drain_unsettled();
         self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }

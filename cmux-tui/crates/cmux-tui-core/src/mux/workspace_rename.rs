@@ -174,10 +174,13 @@ impl Mux {
             // connection pin is released for the writer. If the receipt is
             // indeterminate, the next state holder applies the rename.
             let settle: crate::workspace_registry::SettleState = {
-                let (key, name) = (key.clone(), name.clone());
+                let (key, name) = (key, name.clone());
                 Box::new(move |state: &mut State, receipt| {
+                    // Only when no later commit (built on the old name)
+                    // superseded it.
                     if let crate::workspace_registry::RegistryReceipt::Workspace(receipt) = receipt
                         && !receipt.commit.replayed
+                        && receipt.commit.revision > state.workspace_revision
                         && let Some(workspace) =
                             state.workspaces.iter_mut().find(|workspace| workspace.key == key)
                     {
@@ -195,9 +198,11 @@ impl Mux {
                 .into_workspace()?;
             let commit = receipt.commit;
             state.workspaces[index].name = name;
-            state.workspace_revision = commit.revision;
+            // A replayed receipt carries the original, possibly older,
+            // revision: never move the in-memory revisions back.
+            state.workspace_revision = state.workspace_revision.max(commit.revision);
             if let Some(resource_revision) = receipt.resource_revision {
-                state.resource_revision = resource_revision;
+                state.resource_revision = state.resource_revision.max(resource_revision);
             }
             let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(

@@ -64,8 +64,13 @@ pub(crate) trait RegistryIntentSink: Send + Sync {
 /// An indeterminate receipt and the state update it still owes.
 pub(crate) struct UnsettledReceipt {
     pending: PendingRegistryReceipt,
+    /// The writer's answer once it arrived (see `drain_unsettled`).
+    resolved: Option<Result<RegistryReceipt, String>>,
     settle: Option<SettleState>,
 }
+
+/// How long a new registry commit waits for an earlier indeterminate one.
+const UNSETTLED_DRAIN_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl RegistryIntent {
     /// Resident size for the writer's durable batch byte cap.
@@ -190,7 +195,27 @@ impl RegistryConnection {
         self.unsettled
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(UnsettledReceipt { pending, settle });
+            .push(UnsettledReceipt { pending, resolved: None, settle });
+    }
+
+    /// Wait (bounded) until every earlier indeterminate commit has its
+    /// answer, keeping the answers for the next state holder to settle. A
+    /// new commit prepared before then could read a topology, a fold or a
+    /// revision that the late commit is about to change. Errors when one is
+    /// still unanswered after the wait.
+    pub(crate) fn drain_unsettled(&self) -> anyhow::Result<()> {
+        let mut unsettled =
+            self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let deadline = std::time::Instant::now() + UNSETTLED_DRAIN_WAIT;
+        for entry in unsettled.iter_mut().filter(|entry| entry.resolved.is_none()) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            entry.resolved = entry.pending.wait_take(left);
+            anyhow::ensure!(
+                entry.resolved.is_some(),
+                "an earlier session journal registry commit is still indeterminate; retry"
+            );
+        }
+        Ok(())
     }
 
     /// Receipts that arrived for earlier indeterminate commits, with the
@@ -204,8 +229,8 @@ impl RegistryConnection {
         }
         let mut settled = Vec::new();
         let mut kept = Vec::with_capacity(unsettled.len());
-        for entry in unsettled.drain(..) {
-            match entry.pending.try_take() {
+        for mut entry in unsettled.drain(..) {
+            match entry.resolved.take().or_else(|| entry.pending.try_take()) {
                 None => kept.push(entry),
                 Some(Ok(receipt)) => settled.push((receipt, entry.settle)),
                 Some(Err(error)) => {
@@ -241,6 +266,10 @@ impl WorkspaceRegistry {
         release_pin: impl FnOnce(),
         settle: Option<SettleState>,
     ) -> anyhow::Result<RegistryReceipt> {
+        // Every prepare drains earlier indeterminate commits first (bounded),
+        // so `intent` is not built on a base a late commit changes; this
+        // second drain covers one that went indeterminate meanwhile.
+        self.connection.drain_unsettled()?;
         let Some(sink) = self.connection.accepting_sink().cloned() else {
             return self.commit_registry_intent_locally(&intent);
         };

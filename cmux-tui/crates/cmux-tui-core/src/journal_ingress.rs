@@ -909,26 +909,44 @@ impl JournalIngressSender {
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), String> {
+        self.enqueue_until_or_return(sender, event, deadline).map_err(|(error, _)| error)
+    }
+
+    /// [`Self::enqueue_until`] that hands the event back when it was not
+    /// queued (deadline, admission closed, writer gone).
+    fn enqueue_until_or_return(
+        &self,
+        sender: &SyncSender<QueuedJournalEvent>,
+        event: QueuedJournalEvent,
+        deadline: Instant,
+    ) -> Result<(), (String, Box<QueuedJournalEvent>)> {
         let lane = event.event.lane();
         let mut pending = event;
         loop {
             if Instant::now() >= deadline {
-                return Err(format!(
-                    "timed out after {} ms waiting to queue a durable session journal event",
-                    JOURNAL_DURABLE_WAIT.as_millis()
+                return Err((
+                    format!(
+                        "timed out after {} ms waiting to queue a durable session journal event",
+                        JOURNAL_DURABLE_WAIT.as_millis()
+                    ),
+                    Box::new(pending),
                 ));
             }
             let space_epoch = self.state.queue_space_epoch();
             let result = {
                 let _admission = self.state.enqueue_admission.lock().unwrap();
                 if Instant::now() >= deadline {
-                    return Err(format!(
-                        "timed out after {} ms waiting to queue a durable session journal event",
-                        JOURNAL_DURABLE_WAIT.as_millis()
+                    return Err((
+                        format!(
+                            "timed out after {} ms waiting to queue a durable session journal \
+                             event",
+                            JOURNAL_DURABLE_WAIT.as_millis()
+                        ),
+                        Box::new(pending),
                     ));
                 }
                 if let Some(error) = self.state.admission_error() {
-                    return Err(error);
+                    return Err((error, Box::new(pending)));
                 }
                 // Count before the event is visible to the writer, which may
                 // drain it before `try_send` returns.
@@ -949,12 +967,14 @@ impl JournalIngressSender {
                     self.state.stats.enqueue_failed(lane);
                     pending = event;
                 }
-                Err(TrySendError::Disconnected(_)) => {
+                Err(TrySendError::Disconnected(event)) => {
                     self.state.stats.enqueue_failed(lane);
-                    return Err(self.writer_error());
+                    return Err((self.writer_error(), Box::new(event)));
                 }
             }
-            self.state.wait_for_queue_space_until(space_epoch, deadline)?;
+            if let Err(error) = self.state.wait_for_queue_space_until(space_epoch, deadline) {
+                return Err((error, Box::new(pending)));
+            }
         }
     }
 

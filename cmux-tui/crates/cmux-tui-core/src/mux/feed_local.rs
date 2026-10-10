@@ -139,7 +139,23 @@ impl Mux {
         )?;
         // The registry stays held across the writer receipt (effect_commit.rs);
         // the feed lock does too: the writer takes neither.
-        let revision = self.commit_effect_intent(&mut registry, intent, finish)?.revision();
+        let revision = match self.commit_effect_intent(&mut registry, intent, finish) {
+            Ok(receipt) => receipt.revision(),
+            Err(error) => {
+                // Indeterminate: the writer admitted the batch and almost
+                // always commits it. Keep the in-memory feed on the rows it
+                // is writing, so later posts do not diff against a stale
+                // copy. (If it does not commit, memory is ahead of the
+                // database until the next start reloads the feed.)
+                if error
+                    .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
+                    .is_some()
+                {
+                    *feed = next;
+                }
+                return Err(error);
+            }
+        };
         *feed = next;
         // The ring goes up with the item, under the feed lock: a read or a
         // tab ack holds this lock while it clears rings, so it sees both the

@@ -53,10 +53,15 @@ impl Mux {
         let receipt = match registry.commit_registry_intent(RegistryIntent::Effect(intent)) {
             Ok(receipt) => receipt.into_effect()?,
             Err(error) => {
-                // The receipt may be indeterminate: the writer can still
-                // commit after this request gives up. Wake journal
-                // subscribers, who read the head.
-                self.publish_journal_event();
+                // An indeterminate receipt: the writer can still commit after
+                // this request gives up. Wake journal subscribers, who read
+                // the head. Any other error committed nothing.
+                if error
+                    .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
+                    .is_some()
+                {
+                    self.publish_journal_event();
+                }
                 return Err(error);
             }
         };
@@ -68,9 +73,16 @@ impl Mux {
     /// the in-memory revisions to what the journal committed. The caller
     /// holds the registry and `state`.
     pub(crate) fn settle_registry_receipts(&self, registry: &WorkspaceRegistry, state: &mut State) {
-        for (receipt, settle) in registry.connection.take_settled_receipts() {
+        let settled = registry.connection.take_settled_receipts();
+        if settled.is_empty() {
+            return;
+        }
+        for (receipt, settle) in settled {
             settle_one(state, &receipt, settle);
         }
+        // Subscribers read the new head (publishing takes neither the
+        // registry nor state).
+        self.publish_resource_event();
     }
 }
 

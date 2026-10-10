@@ -69,6 +69,8 @@ impl WorkspaceRegistry {
         result: &Value,
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceCommitIntent> {
+        // A late indeterminate commit must land before the topology read.
+        self.connection.drain_unsettled()?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         Ok(WorkspaceCommitIntent {
@@ -132,6 +134,8 @@ impl WorkspaceRegistry {
         let tx = db.unchecked_transaction()?;
         let receipt = intent.apply(&tx, Some(extra))?;
         tx.commit()?;
+        drop(db);
+        self.connection.write_path_stats().request_effect_committed();
         Ok(receipt.commit)
     }
 }
@@ -227,12 +231,12 @@ impl WorkspaceCommitIntent {
         let (revision, _) = commit_workspace_registry_in_transaction(
             tx,
             mutation,
-            &fingerprint,
+            fingerprint,
             expected_revision,
             event_kind,
             workspace_key,
             workspaces,
-            &result_json,
+            result_json,
         )?;
         // Presentation rows land before the resource batch, so its restated
         // workspaces carry the new identity fields.
@@ -329,8 +333,8 @@ impl WorkspaceCommitIntent {
                 tx,
                 mutation,
                 event_kind,
-                &fingerprint,
-                &result_json,
+                fingerprint,
+                result_json,
                 sqlite_resource_revision,
             )?;
             let resource_deltas = normalized_workspace_resource_deltas(

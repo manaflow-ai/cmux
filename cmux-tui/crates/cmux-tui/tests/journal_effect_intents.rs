@@ -164,6 +164,16 @@ fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
             }),
         );
     }
+    let renamed = request(&daemon.socket, serde_json::json!({"cmd": "list-workspaces"}));
+    assert!(
+        renamed["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|entry| entry["id"] == workspace
+                && entry["name"] == format!("intents-{}", RENAMES - 1)),
+        "the last rename did not take effect: {renamed}"
+    );
     let after = write_path(&daemon.socket);
     let delta = |name: &str| counter(&after, name) - counter(&before, name);
     let expected = (CREATES * INTENTS_PER_CREATE + RENAMES) as u64;

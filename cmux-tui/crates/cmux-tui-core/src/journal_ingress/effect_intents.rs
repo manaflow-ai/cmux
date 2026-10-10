@@ -28,7 +28,8 @@ pub(crate) enum EffectSend {
     /// in time: it may still commit. The receipt arrives on the channel.
     Indeterminate(anyhow::Error, PendingRegistryReceipt),
     /// The writer is disabled, stopped, failed, not running yet, or this is
-    /// the writer thread itself. Nothing was queued: commit it locally.
+    /// the writer thread itself, or the durable lane refused the event
+    /// (deadline, admission closed). Nothing was queued: commit it locally.
     NotQueued(Box<RegistryIntent>),
 }
 
@@ -43,6 +44,20 @@ impl PendingRegistryReceipt {
             Ok(result) => Some(result),
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => {
+                Some(Err("the session journal writer dropped the receipt".into()))
+            }
+        }
+    }
+
+    /// [`Self::try_take`], waiting at most `timeout` for the answer.
+    pub(crate) fn wait_take(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Option<Result<RegistryReceipt, String>> {
+        match self.0.recv_timeout(timeout) {
+            Ok(result) => Some(result),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 Some(Err("the session journal writer dropped the receipt".into()))
             }
         }
@@ -73,7 +88,7 @@ impl JournalIngressSender {
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
-        if let Err(error) = self.enqueue_until(
+        if let Err((error, event)) = self.enqueue_until_or_return(
             sender,
             QueuedJournalEvent {
                 event: JournalIngressEvent::Effect(intent),
@@ -85,7 +100,13 @@ impl JournalIngressSender {
             },
             deadline,
         ) {
-            return EffectSend::Sent(Err(anyhow::Error::msg(error)));
+            // Not queued (deadline, admission closed, writer gone): hand the
+            // intent back so a caller without state can commit it locally,
+            // as before the writer took registry commits.
+            return match event.event {
+                JournalIngressEvent::Effect(intent) => EffectSend::NotQueued(intent),
+                _ => EffectSend::Sent(Err(anyhow::Error::msg(error))),
+            };
         }
         let waited = Instant::now();
         let outcome = self.wait_for_commit_result(

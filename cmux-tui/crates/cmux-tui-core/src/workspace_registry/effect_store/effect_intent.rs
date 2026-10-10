@@ -185,6 +185,9 @@ impl WorkspaceRegistry {
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
     ) -> anyhow::Result<(EffectCommitIntent, EffectCommitFinish)> {
+        // A late indeterminate commit must land before this intent's fold
+        // pruning and checks read the base (registry_intent).
+        self.connection.drain_unsettled()?;
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
@@ -219,6 +222,9 @@ impl WorkspaceRegistry {
         deltas: &Value,
         restates_all: bool,
     ) -> anyhow::Result<(EffectCommitIntent, EffectCommitFinish)> {
+        // A late indeterminate commit must land before this intent's fold
+        // pruning and checks read the base (registry_intent).
+        self.connection.drain_unsettled()?;
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
