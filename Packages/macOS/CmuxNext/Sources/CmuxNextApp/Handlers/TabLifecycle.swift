@@ -10,7 +10,7 @@ import Foundation
 /// workspace no window shows. Every daemon command is tracked
 /// (`ActionRegistry.track`) for callers that await the effect.
 enum TabLifecycle {
-    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: SurfaceID? = nil) {
         guard let focused = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
@@ -45,7 +45,8 @@ enum TabLifecycle {
                 let spawn = SpawnOptions(cwd: cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
-            target?.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller)
+            target?.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
+                                   then: NewTabSlot.placing(after: anchor, services: ctx.services, then: nil))
             return
         }
         let handle = pane.handle
@@ -62,7 +63,7 @@ enum TabLifecycle {
     /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
     /// `inStrip` (New Horizontal Tab) adds a tab even where Cmd-T would open a workspace.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
-                                 inStrip: Bool = false) {
+                                 inStrip: Bool = false, toRight: Bool = false) {
         // A named tab or pane that resolves to nothing is refused by the
         // lookup. Without one, a missing focused pane is not a refusal yet:
         // the active workspace may still be empty (below).
@@ -121,6 +122,8 @@ enum TabLifecycle {
             isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
         )
         if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
+        // Right after `tab` for New Tab to the Right and `tabs.newTabPosition: afterCurrent`, else the end (NewTabSlot).
+        let after = NewTabSlot.anchor(after: tab, toRight: toRight, user: user, position: ctx.services.settings?.snapshot.newTabPosition)
         let folder = controller?.selectedTab?.cwd ?? tab?.cwd
         var kind = sameKind
         if user, followsSetting {
@@ -133,23 +136,24 @@ enum TabLifecycle {
         if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
         switch kind {
         case .terminal:
-            newTerminal(ctx, invocation)
+            newTerminal(ctx, invocation, after: after)
         case .browser(let engine):
             var invocation = invocation
             invocation.arguments["cwd"] = nil
             if let engine { invocation.arguments["engine"] = .string(engine) }
-            newBrowser(ctx, invocation)
+            newBrowser(ctx, invocation, after: after)
         case .agent, .page:
             // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
             if user, let controller, let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services),
                strip !== controller {
                 return strip.newTabPage()
             }
+            let placed = NewTabSlot.placing(after: after, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
             if kind == .page {
-                controller?.newTabPage()
+                controller?.newTabPage(then: placed)
             } else {
                 ctx.services.newTabKinds.record(.agent, folder: folder)
-                controller?.newAgentTab()
+                controller?.newAgentTab(then: placed)
             }
         }
     }
@@ -190,7 +194,7 @@ enum TabLifecycle {
     /// `openBrowser` (`engine` optional: `browser.defaultEngine` when
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
     /// never silently becomes WebKit.
-    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: SurfaceID? = nil) {
         let plan: BrowserOpenPlan
         switch BrowserOpenPlan.make(url: invocation["url"]?.stringValue, engine: invocation["engine"]?.stringValue,
                                     origin: invocation.origin) {
@@ -267,7 +271,7 @@ enum TabLifecycle {
         // as a tab in the pane Auto Layout picks, then moves into its own pane (PanePlacementRouting).
         // Only a person's browser tiles, so `agentTab` is nil on that path.
         var opener = pane
-        var then = agentTab
+        var then = NewTabSlot.placing(after: anchor, services: ctx.services, then: agentTab)
         if case .split(let target, let direction) = PanePlacementRouting.route(
             ctx, invocation, from: pane, tiles: PanePlacementRouting.browsersTile(ctx)
         ) {
