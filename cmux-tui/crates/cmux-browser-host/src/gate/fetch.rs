@@ -5,7 +5,7 @@
 //! after the fact), and masks secrets in the body.
 
 use super::redirects::{self, Hop, MAX_REDIRECTS};
-use super::{Gate, now_ms, push_log};
+use super::{Gate, now_ms, push_cors_log, push_log};
 use crate::policy::egress::ip_range;
 use crate::protocol::{DriverError, ErrorCode};
 use crate::vm::VmHost;
@@ -366,7 +366,7 @@ impl Gate {
                 value.as_object_mut().and_then(|object| object.remove("corsRelaxed"))
             {
                 for entry in relaxed {
-                    push_log(
+                    push_cors_log(
                         &self.cors_log,
                         json!({"url": entry["url"], "what": entry["what"], "at": now_ms()}),
                     );
@@ -376,7 +376,7 @@ impl Gate {
             // HOP-ADDRESS (ff): a hop whose address never arrived (the engine
             // waited 1 s, unchecked for rebinding) is logged, not silent.
             if redirect.is_some() && remote_ip.is_none() {
-                push_log(
+                push_cors_log(
                     &self.cors_log,
                     json!({"url": hop.url, "what": "hop address missing, waited", "at": now_ms()}),
                 );

@@ -8,7 +8,7 @@ impl Mux {
     /// leak an entry forever and `list-agents` would keep reporting dead
     /// surfaces as live agents.
     pub(super) fn purge_surface_side_tables(&self, surface: SurfaceId) {
-        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
@@ -43,8 +43,11 @@ impl Mux {
         }
         drop(sizing);
         self.publish_size_states();
-        self.placement_notifications.lock().unwrap().remove(&surface);
         self.control_clients.forget_surface_attach_epoch(surface);
+        drop(lifecycle);
+        // After the sizing lifecycle lock: the feed lock comes before the
+        // registry and state locks, never after another lock.
+        self.close_placement_feed_items(surface);
     }
 
     pub(super) fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
@@ -78,7 +81,8 @@ impl Mux {
         {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
-        self.terminal_notifications.lock().unwrap().remove(terminal_id);
+        // Read the terminal's open local items and drop its ring together.
+        self.close_terminal_feed_items(terminal_id);
     }
 
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {

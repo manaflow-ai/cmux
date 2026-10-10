@@ -5,6 +5,7 @@ export async function copyTextResult(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {}
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const field = document.createElement("textarea");
   try {
     field.value = text;
@@ -17,6 +18,10 @@ export async function copyTextResult(text: string): Promise<boolean> {
     return false;
   } finally {
     field.remove();
+    // The fallback briefly focuses its textarea. Restore the element that was active when the
+    // fallback began, while still respecting a field the user focused while the clipboard write
+    // was pending.
+    if (previousFocus?.isConnected) previousFocus.focus();
   }
 }
 

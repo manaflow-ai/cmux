@@ -2997,9 +2997,6 @@ function AcpmuxPane() {
                       </span>
                     )}
                     <ChatHeaderTools
-                      changes={lastChanges}
-                      changesOpen={Boolean(diffView && diffOpen)}
-                      onChanges={toggleLastChanges}
                       tabTools={!quick}
                       onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
@@ -3008,6 +3005,8 @@ function AcpmuxPane() {
                           // Another chat closes its summary and gallery, as it does the image viewer.
                           key={snapshot.sessionId}
                           rows={snapshot.rows}
+                          changes={quick ? undefined : lastChanges}
+                          onOpenChanges={toggleLastChanges}
                           onOpenOutput={quick ? undefined : openOutput}
                           onOpenImage={quick ? undefined : openImage}
                         />
