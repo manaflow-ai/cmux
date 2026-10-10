@@ -31,7 +31,8 @@ import Testing
     /// w1 holds one pane of two tabs, its second the daemon's default; w2 one
     /// plain tab. The window lists both and shows w2. With `agentSession`, w1's
     /// pane also lists an agent chat tab on that acpmux session (`agentTab`).
-    static func fixture(resourceIDs: Bool = true, agentSession: String? = nil) throws -> (AppServices, WindowController, Recorder) {
+    static func fixture(resourceIDs: Bool = true, agentSession: String? = nil,
+                        agentHost: String = AgentTabFixture.host) throws -> (AppServices, WindowController, Recorder) {
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false
         services.agentTabs.localHost = AgentTabFixture.host
@@ -44,7 +45,7 @@ import Testing
         if let agentSession {
             var agent = TabSnapshot(surface: 7, tabResourceID: ResourceID(rawValue: agentTab), kind: .conversation,
                                     title: "about:blank", browserRenderer: "frontend")
-            agent.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: AgentTabFixture.host, session: agentSession))
+            agent.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: agentHost, session: agentSession))
             tabs.append(agent)
         }
         let pane = PaneSnapshot(id: 3, resourceID: resourceIDs ? ResourceID(rawValue: paneID) : nil, activeTab: 1, tabs: tabs)

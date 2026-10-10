@@ -224,6 +224,27 @@ impl Workspaces for TargetWorkspaces {
     }
 }
 
+/// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
+/// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
+/// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
+/// `chief:<home id>`); Home allows the form only for this Chief's own subagents. None when the
+/// tag names no home or the session id needs escaping.
+pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
+    let home = parent.strip_prefix("optchat-chief:")?;
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 200
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    (home.len() == 8
+        && home
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && token(session))
+    .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
 /// The agent tab host of a session in Chief home `home`'s acpmux.
 pub fn chief_host(home: &Path) -> String {
     format!("chief:{}", crate::paths::home_id(home))

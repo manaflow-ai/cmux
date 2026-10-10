@@ -35,7 +35,7 @@ impl Mux {
             {
                 preparation
             } else {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.lock_state_pinned(&registry).unwrap();
                 let intent = self.resource_topology_effect_intent(
                     operation,
                     &selectors,

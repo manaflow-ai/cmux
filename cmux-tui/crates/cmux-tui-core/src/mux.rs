@@ -459,9 +459,9 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
 type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 
 pub struct Mux {
-    /// Serializes durable workspace commits, their in-memory projection, and
-    /// publication of revisioned workspace deltas. Lock order is always
-    /// registry, then state.
+    /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
+    pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
@@ -470,7 +470,7 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
-    pub(crate) state: Mutex<State>,
+    pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,

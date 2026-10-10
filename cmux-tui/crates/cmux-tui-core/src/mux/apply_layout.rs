@@ -301,7 +301,7 @@ impl Mux {
                 let mut topology_changed = false;
                 let mut projection_errors = Vec::new();
                 {
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.lock_state_pinned(&registry).unwrap();
                     for (terminal_id, _) in &hosted {
                         let terminal = match registry.terminal_record(terminal_id) {
                             Ok(Some(terminal))
