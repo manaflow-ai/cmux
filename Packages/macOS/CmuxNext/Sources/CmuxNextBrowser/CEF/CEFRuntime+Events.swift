@@ -106,6 +106,8 @@ extension CEFRuntime {
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .authCallback(let browser, let url):
             CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
+        case .bookmarks(let json, let path):
+            CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
             break
         default:
@@ -323,7 +325,7 @@ extension CEFShimEvent {
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .download, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:
             nil
         }
     }
