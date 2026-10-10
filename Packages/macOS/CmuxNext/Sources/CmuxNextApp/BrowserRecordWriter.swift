@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -138,13 +139,13 @@ final class BrowserRecordWriter {
         self.sleep = sleep
         self.send = send
         observation = Task { [weak self, tab] in
-            for await state in Observations({ tab.state }) {
+            for await state in ObservationStream({ tab.state }) {
                 self?.pageDidChange(state)
             }
         }
         if let daemonRecord {
             rebasing = Task { [weak self] in
-                for await record in Observations({ daemonRecord() }) {
+                for await record in ObservationStream({ daemonRecord() }) {
                     guard let record else { continue }
                     self?.rebase(record)
                 }

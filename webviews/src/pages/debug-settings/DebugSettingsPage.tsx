@@ -157,10 +157,20 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
             <span className="ds-title-count">{fill(t("debugSettings.count"), state.visible)}</span>
           </div>
           <div className="ds-actions">
-            <button type="button" className="ds-button" onClick={() => void store.copy("json")} data-testid="ds.copyJSON">
+            <button
+              type="button"
+              className="ds-button"
+              onClick={() => void store.copy("json")}
+              data-testid="ds.copyJSON"
+            >
               {t("debugSettings.copyJSON")}
             </button>
-            <button type="button" className="ds-button" onClick={() => void store.copy("swift")} data-testid="ds.copySwift">
+            <button
+              type="button"
+              className="ds-button"
+              onClick={() => void store.copy("swift")}
+              data-testid="ds.copySwift"
+            >
               {t("debugSettings.copySwift")}
             </button>
             {section ? (
@@ -193,7 +203,9 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
         <div className="ds-scroll">
           {state.groups.length === 0 ? (
             <p className="ds-none">
-              {state.selection === "changed" && !searching ? t("debugSettings.nothingChanged") : t("debugSettings.noResults")}
+              {state.selection === "changed" && !searching
+                ? t("debugSettings.nothingChanged")
+                : t("debugSettings.noResults")}
             </p>
           ) : null}
           {state.groups.map((group) => (

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -60,7 +61,7 @@ final class ThemeCoordinator {
         chromeTheme = settings.snapshot.chromeTheme
         applyChromeTheme()
         chromeObservation = Task { [weak self] in
-            for await theme in Observations({ settings.snapshot.chromeTheme }) {
+            for await theme in ObservationStream({ settings.snapshot.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
@@ -92,13 +93,13 @@ final class ThemeCoordinator {
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
             // themes of its terminals that closed while the app was away.
-            for await loaded in Observations({ local.store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ local.store.isLoaded }) where loaded {
                 self?.pruneTerminalThemes()
                 return
             }
         }
         observation = Task { [weak self] in
-            for await _ in Observations({ () -> [String?] in
+            for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]

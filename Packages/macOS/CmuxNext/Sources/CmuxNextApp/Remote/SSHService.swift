@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -87,7 +88,7 @@ final class SSHService {
         observers.append(Task { [weak self] in
             // Live state only: restoring connects and prunes saved hosts,
             // which the launch snapshot's cached registry must not drive.
-            for await records in Observations({ () -> [SessionRecord] in
+            for await records in ObservationStream({ () -> [SessionRecord] in
                 let store = machines.local.store
                 return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
             }) {
@@ -229,7 +230,7 @@ final class SSHService {
         let machines = machines
         // task-owner: ends at the first answer from the machine's daemon, or when the session is forgotten
         Task { [weak self, weak session] in
-            for await level in Observations({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
+            for await level in ObservationStream({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
                 guard let session, session.offersInstall, machines.sshSession(session.machineID) === session else { return }
                 guard let level else { continue }
                 if level != .current {

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -101,7 +102,7 @@ enum AgentSessionWorkspace {
     }
 
     @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
-        for await ready in Observations({ firstPane(of: key, in: store) != nil }) where ready { return true }
+        for await ready in ObservationStream({ firstPane(of: key, in: store) != nil }) where ready { return true }
         return false
     }
 }

@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -43,7 +44,7 @@ final class ClosedTabTracker {
         undoToasts = CloseUndoToasts(services: services)
         let machines = services.machines
         observation = Task { [weak self] in
-            for await structure in Observations({ Self.structure(of: machines.daemons) }) {
+            for await structure in ObservationStream({ Self.structure(of: machines.daemons) }) {
                 self?.apply(structure)
             }
         }

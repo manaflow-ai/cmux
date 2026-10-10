@@ -16,7 +16,10 @@ import { DebugSettingsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
-export function mountDebugSettingsPage(root: HTMLElement, client: PageClient | null = defaultClient()): DebugSettingsStore {
+export function mountDebugSettingsPage(
+  root: HTMLElement,
+  client: PageClient | null = defaultClient(),
+): DebugSettingsStore {
   const store = new DebugSettingsStore(client, {
     writeClipboard: (text) => navigator.clipboard.writeText(text),
   });

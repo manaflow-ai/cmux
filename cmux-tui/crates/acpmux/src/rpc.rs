@@ -44,6 +44,19 @@ impl RpcError {
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
     }
+    /// A request whose handler waited on an agent past its deadline
+    /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
+    /// the wait, and the request may be retried.
+    pub fn deadline_exceeded(wait: &str, timeout: std::time::Duration) -> Self {
+        Self::new(-32000, format!("{wait} did not finish within {timeout:?}")).with_data(
+            serde_json::json!({
+                "reason": "deadline_exceeded",
+                "wait": wait,
+                "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                "retryable": true,
+            }),
+        )
+    }
 }
 
 impl std::fmt::Display for RpcError {

@@ -5,7 +5,6 @@ webviews/src/agent-session/acpmux/Inspector.css	size	4
 webviews/src/agent-session/acpmux/changes/changes.css	size	7
 webviews/src/agent-session/acpmux/checkpoints/styles.css	size	2
 webviews/src/agent-session/acpmux/chips/chips.css	size	1
-webviews/src/agent-session/acpmux/composerAttachments.css	size	1
 webviews/src/agent-session/acpmux/composerStates.css	size	2
 webviews/src/agent-session/acpmux/conversation/CodeBlock.tsx	size	1
 webviews/src/agent-session/acpmux/conversation/RenderCard.tsx	size	1

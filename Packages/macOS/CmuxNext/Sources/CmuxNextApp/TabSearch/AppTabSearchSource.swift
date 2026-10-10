@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextPalette
 import Foundation
 import Observation
@@ -51,7 +52,7 @@ final class AppTabSearchSource: TabSearchSource {
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { @MainActor in
                 var last = subscribed
-                for await revision in Observations({ changes.revision }) where revision != last {
+                for await revision in ObservationStream({ changes.revision }) where revision != last {
                     last = revision
                     continuation.yield()
                 }

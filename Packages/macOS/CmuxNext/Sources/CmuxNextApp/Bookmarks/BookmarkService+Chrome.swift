@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSettings
@@ -166,7 +167,7 @@ extension BookmarkService {
     func follow(_ settings: SettingsController) {
         // task-owner: lives as long as the service; event-driven (Observation)
         barObservation = Task { [weak self] in
-            for await shown in Observations({ settings.snapshot.browserShowBookmarksBar }) {
+            for await shown in ObservationStream({ settings.snapshot.browserShowBookmarksBar }) {
                 self?.setBarShown(shown)
             }
         }

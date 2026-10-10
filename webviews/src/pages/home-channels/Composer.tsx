@@ -11,10 +11,24 @@ export interface ComposerProps {
   onSend(text: string): Promise<boolean>;
   /** Lets the page focus the field from a key (Escape from the thread, the switcher). */
   editorRef?: React.RefObject<PromptEditorHandle | null>;
+  /** The starting text (an edit of an existing message). */
+  initialValue?: string;
+  /** Escape in the field (an inline edit cancels); the page's own Escape does not run. */
+  onCancel?(): void;
+  className?: string;
 }
 
-export function Composer({ placeholder, label, disabled, onSend, editorRef }: ComposerProps) {
-  const [value, setValue] = useState("");
+export function Composer({
+  placeholder,
+  label,
+  disabled,
+  onSend,
+  editorRef,
+  initialValue = "",
+  onCancel,
+  className,
+}: ComposerProps) {
+  const [value, setValue] = useState(initialValue);
   const local = useRef<PromptEditorHandle | null>(null);
   const ref = editorRef ?? local;
   const submit = (markdown: string) => {
@@ -24,11 +38,16 @@ export function Composer({ placeholder, label, disabled, onSend, editorRef }: Co
     });
   };
   return (
-    <div className={`hc-composer${disabled ? " disabled" : ""}`}>
+    <div className={`hc-composer${disabled ? " disabled" : ""}${className ? ` ${className}` : ""}`}>
       <PromptEditor
         ref={ref}
         value={value}
         onChange={(markdown) => setValue(markdown)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !onCancel) return;
+          event.preventDefault();
+          onCancel();
+        }}
         onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
         placeholder={placeholder}
         attributes={{ "aria-label": label }}
