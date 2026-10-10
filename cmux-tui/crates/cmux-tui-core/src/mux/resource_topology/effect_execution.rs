@@ -1,5 +1,6 @@
 //! Resource topology effect execution: effect intents, the executor, effect slots and created paths, and the per-effect create, rename, add-pane and layout-apply steps.
 
+use super::client_ids::{requested_client_pane_id, requested_client_tab_id};
 use super::*;
 
 impl Mux {
@@ -59,6 +60,18 @@ impl Mux {
                 "mutation_origin":mutation.origin,
                 "mutation_actor":mutation.actor.wire(),
             });
+            if let Some(tab_id) = requested_client_tab_id(fields, state, registry)? {
+                intent["terminal_reservation"]["tab_id"] = json!(tab_id);
+            }
+        }
+        if matches!(operation, ResourceOperation::PaneSplit | ResourceOperation::PaneCreate) {
+            // The new pane's public id is fixed here, so a creation resumed
+            // after a restart makes the same pane (`split-client-keys-v1`).
+            let pane_id = match requested_client_pane_id(fields, state, registry)? {
+                Some(pane_id) => pane_id,
+                None => PanePublicId::random()?,
+            };
+            intent["pane_reservation"] = json!({ "pane_id": pane_id });
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -777,7 +790,12 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let pane_public_id = PanePublicId::random()?;
+        let pane_public_id = match intent["pane_reservation"]["pane_id"].as_str() {
+            Some(reserved) => PanePublicId::parse(reserved.to_string())
+                .context("stored topology intent has an invalid pane id")?,
+            // An intent stored before pane reservations existed.
+            None => PanePublicId::random()?,
+        };
         let spawned =
             self.effect_spawn_pane_surface(intent, target, &workspace_key, argv, cwd, size)?;
         let surface = spawned.surface().clone();
@@ -796,6 +814,12 @@ impl Mux {
         let notifications = self.tree_decorations();
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
+            // A reserved pane id that became taken since preparation is
+            // refused before the layout changes (release builds too).
+            anyhow::ensure!(
+                !state.resource_indexes.panes.contains_key(&pane_public_id),
+                "pane_id_exists: {pane_public_id}"
+            );
             let Some((workspace, screen_index)) = state.screen_of(target) else {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
