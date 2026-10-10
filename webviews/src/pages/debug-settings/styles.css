@@ -320,11 +320,16 @@ html[data-debug-settings-host="window"] .ds-toolbar {
   height: 14px;
   border-radius: 50%;
   background: var(--page-elevated);
-  transition: inset-inline-start 120ms ease;
+  transition: transform 120ms ease;
 }
 
+/* A transform, not an offset: the knob's move is no layout shift. */
 .ds-switch[aria-checked="true"] .ds-switch-knob {
-  inset-inline-start: 16px;
+  transform: translateX(14px);
+}
+
+[dir="rtl"] .ds-switch[aria-checked="true"] .ds-switch-knob {
+  transform: translateX(-14px);
 }
 
 @media (prefers-reduced-motion: reduce) {
