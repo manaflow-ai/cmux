@@ -1,5 +1,6 @@
 import type { RowReader, RowWrite } from "@cmux/ownership"
 import type { Host, TeamMember } from "@cmux/protocol"
+import { roleHas, type TeamGrant } from "./team-roles.ts"
 
 /**
  * TeamDO members and hosts live in rows ((f), DO audit F-1): the head stays small for 10k+ member
@@ -11,8 +12,8 @@ export const TABLE_MEMBER = "member"
 export const TABLE_HOST = "host"
 /** install id -> host id (a server or host enrolled by that install). */
 export const TABLE_HOST_BY_INSTALL = "host_by_install"
-/** Rows subscribers never get in event effects: clients page members and hosts with reads. */
-export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL]
+/** Rows subscribers never get in event effects: clients page members, hosts and audit records (team-audit-rows.ts) with reads. */
+export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, "audit"]
 
 export type Member = typeof TeamMember.Type
 export type HostRecord = typeof Host.Type
@@ -28,16 +29,19 @@ export const memberOf = (s: LegacyTeamMaps, rows: RowReader | undefined, user: s
 
 export const roleOf = (s: LegacyTeamMaps, rows: RowReader | undefined, user: string | undefined) => memberOf(s, rows, user)?.role
 
+/** Whether `user` holds `grant` in this team now: the member row's role bundle (team-roles.ts), read on every op. */
+export const can = (s: LegacyTeamMaps, rows: RowReader | undefined, user: string | undefined, grant: TeamGrant): boolean => roleHas(roleOf(s, rows, user), grant)
+
 /** Targets one reach check resolves at most (the group size cap, section 4.1); a longer list gets no answer. */
 export const HOME_REACH_MAX_TARGETS = 64
 
 /**
  * Home reach (home-messaging.md section 16.7, home-reach.ts): which of `targets` share this team
- * with `adder`, with their directory names. Only owner, admin and member roles may add people.
+ * with `adder`, with their directory names. Only roles with the team.resources grant may add people.
  */
 export const homeCoMembersOf = (s: LegacyTeamMaps, rows: RowReader | undefined, adder: string, targets: ReadonlyArray<string>): Array<{ user: string; display_name: string }> => {
   if (!Array.isArray(targets) || targets.length > HOME_REACH_MAX_TARGETS) return []
-  if (!["owner", "admin", "member"].includes(roleOf(s, rows, adder) ?? "")) return []
+  if (!can(s, rows, adder, "team.resources")) return []
   return targets.flatMap((user) => {
     const member = user === adder ? undefined : memberOf(s, rows, user)
     return member ? [{ user, display_name: member.display_name }] : []

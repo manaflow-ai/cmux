@@ -146,6 +146,16 @@ impl PtyTerminalRuntime {
 /// This object owns the process, terminal emulator, ordered input/output, and
 /// canonical geometry. Keeping the two identities distinct makes a terminal
 /// projectable into any number of panes without cloning its PTY or VT state.
+///
+/// Lock order (outer first): `Mux::state` -> `geometry` -> `term` ->
+/// `runtime` -> leaf locks (`render`, `taps`, `title`, `mouse_encoders`,
+/// `Mux::default_colors`, ...). Mux code holds `Mux::state` while it reads
+/// `geometry` (`Surface::size`), and a resize holds `geometry` while it takes
+/// `term`. So no path may call a mux method that takes `Mux::state` (every
+/// `emit_terminal_*`, `mark_output_dirty`) while it holds `term` or
+/// `geometry`: collect the event under the lock, release it, then emit.
+/// Parser callbacks run inside `vt_write` under `term`, so they only record
+/// flags or counters that the reader publishes after it unlocks.
 pub struct PtyTerminalRuntime {
     pub(super) event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
