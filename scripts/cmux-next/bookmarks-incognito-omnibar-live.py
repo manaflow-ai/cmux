@@ -105,12 +105,12 @@ def omnibar(window):
 
 
 def browser_omnibar(window):
-    """An omnibar in `window`'s focused pane: the one shown, else a Chromium tab opened there."""
+    """An omnibar in `window`'s focused pane: the one shown, else a Chromium tab opened in the
+    active window (the one just opened)."""
     if "error" not in omnibar(window):
         return True
-    pane = focused_pane(window)
-    print("open a Chromium tab in", window, pane,
-          rpc("action.run", {"action": "tab new-chromium", "target": f"pane:{pane}", "args": {"url": "about:blank"}}), flush=True)
+    print("open a Chromium tab for", window, focused_pane(window),
+          rpc("action.run", {"action": "tab new-chromium", "args": {"url": "about:blank"}, "focus": True}), flush=True)
     return quiet_wait(lambda: "error" not in omnibar(window), 60)
 
 
