@@ -573,7 +573,7 @@ pub struct Mux {
     cell_pixel_operation: Mutex<Option<CellPixelOperationHook>>,
     #[cfg(test)]
     cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
-    default_colors: Mutex<DefaultColors>,
+    default_colors: crate::lock_rank::RankedMutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,

@@ -134,7 +134,7 @@ pub(super) struct RenderTap {
 }
 
 impl RenderTap {
-    pub(super) fn pair(render: &Arc<Mutex<RenderHub>>) -> (Self, RenderAttachFrameReceiver) {
+    pub(super) fn pair(render: &Arc<RankedMutex<RenderHub>>) -> (Self, RenderAttachFrameReceiver) {
         let state = Arc::new(RenderTapState {
             queue: Mutex::new(RenderTapQueue {
                 pending_frame: None,
@@ -173,7 +173,7 @@ impl Drop for RenderTap {
 /// Bounded receiver for one render attachment.
 pub struct RenderAttachFrameReceiver {
     state: Arc<RenderTapState>,
-    render: Weak<Mutex<RenderHub>>,
+    render: Weak<RankedMutex<RenderHub>>,
 }
 
 impl RenderAttachFrameReceiver {
