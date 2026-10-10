@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxCore
 import Foundation
 
 /// A socket command's hop onto the main actor exceeded its deadline.
