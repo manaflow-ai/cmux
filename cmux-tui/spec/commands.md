@@ -469,7 +469,7 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections. The only section is `resource_projection`; unknown names are ignored.
+sections: `resource_projection` and `write_path`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -502,6 +502,11 @@ object{
     commits:uint64, commit_us:histogram, commit_prune_us:histogram,
     commit_apply_us:histogram, commit_journal_us:histogram,
     written_changes:histogram, journaled_changes:histogram
+  },
+  write_path?:object{
+    effect_intents:uint64, effect_intent_failures:uint64,
+    effect_intent_batches:uint64, request_effect_commits:uint64,
+    writer_registry_locks:uint64
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -513,7 +518,10 @@ terminal records, `index_us` rebuilds the live resource indexes, and `diff_us`
 diffs the live tree against the stored topology. `commit_us` is the whole
 registry commit of a projected patch (only the commit that follows a
 projection counts; it also covers path-specific steps such as the replay
-check, the legacy workspace ledger or terminal close completion);
+check, the legacy workspace ledger or terminal close completion; for an
+effect receipt patch it is the apply inside the transaction, without the
+public-fold pruning before it or the fsync after it, which the journal
+writer shares across a batch, see `write_path`);
 `commit_prune_us`, `commit_apply_us` and `commit_journal_us` are its
 unchanged-row pruning, row writes and journal append. `projected_changes`, `written_changes` and `journaled_changes` count
 the patch's durable changes, the changes left after pruning, and the public
@@ -523,6 +531,19 @@ the whole topology) or scoped (it restates only the workspaces it changed);
 scope and ran full. `crosschecks` counts scoped projections compared with the
 full projection (debug builds, or `CMUX_TUI_PROJECTION_CROSSCHECK=1` in the
 daemon environment) and `crosscheck_mismatches` the comparisons that differed.
+
+`write_path` says which thread commits effect receipts. `effect_intents`
+counts effect receipt commits the journal writer applied inside its batch
+transaction (one SAVEPOINT each, one shared fsync per batch),
+`effect_intent_failures` the intents it rolled back to their savepoint and
+answered with an error, and `effect_intent_batches` the batches that carried
+at least one. `request_effect_commits` counts effect receipt commits that ran
+their own transaction on a request thread: topology close patches, and every
+effect commit while the journal writer is disabled, stopped, or not yet
+running. `writer_registry_locks` counts, process-wide, registry lock
+acquisitions on a journal writer thread. It is always `0`: a request thread
+holds the registry lock while it waits for its writer receipt, so the writer
+never takes that lock.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
