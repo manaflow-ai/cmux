@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import Synchronization
+import CmuxNextCompat
 
 /// One symbolicated return address from a main-thread stack sample.
 public struct HangFrame: Sendable, Hashable {

@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
 /// them after the `.connected` marker. Runs on the reader thread.

@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One import run's Keychain reads: each "<Name> Safe Storage" item is read
 /// once, so cookies and passwords from the same browser cost the user one
