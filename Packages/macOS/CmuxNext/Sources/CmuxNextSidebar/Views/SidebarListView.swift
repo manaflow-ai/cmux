@@ -169,7 +169,12 @@ final class SidebarListView: NSView {
         return o
     }
     func frame(for row: SidebarRow) -> NSRect {
-        NSRect(x: inset, y: row.y, width: max(0, bounds.width - inset * 2), height: row.height)
+        // Group members start right of their group's line (`SidebarStyle.groupGutter`).
+        let gutter: CGFloat = switch row.key {
+        case .workspace, .tab: row.group == nil ? 0 : SidebarStyle.groupGutter
+        default: 0
+        }
+        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
     }
     /// Rows get views only inside the viewport plus overscan, so 1,000
     /// workspaces cost the same per frame as 40.
