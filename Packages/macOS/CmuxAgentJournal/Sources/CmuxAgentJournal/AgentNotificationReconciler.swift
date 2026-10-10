@@ -31,6 +31,7 @@ public struct AgentNotificationReconciler: Sendable {
         var rootStopped = false
         var pendingCompletion: AgentJournalEvent?
         var delivered: [String: String] = [:]
+        var deliveredSurfaceIDs: [String: String] = [:]
         // Blocking requests, separate from error and completion history.
         var attentionIdentities: Set<String> = []
         var attentionRequestIDs: [String: String] = [:]
@@ -97,6 +98,7 @@ public struct AgentNotificationReconciler: Sendable {
                 guard var candidate = sessions[key] else { continue }
                 boundaryInvalidations.append(contentsOf: candidate.delivered.values)
                 candidate.delivered.removeAll()
+                candidate.deliveredSurfaceIDs.removeAll()
                 candidate.attentionIdentities.removeAll()
                 candidate.attentionRequestIDs.removeAll()
                 candidate.pendingCompletion = nil
@@ -109,6 +111,18 @@ public struct AgentNotificationReconciler: Sendable {
         var session = sessions[sessionKey] ?? Session()
         if session.superseded && draft.kind != .sessionStarted {
             return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
+        }
+        if let previousSurfaceID = session.surfaceID, previousSurfaceID != draft.surfaceId {
+            // Correlations are pane-scoped even though the semantic session
+            // identity survives a move. Retire receipts on the old pane while
+            // their originating surface is still known.
+            for identity in session.delivered.keys.sorted()
+                where session.deliveredSurfaceIDs[identity] == previousSurfaceID {
+                if let correlation = session.delivered.removeValue(forKey: identity) {
+                    boundaryInvalidations.append(correlation)
+                }
+                session.deliveredSurfaceIDs.removeValue(forKey: identity)
+            }
         }
         session.surfaceID = draft.surfaceId
         session.agentKey = draft.agentKey
@@ -264,6 +278,7 @@ public struct AgentNotificationReconciler: Sendable {
                 identity = Self.key([sessionKey, Self.key([identityKind, context?.turnIdentity ?? session.turn])])
             }
             session.delivered[identity] = context?.notification?.correlationKey ?? identity
+            session.deliveredSurfaceIDs[identity] = draft.surfaceId
             if identityKind == "completion" {
                 session.completionIdentity = identity
             }
@@ -287,6 +302,7 @@ public struct AgentNotificationReconciler: Sendable {
         if draft.kind == .turnStarted || draft.kind == .sessionEnded {
             invalidated.append(contentsOf: session.delivered.values)
             session.delivered.removeAll()
+            session.deliveredSurfaceIDs.removeAll()
             session.attentionIdentities.removeAll()
             session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
             session.attentionRequestIDs.removeAll()
@@ -392,6 +408,7 @@ public struct AgentNotificationReconciler: Sendable {
         }
         let identity = Self.key([sessionKey, boundary])
         session.delivered[identity] = context?.notification?.correlationKey ?? identity
+        session.deliveredSurfaceIDs[identity] = draft.surfaceId
         if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind) {
             session.attentionIdentities.insert(identity)
             if let request = context?.requestIdentity { session.attentionRequestIDs[identity] = request }

@@ -13,6 +13,55 @@ import XCTest
 // unix-socket server, XCTestExpectation-based server waits). Porting only these
 // assertions to Swift Testing would fork that harness across frameworks.
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testClaudeSessionStartClearsSameSessionFailureSummary() throws {
+        let context = try makeForkOfForkContext(name: "claude-session-recovery-summary")
+        defer { context.cleanup() }
+        let sessionId = "recovered-session"
+        try seedForkOfForkHookStore(
+            context: context,
+            sessionId: sessionId,
+            surfaceId: context.surfaceId,
+            activeTurnId: "failed-turn"
+        )
+        var stored = try readForkOfForkHookStore(context: context)
+        var sessions = try XCTUnwrap(stored["sessions"] as? [String: Any])
+        var record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        record["lastSubtitle"] = "Error"
+        record["lastBody"] = "Tool crashed"
+        record["lastNotificationStatus"] = "error"
+        record["runtimeStatus"] = "error"
+        record["hadPendingBackgroundWorkAtStop"] = true
+        sessions[sessionId] = record
+        stored["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: stored, options: [.prettyPrinted, .sortedKeys])
+            .write(to: context.root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        startForkOfForkSurfaceServer(context: context, surfaceIds: [context.surfaceId])
+        let start = runForkOfForkHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: [:]
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let notification = runForkOfForkHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification"}"#,
+            extraEnvironment: [:]
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+        let recovered = try readForkOfForkHookSession(sessionId, context: context)
+        XCTAssertNil(recovered["lastSubtitle"])
+        XCTAssertNil(recovered["lastBody"])
+        XCTAssertNil(recovered["lastNotificationStatus"])
+        XCTAssertEqual(recovered["runtimeStatus"] as? String, "idle")
+        XCTAssertNil(recovered["hadPendingBackgroundWorkAtStop"])
+    }
+
     func testClaudeSecondLevelForkSessionStartImmediatelyPromotesChildIdentity() throws {
         let context = try makeForkOfForkContext(name: "claude-fork-of-fork")
         defer { context.cleanup() }

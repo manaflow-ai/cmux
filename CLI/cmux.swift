@@ -1608,6 +1608,11 @@ final class ClaudeHookSessionStore {
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
             record.recentEmittedNotificationFingerprints = nil
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastNotificationStatus = nil
+            record.runtimeStatus = .idle
+            record.hadPendingBackgroundWorkAtStop = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
