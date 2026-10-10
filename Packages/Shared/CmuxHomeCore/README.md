@@ -58,12 +58,22 @@ A change that a write commits comes back on `events()` as `.message` (a new
 or changed message) or `.conversationChanged`. A new local channel comes
 back as a new `.inbox`.
 
+## Two Homes at the same time
+
+The Swift Home and the React Home can be open together. Each one has its own
+`events()` subscription on the same `homeRouter`. A write in one Home commits
+on the owner, and the owner's event goes to all subscribers. Thus the write
+shows in the other Home at once, and no front end must poll or refetch.
+
 ## Behavior check
 
 `scripts/cmux-next/home-api-live.py --tag <tag>` (runs on cmux-lawrence-2)
 starts the tagged app. It calls the socket command `debug.home.api` (`inbox`,
 `snapshot`, `submit`) to run each op above through `homeRouter` against the
-real local owner.
+real local owner. The calls `watch_start` and `watch_read` open a second
+`events()` subscriber, and `store` reads the transcript of the Swift Home
+store. With these calls the script makes sure that a write in one Home shows
+in the other.
 
 ## Known limits
 
