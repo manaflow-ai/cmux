@@ -75,7 +75,7 @@ nonisolated enum AcpmuxVersionHandoff {
 }
 
 /// Waits for a process to exit through the kernel's exit event (no polling).
-nonisolated enum AgentPaneProcessExit {
+public nonisolated enum AgentPaneProcessExit {
     private final class Once: Sendable {
         let done = Mutex(false)
         let deadline = Mutex<Task<Void, Never>?>(nil)
@@ -87,7 +87,7 @@ nonisolated enum AgentPaneProcessExit {
         }
     }
 
-    static func exitEvent(pid: Int32, within timeout: Duration) async -> Bool {
+    public static func exitEvent(pid: Int32, within timeout: Duration) async -> Bool {
         await withCheckedContinuation { continuation in
             let once = Once()
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)")
