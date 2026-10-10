@@ -220,16 +220,16 @@ export interface Env {
   readonly INFERENCE_ALLOWED_TEAMS?: string
   /** "1" lets VM installs call the router. */
   readonly INFERENCE_MACHINES_ENABLED?: string
-  /** Comma list of providers switched off (kill switch per provider), for example "openrouter,bedrock". */
+  /** Comma list of providers switched off (kill switch per provider), for example "openrouter,vercel". */
   readonly INFERENCE_DISABLED_PROVIDERS?: string
   /** Hard USD cap per provider per UTC day; INFERENCE_DAILY_CAP_USD_<PROVIDER> overrides one provider. Missing = 0 = refuse. */
   readonly INFERENCE_DAILY_CAP_USD?: string
   readonly INFERENCE_DAILY_CAP_USD_OPENROUTER?: string
   readonly INFERENCE_DAILY_CAP_USD_VERCEL?: string
   readonly INFERENCE_DAILY_CAP_USD_WORKERS_AI?: string
-  readonly INFERENCE_DAILY_CAP_USD_DEEPSEEK?: string
+  readonly INFERENCE_DAILY_CAP_USD_FIREWORKS?: string
+  readonly INFERENCE_DAILY_CAP_USD_BASETEN?: string
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
-  readonly INFERENCE_DAILY_CAP_USD_BEDROCK?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Largest max_tokens of a free-tier request (default 4096). */
@@ -237,10 +237,9 @@ export interface Env {
   /** Secrets: provider keys. A provider without its key is skipped. */
   readonly INFERENCE_OPENROUTER_KEY?: string
   readonly INFERENCE_VERCEL_GATEWAY_KEY?: string
-  readonly INFERENCE_DEEPSEEK_KEY?: string
+  readonly INFERENCE_FIREWORKS_KEY?: string
+  readonly INFERENCE_BASETEN_KEY?: string
   readonly INFERENCE_DEEPINFRA_KEY?: string
-  readonly INFERENCE_BEDROCK_KEY?: string
-  readonly INFERENCE_BEDROCK_REGION?: string
   /**
    * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
