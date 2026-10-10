@@ -443,44 +443,4 @@ impl Mux {
             true,
         )
     }
-
-    #[cfg(test)]
-    pub(crate) fn new_provider_managed_for_test(
-        session: impl Into<String>,
-        surface_options: SurfaceOptions,
-        authority: ProviderWorkspaceAuthority,
-    ) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(
-            session,
-            surface_options,
-            ProviderWorkspaceState {
-                managed: true,
-                mux_generation: None,
-                authority_generation: 1,
-                authority: Some(authority),
-            },
-            true,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_provider_managed_pending_for_test(
-        session: impl Into<String>,
-        surface_options: SurfaceOptions,
-        mux_generation: &str,
-    ) -> Arc<Self> {
-        let mux = Self::new_with_test_surface_runtime(
-            session,
-            surface_options,
-            ProviderWorkspaceState {
-                managed: true,
-                mux_generation: Some(mux_generation.into()),
-                authority_generation: 0,
-                authority: None,
-            },
-            true,
-        );
-        validate_mux_generation(mux_generation).unwrap();
-        mux
-    }
 }

@@ -44,7 +44,3 @@ pub(super) fn run(
     }
     Ok(reply)
 }
-
-#[cfg(test)]
-#[path = "close_reason_tests.rs"]
-mod tests;

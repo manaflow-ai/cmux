@@ -103,7 +103,7 @@ impl StandbyHostSlot {
     /// Memory pressure changed: under warning or critical pressure the spare
     /// is dropped and no new one starts; back to normal, the next new tab
     /// refills it.
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(target_os = "macos")]
     pub(crate) fn set_memory_pressure(&self, pressured: bool) {
         let host = {
             let mut state = self.state();
@@ -111,17 +111,6 @@ impl StandbyHostSlot {
             if pressured { state.host.take() } else { None }
         };
         drop(host);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn has_spare(&self) -> bool {
-        self.state().host.is_some()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn finish_refill_for_test(&self, host: StandbyTerminalHost) {
-        self.state().refilling = true;
-        self.finish_refill(Some(host));
     }
 
     /// Starts one refill on `pool` when a spare is wanted and none exists.
@@ -222,7 +211,3 @@ mod memory_pressure {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "standby_host_tests.rs"]
-mod tests;

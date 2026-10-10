@@ -50,27 +50,6 @@ impl Mux {
         result
     }
 
-    /// Post a notification from the legacy `notify` verb. This is the same
-    /// durable path as `notification.create`, under a fresh key, so remote
-    /// subscribers of the resource feed and a restarted daemon see it too.
-    #[cfg(test)]
-    pub(crate) fn post_notification(
-        &self,
-        title: String,
-        body: String,
-        level: NotificationLevel,
-        surface: Option<SurfaceId>,
-    ) -> anyhow::Result<u64> {
-        self.post_notification_as(
-            &Actor::Daemon,
-            title,
-            body,
-            level,
-            surface,
-            NotificationSource::Cli,
-        )
-    }
-
     /// A fresh notification that `actor` posts, with an explicit source.
     pub fn post_notification_as(
         &self,

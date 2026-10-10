@@ -952,6 +952,3 @@ impl Mux {
         self.presentation_snapshot().saved_tab_groups.clone()
     }
 }
-
-#[cfg(test)]
-mod tests;

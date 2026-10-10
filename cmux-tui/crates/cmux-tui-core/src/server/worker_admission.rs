@@ -8,8 +8,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
-#[cfg(test)]
-use std::time::Instant;
 
 #[derive(Default)]
 struct ResourceWorkerAdmissionState {
@@ -83,27 +81,6 @@ impl ResourceWorkerAdmission {
         Ok(ResourceWorkerPermit {
             _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
         })
-    }
-
-    #[cfg(test)]
-    pub(super) fn active(&self) -> usize {
-        self.state.lock().unwrap().active
-    }
-
-    #[cfg(test)]
-    pub(super) fn wait_until_idle(&self, deadline: Instant) -> bool {
-        let mut state = self.state.lock().unwrap();
-        while state.active != 0 {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
-            if timeout.timed_out() && state.active != 0 {
-                return false;
-            }
-        }
-        true
     }
 }
 

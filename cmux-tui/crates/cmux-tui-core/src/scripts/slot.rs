@@ -386,33 +386,6 @@ impl ScriptsSlot {
             session.cancel();
         }
     }
-
-    /// Open REPL sessions (tests and diagnostics).
-    #[cfg(test)]
-    pub(crate) fn open_sessions(&self) -> usize {
-        self.lock().sessions.len()
-    }
-
-    /// Registers a start in progress for `request`, as a real start does (tests).
-    #[cfg(test)]
-    pub(crate) fn begin_start_for_test(
-        &self,
-        client: u64,
-        request: &str,
-    ) -> Result<(), ScriptError> {
-        let (_, guard) = self.reserve(client, request, MAX_RUNS_PER_CLIENT, false)?;
-        drop(guard);
-        Ok(())
-    }
-
-    /// Whether the start of `request` would still go live (tests).
-    #[cfg(test)]
-    pub(crate) fn start_wanted(&self, client: u64, request: &str) -> bool {
-        matches!(
-            self.lock().running.get(&(client, request.to_string())),
-            Some(Running::Starting { cancelled: false })
-        )
-    }
 }
 
 /// A cell's wall time from the wire, clamped to the session limits.

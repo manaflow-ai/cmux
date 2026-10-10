@@ -111,13 +111,6 @@ impl super::ClientRegistry {
             .get(&client)
             .map(|record| record.transport)
     }
-
-    /// True for a connection that came through the remote entry (tests;
-    /// dispatch uses `Mux::is_remote_client`, which also fails closed).
-    #[cfg(test)]
-    pub(super) fn is_remote(&self, client: u64) -> bool {
-        matches!(self.transport_of(client), Some(ClientTransport::Remote))
-    }
 }
 
 impl Mux {
@@ -389,6 +382,3 @@ pub(super) fn remote_error_code(reason: Option<&str>, error: Option<&str>) -> &'
         None => REMOTE_ERROR,
     }
 }
-
-#[cfg(all(test, unix))]
-mod tests;

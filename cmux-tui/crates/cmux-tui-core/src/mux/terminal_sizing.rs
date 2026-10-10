@@ -351,22 +351,6 @@ impl Mux {
         }))
     }
 
-    /// Pins the `latest` policy on the workspace that shows `surface`, for
-    /// tests about latest-activity semantics (the default is `smallest`).
-    #[cfg(test)]
-    pub(crate) fn pin_latest_size_policy_for_test(&self, surface: SurfaceId) {
-        let workspace = self.surface_workspace(surface).expect("surface has a workspace");
-        self.set_workspace_size_policy(
-            workspace,
-            Some(TerminalSizingPolicy::new(
-                crate::sizing_policy::TerminalSizingMode::Latest,
-                Vec::new(),
-                None,
-            )),
-        )
-        .expect("pin latest size policy");
-    }
-
     /// Set (`Some`) or clear (`None`) a workspace's default policy and apply
     /// it to every live terminal in that workspace without an override.
     pub(crate) fn set_workspace_size_policy(

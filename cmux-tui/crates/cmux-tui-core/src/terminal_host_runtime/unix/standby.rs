@@ -55,24 +55,6 @@ impl StandbyTerminalHost {
         Ok(Self { process, stdin, stdout, host_pid })
     }
 
-    /// A stand-in for tests: `cat` also waits on its stdin and exits at EOF.
-    #[cfg(test)]
-    pub(crate) fn spawn_stand_in() -> anyhow::Result<Self> {
-        let mut command = Command::new("cat");
-        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-        let mut process = SpawnedHostProcess { child: Some(command.spawn()?) };
-        let host_pid = process.child_mut().id();
-        let stdin = process.child_mut().stdin.take().context("stand-in stdin")?;
-        let stdout = process.child_mut().stdout.take().context("stand-in stdout")?;
-        Ok(Self { process, stdin, stdout, host_pid })
-    }
-
-    /// The process id, for tests.
-    #[cfg(test)]
-    pub(crate) fn pid(&self) -> u32 {
-        self.host_pid
-    }
-
     /// False once the process has exited (killed, or crashed before use).
     pub(crate) fn is_alive(&mut self) -> bool {
         matches!(self.process.child_mut().try_wait(), Ok(None))

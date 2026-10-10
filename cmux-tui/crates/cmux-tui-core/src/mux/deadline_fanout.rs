@@ -86,11 +86,6 @@ impl DeadlineFanoutPool {
         self.inner.changed.notify_one();
         true
     }
-
-    #[cfg(test)]
-    pub(super) fn worker_count(&self) -> usize {
-        self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count
-    }
 }
 
 impl Drop for DeadlineFanoutPool {
