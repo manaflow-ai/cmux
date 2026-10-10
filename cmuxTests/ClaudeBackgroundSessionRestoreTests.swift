@@ -57,11 +57,16 @@ struct ClaudeBackgroundSessionRestoreTests {
                     .appendingPathComponent("\(processID).json"))
         }
 
+        @MainActor
         func cleanup() {
             if daemonProcess.isRunning {
                 daemonProcess.terminate()
                 daemonProcess.waitUntilExit()
             }
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "claude",
+                sessionId: "884a7be7-5a7c-4d54-838e-423426a31aaf"
+            )
             defaults.removePersistentDomain(forName: defaultsName)
             try? FileManager.default.removeItem(at: root)
         }
@@ -120,13 +125,18 @@ struct ClaudeBackgroundSessionRestoreTests {
     }
 
     /// The panel exactly as cmux NIGHTLY saved it for session 884a7be7.
-    private func hookBinding(_ fixture: Fixture, autoResume: Bool) -> SurfaceResumeBindingSnapshot {
-        SurfaceResumeBindingSnapshot(
+    private func hookBinding(
+        _ fixture: Fixture,
+        autoResume: Bool,
+        checkpointID: String? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        let checkpointID = checkpointID ?? sessionID
+        return SurfaceResumeBindingSnapshot(
             name: "Claude Code",
             kind: "claude",
-            command: "claude --resume \(sessionID) --permission-mode auto",
+            command: "claude --resume \(checkpointID) --permission-mode auto",
             cwd: fixture.workingDirectory.path,
-            checkpointId: sessionID,
+            checkpointId: checkpointID,
             source: "agent-hook",
             environment: environment(fixture),
             launchCommand: launchCommand(fixture),
@@ -137,13 +147,18 @@ struct ClaudeBackgroundSessionRestoreTests {
         )
     }
 
-    private func agent(_ fixture: Fixture) -> SessionRestorableAgentSnapshot {
-        SessionRestorableAgentSnapshot(
+    private func agent(
+        _ fixture: Fixture,
+        hadActivePromptTurn: Bool? = nil
+    ) -> SessionRestorableAgentSnapshot {
+        var snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: sessionID,
             workingDirectory: fixture.workingDirectory.path,
             launchCommand: launchCommand(fixture)
         )
+        snapshot.hadActivePromptTurn = hadActivePromptTurn
+        return snapshot
     }
 
     private func viewer(_ fixture: Fixture) -> ClaudeBackgroundSessionViewer {
@@ -164,9 +179,14 @@ struct ClaudeBackgroundSessionRestoreTests {
 
     private func restore(
         _ fixture: Fixture,
+        roundTrip: Bool = false,
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
         mutate: (inout SessionTerminalPanelSnapshot) -> Void
     ) throws -> Restored {
-        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let source = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
+        )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
         var snapshot = source.sessionSnapshot(includeScrollback: false)
@@ -175,8 +195,15 @@ struct ClaudeBackgroundSessionRestoreTests {
         terminal.workingDirectory = fixture.workingDirectory.path
         mutate(&terminal)
         snapshot.panels[panelIndex].terminal = terminal
+        if roundTrip {
+            let data = try JSONEncoder().encode(snapshot)
+            snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+        }
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
+        )
         defer { restored.teardownAllPanels() }
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
@@ -227,6 +254,249 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(restored.binding?.checkpointId == sessionID)
     }
 
+    @Test("A normally completed Claude session falls back to native resume")
+    func normallyCompletedSessionUsesNativeResumeFallback() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains("--resume"), Comment(rawValue: input))
+        #expect(input.contains(sessionID), Comment(rawValue: input))
+        #expect(!input.contains(" restore "), Comment(rawValue: input))
+    }
+
+    @Test("Duplicate normally completed restores claim one native resume", arguments: [false, true])
+    func duplicateNormallyCompletedRestoresDoNotLaunchTwoWriters(deferred: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { source.teardownAllPanels() }
+        let paneID = try #require(source.bonsplitController.allPaneIds.first)
+        _ = try #require(source.newTerminalSurface(inPane: paneID, focus: false)).id
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        for index in snapshot.panels.indices {
+            guard var terminal = snapshot.panels[index].terminal else { continue }
+            terminal.workingDirectory = fixture.workingDirectory.path
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+            snapshot.panels[index].terminal = terminal
+        }
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: { deferred ? .unavailable : .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        if deferred {
+            #expect(restored.deferredAgentResumeRestoresByPanelId.count == 2)
+            restored.resolveDeferredAgentResumeRestores(using: .unavailable)
+            #expect(restored.deferredAgentResumeRestoresByPanelId.count == 2)
+            restored.resolveDeferredAgentResumeRestores(using: .empty)
+            #expect(restored.deferredAgentResumeRestoresByPanelId.isEmpty)
+        }
+        let inputs = snapshot.panels.compactMap { panel in
+            restoredIDs[panel.id].flatMap { panelID in
+                restored.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
+            }
+        }
+        if deferred {
+            let states = restored.restoredAgentResumeStatesByPanelId.values
+            #expect(states.filter { $0 == .awaitingAutoResumeCommand }.count == 1)
+            #expect(states.filter { $0 == .manualResumeAvailable }.count == 1)
+        } else {
+            #expect(inputs.count == 1, Comment(rawValue: inputs.joined(separator: "\n")))
+            #expect(inputs.first?.contains("--resume") == true, Comment(rawValue: inputs.first ?? ""))
+        }
+    }
+
+    @Test("Completed resume eligibility does not change process liveness")
+    func completedSessionIsNotPersistedAsRunning() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let workspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelID))
+        let snapshot = agent(fixture, hadActivePromptTurn: false)
+        let binding = hookBinding(fixture, autoResume: true)
+        #expect(workspace.sessionAgentWasRunning(
+            panelId: panelID,
+            restorableAgent: snapshot,
+            resumeBinding: binding,
+            terminal: terminal,
+            observation: nil
+        ) == false)
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        #expect(dock.sessionAgentWasRunning(
+            restorableAgent: snapshot,
+            resumeBinding: binding,
+            managedResumeBinding: binding,
+            terminal: terminal,
+            transfer: nil,
+            observation: nil
+        ) == false)
+    }
+
+    @Test("A hook refresh cannot inherit a stale prompt marker", arguments: [false, true])
+    func refreshedBindingDropsPreviousPromptMarker(hadActivePromptTurn: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let previous = agent(fixture, hadActivePromptTurn: hadActivePromptTurn)
+        let refreshed = try #require(hookBinding(fixture, autoResume: true)
+            .managedRestorableAgentSnapshot(replacing: previous))
+        #expect(refreshed.hadActivePromptTurn == nil)
+        let replacement = try #require(hookBinding(fixture, autoResume: true, checkpointID: "new-session")
+            .managedRestorableAgentSnapshot(replacing: previous))
+        #expect(replacement.hadActivePromptTurn == nil)
+    }
+
+    @Test("Remote Claude terminals cannot select the local completed-session fallback")
+    func remoteCompletedSessionStaysManual() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let restored = try restore(fixture, restorableAgentIndexProvider: { .empty }) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+            terminal.isRemoteTerminal = true
+        }
+        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+    }
+
+    @Test("A normally completed Claude session owned by the daemon reattaches")
+    func normallyCompletedLiveBackgroundSessionAttaches() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains("'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A Claude session with an active prompt keeps deferred restore admission")
+    func deferredCompletionKeepsRestoreAdmission() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = true
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains(" restore claude "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A legacy Claude snapshot keeps its original restore admission", arguments: [true, false])
+    func missingPromptMarkerKeepsRestoreAdmission(wasAgentRunning: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            // Encoding omits the nil marker, as older snapshots did.
+            terminal.agent = agent(fixture)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = wasAgentRunning
+        }
+
+        if wasAgentRunning {
+            let input = try #require(restored.input)
+            #expect(input.contains(" restore claude "), Comment(rawValue: input))
+            #expect(!input.contains("--resume"), Comment(rawValue: input))
+        } else {
+            #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        }
+    }
+
+    @Test("A stale or missing Claude binding never synthesizes a resume")
+    func staleOrMissingBindingStaysManual() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let stale = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(
+                fixture,
+                autoResume: true,
+                checkpointID: "stale-claude-session"
+            )
+            terminal.wasAgentRunning = false
+        }
+        #expect(stale.input == nil, Comment(rawValue: stale.input ?? ""))
+
+        let missing = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = nil
+            terminal.wasAgentRunning = false
+        }
+        #expect(missing.input == nil, Comment(rawValue: missing.input ?? ""))
+    }
+
+    @Test("A running Claude snapshot without a binding keeps local restore admission")
+    func missingBindingDoesNotSelectNativeResumeForRunningSnapshot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = nil
+            terminal.wasAgentRunning = true
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains(" restore claude "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("Unsafe native resume data fails closed and keeps the binding")
+    func nativeResumeFailureLeavesAnOrdinaryShell() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            var brokenAgent = agent(fixture, hadActivePromptTurn: false)
+            brokenAgent.launchCommand = AgentLaunchCommandSnapshot(
+                // One-shot managed launchers have no resume form. This makes
+                // native resume planning fail closed without changing the
+                // shell-bootstrap safety coverage in AgentResumeArgv.
+                launcher: "omx",
+                executablePath: "/bin/sh",
+                arguments: ["cmux", "omx"],
+                workingDirectory: fixture.workingDirectory.path,
+                environment: [:],
+                capturedAt: 1_791_158_107,
+                source: "environment"
+            )
+            terminal.agent = brokenAgent
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        #expect(restored.binding?.checkpointId == sessionID)
+        #expect(restored.binding?.autoResume == true)
+        #expect(AgentResumeLaunchGuard.shared.claimResumeLaunch(kind: "claude", sessionId: sessionID))
+    }
+
     @Test("A stale registry record on a reused PID does not block the resume fallback")
     func reusedPIDKeepsResumeFallback() throws {
         let fixture = try makeFixture()
@@ -240,7 +510,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         )
 
         let restored = try restore(fixture) { terminal in
-            terminal.agent = agent(fixture)
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
         }
@@ -355,6 +625,7 @@ struct ClaudeBackgroundSessionRestoreTests {
             workspaceId: UUID(),
             baseDirectoryProvider: { fixture.workingDirectory.path },
             agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: { .empty },
             foregroundProcessIDProvider: { _ in foreground == nil ? nil : viewerProcessID },
             processArgumentsProvider: { $0 == viewerProcessID ? foreground : nil }
         )
@@ -398,6 +669,28 @@ struct ClaudeBackgroundSessionRestoreTests {
 
     private func dockInput(_ dock: DockSplitStore, panelID: UUID) -> String? {
         (dock.panels[panelID] as? TerminalPanel)?.surface.debugInitialInputForTesting()
+    }
+
+    @Test("Completed Dock sessions choose native resume or attach to a live daemon", arguments: [false, true])
+    func completedDockSessionUsesSafeRestore(hasLiveDaemon: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        if hasLiveDaemon {
+            try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+        }
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        let panel = dockTerminalPanel(SessionTerminalPanelSnapshot(
+            workingDirectory: fixture.workingDirectory.path,
+            agent: agent(fixture, hadActivePromptTurn: false),
+            resumeBinding: hookBinding(fixture, autoResume: true),
+            wasAgentRunning: false
+        ))
+        let restoredIDs = dock.restoreSessionSnapshot(dockContainer([panel]))
+        let restoredID = try #require(restoredIDs[panel.id])
+        let input = try #require(dockInput(dock, panelID: restoredID))
+        #expect(input.contains("--resume") == !hasLiveDaemon, Comment(rawValue: input))
+        #expect(input.contains("'attach' '\(jobID)'") == hasLiveDaemon, Comment(rawValue: input))
     }
 
     @Test("A Dock panel moved from a workspace records its viewer and reattaches after relaunch")
@@ -624,7 +917,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         try fixture.registerSession(kind: "interactive", sessionID: sessionID, jobID: nil, processID: fixture.daemonProcessID)
 
         let restored = try restore(fixture) { terminal in
-            terminal.agent = agent(fixture)
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
         }

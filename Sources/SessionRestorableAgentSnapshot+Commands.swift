@@ -9,6 +9,7 @@ extension SessionRestorableAgentSnapshot {
         case launchCommand
         case registration
         case permissionMode
+        case hadActivePromptTurn
     }
 
     init(from decoder: Decoder) throws {
@@ -38,8 +39,79 @@ extension SessionRestorableAgentSnapshot {
             ),
             registration: registration,
             // Optional so snapshots persisted before the field decode unchanged.
-            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            hadActivePromptTurn: try container.decodeIfPresent(Bool.self, forKey: .hadActivePromptTurn)
         )
+    }
+
+    /// Selects the restore startup path for this snapshot. Legacy and active
+    /// prompt snapshots retain the local restore admission path; an explicitly
+    /// completed Claude session uses the native `claude --resume` fallback.
+    func sessionRestoreStartupInput(
+        useLocalRestoreVerb: Bool = true,
+        restoringWorkingDirectory: String? = nil,
+        allowNativeClaudeResumeFallback: Bool = false
+    ) -> String? {
+        sessionRestoreStartupInput(
+            useLocalRestoreVerb: useLocalRestoreVerb,
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory),
+            allowNativeClaudeResumeFallback: allowNativeClaudeResumeFallback
+        )
+    }
+
+    func sessionRestoreStartupInput(
+        useLocalRestoreVerb: Bool,
+        workingDirectorySelection: RestorableAgentWorkingDirectorySelection,
+        allowNativeClaudeResumeFallback: Bool = false
+    ) -> String? {
+        let policy = NormallyEndedClaudeResumePolicy()
+        let effectiveUseLocalRestoreVerb = allowNativeClaudeResumeFallback
+            ? policy.usesLocalRestoreVerb(
+                requested: useLocalRestoreVerb,
+                agentKind: kind.rawValue,
+                hadActivePromptTurn: hadActivePromptTurn
+            )
+            : useLocalRestoreVerb
+        return resumeStartupInput(
+            useLocalRestoreVerb: effectiveUseLocalRestoreVerb,
+            workingDirectorySelection: workingDirectorySelection
+        )
+    }
+
+    /// A validated Claude hook binding is enough to resume a normally ended
+    /// conversation. Other agents retain the persisted process-liveness gate.
+    static func shouldAutoResumeNormallyEndedClaude(
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
+    ) -> Bool {
+        let policy = NormallyEndedClaudeResumePolicy()
+        guard let restorableAgent,
+              let resumeBinding else { return false }
+        // Native Claude resume is a local fallback. A persistent SSH binding
+        // must retain its remote launch path and host identity instead of
+        // executing the captured command on this Mac.
+        guard resumeBinding.launchFlavor == .local else { return false }
+        guard policy.admits(.init(
+            agentKind: restorableAgent.kind.rawValue,
+            agentSessionID: restorableAgent.sessionId,
+            hadActivePromptTurn: restorableAgent.hadActivePromptTurn,
+            bindingKind: resumeBinding.kind,
+            bindingSessionID: resumeBinding.checkpointId,
+            bindingSource: resumeBinding.source,
+            autoResume: resumeBinding.autoResume
+        )) else {
+            return false
+        }
+        // Preserve the app's registry-aware kind validation for custom agent
+        // registrations before allowing the package policy to admit Claude.
+        guard let bindingKind = resumeBinding.kind,
+              RestorableAgentKind(
+                  persistedRawValue: bindingKind,
+                  registration: restorableAgent.registration
+              )?.rawValue == RestorableAgentKind.claude.rawValue else {
+            return false
+        }
+        return resumeBinding.isAgentHookBinding
     }
 
     var resumeCommand: String? {

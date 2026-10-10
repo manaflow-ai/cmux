@@ -1606,7 +1606,8 @@ extension Workspace {
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
-            // Only auto-resume if the agent was actively running when the snapshot was saved.
+            // Running agents retain the existing restore path. Confirmed
+            // completed Claude sessions are admitted separately below.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let remoteStartupCommand = remoteTerminalStartupCommand()
@@ -1652,7 +1653,16 @@ extension Workspace {
                 : nil
             let claudeBackgroundAttach = claudeBackgroundRestore?.attach
             let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit &&
+            let shouldAutoResumeNormallyEndedClaude =
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                snapshot.terminal?.isRemoteTerminal != true &&
+                SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+                    restorableAgent: restorableAgent,
+                    resumeBinding: resumeBinding
+                )
+            let shouldAutoResumeAgent = autoResumeAgentSessions &&
+                (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude) &&
                 !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
@@ -1662,7 +1672,8 @@ extension Workspace {
             let restorableAgentCanAutoResume = restorableAgent != nil &&
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
             let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
-                (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
+                (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true) &&
+                !shouldAutoResumeNormallyEndedClaude
             let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
                 restoredRemotePTYSessionID == nil &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
@@ -1725,7 +1736,8 @@ extension Workspace {
             )
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
-                !restoresRemoteWorkspaceTerminalSnapshot
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                !shouldAutoResumeNormallyEndedClaude
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
                 if !restoreStartupBlocked,
                    liveSessionOwner == nil,
@@ -1795,9 +1807,9 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
-            // Local selectors always reach the same-build CLI admission gate.
-            // Only direct remote launches still need topology-time admission.
-            var remoteRestoreClaim: AgentResumeLaunchGuard.Claim?
+            // Local cmux-restore selectors reach the same-build CLI admission
+            // gate; native completed-Claude resumes use the app-side guard.
+            var resumeLaunchClaim: AgentResumeLaunchGuard.Claim?
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restorableAgentCanAutoResume,
                       restoredHibernation == nil, restoredBindingLaunch == nil,
@@ -1838,42 +1850,44 @@ extension Workspace {
                 // Local restores converge on the CLI admission RPC immediately
                 // before exec. Remote compatibility launches cannot use that
                 // local socket boundary, so they retain the in-app tie-breaker.
-                if !restoresRemoteWorkspaceTerminalSnapshot {
+                if !restoresRemoteWorkspaceTerminalSnapshot &&
+                    !shouldAutoResumeNormallyEndedClaude {
                     return false
                 }
-                remoteRestoreClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+                resumeLaunchClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
                     kind: restorableAgent.kind.rawValue,
                     sessionId: restorableAgent.sessionId
                 )
-                return remoteRestoreClaim == nil
+                return resumeLaunchClaim == nil
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restorableAgentCanAutoResume,
                    restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(
+                        restorableAgent?.sessionRestoreStartupInput(
                             useLocalRestoreVerb: false,
                             workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        restorableAgent?.sessionRestoreStartupInput(
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory,
+                            allowNativeClaudeResumeFallback: shouldAutoResumeNormallyEndedClaude
                         ).map(SurfaceResumeStartupLaunch.input)
                     }
                 } else {
                     nil
                 }
             if restoredAgentResumeLaunch == nil,
-               let unusedClaim = remoteRestoreClaim,
+               let unusedClaim = resumeLaunchClaim,
                let restorableAgent {
                 _ = AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                     kind: restorableAgent.kind.rawValue,
                     sessionId: restorableAgent.sessionId,
                     claim: unusedClaim
                 )
-                remoteRestoreClaim = nil
+                resumeLaunchClaim = nil
             }
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
@@ -1885,13 +1899,14 @@ extension Workspace {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         // Same rule as the immediate remote resume above: only the trusted
                         // remote cwd, never the recorded directory as a fallback.
-                        restorableAgent.resumeStartupInput(
+                        restorableAgent.sessionRestoreStartupInput(
                             useLocalRestoreVerb: false,
                             workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                     } else {
-                        restorableAgent.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        restorableAgent.sessionRestoreStartupInput(
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory,
+                            allowNativeClaudeResumeFallback: shouldAutoResumeNormallyEndedClaude
                         )
                     }
                 } else {
@@ -2043,21 +2058,13 @@ extension Workspace {
                 // The claim taken above (if any) was for a launch that never
                 // actually happened; release it immediately instead of
                 // leaving it to block a legitimate resume for up to the TTL.
-                if restoredAgentResumeLaunch != nil,
-                   restoresRemoteWorkspaceTerminalSnapshot,
+                if let resumeLaunchClaim,
                    let restorableAgent {
-                    if let remoteRestoreClaim {
-                        _ = AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                            kind: restorableAgent.kind.rawValue,
-                            sessionId: restorableAgent.sessionId,
-                            claim: remoteRestoreClaim
-                        )
-                    } else {
-                        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                            kind: restorableAgent.kind.rawValue,
-                            sessionId: restorableAgent.sessionId
-                        )
-                    }
+                    _ = AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                        kind: restorableAgent.kind.rawValue,
+                        sessionId: restorableAgent.sessionId,
+                        claim: resumeLaunchClaim
+                    )
                 }
                 return nil
             }
@@ -2146,8 +2153,7 @@ extension Workspace {
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
-                ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil &&
-                    restoresRemoteWorkspaceTerminalSnapshot,
+                ownsResumeLaunchClaim: resumeLaunchClaim != nil,
                 defersStartupRestoreAdmission: deferredAgentResumeAdmission
             )
             if let liveSessionOwner {
@@ -2181,6 +2187,7 @@ extension Workspace {
                         resumeBinding: resumeBinding,
                         tmuxStartCommand: localTmuxStartCommand,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
+                        allowsNativeClaudeResumeFallback: shouldAutoResumeNormallyEndedClaude,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         workingDirectory: workingDirectory,
                         resumeWorkingDirectory: resumeSessionWorkingDirectory
