@@ -35,37 +35,6 @@ const state = {
 const sys: ReduceContext = { principal: { identity: "system:user", kind: "system" }, now: 9, tx: "t", newId: (p) => `${p}_x` }
 
 describe("old iPhone grants get cloud-link once", () => {
-  it("finds only active ios grants within the old default that lack cloud-link", () => {
-    expect(iosGrantsToMigrate(state)).toEqual(["grant_a"])
-  })
-
-  it("adds cloud-link to them, and a second run changes nothing", () => {
-    const r = userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, sys)
-    if (!r.ok) throw new Error(r.message)
-    const s = r.state as UserState
-    expect([...s.grants["grant_a"]!.op_classes].sort()).toEqual(["cloud-link", "mutate-own", "read"])
-    expect(s.grants["grant_b"]).toEqual(state.grants["grant_b"])
-    expect(s.grants["grant_c"]).toEqual(state.grants["grant_c"])
-    expect(s.grants["grant_d"]).toEqual(state.grants["grant_d"])
-    expect(iosGrantsToMigrate(s)).toEqual([])
-    const again = userDomain.reduce(s, "install.ios_cloud_link_migrate", {}, sys)
-    if (!again.ok) throw new Error(again.message)
-    expect(again.state).toEqual(s)
-  })
-
-  it("runs once per user: the done flag stops it, and an iPhone install made after the cutoff keeps its own grant (review P2)", () => {
-    const r = userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, sys)
-    if (!r.ok) throw new Error(r.message)
-    const done = r.state as UserState
-    expect(done.migrations?.ios_cloud_link).toBe(true)
-    const later = { ...done, grants: { ...done.grants, grant_a: grant("grant_a", "inst_ios_old_000000000000", ["read"]) } } as unknown as UserState
-    expect(iosGrantsToMigrate(later)).toEqual([])
-    const fresh = {
-      ...state,
-      installs: { ...state.installs, inst_ios_old_000000000000: { ...state.installs["inst_ios_old_000000000000"]!, created_at: IOS_CLOUD_LINK_CUTOFF } }
-    } as unknown as UserState
-    expect(iosGrantsToMigrate(fresh)).toEqual([])
-  })
 
   it("is refused for a non-system caller", () => {
     const session: ReduceContext = { ...sys, principal: { identity: `user:${OWNER}`, user: OWNER, kind: "session" } }

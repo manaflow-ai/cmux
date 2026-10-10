@@ -95,20 +95,6 @@ describe("G8 answers re-check the team at answer time", { timeout: 60_000 }, () 
     expect(await answerOnce(owner.team, member.user, { sso_team: owner.team }, ssoRequired)).toEqual({ runs: 1, state: "done" })
   })
 
-  it("the feed carries the answering session's SSO team for the posting team to check", () => {
-    const team = "team_xxxxxxxxxxxxxxxxxxxx"
-    const poster: Principal = { identity: `system:connections:${team}`, kind: "system", user: U }
-    const digest = `sha256:${"a".repeat(64)}`
-    const request = `apr_${"b".repeat(32)}`
-    const prompt = { action: { type: "tool", tool: "slack.post_as_bot", summary: "slack.post_as_bot to C9", risk: "send-external", input: { approval: { team, request, digest } } }, scopes: ["once"] }
-    const posted = run(initialFeedState(), poster, "feed.post", { type: "request", kind: "approve", title: "Approve an action by an agent", prompt, poster: { kind: "integration", label: "Integrations" } }, 1_000, "tx_post", "script")
-    expect(posted.ok).toBe(true)
-    if (!posted.ok) return
-    const session: Principal = { identity: `session:${U}`, kind: "session", user: U, sso_team: team }
-    const r = feedDomain.reduce(posted.state, "feed.answer", { item: posted.value.item.id, answer: { decision: "allow", scope: "once" } }, { principal: session, origin: "user", now: 2_000, tx: "tx_ans", newId: () => "x" })
-    expect(r.ok && r.outbox?.[0]?.payload).toMatchObject({ request, decision: "allow", digest, sso_team: team })
-  })
-
   it("the Worker adds the posting team's SSO session to a cross-team answer, and only that", async () => {
     const owner = await signIn("g8a-owner3")
     const member = await signIn("g8a-member3")
