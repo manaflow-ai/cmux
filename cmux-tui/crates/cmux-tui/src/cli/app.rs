@@ -269,7 +269,7 @@ fn caller_path(value: Value) -> Value {
         return value;
     }
     let Ok(cwd) = std::env::current_dir() else { return value };
-    let joined: std::path::PathBuf = cwd
+    let joined: PathBuf = cwd
         .join(path)
         .components()
         .filter(|part| !matches!(part, std::path::Component::CurDir))
