@@ -676,6 +676,39 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
       },
     },
+    "popup-surface": {
+      note: "Every composer popup uses the shared glass surface: anchored above its chip, keyboard focus only, and the highlight remains visible while moving through rows.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-popup-surface",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          effort: "high",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          ...composerControls,
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Mode"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"]'));
+        const popup = ctx.document.querySelector<HTMLElement>('.ui-popup[role="menu"]');
+        if (!popup) throw new Error("shared popup did not open");
+        const style = ctx.document.defaultView!.getComputedStyle(popup);
+        if (style.backdropFilter === "none" && style.getPropertyValue("-webkit-backdrop-filter") === "none")
+          throw new Error("shared popup is missing glass material");
+        if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
+          throw new Error("shared popup is missing its themed surface fill");
+        await ctx.press("ArrowDown");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
+        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"] [role="menuitemradio"]'));
+      },
+    },
     disconnected: {
       note: "The daemon connection dropped.",
       snapshot: chat(finished, { connection: "disconnected" }),

@@ -39,6 +39,9 @@
 
 .ui-popup {
   min-width: 160px;
+  max-height: min(420px, calc(100vh - 24px));
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--ui-popup-padding);
   border: 1px solid var(--ui-line);
   border-radius: var(--ui-popup-radius);
@@ -50,6 +53,20 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
+  scrollbar-width: thin;
+}
+
+/* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
+   long custom pickers use their own scroll containers and Base UI keeps ordinary menus compact. */
+.ui-menu {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
+   or filtering a list never changes the composer's geometry. */
+.ui-picker-popup {
+  overflow: hidden;
 }
 
 .ui-menu-item {

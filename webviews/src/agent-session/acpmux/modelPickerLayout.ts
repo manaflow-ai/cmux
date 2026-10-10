@@ -119,4 +119,11 @@ export function useMenuHandle({ trigger, handle }: ModelMenuProps, keys: MenuHan
     else chip.removeAttribute("aria-activedescendant");
     return () => chip.removeAttribute("aria-activedescendant");
   }, [trigger, activeId]);
+  // The chip keeps DOM focus so Ctrl-N/P and arrows work without stealing focus from the composer.
+  // Keep the virtual highlight visible in the shared surface as it moves through a long level.
+  useLayoutEffect(() => {
+    if (!activeId) return;
+    const row = trigger.current?.ownerDocument.getElementById(activeId);
+    row?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [trigger, activeId]);
 }

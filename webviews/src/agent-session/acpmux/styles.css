@@ -447,3 +447,72 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
 /* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
 @media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-context-pop,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+
+/* Keep the legacy cascade and slash surfaces on the same material contract as Base UI's Menu and
+   Popover.  These menus keep their bespoke layout, but never their own glass, border, shadow or
+   motion. */
+.acpmux-menu,
+.acpmux-context-pop,
+.acpmux-slash-menu,
+.acpmux-mp {
+  border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  background-color: color-mix(in srgb, var(--acpmux-menu-bg, var(--ui-surface, Canvas)) var(--surface-text-min, var(--ui-popup-glass-alpha, 92%)), transparent);
+  -webkit-backdrop-filter: var(--surface-blur, var(--ui-popup-blur, blur(20px) saturate(1.4)));
+  backdrop-filter: var(--surface-blur, var(--ui-popup-blur, blur(20px) saturate(1.4)));
+  box-shadow: var(--ui-popup-shadow);
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-menu,
+  .acpmux-context-pop,
+  .acpmux-slash-menu,
+  .acpmux-mp {
+    background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+:root[data-reduce-transparency] .acpmux-menu,
+:root[data-reduce-transparency] .acpmux-context-pop,
+:root[data-reduce-transparency] .acpmux-slash-menu,
+:root[data-reduce-transparency] .acpmux-mp {
+  background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-effort-menu,
+  .acpmux-access-menu {
+    background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+:root[data-reduce-transparency] .acpmux-effort-menu,
+:root[data-reduce-transparency] .acpmux-access-menu {
+  background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.acpmux-menu,
+.acpmux-slash-menu,
+.acpmux-mp {
+  overscroll-behavior: contain;
+}
+
+/* Virtual-focus rows use aria-activedescendant on the chip or prompt. A mouse hover is a fill
+   only; the ring is reserved for keyboard focus on actual controls. */
+.acpmux-menu-item:focus,
+.acpmux-slash-row:focus,
+.acpmux-mp-row:focus { outline: none; }
+.acpmux-menu-item:focus-visible,
+.acpmux-slash-row:focus-visible,
+.acpmux-mp-row:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring, color-mix(in srgb, var(--agent-text) 48%, transparent));
+  outline-offset: -1px;
+}
