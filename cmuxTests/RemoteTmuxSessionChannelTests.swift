@@ -26,7 +26,7 @@ import Testing
         var readyCount = 0
         _ = channel.addObserver(RemoteTmuxSessionObservers(
             onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil, onPaneTitleChanged: nil,
-            onActivePaneChanged: nil, onSessionChanged: nil, onTopologyChanged: nil,
+            onActivePaneChanged: nil, onSessionChanged: nil, onPaneAgent: nil, onTopologyChanged: nil,
             onReconnectReady: { readyCount += 1 }, onExit: nil,
             onConnectionStateChanged: nil, onAuthRequired: nil
         ))
@@ -71,6 +71,33 @@ import Testing
         source.fireReconnectReady()
         #expect(source.sentCommands.isEmpty, "a detached channel publishes nothing")
     }
+
+    @Test func channelScopesPaneAgentStatusToItsSession() {
+        let source = ReconnectFanOutFakeSource()
+        source.windowsByID[10] = RemoteTmuxWindow(
+            id: 10, width: 80, height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        let channel = RemoteTmuxSessionChannel(
+            underlying: source, sessionName: "alpha", sessionId: 1, windowIds: [10]
+        )
+        var received: [(Int, String)] = []
+        _ = channel.addObserver(RemoteTmuxSessionObservers(
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
+            onPaneTitleChanged: nil, onActivePaneChanged: nil, onSessionChanged: nil,
+            onPaneAgent: { received.append(($0, $1)) }, onTopologyChanged: nil,
+            onReconnectReady: nil, onExit: nil, onConnectionStateChanged: nil,
+            onAuthRequired: nil
+        ))
+
+        source.firePaneAgent(7, #"{"agent":"codex","state":"working"}"#)
+        source.firePaneAgent(8, #"{"agent":"claude","state":"working"}"#)
+        #expect(received.count == 1)
+        #expect(received.first?.0 == 7)
+        #expect(RemoteTmuxAgentStatus.parse(received.first?.1 ?? "")?.agent == "codex")
+    }
 }
 
 /// Inert `RemoteTmuxSessionSource` that only records observers, so a test can
@@ -84,6 +111,7 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     var windowOrder: [Int] = []
     var activePaneByWindow: [Int: Int] = [:]
     var paneForegroundStates: [Int: RemoteTmuxPaneForegroundState] = [:]
+    var paneAgentStatuses: [Int: RemoteTmuxAgentStatus] = [:]
     var paneIDsRetainedUntilWindowList: Set<Int> = []
     var pendingLayouts: [Int: RemoteTmuxPendingLayout] = [:]
     var publishedWindowIdByPane: [Int: Int] = [:]
@@ -102,6 +130,9 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     func removeObserver(_ token: UUID) { observers[token] = nil }
     func fireReconnectReady() {
         for o in Array(observers.values) { o.onReconnectReady?() }
+    }
+    func firePaneAgent(_ paneId: Int, _ rawValue: String) {
+        for o in Array(observers.values) { o.onPaneAgent?(paneId, rawValue) }
     }
 
     func releaseMirror() {}
@@ -138,6 +169,7 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     func unsubscribePanePath(paneId: Int) {}
     func unsubscribePaneReflow(paneId: Int) {}
     func unsubscribePaneHeader(paneId: Int) {}
+    func unsubscribePaneAgent(paneId: Int) {}
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {}
     func removePaneColors(paneId: Int) {}
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {}

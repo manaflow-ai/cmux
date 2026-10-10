@@ -45,6 +45,11 @@ import Testing
             ))
             #expect(workspace.statusEntries[key]?.value == "Idle")
             #expect(!workspace.agentLifecycleStatesByPanelId.values.contains { $0[key] == .running })
+            connection.handle(.subscriptionChanged(
+                name: "cmux_agent_7", value: "{\"agent\":\"\(agent)\",\"state\":\"blocked\"}"
+            ))
+            #expect(workspace.statusEntries[key]?.value == "Needs input")
+            #expect(workspace.agentLifecycleStatesByPanelId.values.contains { $0[key] == .needsInput })
             connection.handle(.subscriptionChanged(name: "cmux_agent_7", value: ""))
             #expect(workspace.statusEntries[key] == nil)
         }

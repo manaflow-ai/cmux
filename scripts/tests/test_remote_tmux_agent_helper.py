@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Behavioral tests for the pane-bound ssh-tmux agent launcher."""
+
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+HELPER = ROOT / "Resources/bin/cmux-tmux-agent.py"
+
+
+class RemoteTmuxAgentHelperTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.tmux_log = self.root / "tmux.jsonl"
+        self.provider_log = self.root / "provider.json"
+        self._write_executable(
+            self.bin / "tmux",
+            """#!/usr/bin/env python3
+import json, os, sys
+log = os.environ['TMUX_LOG']
+args = sys.argv[1:]
+with open(log, 'a') as f: f.write(json.dumps(args) + '\\n')
+if 'show-options' in args and '@cmux_agent_owner' in args:
+    print(os.environ.get('TMUX_OWNER', 'owner'))
+elif 'show-options' in args and 'default-shell' in args:
+    print('/bin/sh')
+""",
+        )
+        self._write_executable(
+            self.bin / "codex",
+            """#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
+""",
+        )
+        self._write_executable(
+            self.bin / "claude",
+            """#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
+""",
+        )
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def _write_executable(self, path, source):
+        path.write_text(source)
+        path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+    def _run(self, *args, owner="owner"):
+        env = os.environ.copy()
+        env.update(
+            PATH=str(self.bin) + os.pathsep + os.defpath,
+            HOME=str(self.root / "home"),
+            TMUX_LOG=str(self.tmux_log),
+            PROVIDER_LOG=str(self.provider_log),
+            TMUX_OWNER=owner,
+            TMUX=f"{self.root}/server,123,0",
+            TMUX_PANE="%7",
+        )
+        (self.root / "home").mkdir(exist_ok=True)
+        return subprocess.run(
+            [sys.executable, str(HELPER), *args], env=env, capture_output=True, text=True
+        )
+
+    def _tmux_calls(self):
+        if not self.tmux_log.exists():
+            return []
+        return [json.loads(line) for line in self.tmux_log.read_text().splitlines()]
+
+    def test_codex_launch_embeds_exact_pane_route_and_trust(self):
+        result = self._run("--launch", "codex", "exec", "hello")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        argv = json.loads(self.provider_log.read_text())
+        self.assertEqual(argv[0:2], ["--enable", "hooks"])
+        self.assertIn("hooks.SessionStart", " ".join(argv))
+        self.assertIn("/<session-flags>/config.toml:session_start:0:0", " ".join(argv))
+        self.assertEqual(argv[-2:], ["exec", "hello"])
+        calls = self._tmux_calls()
+        self.assertTrue(any("@cmux_agent_owner" in call for call in calls))
+
+    def test_hook_uses_embedded_route_without_environment(self):
+        context = {
+            "agent": "codex",
+            "pane": "%7",
+            "socket": str(self.root / "server"),
+            "tmux": str(self.bin / "tmux"),
+            "owner": "owner",
+        }
+        import base64
+
+        encoded = base64.b64encode(json.dumps(context).encode()).decode()
+        env = os.environ.copy()
+        env.update(TMUX_LOG=str(self.tmux_log), TMUX_OWNER="owner")
+        result = subprocess.run(
+            [sys.executable, str(HELPER), "--hook", encoded, "working"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self._tmux_calls()
+        set_calls = [call for call in calls if "set-option" in call]
+        self.assertTrue(set_calls)
+        self.assertIn("%7", set_calls[-1])
+        self.assertIn('{"agent":"codex","state":"working"}', set_calls[-1])
+
+    def test_late_hook_from_old_owner_is_ignored(self):
+        context = {
+            "agent": "claude",
+            "pane": "%7",
+            "socket": str(self.root / "server"),
+            "tmux": str(self.bin / "tmux"),
+            "owner": "old",
+        }
+        import base64
+
+        encoded = base64.b64encode(json.dumps(context).encode()).decode()
+        env = os.environ.copy()
+        env.update(TMUX_LOG=str(self.tmux_log), TMUX_OWNER="new")
+        result = subprocess.run(
+            [sys.executable, str(HELPER), "--hook", encoded, "idle"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(any("set-option" in call for call in self._tmux_calls()))
+
+    def test_install_uses_the_existing_tmux_server(self):
+        import base64
+
+        payload = base64.b64encode(HELPER.read_bytes()).decode()
+        result = self._run("--install", "$1", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self._tmux_calls()
+        self.assertTrue(any("set-option" in call and "default-command" in call for call in calls))
+
+    def test_management_commands_pass_through(self):
+        module_source = HELPER.read_text()
+        namespace = {"__name__": "cmux_tmux_agent_test"}
+        exec(compile(module_source, str(HELPER), "exec"), namespace)
+        self.assertFalse(namespace["session_launch"]("codex", ["--help"]))
+        self.assertFalse(namespace["session_launch"]("codex", ["mcp", "list"]))
+        self.assertTrue(namespace["session_launch"]("codex", ["exec", "hello"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
