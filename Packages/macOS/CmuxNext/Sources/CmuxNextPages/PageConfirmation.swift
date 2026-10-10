@@ -71,6 +71,16 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
     /// Whether the confirm button is destructive.
     public var isDestructive: Bool { kind == .uninstall || kind == .delete }
 
+    /// What the confirm grants. Every page confirmation gates a call that grants or removes
+    /// something, so none is `none`: only the person confirms it (cx-zk9t).
+    public var confirmKind: CmuxDialogConfirmKind {
+        switch kind {
+        case .install, .update, .grant: .trust
+        case .uninstall, .delete: .destructive
+        case .custom: .consent
+        }
+    }
+
     /// The body lines: the detail, the scopes (riskiest first, with their class), the web origins.
     public var lines: [String] {
         var lines: [String] = []
@@ -112,7 +122,8 @@ public final class DialogPageConfirmationPresenter: PageConfirmationPresenter {
         let confirm = CmuxDialogButton(id: "confirm", title: confirmation.confirmTitle,
                                        role: confirmation.isDestructive ? .destructive : .default)
         return CmuxDialogSpec(title: confirmation.title, lines: confirmation.lines,
-                              buttons: [.cancel(PageStrings.cancel), confirm], identifier: "cmux.dialog.pageConfirmation")
+                              buttons: [.cancel(PageStrings.cancel), confirm], identifier: "cmux.dialog.pageConfirmation",
+                              confirmKind: confirmation.confirmKind)
     }
 
     public func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool {

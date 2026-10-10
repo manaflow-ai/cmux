@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import os
@@ -106,6 +107,11 @@ enum AppActions {
             do {
                 let scripted = registry.isCapturingRefusal
                 let origin = try QuitPolicy.origin(for: invocation, scripted: scripted)
+                // Ending the sessions (and End Everything) is the person's, as the
+                // quitEndSessions/quitEndEverything actions are (cx-zk9t).
+                if scripted, case .explicit(let choice) = origin, choice != .keep {
+                    return registry.refuse(RegistryControlBridge.personOnlyReason)
+                }
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

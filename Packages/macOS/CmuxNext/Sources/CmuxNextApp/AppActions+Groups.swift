@@ -64,7 +64,18 @@ extension AppActions {
         let promptAnswers: [(ActionID, BrowserPrompt.PermissionChoice)] = [("browser.prompt.allow", .allow), ("browser.prompt.block", .block)]
         for (id, choice) in promptAnswers {
             registry.bind(id, isEnabled: { chrome().flatMap { BrowserPrompt.firstPermission(in: $0.tab.pendingPrompts) } != nil },
-                          invoke: { _ = chrome($0).map { BrowserPrompt.answerFirstPermission(choice, in: $0.tab.pendingPrompts) } })
+                          invoke: { invocation in
+                              guard let pending = chrome(invocation)?.tab.pendingPrompts else { return }
+                              // A confirmed Allow answers only the prompt its dialog named (cx-zk9t).
+                              guard let pinned = invocation[ActionEffectPin.promptArgument]?.stringValue else {
+                                  BrowserPrompt.answerFirstPermission(choice, in: pending)
+                                  return
+                              }
+                              guard let prompt = pending.first(where: { $0.id.uuidString == pinned && !$0.isResolved }) else {
+                                  return registry.refuse(RefusalStrings.changedWhileConfirming)
+                              }
+                              BrowserPrompt.answerFirstPermission(choice, in: [prompt])
+                          })
         }
         // Cmd-L goes through the window's focus coordinator, which also takes
         // key back from a focused Chromium page window.

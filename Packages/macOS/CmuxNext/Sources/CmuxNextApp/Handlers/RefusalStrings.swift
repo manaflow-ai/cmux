@@ -13,6 +13,11 @@ nonisolated enum RefusalStrings {
         String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
     }
 
+    /// A confirmed person-only action whose effect changed while its dialog showed (cx-zk9t).
+    static var changedWhileConfirming: String {
+        text("refusal.changedWhileConfirming", "This changed while you confirmed. Try again.")
+    }
+
     /// A feature an administrator turned off (DisabledFeatures).
     static var turnedOffByOrganization: String { text("refusal.policy.turnedOff", "Turned off by your organization") }
 
