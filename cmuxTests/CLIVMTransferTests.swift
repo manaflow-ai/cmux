@@ -1192,6 +1192,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ("~alice/file", [], false),
             ("prefix~/file", [], false),
             ("line\n~/file", [], false),
+            ("foo\u{2028}~/file", [], false),
+            ("~\u{301}/file", [], false),
         ]
         for (member, options, rejected) in cases {
             let socketPath = makeSocketPath("archive-exclude")

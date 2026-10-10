@@ -103,8 +103,8 @@ extension CMUXCLI {
     /// directory that later shell guidance such as `rm -rf ~` resolves to the
     /// machine user's home. Reject it before any remote mkdir or file delivery.
     static func rejectLiteralTildePath(_ path: String, operation: String) throws {
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard !components.contains(where: { $0 == "~" }) else {
+        let components = path.unicodeScalars.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.contains(where: { $0.count == 1 && $0.first?.value == 0x7e }) else {
             let message = String(
                 localized: "cli.vm.path.unexpandedTilde",
                 defaultValue: "%1$@ contains an unexpanded '~' path component; expand it or use an absolute path"
@@ -1698,8 +1698,8 @@ extension CMUXCLI {
             throw CLIError(message: "tar failed listing the transfer archive (exit \(result.status))")
         }
         let listing = String(data: result.stdout, encoding: .utf8) ?? ""
-        for entry in listing.split(whereSeparator: \.isNewline) {
-            try Self.rejectLiteralTildePath(String(entry), operation: "vm push archive path")
+        for entry in listing.utf8.split(separator: 0x0a, omittingEmptySubsequences: true) {
+            try Self.rejectLiteralTildePath(String(decoding: entry, as: UTF8.self), operation: "vm push archive path")
         }
     }
 
