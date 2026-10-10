@@ -101,11 +101,13 @@ final class PaletteRowCell: NSTableCellView {
 
     func configure(_ row: PaletteRow, isSelected: Bool) {
         let item = row.item
-        let iconKey = item.brand.map { "brand:\($0)" } ?? item.symbol
+        let iconKey = item.image.map { "image:\(ObjectIdentifier($0).hashValue)" } ?? item.brand.map { "brand:\($0)" } ?? item.symbol
         if symbolName != iconKey {
             symbolName = iconKey
-            // An agent row draws its brand mark as a template, tinted like the symbols.
-            icon.image = item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
+            // A page's favicon draws as is; an agent row draws its brand mark as a template,
+            // tinted like the symbols.
+            icon.image = item.image.map { NSImage(cgImage: $0, size: NSSize(width: Metrics.iconSize, height: Metrics.iconSize)) }
+                ?? item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
                 ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
         swatch.colors = item.swatches

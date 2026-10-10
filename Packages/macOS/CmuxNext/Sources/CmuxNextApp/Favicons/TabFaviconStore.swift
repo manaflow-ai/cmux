@@ -23,6 +23,9 @@ final class TabFaviconStore {
     /// Icons per profile and URL. `TabImage` identity is stable per entry,
     /// so a strip redraws an icon only when it changes.
     private var images = LRUCache<Key, TabImage>(capacity: 256)
+    /// Counts landed icons: a reader outside an observed strip (Search Tabs, the bookmarks
+    /// bars) re-reads when it moves.
+    private(set) var revision = 0
     /// One fetch per missing icon; each ends on its own (the loader's timeout).
     @ObservationIgnored private var pending: [Key: Task<Void, Never>] = [:]
     @ObservationIgnored private var failed = LRUCache<Key, Bool>(capacity: 256)
@@ -44,6 +47,12 @@ final class TabFaviconStore {
         return nil
     }
 
+    /// True while the icon at `address` for `profile` is being fetched.
+    func isFetching(_ address: String, profile: BrowserProfileID) -> Bool {
+        guard let url = URL(string: address) else { return false }
+        return pending[Key(profile: profile, url: url)] != nil
+    }
+
     private func load(_ key: Key) {
         guard pending[key] == nil, failed.peek(key) == nil else { return }
         pending[key] = Task { [weak self, loader] in
@@ -52,6 +61,7 @@ final class TabFaviconStore {
             self.pending[key] = nil
             if let cgImage = icon?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 self.images.set(TabImage(cgImage), for: key)
+                self.revision += 1
             } else {
                 self.failed.set(true, for: key)
             }
