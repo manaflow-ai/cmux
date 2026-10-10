@@ -23,7 +23,12 @@ final class TopPageHost {
         let view: NSView
         switch route {
         case .home:
-            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
+            // Debug Settings `home.surface`: the React channels Home, else the native Home.
+            if let page = PageFactory(services: services).homeChannelsWebPage() {
+                view = InternalPageView(key: LocalPageTab.makeKey(.homeChannels), page: .homeChannels, content: page)
+            } else {
+                view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
+            }
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
