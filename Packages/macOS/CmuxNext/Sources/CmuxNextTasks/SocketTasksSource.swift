@@ -211,6 +211,7 @@ public final class SocketTasksSource: TasksSource {
 /// `inboxLimit` ends the connection (the source reconnects and resyncs).
 /// The descriptor is closed only after every dispatch source on it finished
 /// cancelling, so its number is never reused under a read or a write.
+// crash-allow: every mutable field is touched only on `queue` (a serial queue); the public methods hop onto it.
 nonisolated final class TasksSocketConnection: @unchecked Sendable {
     struct Batch: Sendable {
         var lines: [TasksWire.Line] = []

@@ -10,6 +10,7 @@ extension AgentPaneModel {
 
     /// A parsed JSON value (Foundation containers nobody mutates after the
     /// parse) handed from the parsing task to the main actor.
+    // crash-allow: a JSONSerialization result (immutable Foundation containers), handed once from the parse task to the main actor.
     nonisolated struct GitReplyValue: @unchecked Sendable {
         let value: Any
     }
