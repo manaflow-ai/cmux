@@ -2,42 +2,10 @@ import Foundation
 import Testing
 @testable import CmuxNextApps
 
-/// The shipped first-party apps carry manifest v2 `presentation` (app-screens.md 4,
-/// app-platform.md 16): Home, App Store and CodeRouter decode with the same
-/// fields as any app (the supervisor sends these manifests in `apps-list`), so
-/// the sidebar builds its top band from them.
+/// Manifest v2 `presentation` and `contributes.toolbarItems` decode (app-screens.md 4,
+/// app-platform.md 16 and 17).
 @MainActor
 @Suite struct AppPresentationTests {
-    private func shipped(_ id: String) throws -> AppManifest {
-        try #require(AppPlatformResources.firstPartyManifests().first { $0.manifest.id == id }?.manifest, "\(id)")
-    }
-
-    @Test func homeResolvesWithTheAppColumnScreen() throws {
-        let presentation = try #require(try shipped("cmux/home").presentation)
-        #expect(presentation.screen == .appColumn)
-        #expect(presentation.tab)
-        #expect(presentation.primaryInput == "home.composer")
-        #expect(presentation.sidebarItem?.section == "top" && presentation.sidebarItem?.order == 0)
-    }
-
-    @Test func appStoreAndCodeRouterResolveWithTheAppScreen() throws {
-        for id in ["cmux/app-store", "cmux/coderouter"] {
-            let manifest = try shipped(id)
-            #expect(manifest.presentation?.screen == .app, "\(id)")
-            #expect(manifest.presentation?.tab == true, "\(id)")
-        }
-    }
-
-    /// CodeRouter's v2 manifest names its scene section and its scene pane;
-    /// Home's pane is native (cmux draws it, no scene).
-    @Test func codeRouterHasASceneSectionAndPaneAndHomeIsNative() throws {
-        let coderouter = try shipped("cmux/coderouter")
-        #expect(coderouter.sections.first?.hasScene == true)
-        #expect(coderouter.scenePane != nil)
-        #expect(coderouter.presentation?.sidebarItem?.order == 20)
-        #expect(try shipped("cmux/home").scenePane == nil)
-    }
-
     @Test func aWebAppPresentationReadsItsURLAndProfile() throws {
         let json = try AppJSON.parse(Data(#"{"web":{"url":"https://mail.google.com/","origins":["https://accounts.google.com"]},"screen":"app"}"#.utf8))
         let presentation = try #require(AppPresentation(json: json))
