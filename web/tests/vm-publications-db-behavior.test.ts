@@ -208,7 +208,7 @@ describe("Cloud VM publication persistence", () => {
     expect(again).toMatchObject({ state: "unavailable", routingRevision: marked.routingRevision });
 
     // A stale revision is refused.
-    await expectRepositoryError(Effect.runPromise(repo.markPublicationUnavailable({
+    await expectRepositoryError(runRepository(repo.markPublicationUnavailable({
       id: reserved.publication.id,
       expectedRoutingRevision: reserved.publication.routingRevision,
       now: NOW,

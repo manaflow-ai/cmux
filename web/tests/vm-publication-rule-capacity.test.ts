@@ -25,9 +25,9 @@ function tlsRuleLimit(): FreestyleApiError {
 }
 
 // A personal account with no billing metadata resolves to the free scope
-// without any stand-in; a bearer request needs no browser-origin check.
+// without any stand-in; a same-origin request passes the browser-origin check.
 const user = { id: "user-1", teamIds: [], teams: [], displayName: "User", isAnonymous: false, userBillingPlanId: null };
-const bearer = { authorization: "Bearer test-token" };
+const bearer = { origin: "https://cmux.com", "sec-fetch-site": "same-origin" };
 
 // 2026-10-10 06:13 UTC: publish answered 502 "could not complete this change,
 // retry" while the shared Freestyle account was over its TLS rule limit, and
