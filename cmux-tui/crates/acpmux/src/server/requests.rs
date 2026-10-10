@@ -915,8 +915,9 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
+            let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            hub.respond_permission(&s, pid, option, answers, control).await?;
+            hub.respond_permission(&s, pid, option, answers, answered_by, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
