@@ -14,6 +14,11 @@ extension CmuxTuiSurfaceProvider {
                     if configured { browser.pendingCloudRestoreURL = nil }
                     continue
                 }
+                if let browserURL = cloudBrowserOriginURL(for: resource) {
+                    let configured = configureBrowser(browser, url: browser.cloudRestoreURL(on: browserURL), resourceID: resource.id)
+                    if configured { browser.pendingCloudRestoreURL = nil }
+                    continue
+                }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     if let url = URL(string: raw) {
@@ -51,6 +56,11 @@ extension CmuxTuiSurfaceProvider {
         }
         if let loopbackURL = cloudLoopbackBrowserURL(for: resource) {
             let configured = configureBrowser(browser, url: loopbackURL, resourceID: resource.id)
+            guard configured else { throw ProviderError.localForwardURLUnavailable }
+            return pane
+        }
+        if let browserURL = cloudBrowserOriginURL(for: resource) {
+            let configured = configureBrowser(browser, url: browserURL, resourceID: resource.id)
             guard configured else { throw ProviderError.localForwardURLUnavailable }
             return pane
         }
@@ -114,15 +124,27 @@ extension CmuxTuiSurfaceProvider {
         }
         let isCloudLoopback = machine.cloudMachineID != nil
             && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
-        let address = isCloudLoopback ? "127.0.0.1" : info.privateAddress
+        let isCloudBrowserOrigin = machine.cloudMachineID != nil
+            && resourceID.kind == .browser
+            && catalog.resources[resourceID]?.remoteViews?.isEmpty == false
+            && !isCloudLoopback
+        let address = isCloudLoopback ? "127.0.0.1" : (isCloudBrowserOrigin ? url.host : info.privateAddress)
         let isHTTPSLoopback = isCloudLoopback && url.scheme?.lowercased() == "https"
         let route: CloudPortAccessRoute = isHTTPSLoopback ? .browserProxy : (isCloudLoopback ? .loopback : .browserProxy)
-        guard let address,
-              let privateURL = CloudPortRoutePolicy().privateURL(
-                url.absoluteString,
-                address: address,
-                allowLoopback: machine.isSSH || isCloudLoopback
-              ) else {
+        let routedURL: URL?
+        if isCloudBrowserOrigin {
+            let validScheme = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+            routedURL = validScheme && url.host?.isEmpty == false ? url : nil
+        } else {
+            routedURL = address.flatMap {
+                CloudPortRoutePolicy().privateURL(
+                    url.absoluteString,
+                    address: $0,
+                    allowLoopback: machine.isSSH || isCloudLoopback
+                )
+            }
+        }
+        guard let address, let privateURL = routedURL else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }
@@ -140,10 +162,10 @@ extension CmuxTuiSurfaceProvider {
         let model = accessModel(
             port: port,
             address: address,
-            targetHost: isHTTPSLoopback ? url.host : nil,
+            targetHost: isHTTPSLoopback || isCloudBrowserOrigin ? url.host : nil,
             scheme: privateURL.scheme ?? "http",
             route: route,
-            preservesRemoteHost: isHTTPSLoopback
+            preservesRemoteHost: isHTTPSLoopback || isCloudBrowserOrigin
         )
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
@@ -326,6 +348,18 @@ extension CmuxTuiSurfaceProvider {
                     }
                     continue
                 }
+                if let browserURL = cloudBrowserOriginURL(for: resource) {
+                    let configured = configureBrowser(
+                        browser,
+                        url: browser.cloudRestoreURL(on: browserURL),
+                        resourceID: resource.id
+                    )
+                    if configured {
+                        browser.pendingCloudRestoreURL = nil
+                        materializedPanels.insert(projection.panelID)
+                    }
+                    continue
+                }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { continue }
@@ -382,6 +416,19 @@ extension CmuxTuiSurfaceProvider {
         guard machine.cloudMachineID != nil, resource.kind == .browser,
               let raw = resource.url, let url = URL(string: raw),
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") else { return nil }
+        return url
+    }
+
+    /// A daemon-owned browser retains its requested origin. Route that origin
+    /// through the authenticated Cloud proxy instead of rewriting public pages
+    /// to the machine's private address (which would change the page).
+    func cloudBrowserOriginURL(for resource: SurfaceResource) -> URL? {
+        guard machine.cloudMachineID != nil, resource.kind == .browser,
+              resource.remoteViews?.isEmpty == false,
+              let raw = resource.url, let url = URL(string: raw),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.isEmpty == false,
+              !RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") else { return nil }
         return url
     }
 }

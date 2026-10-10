@@ -115,6 +115,12 @@ extension BrowserPanel {
             if configured { pendingCloudRestoreURL = nil }
             return
         }
+        if let browserURL = provider.cloudBrowserOriginURL(for: known) {
+            let restoredURL = Self.cloudRestoredURL(pendingCloudRestoreURL, on: browserURL)
+            let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
+            if configured { pendingCloudRestoreURL = nil }
+            return
+        }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
         case .privateDirect(let raw):
             if let url = URL(string: raw) {

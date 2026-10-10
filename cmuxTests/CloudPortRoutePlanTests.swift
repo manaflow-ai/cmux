@@ -103,6 +103,23 @@ struct CloudPortRoutePlanTests {
         #expect(store.models.count == 2)
     }
 
+    @Test("Proxy models separate origins on the same machine and port")
+    func accessModelsSeparateTargetHosts() {
+        let store = CloudPortAccessStore()
+        let privateOrigin = store.model(
+            machineID: "vm-1",
+            target: CloudPortForwardTarget(host: "10.0.0.7", port: 8443),
+            scheme: "https"
+        ) { makeModel(port: 8443) }
+        let loopbackOrigin = store.model(
+            machineID: "vm-1",
+            target: CloudPortForwardTarget(host: "localhost", port: 8443),
+            scheme: "https"
+        ) { makeModel(port: 8443) }
+        #expect(privateOrigin !== loopbackOrigin)
+        #expect(store.models.count == 2)
+    }
+
     @Test("Desktop can use the authenticated loopback forward while VPN is off")
     func desktopForwardWorksWithoutVPN() async throws {
         var wakes = 0
@@ -164,6 +181,30 @@ struct CloudPortRoutePlanTests {
         model.connect()
         #expect(await wait { model.phase == .proxied(endpoint) })
         #expect(model.url(for: remote) == remote)
+        await model.retire()
+    }
+
+    @Test("Cloud daemon browsers keep a public origin through the authenticated proxy")
+    func cloudDaemonBrowserKeepsPublicOrigin() async throws {
+        let endpoint = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 46_905, username: "fixture", password: "secret"
+        )
+        let model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "example.com", port: 4312),
+            coordinator: nil,
+            wake: {},
+            startForward: { _ in Issue.record("Daemon browser must not use a local forward"); return 46_906 },
+            stopForward: {},
+            route: .browserProxy,
+            startBrowserProxy: { endpoint },
+            preservesRemoteHost: true
+        )
+        let remote = try #require(URL(string: "http://example.com:4312/health"))
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: remote)
+        model.connect()
+        #expect(await wait { model.phase == .proxied(endpoint) })
+        #expect(state.nextURL() == remote)
         await model.retire()
     }
 

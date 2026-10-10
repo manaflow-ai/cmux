@@ -26,6 +26,7 @@ final class CloudPortAccessStore {
             machineID: machineID,
             port: target.port,
             scheme: scheme.lowercased(),
+            targetHost: target.host.lowercased(),
             route: route
         )
         if let existing = models[key], existing.phase != .closed {
