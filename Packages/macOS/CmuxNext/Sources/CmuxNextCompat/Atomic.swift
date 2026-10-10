@@ -10,12 +10,12 @@ public import Atomics
 /// ones, which have the same spelling as the system types. One difference:
 /// ``add(_:ordering:)`` and ``subtract(_:ordering:)`` wrap on overflow
 /// instead of trapping.
-public struct Atomic<Value: AtomicValue>: ~Copyable {
+public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresentation.Value == Value {
     private let raw: UnsafeAtomic<Value>
 
     /// Makes an atomic that holds `initialValue`.
     public init(_ initialValue: Value) {
-        raw = .create(initialValue)
+        raw = UnsafeAtomic<Value>.create(initialValue)
     }
 
     deinit {
