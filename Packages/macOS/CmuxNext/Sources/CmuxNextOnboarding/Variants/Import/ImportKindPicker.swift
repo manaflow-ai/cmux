@@ -45,7 +45,7 @@ final class ImportKindPicker: NSStackView {
         switch style {
         case .toggles:
             let button = OnboardingControl.button(title, target: self, action: #selector(toggled(_:)))
-            button.bezelStyle = .glass
+            button.useGlassBezel()
             button.imagePosition = .imageLeading
             button.imageHugsTitle = true
             button.setAccessibilityRole(.checkBox)

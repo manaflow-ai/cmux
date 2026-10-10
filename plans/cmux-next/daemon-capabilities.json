@@ -42,6 +42,7 @@
     "screen-metadata-v1",
     "session-identity-v1",
     "sidebar-layout-v1",
+    "split-client-keys-v1",
     "state-resources-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",

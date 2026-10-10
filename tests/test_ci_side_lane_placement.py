@@ -25,7 +25,15 @@ WORKFLOWS = ROOT / ".github/workflows"
 SIDE = "glaeda-side-std-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 FALLBACK = "blacksmith-6vcpu-macos-26"
-JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files")
+# The GUI suites take the owned pool's gui label, never the generic side label.
+GUI = "glaeda-gui-std-xcode-26.6"
+GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
+
+
+def on(name: str, label: str) -> str:
+    """The label a job takes where the compile jobs take an owned side or std label."""
+    return GUI if name in GUI_JOBS and label in (SIDE, STD) else label
+JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files", "swift-canary")
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -150,10 +158,11 @@ class CmuxNextWiring(unittest.TestCase):
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                  triggering_actor=triggering_actor,
                                  event={"pull_request": {"head": {"repo": {"full_name": head}}}})
-        outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner}
+        outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner,
+                                                    "gui_runner": GUI if runner else ""}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
-                                                            "swift": "true", "daemon": "true", "generated": "true",
+                                                            "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             self.PLACEMENT: {"outputs": outputs}}
@@ -172,7 +181,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertIn(self.PLACEMENT, job["needs"] if isinstance(job["needs"], list) else [job["needs"]])
                 # A failed placement job must not skip the Mac jobs: they keep today's route.
                 self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
-                self.assertIn("needs.macos-placement.outputs.runner", job["runs-on"])
+                self.assertIn("needs.macos-placement.outputs." + ("gui_runner" if name in GUI_JOBS else "runner"),
+                              job["runs-on"])
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
                 self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
 
@@ -182,13 +192,13 @@ class CmuxNextWiring(unittest.TestCase):
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
                 # A live side label remains preferred; no live side label routes to the std pool.
-                self.assertEqual(evaluate(runs_on, self.context(runner=SIDE)), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context(runner=STD)), STD)
+                self.assertEqual(evaluate(runs_on, self.context(runner=SIDE)), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.context(runner=STD)), on(name, STD))
                 # Skipped or unreadable placement keeps today's configured route.
-                self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("2")), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.context("2")), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
                 # The rescue's third attempt is the measured overflow route.
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
@@ -204,11 +214,11 @@ class CmuxNextWiring(unittest.TestCase):
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), STD)
+                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), on(name, STD))
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
                 # A person's re-run stays minis-first at any attempt.
-                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), STD)
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
 
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
@@ -250,7 +260,7 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
             self.assertTrue(evaluate(jobs[name]["if"].replace("!cancelled() && ", ""), self.context()))
-            self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), SIDE)
+            self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), on(name, SIDE))
 
     def test_the_watch_marker_follows_the_placement(self):
         steps = self.workflow()["jobs"][self.PLACEMENT]["steps"]
