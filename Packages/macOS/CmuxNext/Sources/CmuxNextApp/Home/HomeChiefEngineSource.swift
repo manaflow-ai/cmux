@@ -29,8 +29,12 @@ nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { files.snapshot() }
 
     func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
-        guard let connection = await connection() else { throw .unreachable }
-        try await HomeChiefEngineSet.send(key, value, on: connection)
+        guard let connection = await connection() else { throw .localUnreachable }
+        do {
+            try await HomeChiefEngineSet.send(key, value, on: connection)
+        } catch .unreachable {
+            throw .localUnreachable
+        }
         return files.snapshot()
     }
 }
