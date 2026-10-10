@@ -624,12 +624,12 @@ async function verifyNativeRequest(
       const writeSnapshot = () => writeIdentitySnapshot(resolved.user, {
         completeTeamList: resolved.completeTeamList,
       });
-      // The snapshot is a best-effort optimization. A deadline-gated caller
-      // must not spend its Stack budget waiting for a database connection:
-      // production traces showed this upsert idle 6-11 s behind a saturated
-      // pool, which alone pushed /api/coderouter/organizations past 10 s.
-      if (options.subrouterAuthorizationSignal) deferIdentitySnapshotWrite(writeSnapshot);
-      else await writeSnapshot();
+      // The snapshot is a best-effort optimization. Never hold an authenticated
+      // request on its upsert: production traces showed this write idle 6-11 s
+      // behind a saturated pool, which made machine-list reads wait before they
+      // could even start their own database query. `after` keeps the write on
+      // the request lifecycle without putting it on the response's critical path.
+      deferIdentitySnapshotWrite(writeSnapshot);
     }
     return resolved?.user ?? null;
   }

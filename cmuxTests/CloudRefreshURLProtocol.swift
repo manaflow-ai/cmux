@@ -22,6 +22,8 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     static func waitUntilStopped(after baseline: Int) async { await responses.waitUntilStopped(after: baseline) }
     static func reset() async { await responses.reset() }
     static func requestCounts() async -> [String: Int] { await responses.counts }
+    /// The URLSession timeout applied to each request, keyed by path.
+    static func requestTimeouts() async -> [String: [TimeInterval]] { await responses.requestTimeouts }
     /// The `X-Cmux-Team-Id` header of every request, in arrival order.
     static func teamHeaders() async -> [String?] { await responses.teamHeaders }
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -31,6 +33,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
 
     private actor Responses {
         private(set) var counts: [String: Int] = [:]
+        private(set) var requestTimeouts: [String: [TimeInterval]] = [:]
         private(set) var teamHeaders: [String?] = []
         private var tasks: [UUID: Task<Void, Never>] = [:]
         private var behavior = Behavior.normal
@@ -64,6 +67,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             for task in tasks.values { task.cancel() }
             tasks.removeAll()
             counts.removeAll()
+            requestTimeouts.removeAll()
             teamHeaders.removeAll()
             behavior = .normal
             stoppedRequests.removeAll()
@@ -75,6 +79,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             let path = source.request.url!.path
             let method = source.request.httpMethod ?? "GET"
             counts[path, default: 0] += 1
+            requestTimeouts[path, default: []].append(source.request.timeoutInterval)
             teamHeaders.append(source.request.value(forHTTPHeaderField: "X-Cmux-Team-Id"))
             let count = counts.values.reduce(0, +)
             let ready = startWaiters.filter { $0.0 <= count }
