@@ -11,6 +11,8 @@ workspace up and down, move to a new group, group up, and a row drag reorder
 slot's `capture-host launch`, or a tagged build) through its debug socket and
 never launches or quits it.
 
+Strips: scripts/cmux-next/motion-frame-strip.py OUT SCENARIO [EVERY] [COUNT].
+
 Usage: sidebar-motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR [--only NAME ...]
 """
 import argparse, json, os, re, socket, sys, time

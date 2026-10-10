@@ -1,29 +1,33 @@
 import AppKit
 
-/// Recycled sidebar row views by row class. Views exist only for rows near
-/// the viewport; leaving rows wait here (bounded per class) for reuse
-/// instead of being deallocated.
+/// Off-screen sidebar row views, keyed by their row's stable id (cx-ai79).
+/// Views exist only for rows near the viewport; a row that scrolls away waits
+/// here and gets its own view back. A view is never rebound to another row:
+/// a new workspace always gets a new view, so no view flies in from another
+/// row's place or crossfades over it.
 @MainActor
 struct SidebarRowViewPool {
-    /// Upper bound per row class; enough for a tall window plus overscan.
-    static let limit = 48
-    private var views: [ObjectIdentifier: [SidebarRowView]] = [:]
+    /// Upper bound on parked views; enough for a tall window plus overscan.
+    static let limit = 96
+    private var views: [SidebarRowKey: SidebarRowView] = [:]
+    /// Parked keys, oldest first, for eviction.
+    private var order: [SidebarRowKey] = []
 
-    /// A recycled view of `key`'s row class, reset for `key`; else a new one.
+    /// `key`'s parked view, reset; else a new one.
     mutating func take(for key: SidebarRowKey) -> SidebarRowView {
-        let type = Self.rowClass(for: key)
-        if let recycled = views[ObjectIdentifier(type)]?.popLast() {
-            recycled.prepareForReuse(key: key)
-            return recycled
+        if let parked = views.removeValue(forKey: key) {
+            order.removeAll { $0 == key }
+            parked.prepareForReuse(key: key)
+            return parked
         }
-        return type.init(key: key)
+        return Self.rowClass(for: key).init(key: key)
     }
 
-    /// Keeps a view that left the list (already removed from its superview).
+    /// Parks a view that left the list (already removed from its superview)
+    /// under its own row's key.
     mutating func put(_ view: SidebarRowView) {
-        let id = ObjectIdentifier(type(of: view))
-        guard views[id, default: []].count < Self.limit else { return }
-        views[id, default: []].append(view)
+        if views.updateValue(view, forKey: view.key) == nil { order.append(view.key) }
+        while order.count > Self.limit { views[order.removeFirst()] = nil }
     }
 
     private static func rowClass(for key: SidebarRowKey) -> SidebarRowView.Type {

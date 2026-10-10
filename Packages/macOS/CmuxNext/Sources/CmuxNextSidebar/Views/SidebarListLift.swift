@@ -24,7 +24,7 @@ import AppKit
         guard rows.count > 1 else { return rows.first.map { rowView(list, $0) } }
         let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: block.size))
         // The group's members' line rides under the rows on the card, as in the list (cx-qno.17).
-        let lines = SidebarListView.groupLines(rows, colors: list.groups) { list.frame(for: $0).offsetBy(dx: -block.minX, dy: -block.minY) }
+        let lines = SidebarGroupLine.lines(rows, colors: list.groups) { list.frame(for: $0).offsetBy(dx: -block.minX, dy: -block.minY) }
         for line in lines {
             let view = NSView(frame: line.frame)
             view.wantsLayer = true
