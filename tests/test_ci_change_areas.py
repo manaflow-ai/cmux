@@ -5721,12 +5721,12 @@ def test_compile_admission_retry_executes_safely() -> None:
     jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
     script = next(step["run"] for step in jobs["macos-compile-admission"]["steps"]
                   if step.get("name") == "Compile app-host test product")
-    for scenario, expected_status, expected_calls in (
-        ("stale-log", 65, ["canonical-build"]),
-        ("busy-worker", 65, ["canonical-build"]),
-        ("pgrep-error", 65, ["canonical-build"]),
-        ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
-        ("module-dependency", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
+    for scenario, expected_status, expected_calls, expected_env in (
+        ("stale-log", 65, ["canonical-build"], ["0"]),
+        ("busy-worker", 65, ["canonical-build"], ["0"]),
+        ("pgrep-error", 65, ["canonical-build"], ["0"]),
+        ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"], ["0", "0", "0"]),
+        ("module-dependency", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"], ["0", "0", "1"]),
     ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -5735,6 +5735,7 @@ def test_compile_admission_retry_executes_safely() -> None:
             fixtures = {
                 "scripts/ci/compile-app-host-test-product.sh": r'''#!/bin/bash
 printf '%s\n' "$1" >> "$CALLS"
+printf '%s\n' "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-0}" >> "$ENV_CALLS"
 if [ "$1" = canonical-resolve ]; then exit 0; fi
 if [ -e "$RUNNER_TEMP/attempt" ]; then exit 0; fi
 touch "$RUNNER_TEMP/attempt"
@@ -5762,12 +5763,13 @@ exit 65
                        RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
                        CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
-                       CALLS=str(root / "calls"), SCENARIO=scenario)
+                       CALLS=str(root / "calls"), ENV_CALLS=str(root / "env-calls"), SCENARIO=scenario)
             result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
                                     capture_output=True, text=True, timeout=15)
             calls = (root / "calls").read_text().splitlines()
-            assert (result.returncode, calls) == (expected_status, expected_calls), (
-                scenario, result.returncode, calls, result.stderr)
+            env_calls = (root / "env-calls").read_text().splitlines()
+            assert (result.returncode, calls, env_calls) == (expected_status, expected_calls, expected_env), (
+                scenario, result.returncode, calls, env_calls, result.stderr)
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
@@ -5785,6 +5787,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
     assert 'grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|[Uu]nable to resolve module dependency"' in admission
     assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"' in admission
+    assert 'export CMUX_CI_DISABLE_EXPLICIT_MODULES=1' in admission
     assert 'compile admission exited $status without a compiler diagnostic' in admission
     assert "find \"$CMUX_COMPILE_ADMISSION_DERIVED_DATA\" -type f -name '*-build.log'" in admission
     assert "retrying compile from a clean tree" in admission
@@ -5796,6 +5799,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
+    assert "SWIFT_ENABLE_EXPLICIT_MODULES=NO" in compile_script
     import product_input_identity as identity
 
     # The scheme list moved into PRODUCT_PROFILES so the build and the product

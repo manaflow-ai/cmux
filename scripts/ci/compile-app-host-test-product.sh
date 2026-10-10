@@ -250,6 +250,13 @@ build() {
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
     CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
+  # Xcode's explicit-module dependency graph can survive a clean DerivedData
+  # rebuild when a reused CAS entry is incomplete. Admission recovery sets
+  # this only after seeing that diagnostic, so normal builds keep the faster
+  # explicit-module path while the recovery build avoids the broken graph.
+  if [ "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-}" = 1 ]; then
+    cache_setting+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
+  fi
   # Before Xcode 26.6 the app target has the same defect: under the cache the
   # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
   # (identical bytes, newer mtime) on every build, so a body-only edit to one

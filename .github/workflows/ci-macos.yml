@@ -922,7 +922,15 @@ jobs:
               tail -n 80 "$scheme_log" || true
             done < <(find "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" -type f -name '*-build.log' -print 2>/dev/null | sort)
           fi
+          retry_compile=0
+          disable_explicit_modules=0
           if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|[Uu]nable to resolve module dependency" "$compile_log"; then
+            retry_compile=1
+            if grep -Eq "[Uu]nable to resolve module dependency" "$compile_log"; then
+              disable_explicit_modules=1
+            fi
+          fi
+          if [ "$retry_compile" -eq 1 ]; then
             # An adopted DerivedData tree can retain an incomplete Swift
             # dependency graph or compile CAS entry after a cancelled or
             # interrupted compile. Xcode then fails late with no source
@@ -964,6 +972,10 @@ jobs:
             if scripts/ci/compile-app-host-test-product.sh canonical-resolve \
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
               "$PWD/.ci-source-packages"; then
+              if [ "$disable_explicit_modules" -eq 1 ]; then
+                export CMUX_CI_DISABLE_EXPLICIT_MODULES=1
+                echo "::warning::module dependency resolution remained broken after cleanup; retrying with explicit modules disabled"
+              fi
               if compile_once; then
                 status=0
               else
