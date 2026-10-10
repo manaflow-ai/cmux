@@ -5,9 +5,9 @@ extension SidebarListView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         if case let .group(id)? = displayed.row(at: point.y)?.key {
-            // A right-click on a group opens its editor (cx-rcby); the
-            // editor's last row shows the group's full menu.
-            groupEditing.open(id)
+            // A right-click on a group shows its full menu, the same as its
+            // more button (cx-a9h6); a click on the chip edits name and color.
+            groupEditing.showMenu(id)
             return nil
         }
         guard let contextMenuProvider else { return nil }

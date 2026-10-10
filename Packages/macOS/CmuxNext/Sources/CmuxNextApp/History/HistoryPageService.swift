@@ -3,10 +3,12 @@ import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemoteView
 import Foundation
+import os
 #if DEBUG
 import CmuxNextRemoteBrowser
 #endif
@@ -66,6 +68,25 @@ final class HistoryPageService: HistoryPageSource {
     func copy(_ text: String) {
         HistoryRestorer(services: services).copy(text)
     }
+
+    /// The app's cookie backups (WebKit tabs' agent clears), read off the
+    /// main actor: the files are decrypted with the Keychain key.
+    func cookieBackups() async -> [HistoryCookieBackup] {
+        guard let backups = services.browserHost?.driver.cookieBackups else { return [] }
+        return await Task.detached {
+            backups.pruneExpired()
+            return backups.summaries().map { HistoryCookieBackup(id: $0.restoreID, site: $0.site, createdAt: $0.createdAt) }
+        }.value
+    }
+
+    /// The person confirmed: the backups go for good (an agent never gets here).
+    func deleteCookieBackups(_ ids: [String]) async {
+        guard let backups = services.browserHost?.driver.cookieBackups else { return }
+        let deleted = await Task.detached { ids.filter { (try? backups.remove($0)) != nil }.count }.value
+        Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cookie-backups")
 }
 
 extension TabContentCache {
