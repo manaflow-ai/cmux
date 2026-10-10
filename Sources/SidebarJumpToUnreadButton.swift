@@ -168,14 +168,14 @@ struct SidebarJumpToUnreadButton: View {
                         let arrow = SidebarJumpToUnreadButtonPresentation.systemName
                         CmuxSystemSymbolImage(systemName: arrow, pointSize: 11, weight: .semibold, tint: cmuxAccent.color)
                         if style == .sCompact {
-                            // "↳ (3) ⇧⌘U" at rest, "↳ Jump to Unread ⇧⌘U" on hover: the label
+                            // "↳ ⇧⌘U (3)" at rest, "↳ Jump to Unread ⇧⌘U" on hover: the label
                             // and the count are clipped to their animating width, so they
                             // appear and leave with the capsule's width, never ahead of it.
                             reveal(isHovered) {
                                 title(String(localized: "sidebar.jumpToUnread.compactTitle", defaultValue: "Jump to Unread"))
                             }
-                            reveal(!isHovered) { countBadge(resolved) }
                             shortcutLabel(resolved)
+                            reveal(!isHovered) { countBadge(resolved) }
                         } else {
                             title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Last unread"))
                             // Hovering swaps the count for the key that does the same thing.
