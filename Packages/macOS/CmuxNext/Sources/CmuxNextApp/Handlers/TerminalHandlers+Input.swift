@@ -120,13 +120,13 @@ extension TerminalHandlers {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys)) ?? []
         let images = Set(["png", "jpg", "jpeg", "heic", "tiff"])
-        return files
-            .filter { images.contains($0.pathExtension.lowercased()) }
-            .max { modified($0) < modified($1) }
-    }
-
-    private static func modified(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        // One pass, one date read per file (the listing prefetched it); the first newest wins a tie.
+        var newest: (url: URL, modified: Date)?
+        for file in files where images.contains(file.pathExtension.lowercased()) {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            if newest.map({ $0.modified < modified }) ?? true { newest = (file, modified) }
+        }
+        return newest?.url
     }
 
     static func shellQuoted(_ path: String) -> String {
