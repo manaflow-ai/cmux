@@ -85,13 +85,13 @@ final class ReplyThreadOverlay: UIView {
     static let blurShareOfStyle: CGFloat = 1.0 / 3.0
 }
 
-/// One thread row's trip, in its superview's space: `baseY` is where its
-/// frame sits (the transform carries it from there), `trip.y` where it
-/// shows. The anchor (a swiped bubble) also unwinds its release offset.
 /// A row about to travel: where its frame sits, where it starts and ends
 /// (its superview's space) and the swipe offset it unwinds.
 private typealias ReplyThreadRow = (view: UIView, baseY: CGFloat, startY: CGFloat, targetY: CGFloat, initialOffsetX: CGFloat)
 
+/// One thread row's trip, in its superview's space: `baseY` is where its
+/// frame sits (the transform carries it from there), `trip.y` where it
+/// shows. The anchor (a swiped bubble) also unwinds its release offset.
 private struct ReplyThreadItem {
     let view: UIView
     let baseY: CGFloat
