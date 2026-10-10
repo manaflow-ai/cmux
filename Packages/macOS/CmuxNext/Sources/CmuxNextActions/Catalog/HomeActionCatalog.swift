@@ -41,7 +41,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.channels", title: t("action.home.channels", "Open Channels"),
                 keywords: ["home", "channels", "threads", "direct messages", "conversations", "messages"],
                 category: .window, symbol: "number", surfaces: [.palette, .menu], cliName: "home channels",
-                mainMenu: .file
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
