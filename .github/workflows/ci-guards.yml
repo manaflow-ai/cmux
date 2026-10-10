@@ -164,6 +164,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 scripts/cmux-next/generate-coordination-index.py --check
 
+      - name: Validate cmux NEXT DEV daily channel
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_dev_daily.py
+
       - name: Validate CI failure attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_classify_failures.py
