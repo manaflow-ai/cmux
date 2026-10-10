@@ -91,15 +91,32 @@ struct AgentChatScreen: View {
     /// One container for every state, so the composer (and its focus)
     /// survives the switch from the empty greeting to the first turn.
     private var content: some View {
-        transcript
-            .overlay {
-                if !model.loaded {
-                    ProgressView()
-                } else if !model.hasTurns {
-                    emptyState.transition(.opacity)
-                }
+        ZStack {
+            // The scroll view is created once history is in, so its
+            // initial-offset anchor lands at the bottom. A real host's history
+            // can arrive after the first layout (and during the push), when
+            // programmatic scrolls are dropped.
+            if model.loaded {
+                transcript
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .animation(motion.fade, value: model.hasTurns)
+        }
+        .overlay {
+            if model.loaded, !model.hasTurns { emptyState.transition(.opacity) }
+        }
+        .animation(motion.fade, value: model.hasTurns)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomBar
+                .overlay(alignment: .top) {
+                    if !pinned {
+                        scrollToBottomButton
+                            .offset(y: -48)
+                            .transition(.scale(scale: 0.7).combined(with: .opacity))
+                    }
+                }
+                .animation(motion.appear, value: pinned)
+        }
     }
 
     // MARK: Transcript
@@ -121,9 +138,10 @@ struct AgentChatScreen: View {
             // jump. Very long transcripts trade that for laziness.
             if shaped.count <= 160 {
                 // Short transcripts sit at the top, as in the iOS AI apps.
-                // The last turn reserves a full screen below its prompt, laid
-                // out in the same pass as the rows (no one-frame lag).
-                TranscriptLayout(tailMinHeight: reserveHeight) { rowViews(shaped) }
+                // After a send here, the last turn reserves a full screen below
+                // its prompt, laid out in the same pass as the rows (no
+                // one-frame lag). Opened history ends at its last row.
+                TranscriptLayout(tailMinHeight: model.sendTick > 0 ? reserveHeight : 0) { rowViews(shaped) }
                     .padding(.top, 4)
                     .frame(minHeight: viewportHeight, alignment: .top)
             } else {
@@ -191,17 +209,6 @@ struct AgentChatScreen: View {
             pinned = true
             followingSend = true
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomBar
-                .overlay(alignment: .top) {
-                    if !pinned {
-                        scrollToBottomButton
-                            .offset(y: -48)
-                            .transition(.scale(scale: 0.7).combined(with: .opacity))
-                    }
-                }
-                .animation(motion.appear, value: pinned)
-        }
     }
 
     @ViewBuilder private func rowViews(_ rows: [ChatRow]) -> some View {
@@ -250,7 +257,7 @@ struct AgentChatScreen: View {
         let slash = SlashMenu.matches(draft, in: model.commands)
         return VStack(spacing: 8) {
             if let pending {
-                PermissionCard(pending: pending) { option in
+                PermissionCard(pending: pending, allowOnMac: model.allowRequiresMac(pending.item)) { option in
                     withAnimation(motion.move) { model.answer(pending.item, option: option) }
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -288,6 +295,7 @@ struct AgentChatScreen: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .animation(reduceMotion ? nil : motion.move, value: pending?.item.id)
+        .animation(motion.appear, value: pending.map { model.allowRequiresMac($0.item) })
         .animation(motion.appear, value: slash.count)
 
         .animation(motion.move, value: model.queue.count)

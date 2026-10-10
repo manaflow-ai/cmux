@@ -101,3 +101,12 @@ a double step; I judged runs, not single frames.
 - Very long transcripts (over 160 rows) switch to a `LazyVStack` without the turn reserve, so the send-rise behaviour there is unvalidated.
 - The ScrollView's `scrollTo(edge:)` is not used for repeated corrections: re-setting the same edge position is ignored. The code scrolls to explicit offsets instead (documented in source).
 - Builds in the agent slot need a one-time app uninstall after the shell's switch to a UIKit scene delegate; otherwise the window restores black.
+
+## Real host (bridged acpmux sessions)
+
+`agents/real-host.png`: the test login (`aziz-verify@test.cmux.dev`) against `cmux15`, whose host bridges the cmux-next Mac app's acpmux sessions. From left to right: the session list (light), `codex`, `bridge-probe` opened at its bottom, a bridged shell call expanded to its real output, then the list and `bridge-probe` in dark.
+
+- The list, transcripts, Worked-for folds, inline code, tool output and the model chip render from real acpmux records.
+- Fixed here: a real host's history arrives after the chat's first layout (during the push), when programmatic scrolls are dropped. The scroll view is now created once history is in, so it opens at the bottom. The send reserve applies only after a send in that screen.
+- Fixed here: a shell call whose `input` is the command string now draws as `Ran \`cmd\``.
+- Approvals on bridged sessions: Allow is disabled up front when the host advertises `agent.mirror.v1`; when an Allow fails with `unsupported`, the card returns with Allow disabled and "Approve this on your Mac". Reject still answers from the phone. I could not trigger a real approval: the bridged codex session runs in an auto-approving mode and the harness reports no modes to switch.

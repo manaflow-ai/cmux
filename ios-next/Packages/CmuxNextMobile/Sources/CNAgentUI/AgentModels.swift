@@ -299,7 +299,22 @@ final class AgentChatModel {
         Task { try? await connection.requireClient().cancelAgent(sessionId) }
     }
 
+    /// Capability of a host whose agent sessions belong to the Mac app
+    /// (acpmux bridge): only the Mac may allow a tool call there.
+    static let mirrorCapability = "agent.mirror.v1"
+
+    /// Permission items whose Allow the host refused (approve on the Mac).
+    private(set) var allowOnMac: Set<String> = []
+
+    /// True when Allow must happen on the Mac for this permission: the host
+    /// says so up front, or it already refused an Allow for it.
+    func allowRequiresMac(_ permission: PermissionTranscriptItem) -> Bool {
+        connection.hostInfo?.capabilities.contains(Self.mirrorCapability) == true || allowOnMac.contains(permission.id)
+    }
+
     func answer(_ permission: PermissionTranscriptItem, option: PermissionOption) {
+        let allows = option.kind == .allowOnce || option.kind == .allowAlways
+        if allows, allowRequiresMac(permission) { return }
         // Optimistic: the card leaves at once; the host's echo confirms it.
         var resolved = permission
         resolved.resolved = option.id
@@ -307,6 +322,14 @@ final class AgentChatModel {
         Task {
             do {
                 try await connection.requireClient().answerPermission(sessionId, itemId: permission.id, optionId: option.id)
+            } catch let rpc as RPCError where rpc.code == .unsupported && allows {
+                // Bridged session: put the card back with Allow disabled and
+                // a note to approve on the Mac; Deny keeps working.
+                allowOnMac.insert(permission.id)
+                if let i = items.firstIndex(where: { $0.id == permission.id }),
+                   case .permission(let current) = items[i], current.resolved == option.id {
+                    items[i] = .permission(permission)
+                }
             } catch {
                 self.error = AgentDirectory.describe(error)
                 await reload()

@@ -6,6 +6,9 @@ import SwiftUI
 /// The pending tool approval, pinned above the composer until answered.
 struct PermissionCard: View {
     var pending: PendingPermission
+    /// Allow happens on the Mac (bridged acpmux session): Allow options are
+    /// disabled with a note; Reject still answers from the phone.
+    var allowOnMac = false
     var answer: (PermissionOption) -> Void
 
     var body: some View {
@@ -37,6 +40,14 @@ struct PermissionCard: View {
                 HStack(spacing: 8) { buttons }
                 VStack(spacing: 8) { buttons }
             }
+            if allowOnMac {
+                Label("Approve this on your Mac", systemImage: "laptopcomputer")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.cn(\.textSecondary))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("agent.permission.approveOnMac")
+            }
         }
         .padding(14)
         .background(.cn(\.elevated), in: .rect(cornerRadius: 22, style: .continuous))
@@ -61,6 +72,7 @@ struct PermissionCard: View {
 
     @ViewBuilder private var buttons: some View {
         ForEach(ordered) { option in
+            let blocked = allowOnMac && (option.kind == .allowOnce || option.kind == .allowAlways)
             Button {
                 Haptics.success()
                 answer(option)
@@ -75,6 +87,9 @@ struct PermissionCard: View {
                     .contentShape(.capsule)
             }
             .buttonStyle(.plain)
+            .disabled(blocked)
+            .opacity(blocked ? 0.38 : 1)
+            .accessibilityHint(blocked ? "Approve this on your Mac" : "")
         }
     }
 

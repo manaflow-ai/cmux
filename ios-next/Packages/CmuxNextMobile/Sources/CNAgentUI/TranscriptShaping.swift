@@ -296,6 +296,9 @@ enum AgentFormat {
     /// The shell command a call ran, when its input names one.
     static func command(_ tool: ToolCallTranscriptItem) -> String? {
         if let c = tool.input?["command"]?.stringValue, !c.isEmpty { return c }
+        // The host sends a shell call's input as the command line itself.
+        if tool.toolKind == .execute, let s = tool.input?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !s.isEmpty, !s.hasPrefix("{"), !s.hasPrefix("[") { return s }
         if let parts = tool.input?["command"]?.arrayValue {
             let joined = parts.compactMap(\.stringValue).joined(separator: " ")
             return joined.isEmpty ? nil : joined
