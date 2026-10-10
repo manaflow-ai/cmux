@@ -932,6 +932,7 @@ pub fn terminal_harness_refusal(name: &str) -> RpcError {
     .with_data(json!({"reason": "harness.terminal", "harness": name}))
 }
 
+// cx-5ub7 import A/B base: the tip with this comment only.
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
     profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))
