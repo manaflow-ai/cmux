@@ -50,7 +50,7 @@ struct BrowserTabDuplicate {
 
     /// The back/forward history `page` can be recreated from: a hibernated
     /// page's saved state, else what a live page saves now.
-    private static func history(of page: any BrowserTab) -> BrowserRestoreState? {
+    static func history(of page: any BrowserTab) -> BrowserRestoreState? {
         if let hibernated = page as? HibernatedBrowserTab { return hibernated.restoreState }
         return (page as? any BrowserHibernationSource)?.hibernationState()
     }

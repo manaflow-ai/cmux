@@ -59,6 +59,8 @@ enum DaemonClosedHistory {
             daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.resourceID == id }
         }
         let clock = ContinuousClock(), start = clock.now
+        // Its browser tabs' pages restore the history they closed with (cx-d0d.59).
+        services.cache.pageRequests.closedHistories.expect(item)
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             let reopened: StateResourceClient.ReopenedItem

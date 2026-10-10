@@ -42,6 +42,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).
     let titleAttention = BrowserTitleAttention()
+    /// Closed tabs' histories, for Reopen Closed Tab.
+    let closedHistories = ClosedBrowserHistories()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
@@ -299,8 +301,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    func takeAdoption(for surface: SurfaceID) -> (any BrowserTab)? {
-        adoptions.removeValue(forKey: surface)
+    /// The page made for daemon tab `tab` before it appeared, else a
+    /// restored WebKit page for a reopened tab with a saved history (cx-d0d.59).
+    func takeAdoption(for tab: TabModel) -> (any BrowserTab)? {
+        if let page = adoptions.removeValue(forKey: tab.surface) { return page }
+        guard tab.browserEngine != BrowserEngineTag.cef.rawValue, let cache = services?.cache, !proxiedTabs.isProxied(tab.id),
+              let state = closedHistories.claim(tab.url, chromium: false) else { return nil }
+        let page = cache.webKit.makeWebKitTab(profile: cache.browserProfile?(tab.id) ?? .default)
+        if !page.restore(state), let url = tab.url.flatMap(URL.init(string:)) { page.load(url) }
+        return page
     }
 
     /// True once for a daemon tab whose page closed before it appeared; the
