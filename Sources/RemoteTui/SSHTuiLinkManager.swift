@@ -318,8 +318,8 @@ extension SSHTuiLinkManager {
             do {
                 let port = try await withThrowingTaskGroup(of: UInt16?.self) { group in
                     group.addTask { await ready.result }
-                    group.addTask {
-                        try await clock.sleep(for: .seconds(60))
+                    group.addTask { [self] in
+                        try await self.clock.sleep(for: .seconds(60))
                         throw CloudMachineLink.LinkError.timedOut
                     }
                     defer { group.cancelAll() }
