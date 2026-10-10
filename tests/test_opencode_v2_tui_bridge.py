@@ -117,8 +117,10 @@ const makeLive = (name, environment, replies) => {
   live.location = { directory: `/tmp/${name}` };
   live.ui.router.onChange = (refresh) => { live.refresh = refresh; return () => {}; };
   live.data.listen = (callback) => { live.emit = callback; return () => {}; };
+  live.permissionCalls = [];
+  live.formCalls = [];
   live.client = {
-    permission: { reply: async (value) => { replies.permission?.resolve(value); } },
+    permission: { reply: async (value) => { live.permissionCalls.push(value); replies.permission?.resolve(value); } },
     session: {
       update: async () => {},
       prompt: async (value) => live.promptError ? { error: "prompt unavailable" } : (replies.feedback?.resolve(value), undefined),
@@ -133,6 +135,8 @@ const makeLive = (name, environment, replies) => {
     },
   };
   live.data.session.form = { reply: async (value, location) => {
+    live.formCalls.push(value);
+    if (value.formID === "form-repeat") return;
     const target = value.formID === "form-route" ? replies.routeForm : value.formID === "form-plan" ? replies.plan : replies.form;
     target?.resolve({ value, location });
   } };
@@ -144,6 +148,32 @@ const liveA = makeLive("a", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "su
 const liveB = makeLive("b", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "surface-b", CMUX_WORKSPACE_ID: "workspace-b", CMUX_OPENCODE_HOOKS_DISABLED: "1" }, repliesB);
 const cleanupA = await mod.createCMUXTUIBridge(liveA, { environment: liveA.environment });
 const cleanupB = await mod.createCMUXTUIBridge(liveB, { environment: liveB.environment });
+
+// Repeated form lifecycle events replace an in-flight waiter. Both event
+// handlers must finish, and only the latest one may answer the form.
+const repeatedFeed = await serverMod.CMUXFeed(liveA, {
+  tui: true, ownsSession: () => true, environment: liveA.environment,
+});
+const repeatedForm = { sessionID: "child-a", id: "form-repeat", fields: [{ key: "choice", type: "string", options: [{ value: "yes", label: "yes" }] }] };
+holdNextResponse = true;
+const firstFormEvent = repeatedFeed.event({ event: { type: "form.created", data: { form: repeatedForm } } });
+await waitForObserved((event) => event._opencode_request_id === "form-repeat");
+holdNextResponse = true;
+const updatedFormEvent = repeatedFeed.event({ event: { type: "form.updated", data: { form: repeatedForm } } });
+await waitForObserved((event) => event._opencode_request_id === "form-repeat"
+  && observed.filter((value) => value._opencode_request_id === "form-repeat").length === 2);
+let replacementDeadline;
+try {
+  await Promise.race([firstFormEvent, new Promise((_, reject) => {
+    replacementDeadline = setTimeout(() => reject(new Error("replaced form waiter never completed")), 2000);
+  })]);
+} finally {
+  clearTimeout(replacementDeadline);
+}
+delayedResponses.get("form-repeat")();
+await updatedFormEvent;
+if (liveA.formCalls.filter((value) => value.formID === "form-repeat").length !== 1) throw new Error("repeated form events replied more than once");
+repeatedFeed.dispose();
 
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
 await new Promise((resolve) => setImmediate(resolve));
@@ -193,11 +223,32 @@ holdNextResponse = true;
 liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-route", fields: [{ key: "choice", type: "string", options: [{ value: "yes-value", label: "yes" }] }] } } } });
 await waitForObserved((event) => event._opencode_request_id === "form-route");
 liveA.ui.router.current = () => fixture.starterClosed.route;
+liveA.ui.tabs.list = () => [];
 delayedResponses.get("form-route")?.();
 const routeForm = await Promise.race([repliesA.routeForm.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("route-change form reply timed out")), 2000))]);
 if (routeForm.value.formID !== "form-route" || routeForm.value.answer.choice !== "yes-value") throw new Error("resolved TUI reply was dropped after route change");
 
+liveA.ui.router.current = () => fixture.tuis.a.route;
+liveA.ui.tabs.list = () => fixture.tuis.a.tabs.map((id) => ({ sessionID: id }));
+liveA.refresh?.();
+holdNextResponse = true;
+const originalNow = Date.now;
+Date.now = () => 2_000_000_000_000;
+const endedPermission = liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-session-end", action: "edit" } } });
+const endingRequest = await waitForObserved((event) => event._opencode_request_id === "perm-session-end");
+liveA.ui.router.current = () => fixture.starterClosed.route;
+liveA.ui.tabs.list = () => [];
+liveA.refresh?.();
+await liveA.emit({ details: { type: "session.deleted", data: { info: { id: "child-a" } } } });
+const endingSession = await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event.surface_id === "surface-a");
+Date.now = originalNow;
+if (!(endingSession._hook_sent_at_ms > endingRequest._hook_sent_at_ms)) throw new Error("session deletion cannot retire app-side Feed waiters without later hook ordering");
+delayedResponses.get("perm-session-end")?.();
+await endedPermission;
+if (liveA.permissionCalls.some((value) => value.requestID === "perm-session-end")) throw new Error("session deletion left an OpenCode permission waiter alive");
+
 liveB.emit({ details: { type: "session.updated", data: { sessionID: "child-b", info: { id: "child-b", time: { archived: true } } } } });
+await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event.surface_id === "surface-b");
 
 const beforeClosed = observed.length;
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-closed", action: "edit" } } });
@@ -213,11 +264,7 @@ if (sessionStart?.cwd !== "/tmp/a") throw new Error("V2 session location was dro
 if (stop?.surface_id !== "surface-b" || stop?.workspace_id !== "workspace-b") throw new Error("second TUI Feed event was routed to the first surface");
 const prompt = observed.find((event) => event.hook_event_name === "UserPromptSubmit");
 if (prompt?.tool_input?.prompt !== "hello from v2" || prompt?.context?.lastUserMessage !== "hello from v2") throw new Error("V2 inbox prompt was dropped from Feed context");
-const sessionEnd = observed.find((event) => event.hook_event_name === "SessionEnd");
-if (!sessionEnd) {
-  await waitForObserved((event) => event.hook_event_name === "SessionEnd");
-}
-if (observed.find((event) => event.hook_event_name === "SessionEnd")?.surface_id !== "surface-b") throw new Error("archived session was not ended on its owning TUI");
+if (!observed.some((event) => event.hook_event_name === "SessionEnd" && event.surface_id === "surface-b")) throw new Error("archived session was not ended on its owning TUI");
 if (observed.some((event) => event._opencode_request_id === "perm-wrong")) throw new Error("TUI B accepted a session owned by TUI A");
 
 cleanupA();

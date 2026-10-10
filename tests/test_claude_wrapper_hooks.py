@@ -177,7 +177,7 @@ def generated_claude_hook_settings() -> str:
             queued("pre-tool-use"),
         ],
         "PostToolUse": [queued("push-notification", matcher="PushNotification")],
-        "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
+        "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 86400)],
     }
     return json.dumps(
         {"preferredNotifChannel": "notifications_disabled", "hooks": hooks},
@@ -1063,6 +1063,22 @@ def test_standard_generated_settings_skip_node_validation(failures: list[str]) -
     expect(
         validations == 0,
         f"standard settings: the exact bundled CLI document should skip Node validation, ran {validations}",
+        failures,
+    )
+
+
+def test_legacy_default_generated_settings_skip_node_validation(failures: list[str]) -> None:
+    standard = generated_claude_hook_settings().replace('"timeout":86400', '"timeout":125', 1)
+    code, _real_argv, stderr, settings_text, validations = run_generated_settings_case(standard)
+    expect(code == 0, f"legacy settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        settings_text == standard,
+        "legacy settings: Claude must receive the bundled CLI document byte for byte",
+        failures,
+    )
+    expect(
+        validations == 0,
+        f"legacy settings: the exact bundled CLI document should skip Node validation, ran {validations}",
         failures,
     )
 
@@ -3795,6 +3811,7 @@ def main() -> int:
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
     test_standard_generated_settings_skip_node_validation(failures)
+    test_legacy_default_generated_settings_skip_node_validation(failures)
     test_nonstandard_generated_settings_still_validated_by_node(failures)
     test_speculative_hook_settings_are_discarded_on_passthrough(failures)
     test_managed_defaults_domain_matches_per_key_reads(failures)

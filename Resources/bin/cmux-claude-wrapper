@@ -1402,38 +1402,22 @@ cmux_claude_sideload_flags_disabled_uncached() {
     fi
 
     # MDM preferences domain: disableSideloadFlags reading as 1, or any
-    # configured policyHelper, disqualifies. This used to be two per-key
-    # `defaults read <domain> <key>` calls; one whole-domain read answers both.
-    # Both forms read the same preferences source. The dump prints every
-    # top-level key on its own line indented by exactly four spaces (nested
-    # entries use eight; a newline inside a string prints as `\\n`), so the
-    # anchored matches below see only top-level keys.
+    # configured policyHelper, disqualifies. Read the flag through defaults'
+    # per-key representation so escaped newlines and literal backslash-n
+    # values retain the same semantics as Claude's settings lookup. Use the
+    # whole-domain dump only for the policyHelper presence check, where the
+    # top-level indentation keeps nested settings out.
     defaults_bin=/usr/bin/defaults
     if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
-        local domain_dump flag_value
-        local newline=$'\n'
-        local flag_prefix=$'\n    disableSideloadFlags = '
-        local escaped_newline='\\n' quoted_one='"1' quoted_end='";'
+        local flag_value domain_dump
+        if flag_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)" &&
+           [[ "$flag_value" == "1" ]]; then
+            return 0
+        fi
         if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
+            local newline=$'\n'
             domain_dump="$newline$domain_dump$newline"
             [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
-            flag_value="${domain_dump#*"$flag_prefix"}"
-            if [[ "$flag_value" != "$domain_dump" ]]; then
-                flag_value="${flag_value%%"$newline"*}"
-                # The per-key read printed `1` for true, 1, 1.0 and "1", which
-                # all dump as `1;`. It also printed `1` for "1" followed by
-                # newlines, because $(...) strips them; that dumps as
-                # `"1\\n";`, `"1\\n\\n";` and so on.
-                [[ "$flag_value" == "1;" ]] && return 0
-                if [[ "$flag_value" == "$quoted_one$escaped_newline"*"$quoted_end" ]]; then
-                    flag_value="${flag_value#"$quoted_one"}"
-                    flag_value="${flag_value%"$quoted_end"}"
-                    while [[ "$flag_value" == "$escaped_newline"* ]]; do
-                        flag_value="${flag_value#"$escaped_newline"}"
-                    done
-                    [[ -z "$flag_value" ]] && return 0
-                fi
-            fi
         fi
     fi
 
@@ -2044,12 +2028,13 @@ CMUX_CLAUDE_LIFECYCLE_HOOKS
 }
 
 # Sets cmux_claude_standard_hook_settings_value to the exact bytes the bundled
-# CLI prints for `cmux hooks claude inject-settings`
-# (CLI/CMUXCLI+ClaudeHookSettings.swift: JSONSerialization with sorted keys
-# and unescaped slashes). The text is fixed: it does not depend on the
-# environment, the socket, or user settings.
+# CLI prints for `cmux hooks claude inject-settings` with the requested
+# PermissionRequest provider guard. The two supported values correspond to
+# the persisted Feed blocking setting; JSONSerialization keeps the remaining
+# document stable and sorted.
 cmux_claude_build_standard_hook_settings() {
-    local queued direct_cli
+    local queued direct_cli permission_timeout
+    permission_timeout="${1:-86400}"
     # JSON-escaped body of AgentHookSpoolProducer(agent: "claude").command(...)
     # wrapping CMUXCLI.queuedAgentHookShellCommand(agent: "claude") as its fallback.
     IFS= read -r queued <<'CMUX_CLAUDE_QUEUED_HOOK_COMMAND'
@@ -2071,7 +2056,7 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
 
     cmux_claude_standard_hook_settings_value='{"hooks":{'
     cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'
-    cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":125,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":'"$permission_timeout"',"type":"command"}],"matcher":""}],'
     cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"}],'
     cmux_claude_standard_hook_settings_value+='"PreToolUse":[{"hooks":[{"command":"'"$direct_cli"' hooks claude cron-create-guard","timeout":5,"type":"command"}],"matcher":"CronCreate"},'"$q_prefix$pre_tool_use$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
@@ -2083,18 +2068,25 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     cmux_claude_standard_hook_settings_value+='},"preferredNotifChannel":"notifications_disabled"}'
 }
 
-# Fast path for the Node check below. It accepts one exact string: the
-# bundled CLI's standard document, which satisfies every Node requirement
-# (valid JSON object; synchronous cron-create-guard under the CronCreate
-# matcher; synchronous PermissionRequest feed; all five lifecycle hooks since
-# it sets notifications_disabled). Any other byte sequence, including a
-# different CLI version's output, returns 1 and takes the Node path unchanged.
+# Fast path for the Node check below. It accepts either exact standard document
+# emitted by the bundled CLI: the default 125-second provider guard or the
+# 86,400-second opt-in guard. Both satisfy every Node requirement (valid JSON
+# object; synchronous cron-create-guard under the CronCreate matcher;
+# synchronous PermissionRequest feed; all five lifecycle hooks since it sets
+# notifications_disabled). Any other byte sequence, including a different CLI
+# version's output, returns 1 and takes the Node path unchanged.
 cmux_claude_generated_hook_settings_are_standard() {
     local value="$1"
     local cmux_claude_standard_hook_settings_value=""
-    cmux_claude_build_standard_hook_settings
-    [[ -n "$cmux_claude_standard_hook_settings_value" &&
-          "$value" == "$cmux_claude_standard_hook_settings_value" ]]
+    for permission_timeout in 86400 125; do
+        cmux_claude_standard_hook_settings_value=""
+        cmux_claude_build_standard_hook_settings "$permission_timeout"
+        if [[ -n "$cmux_claude_standard_hook_settings_value" &&
+              "$value" == "$cmux_claude_standard_hook_settings_value" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 cmux_claude_generated_hook_settings_are_safe() {
@@ -2176,7 +2168,8 @@ catch (_) { process.exit(1); }
 #   bridge is the only way its message reaches the user inside cmux. ASYNC;
 #   the handler mirrors the tool's own sent/skipped decision via
 #   tool_response.localSent.
-# - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
+# - PermissionRequest: cmux hooks feed. SYNC with a long provider guard; cmux
+#   keeps the default path's own Feed wait at roughly 120 seconds.
 #   This is Claude Code's native blocking decision hook. Outside
 #   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion
 #   without using PreToolUse denial as a side channel; under bypassPermissions it
@@ -2187,7 +2180,7 @@ catch (_) { process.exit(1); }
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"hooks":{"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"hooks":{"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":86400}]}]}}'
 if cmux_claude_collect_hook_settings "$CMUX_CLAUDE_HOOK_CMUX_BIN" \
     && cmux_claude_generated_hook_settings_are_safe "$cmux_claude_hook_settings_value"; then
     HOOKS_JSON="$cmux_claude_hook_settings_value"

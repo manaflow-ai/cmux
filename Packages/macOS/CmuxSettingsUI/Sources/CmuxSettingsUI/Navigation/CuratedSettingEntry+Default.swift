@@ -452,6 +452,17 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "feed", title: String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), synonyms: "Feed feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(
                 section: .betaFeatures,
+                id: "feed-blockingQuestions",
+                title: String(localized: "settings.feed.blockingQuestions", defaultValue: "Keep Feed requests blocking"),
+                detailText: [
+                    String(localized: "settings.feed.blockingQuestions.subtitleOff", defaultValue: "Questions and permissions use the default 120-second soft wait."),
+                    String(localized: "settings.feed.blockingQuestions.subtitleOn", defaultValue: "Questions and permissions stay pending until you answer or dismiss them."),
+                ].joined(separator: " "),
+                paths: ["feed.blockingQuestions"],
+                synonyms: String(localized: "settings.search.alias.setting.feed.blockingQuestions", defaultValue: "feed.blockingQuestions feed questions permissions blocking pending timeout soft wait")
+            ),
+            .init(
+                section: .betaFeatures,
                 id: "conversationSidebar",
                 title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
                 paths: ["sidebar.beta.conversations.enabled"],

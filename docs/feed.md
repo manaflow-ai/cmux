@@ -28,7 +28,8 @@ Anything else the agent does, including tool uses, assistant messages, session s
                               │ ─────────────────────────────│
                               │ FeedCoordinator parks the    │
                               │ hook on a semaphore keyed by │
-                              │ request_id (up to 120s).     │
+                              │ request_id (120s default;    │
+                              │ opt-in waits for a reply).   │
                               └─────────────────────┬────────┘
                                                     │
                               ┌─────────────────────▼────────┐
@@ -138,9 +139,11 @@ When Codex is launched through `cmux codex-teams`, cmux owns the private Codex a
 
 ## Timeout behavior
 
-Feed is advisory, not blocking. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This matches Vibe Island's "soft wait" model, it never freezes a workflow forever.
+Feed is advisory by default. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This preserves Vibe Island's "soft wait" model.
 
-Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seconds for blocking Feed bridge entries (Claude uses 125 seconds for PermissionRequest), so a user taking 30 seconds to approve something does not trip default 5 000 ms hook timeouts. Codex Feed hooks stay non-blocking and use a short timeout because Codex owns its own approval UI.
+Settings → Beta Features → **Keep Feed requests blocking** is off by default and is persisted in this Mac's UserDefaults. When enabled, actionable Feed questions and permission cards from a locally running agent send an explicit blocking request and remain pending until Feed answers them or that agent process exits. Relay-origin requests have no local process lifetime to watch, so they keep the existing soft deadline. The existing sidebar `Needs input` status stays attached for the lifetime of the pending card, so a request remains visible even when its terminal is not focused.
+
+The provider hook guard is longer than the default Feed wait so an opted-in request can remain connected. With the setting off, Feed still returns after the existing roughly 120-second soft wait. Codex Feed hooks stay non-blocking because Codex owns its own approval UI.
 
 ## Storage
 
@@ -168,7 +171,7 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
 
-**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
+**Agent waits on a permission request.** With **Keep Feed requests blocking** enabled, local agent requests remain pending beyond 120 seconds until answered or dismissed. Answer the card in Feed or end the agent session. With the setting off, or for relay-origin requests, Feed keeps its 120-second soft deadline. If those requests remain stuck, verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
 
 **Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, Feed rows still appear in the sidebar but no native banner is delivered.
 

@@ -1396,11 +1396,20 @@ class TerminalController {
                         message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
                     )
                 }
-                guard waitTimeout == 0 else {
+                let rawWaitUntilResolved = request.params["wait_until_resolved"]
+                if rawWaitUntilResolved != nil,
+                   Self.jsonBoolean(rawWaitUntilResolved) == nil {
                     return v2Error(
                         id: request.id,
                         code: "invalid_params",
-                        message: "feed.push without an id requires wait_timeout_seconds 0"
+                        message: "feed.push wait_until_resolved must be boolean"
+                    )
+                }
+                guard waitTimeout == 0, Self.jsonBoolean(rawWaitUntilResolved) != true else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push without an id cannot wait for a decision"
                     )
                 }
                 _ = socketWorkerV2Response(request)
@@ -1595,6 +1604,15 @@ class TerminalController {
             return nil
         }
         return seconds
+    }
+
+    private nonisolated static func jsonBoolean(_ value: Any?) -> Bool? {
+        guard let value,
+              let number = value as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            return nil
+        }
+        return number.boolValue
     }
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
@@ -6297,6 +6315,19 @@ class TerminalController {
         requiresIngestionAcknowledgment: Bool,
         automationOrigin: CmuxAutomationEventOrigin? = nil
     ) -> V2CallResult {
+        let requestedWaitUntilResolved: Bool
+        if let rawWaitUntilResolved = params["wait_until_resolved"] {
+            guard let value = Self.jsonBoolean(rawWaitUntilResolved) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "feed.push wait_until_resolved must be boolean",
+                    data: nil
+                )
+            }
+            requestedWaitUntilResolved = value
+        } else {
+            requestedWaitUntilResolved = false
+        }
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
             let seconds: Double?
@@ -6327,6 +6358,10 @@ class TerminalController {
         } else {
             waitTimeout = 0
         }
+        let waitUntilResolved = requestedWaitUntilResolved
+            && UserDefaultsSettingsClient(defaults: .standard).value(
+                for: SettingCatalog().feed.blockingQuestions
+            )
         guard params["event"] == nil || params["events"] == nil else {
             return .err(
                 code: "invalid_params",
@@ -6379,6 +6414,15 @@ class TerminalController {
                 data: nil
             )
         }
+        guard !waitUntilResolved || (
+            waitTimeout > 0 && events.count == 1 && events[0].requestId != nil
+        ) else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.push wait_until_resolved requires a request id and a positive wait timeout",
+                data: nil
+            )
+        }
         if requiresIngestionAcknowledgment && waitTimeout == 0 {
             return v2IngestAcknowledgedFeedEvents(
                 events,
@@ -6396,6 +6440,7 @@ class TerminalController {
         return v2IngestFeedEvent(
             event,
             waitTimeout: waitTimeout,
+            waitUntilResolved: waitUntilResolved,
             automationOrigin: automationOrigin
         )
     }

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -866,6 +867,82 @@ struct FeedCoordinatorTests {
         #expect(attention.events.first?.hookEventName == .permissionRequest)
     }
 
+    @Test func optedInBlockingWaiterSurvivesItsIngressDeadlineUntilAnswered() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let requestId = "opt-in-blocking-request"
+        let ingested = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                if ingestedRequestId == requestId { ingested.signal() }
+            }
+        }
+        let event = WorkstreamEvent(
+            sessionId: "opt-in-blocking-session",
+            hookEventName: .askUserQuestion,
+            source: "claude",
+            requestId: requestId,
+            ppid: Int(ProcessInfo.processInfo.processIdentifier)
+        )
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0.05,
+                waitUntilResolved: true
+            )
+            done.signal()
+        }
+
+        #expect(ingested.wait(timeout: .now() + 1) == .success)
+        #expect(done.wait(timeout: .now() + 0.2) == .timedOut)
+        FeedCoordinator.shared.deliverReply(
+            requestId: requestId,
+            decision: .question(selections: ["Keep waiting"])
+        )
+        #expect(done.wait(timeout: .now() + 1) == .success)
+        guard case .resolved(_, .question(selections: ["Keep waiting"])) = resultBox.value else {
+            Issue.record("an opted-in Feed request should remain blocking until answered")
+            return
+        }
+    }
+
+    @Test func optedInBlockingWaiterWithoutProcessIdentityKeepsSoftDeadline() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let requestId = "opt-in-untracked-request"
+        let ingested = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                if ingestedRequestId == requestId { ingested.signal() }
+            }
+        }
+        let event = WorkstreamEvent(
+            sessionId: "opt-in-untracked-session",
+            hookEventName: .askUserQuestion,
+            source: "claude",
+            requestId: requestId
+        )
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0.05,
+                waitUntilResolved: true
+            )
+            done.signal()
+        }
+
+        #expect(ingested.wait(timeout: .now() + 1) == .success)
+        #expect(done.wait(timeout: .now() + 1) == .success)
+        guard case .timedOut = resultBox.value else {
+            Issue.record("an opted-in request without a process identity must retain the soft deadline")
+            return
+        }
+    }
+
     /// Claude Code keeps its PermissionRequest hook waiting after the user
     /// answers the prompt in the terminal or the auto-mode classifier decides,
     /// so the Feed request (and the "Needs input" overlay it owns) outlived the
@@ -948,6 +1025,59 @@ struct FeedCoordinatorTests {
         }
         guard case .expired = status else {
             Issue.record("the superseded permission card must stop being actionable")
+            return
+        }
+    }
+
+    @Test(arguments: [WorkstreamEvent.HookEventName.permissionRequest, .askUserQuestion, .exitPlanMode])
+    @MainActor
+    func openCodeSessionEndRetiresWaitersWithoutNotifications(hook: WorkstreamEvent.HookEventName) throws {
+        let setting = NotificationsCatalogSection().agentPermissionPrompt
+        let previousSetting = UserDefaults.standard.object(forKey: setting.userDefaultsKey)
+        setting.set(false, in: .standard)
+        defer { UserDefaults.standard.set(previousSetting, forKey: setting.userDefaultsKey) }
+
+        let coordinator = FeedCoordinator.shared
+        let store = WorkstreamStore(ringCapacity: 10)
+        coordinator.install(store: store)
+        let requestID = UUID().uuidString
+        let sessionID = "opencode-\(UUID().uuidString)"
+        let request = WorkstreamEvent(
+            sessionId: sessionID, hookEventName: hook, source: "opencode",
+            requestId: requestID, ppid: Int(ProcessInfo.processInfo.processIdentifier),
+            extraFieldsJSON: #"{"_hook_sent_at_ms":2000}"#
+        )
+        let registration = try #require(coordinator.waiterRegistry.register(
+            requestID: requestID, event: request, waitUntilResolved: true
+        ))
+        defer {
+            _ = coordinator.waiterRegistry.finish(registration)
+            coordinator.waiterRegistry.cleanupStored(requestID: requestID, groupID: registration.groupID)
+        }
+        let item = try #require(coordinator.ingestRevalidatedOnMainActor(request))
+        coordinator.waiterRegistry.accepted(registration, event: request, item: item)
+
+        // Tool/turn progress is not proof that an OpenCode form was answered.
+        for (session, event) in [(sessionID, WorkstreamEvent.HookEventName.stop), ("opencode-other", .sessionEnd)] {
+            _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+                sessionId: session, hookEventName: event, source: "opencode",
+                extraFieldsJSON: #"{"_hook_sent_at_ms":3000}"#
+            ))
+        }
+        #expect(coordinator.isAwaitingDecision(requestId: requestID))
+
+        _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
+            sessionId: sessionID, hookEventName: .sessionEnd, source: "opencode",
+            extraFieldsJSON: #"{"_hook_sent_at_ms":4000}"#
+        ))
+        #expect(!coordinator.isAwaitingDecision(requestId: requestID))
+        guard let status = store.items.first(where: { $0.id == item.id })?.status,
+              case .expired = status else {
+            Issue.record("session end must expire the pending Feed card")
+            return
+        }
+        guard case .unavailable = coordinator.waiterRegistry.finish(registration).outcome.result else {
+            Issue.record("session end must dismiss the app waiter without a notification correlation key")
             return
         }
     }

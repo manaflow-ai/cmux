@@ -9,7 +9,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
-const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
 const createCMUXFeed = async (ctx, options = {}) => {
@@ -21,6 +20,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
   let client = null;
   let buffered = "";
   let telemetrySequence = 0;
+  let lastHookSentAtMs = 0;
   const pending = new Map();
   const messageRoles = new Map();
   const sessions = new Map();
@@ -565,8 +565,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
 
   const resolvePending = (requestId, value) => {
     if (!requestId || !pending.has(requestId)) return;
-    const resolver = pending.get(requestId);
-    resolver(value);
+    pending.get(requestId).finish(value);
   };
 
   const failPending = () => {
@@ -631,6 +630,9 @@ const createCMUXFeed = async (ctx, options = {}) => {
   };
 
   const base = (sessionId, extra) => {
+    // A session can end in the same millisecond as its final request. Preserve
+    // strict ordering so the app can retire its waiters without notifications.
+    lastHookSentAtMs = Math.max(Date.now(), lastHookSentAtMs + 1);
     const state = sessionState(sessionId);
     const context = extra?.context || contextForSession(sessionId);
     const workspaceId =
@@ -647,6 +649,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       _ppid: process.pid,
       cwd: extra?.cwd || state.cwd || ctx?.directory,
       ...extra,
+      _hook_sent_at_ms: lastHookSentAtMs,
     };
     if (workspaceId) event.workspace_id = workspaceId;
     if (surfaceId) event.surface_id = surfaceId;
@@ -712,32 +715,45 @@ const createCMUXFeed = async (ctx, options = {}) => {
   };
 
   const pushBlocking = (event, requestId) => {
+    // form.created/form.updated can share an ID. Finish the old handler before
+    // replacing it so session cleanup and socket replies reach every promise.
+    resolvePending(requestId, { status: "timed_out" });
     const reply = new Promise((resolve) => {
-      let timeout;
       const finish = (value) => {
         if (!pending.has(requestId)) return;
         pending.delete(requestId);
-        if (timeout) clearTimeout(timeout);
         resolve(value);
       };
-      pending.set(requestId, finish);
-      timeout = setTimeout(() => {
-        if (pending.has(requestId)) {
-          pending.delete(requestId);
-          resolve({ status: "timed_out" });
-        }
-      }, REPLY_TIMEOUT_MS);
-      timeout.unref?.();
+      pending.set(requestId, { finish, sessionId: event?.session_id || null });
     });
     const wrote = write({
       id: `opencode-${requestId}`,
       method: "feed.push",
-      params: { event, wait_timeout_seconds: REPLY_TIMEOUT_MS / 1000 },
+      params: {
+        event,
+        wait_timeout_seconds: 120,
+        wait_until_resolved: true,
+      },
     });
     if (!wrote) {
       resolvePending(requestId, { status: "timed_out" });
     }
     return reply;
+  };
+
+  const hasPendingForSession = (sessionId) => {
+    if (!sessionId) return false;
+    for (const waiter of pending.values()) {
+      if (waiter.sessionId === sessionId) return true;
+    }
+    return false;
+  };
+
+  const cancelPendingForSession = (sessionId) => {
+    if (!sessionId) return;
+    for (const [requestId, waiter] of pending.entries()) {
+      if (waiter.sessionId === sessionId) resolvePending(requestId, { status: "timed_out" });
+    }
   };
 
   const pushTelemetry = (event) => {
@@ -797,6 +813,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           if (!sid) break;
           if (eventProperties(event).info?.time?.archived) {
             pushTelemetry(base(sid, { hook_event_name: "SessionEnd" }));
+            cancelPendingForSession(`opencode-${sid}`);
             sessions.delete(sid);
           } else {
             pushTelemetry(base(sid, { hook_event_name: "SessionStart" }));
@@ -818,6 +835,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           pushTelemetry(base(sid, {
             hook_event_name: "SessionEnd",
           }));
+          cancelPendingForSession(`opencode-${sid}`);
           break;
         }
         case "todo.updated": {
@@ -986,6 +1004,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
     event: async ({ event, ownedSessionId }) => {
       if (!disposed) await handleEvent(event?.event || event, ownedSessionId || null);
     },
+    hasPendingForSession,
     dispose() {
       disposed = true;
       client?.destroy();

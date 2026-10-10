@@ -47,4 +47,55 @@ struct PiFeedDecodeErrorPrivacyTests {
         #expect(error["message"] as? String == "feed.push event failed to decode")
         #expect(!responseLine.contains("must-not-leak"))
     }
+
+    @Test(arguments: [0, 1])
+    func waitUntilResolvedRejectsNumericJSONValues(_ numericValue: Int) throws {
+        let request: [String: Any] = [
+            "id": "pi-feed-boolean-\(numericValue)",
+            "method": "feed.push",
+            "params": [
+                "event": [
+                    "session_id": "pi-feed-boolean",
+                    "hook_event_name": "PostToolUse",
+                    "_source": "pi",
+                ],
+                "wait_timeout_seconds": 0,
+                "wait_until_resolved": numericValue,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let responseLine = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(responseLine.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == "feed.push wait_until_resolved must be boolean")
+    }
+
+    @Test
+    func idlessFeedPushAlsoRejectsNumericWaitUntilResolved() throws {
+        let request: [String: Any] = [
+            "method": "feed.push",
+            "params": [
+                "event": [
+                    "session_id": "pi-feed-boolean",
+                    "hook_event_name": "PostToolUse",
+                    "_source": "pi",
+                ],
+                "wait_timeout_seconds": 0,
+                "wait_until_resolved": 0,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let responseLine = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(responseLine.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == "feed.push wait_until_resolved must be boolean")
+    }
 }
