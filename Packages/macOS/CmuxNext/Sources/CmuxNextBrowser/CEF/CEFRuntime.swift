@@ -322,7 +322,7 @@ final class CEFRuntime {
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
         }
-        let switches = switchSet.arguments
+        let switches = switchSet.arguments + CEFRemoteDevTools.shared.startSwitches()
         switchStorage = switches.map { strdup($0) } + [nil]
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")

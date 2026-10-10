@@ -70,6 +70,7 @@ extension CEFRuntime {
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")
+            CEFRemoteDevTools.shared.contextInitialized()
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
         case .popup:

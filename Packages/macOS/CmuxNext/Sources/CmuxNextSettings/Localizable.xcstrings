@@ -74746,6 +74746,399 @@
           }
         }
       }
+    },
+    "settings.group.iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        }
+      }
+    },
+    "settings.browser.allowIPhoneAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow cmux on iPhone to View Browser Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لـ cmux على iPhone بعرض علامات تبويب المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli cmux na iPhoneu da prikazuje kartice preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad cmux på iPhone at se browserfaner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf dem iPhone Browser-Tabs anzeigen lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que cmux en iPhone vea las pestañas del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser cmux sur iPhone à afficher les onglets du navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti a cmux su iPhone di vedere le schede del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone の cmux にブラウザタブの表示を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ cmux នៅលើ iPhone មើលផ្ទាំងកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone의 cmux에서 브라우저 탭 보기 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cmux på iPhone se nettleserfaner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwól cmux na iPhonie na wyświetlanie kart przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que o cmux no iPhone veja as abas do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить cmux на iPhone просматривать вкладки браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้ cmux บน iPhone ดูแท็บเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone'daki cmux'un tarayıcı sekmelerini görmesine izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити cmux на iPhone переглядати вкладки веб-переглядача"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép cmux trên iPhone xem các thẻ trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 上的 cmux 查看浏览器标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 上的 cmux 檢視瀏覽器分頁"
+          }
+        }
+      }
+    },
+    "settings.browser.allowIPhoneAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets cmux's iPhone app view and control Chromium tabs on this Mac. Takes effect after restarting cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لتطبيق cmux على iPhone عرض علامات تبويب Chromium على هذا الـ Mac والتحكم بها. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava cmux aplikaciji za iPhone da prikazuje i upravlja Chromium karticama na ovom Macu. Primjenjuje se nakon ponovnog pokretanja cmux-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux-appen på iPhone se og styre Chromium-faner på denne Mac. Træder i kraft, når cmux genstartes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaubt der cmux-App auf dem iPhone, Chromium-Tabs auf diesem Mac anzuzeigen und zu steuern. Wirkt nach einem Neustart von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que la app de cmux para iPhone vea y controle las pestañas de Chromium en este Mac. Se aplica al reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à l'app cmux pour iPhone d'afficher et de contrôler les onglets Chromium de ce Mac. Prend effet après le redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente all'app cmux per iPhone di vedere e controllare le schede Chromium di questo Mac. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone の cmux アプリがこの Mac の Chromium タブを表示・操作できるようにします。cmux の再起動後に有効になります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធី cmux លើ iPhone មើល និងគ្រប់គ្រងផ្ទាំង Chromium នៅលើ Mac នេះ។ មានប្រសិទ្ធភាពបន្ទាប់ពីចាប់ផ្ដើម cmux ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone용 cmux 앱이 이 Mac의 Chromium 탭을 보고 제어할 수 있게 합니다. cmux를 다시 시작하면 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux-appen på iPhone se og styre Chromium-faner på denne Macen. Trer i kraft når cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala aplikacji cmux na iPhone'a wyświetlać i sterować kartami Chromium na tym Macu. Działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o app cmux para iPhone veja e controle as abas do Chromium neste Mac. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет приложению cmux для iPhone просматривать вкладки Chromium на этом Mac и управлять ими. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้แอป cmux บน iPhone ดูและควบคุมแท็บ Chromium บน Mac เครื่องนี้ มีผลหลังจากรีสตาร์ต cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone'daki cmux uygulamasının bu Mac'teki Chromium sekmelerini görmesini ve denetlemesini sağlar. cmux yeniden başlatıldığında etkinleşir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дає змогу застосунку cmux для iPhone переглядати вкладки Chromium на цьому Mac і керувати ними. Набуває чинності після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép ứng dụng cmux trên iPhone xem và điều khiển các thẻ Chromium trên máy Mac này. Có hiệu lực sau khi khởi động lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 版 cmux 查看并控制此 Mac 上的 Chromium 标签页。重新启动 cmux 后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 版 cmux 檢視並控制這台 Mac 上的 Chromium 分頁。重新啟動 cmux 後生效。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
