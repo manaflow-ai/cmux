@@ -9,7 +9,7 @@ use crate::clock::now_ns;
 use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::fdwait::wait_readable;
 use crate::inject::Injector;
-use crate::upstream::{NoSink, Upstreams};
+use crate::upstream::{UpstreamSink, Upstreams};
 use crate::wire::{
     write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
@@ -44,6 +44,10 @@ pub struct SessionCfg {
     pub stats_every_ms: u64,
     /// Quiet time after damage before a capture (0 disables).
     pub settle_us: u64,
+    /// Development only (`--upstream-record DIR`): write the viewer's
+    /// upstream streams to files in this directory. `None` offers no
+    /// upstream media.
+    pub upstream_record: Option<std::path::PathBuf>,
 }
 
 pub struct MediaSession {
@@ -54,7 +58,7 @@ pub struct MediaSession {
     au: Vec<u8>,
     engine: MediaEngine,
     /// Upstream media the viewer opened (rd change C4).
-    upstreams: Upstreams<NoSink>,
+    upstreams: Upstreams<Box<dyn UpstreamSink>>,
     out: DatagramOut,
     /// Where the viewer's datagrams come from (UDP carrier); `None` on the stream carrier.
     peer_udp: Option<std::net::SocketAddr>,
@@ -100,6 +104,7 @@ impl MediaSession {
         out: DatagramOut,
         _peer_ip: IpAddr,
         negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
         // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
@@ -139,7 +144,7 @@ impl MediaSession {
             pic: I420::new(w as usize, h as usize),
             au: Vec::new(),
             engine,
-            upstreams: Upstreams::new(NoSink, negotiated_caps),
+            upstreams: Upstreams::new(sink, negotiated_caps),
             out,
             peer_udp,
             deferred_error: None,

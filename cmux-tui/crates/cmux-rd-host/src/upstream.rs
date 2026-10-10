@@ -43,6 +43,23 @@ impl UpstreamSink for NoSink {
     fn close(&mut self, _stream: u16) {}
 }
 
+/// The host's sink, chosen per session: no sink by default, a recording sink
+/// for development (`--upstream-record DIR`).
+impl UpstreamSink for Box<dyn UpstreamSink> {
+    fn accepts(&self, kind: StreamKind) -> bool {
+        (**self).accepts(kind)
+    }
+    fn open(&mut self, stream: u16, kind: StreamKind) -> Result<(), String> {
+        (**self).open(stream, kind)
+    }
+    fn frame(&mut self, stream: u16, frame: &CompleteFrame) {
+        (**self).frame(stream, frame)
+    }
+    fn close(&mut self, stream: u16) {
+        (**self).close(stream)
+    }
+}
+
 /// FNV-1a over the bytes of every frame of a stream, in frame order: the bench
 /// reports the same value for the frames it sent, so a run proves that the
 /// host received each sent frame once, whole and in order.
@@ -52,6 +69,135 @@ pub fn fnv1a(hash: u64, bytes: &[u8]) -> u64 {
 
 /// The FNV-1a start value.
 pub const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// Development sink (`cmux-rd host --upstream-record DIR`): accepts the
+/// viewer's microphone, camera and screen share and writes each stream to its
+/// own file in `DIR` (owner-only), so a run can check what arrived. Video is
+/// the raw Annex-B stream (`.h264`, playable by ffplay); audio is each Opus
+/// packet after a little-endian u16 length (`.opus-packets`). Off by default:
+/// the files hold the viewer's microphone and screen.
+pub struct RecordSink {
+    dir: std::path::PathBuf,
+    streams: BTreeMap<u16, Recording>,
+}
+
+struct Recording {
+    kind: StreamKind,
+    path: std::path::PathBuf,
+    file: std::io::BufWriter<std::fs::File>,
+    frames: u64,
+    bytes: u64,
+    hash: u64,
+    error: Option<String>,
+}
+
+impl RecordSink {
+    /// Creates `dir` (owner-only) when it is missing.
+    pub fn new(dir: &std::path::Path) -> std::io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        Ok(Self { dir: dir.to_path_buf(), streams: BTreeMap::new() })
+    }
+
+    fn finish(stream: u16, mut rec: Recording) {
+        use std::io::Write;
+        if let Err(e) = rec.file.flush() {
+            rec.error.get_or_insert(e.to_string());
+        }
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "upstream_recorded": {
+                    "stream": stream,
+                    "kind": format!("{:?}", rec.kind),
+                    "path": rec.path.display().to_string(),
+                    "frames": rec.frames,
+                    "bytes": rec.bytes,
+                    "fnv1a": format!("{:016x}", rec.hash),
+                    "error": rec.error,
+                }
+            })
+        );
+    }
+}
+
+impl UpstreamSink for RecordSink {
+    fn accepts(&self, kind: StreamKind) -> bool {
+        kind.is_upstream()
+    }
+
+    fn open(&mut self, stream: u16, kind: StreamKind) -> Result<(), String> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        let ext = if kind == StreamKind::UpAudio { "opus-packets" } else { "h264" };
+        let path = self.dir.join(format!("up-{millis}-{stream}.{ext}"));
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        if let Some(old) = self.streams.insert(
+            stream,
+            Recording {
+                kind,
+                path,
+                file: std::io::BufWriter::new(file),
+                frames: 0,
+                bytes: 0,
+                hash: FNV_OFFSET,
+                error: None,
+            },
+        ) {
+            Self::finish(stream, old);
+        }
+        Ok(())
+    }
+
+    fn frame(&mut self, stream: u16, frame: &CompleteFrame) {
+        use std::io::Write;
+        let Some(rec) = self.streams.get_mut(&stream) else { return };
+        let au = &frame.body.access_unit;
+        rec.frames += 1;
+        rec.bytes += au.len() as u64;
+        rec.hash = fnv1a(rec.hash, au);
+        if rec.error.is_some() {
+            return;
+        }
+        let written = if rec.kind == StreamKind::UpAudio {
+            // An Opus packet is at most 1275 bytes; a longer frame is not Opus.
+            match u16::try_from(au.len()) {
+                Ok(len) => {
+                    rec.file.write_all(&len.to_le_bytes()).and_then(|()| rec.file.write_all(au))
+                }
+                Err(_) => Err(std::io::Error::other("audio frame longer than 65535 bytes")),
+            }
+        } else {
+            rec.file.write_all(au)
+        };
+        if let Err(e) = written {
+            rec.error = Some(e.to_string());
+        }
+    }
+
+    fn close(&mut self, stream: u16) {
+        if let Some(rec) = self.streams.remove(&stream) {
+            Self::finish(stream, rec);
+        }
+    }
+}
+
+/// The sink for one session: a [`RecordSink`] in `record_dir`, else [`NoSink`].
+pub fn session_sink(
+    record_dir: Option<&std::path::Path>,
+) -> std::io::Result<Box<dyn UpstreamSink>> {
+    Ok(match record_dir {
+        Some(dir) => Box::new(RecordSink::new(dir)?),
+        None => Box::new(NoSink),
+    })
+}
 
 /// The caps a host with `sink` adds to its welcome offer.
 pub fn offered_caps(sink: &dyn UpstreamSink) -> Vec<&'static str> {
