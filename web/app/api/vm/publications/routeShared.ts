@@ -121,7 +121,13 @@ export function publicationForwardAuthConfig(
 ): PublicationForwardAuthConfig | undefined {
   const serviceToken = environment.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET?.trim();
   if (!serviceToken) return undefined;
-  const origin = normalizePublicationAuthOrigin(environment.CMUX_VM_PUBLICATION_AUTH_ORIGIN);
+  // A development stack the edge cannot reach sets a separate public origin
+  // for the edge alone; browsers still sign in on the auth origin. A set but
+  // malformed override fails closed instead of falling back.
+  const override = environment.CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN?.trim();
+  const origin = normalizePublicationAuthOrigin(
+    override || environment.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+  );
   return {
     url: origin ? new URL("/api/freestyle/forward-auth", origin).href : "",
     serviceToken,
