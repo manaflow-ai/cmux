@@ -54,6 +54,7 @@ pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
+pub(crate) mod project_sources;
 pub(crate) mod projects;
 pub(crate) mod projects_ops;
 pub(crate) mod projects_store;

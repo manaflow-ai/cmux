@@ -24,9 +24,9 @@ enum HomeMarkdownPolicy {
             guard !was else { return }
             was = true
             // Only http, https and mailto become links, and one app form: a Chief
-            // subagent's link (HomeAppLinks), which a click hands to the app.
+            // subagent's link (URL.isChiefSubagentLink), which a click hands to the app.
             MarkdownLinkPolicy.extraSchemes = []
-            MarkdownLinkPolicy.extraRule = HomeAppLinks.isSubagentLink
+            MarkdownLinkPolicy.extraRule = { $0.isChiefSubagentLink }
             MarkdownImages.provider = images
         }
     }
@@ -37,13 +37,10 @@ enum HomeMarkdownPolicy {
 /// home id 8 lowercase hex digits, session id 1 to 200 of `A-Za-z0-9-_.`; no user, port,
 /// query or fragment). A click never goes to the system: the host's `onAppLink` runs it
 /// (the app's `link.open`, for its own Chief's subagents only).
-public struct HomeAppLinks {
-    public init() {}
-    public static let scheme = "cmux"
-
-    /// Whether `url` is a Chief subagent link (Home makes it a link and a click opens it in the app).
-    public static func isSubagentLink(_ url: URL) -> Bool {
-        guard url.scheme == scheme, let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
+extension URL {
+    /// Whether this URL is a Chief subagent link (Home makes it a link and a click opens it in the app).
+    public var isChiefSubagentLink: Bool {
+        guard scheme == "cmux", let c = URLComponents(url: self, resolvingAgainstBaseURL: false),
               c.user == nil, c.password == nil, c.port == nil, c.query == nil, c.fragment == nil,
               c.host == "chief" else { return false }
         let parts = c.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)

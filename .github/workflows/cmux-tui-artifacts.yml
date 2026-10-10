@@ -612,13 +612,18 @@ jobs:
           status=1
           for attempt in 1 2 3; do
             rm -f "$RUNNER_TEMP/cmux-next-tests.txt"
-            if cargo test "${members[@]}" --locked cmux_next_ -- --list > "$RUNNER_TEMP/cmux-next-tests.txt" \
-              && grep -qE ': test$' "$RUNNER_TEMP/cmux-next-tests.txt" \
-              && cargo test "${members[@]}" --locked cmux_next_; then
-              status=0
-              break
+            # One cargo invocation: a separate `-- --list` pass rebuilt acpmux and
+            # cmux-tui before the real run (2m39s, run 38014219284). The filter
+            # must still match tests: a run that passed none is red.
+            status=0
+            cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$RUNNER_TEMP/cmux-next-tests.txt" || status=$?
+            if [[ "$status" -eq 0 ]]; then
+              if grep -qE 'test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/cmux-next-tests.txt"; then
+                break
+              fi
+              echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)" >&2
+              exit 1
             fi
-            status=$?
             if [[ "$attempt" -lt 3 ]]; then
               echo "cmux_next_ daemon tests failed on attempt $attempt/3; retrying Cargo registry and build fetches" >&2
               sleep $((attempt * 10))
