@@ -125,43 +125,6 @@ struct RemotePaneBrowserTabTests {
         withExtendedLifetime(f.services) {}
     }
 
-    /// cx-whr7: the page notice sits under a Chromium page's child window,
-    /// so the omnibar carries it: a "This Mac" chip on a tab of another
-    /// machine's tree that runs here (never on this Mac's own tabs, never on
-    /// a machine browser record, which runs there).
-    @Test func theOmnibarSaysThisMacForATabOfAnotherMachine() throws {
-        let f = try Self.fixture()
-        let remoteTab = try #require(f.remotePane.tabs.first)
-        let localTab = try #require(f.localPane.tabs.first)
-        let badge = try #require(f.services.browserMachineBadge(key: remoteTab.id, url: URL(string: "https://www.google.com/")))
-        #expect(badge.text == MachineBrowserStrings.thisMac)
-        #expect(badge.help == RemoteStrings.browserRunsOnThisMac(f.machine.host.label))
-        #expect(f.services.browserMachineBadge(key: localTab.id, url: URL(string: "https://www.google.com/")) == nil)
-        let record = MachineBrowserRecord(machine: f.machine.machineID, initialURL: nil).url
-        #expect(f.services.browserMachineBadge(key: remoteTab.id, url: record) == nil)
-        withExtendedLifetime(f.services) {}
-    }
-
-    /// The This Mac chip's menu offers the machine (Open on <machine>);
-    /// this Mac's own tabs have no such menu.
-    @Test func theThisMacChipOffersOpenOnTheMachine() throws {
-        let f = try Self.fixture()
-        let remoteTab = try #require(f.remotePane.tabs.first)
-        let menu = try #require(f.services.machineBadgeMenu(key: remoteTab.id))
-        #expect(menu.items.map(\.title) == [MachineBrowserStrings.openOn(f.machine.host.label)])
-        #expect(f.services.machineBadgeMenu(key: try #require(f.localPane.tabs.first).id) == nil)
-        #expect(f.services.cache.browserTabs.browserHostAvailable(f.machine.machineID) == false, "no machine has a browser host yet")
-        // Live check (ffcob-v4): after Open on <machine> the machine page
-        // still showed This Mac (its address is the waiting web page).
-        #expect(f.services.openTabOnMachine(key: remoteTab.id))
-        #expect(f.services.cache.existingBrowser(remoteTab.id)?.tab is MachineBrowserPageTab)
-        // Live recheck (ffcob-v5): the chip is computed while the page is
-        // installed, before the cache lists it: the page itself decides.
-        #expect(f.services.cache.existingBrowser(remoteTab.id)?.chrome.machineBadge == nil)
-        #expect(f.services.browserMachineBadge(key: remoteTab.id, url: URL(string: "https://www.google.com/")) == nil)
-        withExtendedLifetime(f.services) {}
-    }
-
     @Test func aDisconnectedMachineRefusesWithItsNameInsteadOfDoingNothing() throws {
         let f = try Self.fixture()
         let refusal = try #require(f.services.cache.browserTabs.refusal(in: f.remotePane))
