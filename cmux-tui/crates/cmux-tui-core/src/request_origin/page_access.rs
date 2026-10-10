@@ -213,6 +213,13 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
+        | Op::SettingsSchema
+        | Op::SettingsList
+        | Op::SettingsGet
+        | Op::SettingsSnapshot
+        | Op::SettingsSet
+        | Op::SettingsReset
+        | Op::SettingsResetAll
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
