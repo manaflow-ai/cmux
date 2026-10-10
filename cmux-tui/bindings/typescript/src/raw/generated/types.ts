@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b. */
+/* cmux-tui mux protocol 12, IR b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -30,7 +30,7 @@ export type AgentReportSource = "socket" | "hook";
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
-  /** install: and the stable install id of the machine whose acpmux runs the session. */
+  /** install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it. */
   "host": string;
   /** Display name of the host machine: 1 to 255 bytes, no control characters. */
   "host_name"?: (string) | null;
@@ -196,6 +196,7 @@ export type ColorHex = string;
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+  "role"?: (string) | null;
 };
 
 export type ConversationChange = {
@@ -629,6 +630,15 @@ export type PaneNeighborResult = {
 /** Opaque JSON: A pane named by its numeric id or its public pane_ id. */
 export type PaneRef = JsonValue;
 
+export type PaneSurfaceResult = {
+  "pane_id"?: (string) | null;
+  "replayed"?: (boolean) | null;
+  "surface": Id;
+  "tab_id"?: (string) | null;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
+
 export type PingResult = {
   "build_commit"?: (string) | null;
   "ghostty_commit"?: (string) | null;
@@ -911,12 +921,42 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsResourceProjection = {
+  "commit_apply_us": ServerStatsHistogram;
+  "commit_journal_us": ServerStatsHistogram;
+  "commit_prune_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "commits": bigint;
+  "crosscheck_mismatches": bigint;
+  "crosschecks": bigint;
+  "diff_us": ServerStatsHistogram;
+  "full_projections": bigint;
+  "index_us": ServerStatsHistogram;
+  "journaled_changes": ServerStatsHistogram;
+  "projected_changes": ServerStatsHistogram;
+  "projections": bigint;
+  "read_us": ServerStatsHistogram;
+  "scope_fallbacks": bigint;
+  "scoped_projections": bigint;
+  "written_changes": ServerStatsHistogram;
+};
+
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;
+  "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsWritePath = {
+  "effect_intent_batches": bigint;
+  "effect_intent_failures": bigint;
+  "effect_intents": bigint;
+  "request_effect_commits": bigint;
+  "writer_registry_locks": bigint;
 };
 
 export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
@@ -970,7 +1010,7 @@ export type SizeDetachActor = {
   "user_id"?: (string) | null;
 };
 
-export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "unknown";
+export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "linux" | "windows" | "unknown";
 
 export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
 

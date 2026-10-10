@@ -588,10 +588,11 @@ export function createReferenceHost(ns, { host, driver }) {
 
   const vmCalls = [];
   // frame.observe with the final redaction rule: in snapshot, read,
-  // describe and strictError results every sensitive value of that frame
+  // readBounded, readAllBounded, documentHTML, describe and strictError
+  // results every sensitive value of that frame
   // shows as "********" (a value of 4+ characters wherever it occurs, a
   // shorter one only as a whole string).
-  const REDACTED = new Set(["snapshot", "read", "describe", "strictError"]);
+  const REDACTED = new Set(["snapshot", "read", "readBounded", "readAllBounded", "documentHTML", "describe", "strictError"]);
   async function observe(params) {
     const result = maskValue(await driver.call("frame.observe", params));
     if (!REDACTED.has(params.method)) return result;

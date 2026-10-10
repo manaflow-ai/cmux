@@ -1,6 +1,10 @@
 import CommonCrypto
 public import Foundation
 
+// CMUX_NO_PASSWORD_IMPORT (set only by the cx-f58x notary test build,
+// nightly.yml input notary_test_without_password_import) compiles out the
+// browser password readers. Default builds include them.
+#if !CMUX_NO_PASSWORD_IMPORT
 /// Chromium's password encryption on macOS: the same OSCrypt scheme as its
 /// cookies (`ChromiumCookieCrypto`): PBKDF2-HMAC-SHA1 of the
 /// "<Name> Safe Storage" Keychain password, salt "saltysalt", 1003
@@ -27,8 +31,9 @@ public struct ChromiumPasswordCrypto: Sendable {
                                      salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003,
                                      out.baseAddress?.assumingMemoryBound(to: UInt8.self), kCCKeySizeAES128)
             }
-            precondition(status == kCCSuccess, "PBKDF2 with fixed parameters cannot fail")
-            return kCCKeySizeAES128
+            // An empty key never decrypts: decrypt and encrypt then throw
+            // `undecryptable` (CCCrypt refuses the key length) instead of the process trapping.
+            return status == kCCSuccess ? kCCKeySizeAES128 : 0
         }
     }
 
@@ -41,7 +46,7 @@ public struct ChromiumPasswordCrypto: Sendable {
         guard !body.isEmpty, body.count % kCCBlockSizeAES128 == 0 else { throw .undecryptable }
         let plain = try crypt(CCOperation(kCCDecrypt), body)
         // Chromium saves passwords as UTF-8; anything else is a key that happened to leave valid padding.
-        guard plain.withUnsafeBytes(Self.isUTF8) else { throw .undecryptable }
+        guard plain.withUnsafeBytes({ $0.isValidUTF8 }) else { throw .undecryptable }
         return plain
     }
 
@@ -70,13 +75,16 @@ public struct ChromiumPasswordCrypto: Sendable {
         guard status == kCCSuccess else { throw .undecryptable }
         return output
     }
+}
+#endif
 
+extension UnsafeRawBufferPointer {
     /// Checks in place: the bytes never become a `String`.
-    static func isUTF8(_ bytes: UnsafeRawBufferPointer) -> Bool {
+    var isValidUTF8: Bool {
         var decoder = UTF8()
-        var iterator = bytes.makeIterator()
-        // Each step reads at least one byte, so this ends within `bytes.count` steps.
-        for _ in 0...bytes.count {
+        var iterator = makeIterator()
+        // Each step reads at least one byte, so this ends within `count` steps.
+        for _ in 0...count {
             switch decoder.decode(&iterator) {
             case .scalarValue: continue
             case .emptyInput: return true

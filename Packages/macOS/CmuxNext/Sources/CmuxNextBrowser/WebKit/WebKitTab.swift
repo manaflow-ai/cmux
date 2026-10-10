@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 public import Foundation
 public import Observation
 public import WebKit
@@ -41,9 +42,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
-    @ObservationIgnored private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
+    @ObservationIgnored public let mainFrameStatuses = MainFrameStatuses()
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
@@ -306,7 +308,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     var hasDelegate: Bool { delegate != nil }
 
     func makeChildTab(configuration: WKWebViewConfiguration) -> WebKitTab? {
-        engine?.makeWebKitTab(BrowserTabConfiguration(profile: profileID), webViewConfiguration: configuration)
+        engine?.makeWebKitTab(profile: profileID, webViewConfiguration: configuration)
     }
 
     var downloadsDirectory: URL {
@@ -343,23 +345,23 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     private func observeWebView() {
         observations = [
-            webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.apply(.urlChanged(webView.url)) }
+            webView.observe(\.url, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.apply(.urlChanged(webView.url)) }
             },
-            webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.apply(.titleChanged(webView.title)) }
+            webView.observe(\.title, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.apply(.titleChanged(webView.title)) }
             },
-            webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.apply(.progress(webView.estimatedProgress)) }
+            webView.observe(\.estimatedProgress, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.apply(.progress(webView.estimatedProgress)) }
             },
-            webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.syncHistory() }
+            webView.observe(\.canGoBack, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.syncHistory() }
             },
-            webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.syncHistory() }
+            webView.observe(\.canGoForward, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.syncHistory() }
             },
-            webView.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.syncSecurity() }
+            webView.observe(\.hasOnlySecureContent, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.syncSecurity() }
             },
         ]
     }

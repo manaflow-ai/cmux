@@ -119,7 +119,8 @@ export function useFolderTrustAsk(
         if (!isTrustRefusal(error)) return false;
         const named = (error as { cwd?: unknown }).cwd;
         if (typeof named === "string" && named) setRefusal({ sessionId, cwd: named });
-        resend.current = again;
+        // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
+        if (again) resend.current = again;
         setReads((count) => count + 1);
         return true;
       },

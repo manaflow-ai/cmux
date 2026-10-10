@@ -1,5 +1,5 @@
-// R82 commit 4: the Swift window's last cards are drawn by the page. The theme picker sets the theme
-// of one level of the active window (and offers a typed spec the host accepts), the wallpaper grid
+// R82 commit 4: the Swift window's last cards are drawn by the page (the Theme section has its own
+// test, themeStudio.test.tsx). The wallpaper grid
 // writes appearance.background behind the experimental switch, Terminal shows the Ghostty facts,
 // and Advanced shows the settings file and every problem of the last load.
 import { act } from "react";
@@ -8,39 +8,17 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle, changeValue } = await import("./testing");
+const { renderPage, settle } = await import("./testing");
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
 
-test("the theme picker sets one level of the active window", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
-  const card = page.container.querySelector<HTMLElement>('[data-card="theme"]')!;
-  expect(card.textContent).toContain("Use Ghostty Config");
-  const workspace = card.querySelector<HTMLInputElement>('input[value="workspace"]')!;
-  await act(async () => workspace.click());
-  const dracula = [...card.querySelectorAll<HTMLButtonElement>(".theme-choice")].find(
-    (b) => b.textContent === "Dracula",
-  )!;
-  expect(dracula.getAttribute("aria-pressed")).toBe("true");
-  const tokyo = [...card.querySelectorAll<HTMLButtonElement>(".theme-choice")].find(
-    (b) => b.textContent === "Tokyo Night",
-  )!;
-  await act(async () => tokyo.click());
-  await settle();
-  expect(runs(page, "cmux.settings.theme.set")).toEqual([{ level: "workspace", spec: "Tokyo Night" }]);
-  await changeValue(card.querySelector<HTMLInputElement>("input.field")!, "light:Dracula,dark:Tokyo Night");
-  await settle();
-  expect(card.textContent).toContain("light:Dracula,dark:Tokyo Night");
-  page.unmount();
-});
-
 test("the wallpaper grid shows behind the experimental switch and writes appearance.background", async () => {
-  const hidden = await renderPage({ path: "/settings/appearance" });
+  const hidden = await renderPage({ path: "/settings/experimental" });
   expect(hidden.container.querySelector('[data-card="backdrop"]')).toBeNull();
   hidden.unmount();
   const page = await renderPage({
-    path: "/settings/appearance",
+    path: "/settings/experimental",
     mock: { values: { "appearance.experimentalControls": true } },
   });
   const grid = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;

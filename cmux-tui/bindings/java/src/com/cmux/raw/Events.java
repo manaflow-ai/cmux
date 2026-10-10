@@ -24,6 +24,8 @@ public final class Events {
     public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_MUX_RESYNCED = new EventMetadata("cloud-mux-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_MUX_WAKE = new EventMetadata("cloud-mux-wake", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_SESSION_NEEDED = new EventMetadata("cloud-session-needed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_SUBSCRIPTION_STATE = new EventMetadata("cloud-subscription-state", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
@@ -95,6 +97,8 @@ public final class Events {
         values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
         values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
         values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
+        values.put("cloud-mux-resynced", CLOUD_MUX_RESYNCED);
+        values.put("cloud-mux-wake", CLOUD_MUX_WAKE);
         values.put("cloud-session-needed", CLOUD_SESSION_NEEDED);
         values.put("cloud-subscription-state", CLOUD_SUBSCRIPTION_STATE);
         values.put("colors-changed", COLORS_CHANGED);

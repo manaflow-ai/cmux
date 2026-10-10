@@ -4,12 +4,15 @@
  * gdp-ts proofs in src/proofs/ right where the result is needed.
  */
 import { HttpServerRequest } from "@effect/platform";
+import { name } from "@gdp-ts/core";
 import { Clock, Effect, Layer, Option, Redacted } from "effect";
 import { Authentication } from "../api.ts";
 import { ApiKeyStore } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import { SESSION_SCOPES, scopeSetOf } from "../domain/scopes.ts";
 import { Forbidden, type ServiceUnavailable, Unauthorized, unavailable } from "../errors.ts";
+import { serviceMayActFor, servicePrincipal } from "../proofs/service-may-act-for.ts";
+import { ServiceKeys, type ServiceKey } from "./service-keys.ts";
 import {
   API_KEY_PREFIX,
   decodeTenantId,
@@ -29,12 +32,33 @@ export const authenticationLayer = Layer.effect(
     const sessions = yield* SessionVerifier;
     const membership = yield* TeamMembership;
     const apiKeys = yield* ApiKeyStore;
+    const serviceKeys = yield* ServiceKeys;
 
-    const fromApiKey = (key: string): Effect.Effect<Principal, Unauthorized | ServiceUnavailable> =>
+    /** A service key acts only for the team its request names, and only when its team list allows that team. */
+    const fromServiceKey = (
+      key: ServiceKey,
+    ): Effect.Effect<Principal, Unauthorized | Forbidden, HttpServerRequest.HttpServerRequest> =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const tenant = decodeTenantId(request.headers[TEAM_HEADER]);
+        if (Option.isNone(tenant)) return yield* Effect.fail(unauthorized("Service keys must name a team in the X-Cmux-Team-Id header"));
+        return yield* name(key, tenant.value, (service, team) => {
+          const proof = serviceMayActFor(service, team);
+          return proof === null
+            ? Effect.fail(new Forbidden({ message: "This service key may not act for this team" }))
+            : Effect.succeed(servicePrincipal(service, team, proof));
+        });
+      });
+
+    const fromApiKey = (
+      key: string,
+    ): Effect.Effect<Principal, Unauthorized | Forbidden | ServiceUnavailable, HttpServerRequest.HttpServerRequest> =>
       Effect.gen(function* () {
         if (!isApiKeyShaped(key)) return yield* Effect.fail(unauthorized());
         const now = new Date(yield* Clock.currentTimeMillis);
         const hash = yield* hashApiKey(key);
+        const service = yield* serviceKeys.find(hash);
+        if (Option.isSome(service)) return yield* fromServiceKey(service.value);
         const record = yield* apiKeys.findActiveByHash(hash, now).pipe(
           Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: error.operation }))),
           Effect.mapError(() => unavailable()),

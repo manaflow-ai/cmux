@@ -49,6 +49,8 @@ public protocol OnboardingServices: AnyObject {
     // Classic cmux session import
     var canImportClassicSessions: Bool { get }
     func scanClassicSessions() async -> [ClassicSessionWorkspace]
+    /// The chat ids (`AgentChat.id`) classic cmux had open in its terminals.
+    func scanClassicOpenChats() async -> Set<String>
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace])
     /// The user's home folder (where the privacy-guarded folders are).
     var homeDirectory: URL { get }
@@ -73,6 +75,15 @@ public protocol OnboardingServices: AnyObject {
     /// (the step is left out then).
     var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
 
+    // Number keys (Ctrl-1…9)
+    /// Whether the first run offers the Ctrl-1…9 choice (`TabKeysStepModel`).
+    var offersTabKeys: Bool { get }
+    /// What Ctrl-1…9 select in cmux.json now; nil when the person bound
+    /// them by hand.
+    func currentTabKeys() async -> TabKeysChoice?
+    /// Writes `choice` to cmux.json (bindings set by hand stay).
+    func applyTabKeys(_ choice: TabKeysChoice)
+
     // Accounts
     /// Whether the App supplies the accounts step (`makeAccountsStepView`).
     var hasAccountsStep: Bool { get }
@@ -87,19 +98,27 @@ public protocol OnboardingServices: AnyObject {
     // Lifecycle
     /// The window closed; `completed` is false when the user skipped.
     func onboardingDidEnd(completed: Bool)
-    /// The first run is at `step` (shown, or moved to): the App keeps it, so
-    /// a relaunch or a rebuilt window resumes there.
-    func onboardingDidReach(_ step: OnboardingModel.Step)
+    /// The first run is at `step`: the App keeps it, so a relaunch or a
+    /// rebuilt window resumes there. `interacted` is false when the window
+    /// only showed the step (opened or resumed), true when the person moved to it.
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool)
+    /// The first-run window closed without Skip or Done. `notNow` is true
+    /// when the person closed it (the close button), false when the App did.
+    func onboardingDidLeave(notNow: Bool)
 }
 
 public extension OnboardingServices {
-    func onboardingDidReach(_ step: OnboardingModel.Step) {}
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {}
+    func onboardingDidLeave(notNow: Bool) {}
     var canRunFirstTask: Bool { false }
     var firstTaskFolder: FirstTaskFolder { .live() }
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? { nil }
     func revealInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
+    var offersTabKeys: Bool { false }
+    func currentTabKeys() async -> TabKeysChoice? { .tabs }
+    func applyTabKeys(_ choice: TabKeysChoice) {}
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func makeAccountsStepView() -> NSView? { nil }
@@ -114,6 +133,9 @@ public extension OnboardingServices {
     func scanClassicSessions() async -> [ClassicSessionWorkspace] {
         await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
     }
+    func scanClassicOpenChats() async -> Set<String> {
+        await Task.detached { (try? ClassicSessionImporter().readOpenChats()) ?? [] }.value
+    }
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {}
     var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }
 }
@@ -121,7 +143,10 @@ public extension OnboardingServices {
 /// System Settings deep links.
 public extension URL {
     /// Privacy & Security > Full Disk Access.
-    static let systemSettingsFullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+    /// (Literals a test parses; /dev/null stands in rather than a trap.)
+    static let systemSettingsFullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        ?? URL(fileURLWithPath: "/dev/null")
     /// Desktop & Dock (the default web browser menu).
-    static let systemSettingsDefaultBrowser = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!
+    static let systemSettingsDefaultBrowser = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")
+        ?? URL(fileURLWithPath: "/dev/null")
 }

@@ -12,6 +12,11 @@
       "notices": ["section:manual-sparkle"]
     },
     {
+      "path": "Contents/Frameworks/Sentry.framework/*",
+      "what": "Sentry Cocoa SDK (dynamic; crash and exception reports, cx-urd.58)",
+      "notices": ["section:manual-sentry-cocoa"]
+    },
+    {
       "path": "Contents/Frameworks/Iroh.framework/*",
       "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision; in Release a stub, its code is merged into Contents/MacOS/cmux (a Mach-O that names rustc std paths without rust-std fails)",
       "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]

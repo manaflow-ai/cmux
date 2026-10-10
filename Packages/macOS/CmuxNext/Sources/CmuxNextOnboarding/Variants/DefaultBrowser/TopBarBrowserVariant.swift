@@ -42,11 +42,11 @@ struct TopBarBrowser: OnboardingScreenVariant {
 
 final class TopBarBrowserBody: BrowserClaimView {
     private let status = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary, lines: 2)
-    private var button: NSButton!
+    private lazy var button: NSButton = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, prominent: true, target: self, action: #selector(requestClaim))  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        button = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, prominent: true, target: self, action: #selector(requestClaim))
+        _ = button  // built here, as before
         status.alignment = .center
         let stack = NSStackView(views: [button, status])
         stack.orientation = .vertical

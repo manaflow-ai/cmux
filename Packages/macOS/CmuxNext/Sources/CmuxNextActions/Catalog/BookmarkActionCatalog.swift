@@ -64,6 +64,14 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
                             ActionArgument(name: "url", title: t("argument.bookmark.url", "URL"), kind: .string, isRequired: false)],
                 targets: [.bookmark], cliName: "bookmark edit"
             ),
+            // Chrome's bookmark menu copies a bookmark's address (cx-k9go). A
+            // folder has none, so its menu leaves the row out.
+            ActionDescriptor(
+                id: "bookmark.copyLink", title: t("action.bookmark.copyLink", "Copy Bookmark Link"),
+                keywords: ["bookmark", "copy", "link", "url", "address", "clipboard"], category: .browser, symbol: "link",
+                surfaces: [.palette, .contextMenu], arguments: [query], targets: [.bookmark],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.bookmark, .inspect, 150)])
+            ),
             ActionDescriptor(
                 id: "bookmark.move", title: t("action.bookmark.move", "Move Bookmark…"),
                 keywords: ["bookmark", "folder", "reorder", "move"], category: .browser, symbol: "arrow.up.arrow.down",
@@ -94,6 +102,18 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
                 keywords: ["bookmark", "import", "html", "netscape", "chrome", "safari", "firefox"], category: .browser,
                 symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard, .menu], arguments: [path, profile],
                 cliName: "bookmark import", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "bookmark.importFromBrowser", title: t("action.bookmark.importFromBrowser", "Import Bookmarks from Browser…"),
+                keywords: ["bookmark", "import", "browser", "chrome", "safari", "firefox", "arc", "brave", "edge", "dia", "zen", "helium", "comet"],
+                category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .keyboard, .menu],
+                arguments: [
+                    ActionArgument(name: "browser", title: t("argument.bookmark.browser", "Browser"), kind: .string, isRequired: false),
+                    ActionArgument(name: "source", title: t("argument.bookmark.sourceProfile", "Profile to Import"), kind: .string,
+                                   isRequired: false),
+                    profile,
+                ],
+                cliName: "bookmark import-from-browser", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "bookmark.export", title: t("action.bookmark.export", "Export Bookmarks…"),

@@ -186,8 +186,7 @@ completions) and `layer.<keyPath>.<token>` (Core Animation completions).
 `debug.frames` records display-link frame intervals and `debug.hangs` main
 thread stalls over 50 ms. Tests: `MotionTokenTests` (token ranges, normal,
 off, Reduce Motion), `MotionInterruptionTests` (midway retarget of a spring
-and of layer animations starts from the presented value), tab `SpringTests`
-(pointer follow and release velocity), `AnimationSpeedSettingsTests`.
+and of layer animations starts from the presented value), `AnimationSpeedSettingsTests`.
 
 ### Results (tag nxmot, 2026-09-30, MacBook Pro 120 Hz, fleet-free local build)
 

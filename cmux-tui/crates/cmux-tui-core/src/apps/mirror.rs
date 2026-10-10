@@ -127,9 +127,11 @@ impl Facts {
 }
 
 /// Elevated scopes (scope-classes.json): never granted at install, for any
-/// tier; only an explicit user grant (origin user) adds one.
+/// tier; only an explicit user grant (origin user) adds one. A scope the
+/// table does not know (or every scope, if the embedded table failed to
+/// load) counts as elevated: fail closed.
 pub fn is_elevated(scope: &str) -> bool {
-    cmux_app_manifest::scope_info(scope).is_some_and(|info| info.class == ScopeClass::Elevated)
+    cmux_app_manifest::scope_info(scope).is_none_or(|info| info.class == ScopeClass::Elevated)
 }
 
 /// `<family>:read` and `integration:<provider>:read`.

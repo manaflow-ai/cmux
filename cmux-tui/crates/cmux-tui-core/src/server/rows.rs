@@ -51,8 +51,14 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         frontend_shell(mux, client),
     )?;
     let size = optional_surface_size(cols, rows);
-    let surface =
-        mux.new_row_with_options(pane, height_permille, spawn, size, transaction.clone())?;
+    let surface = mux.new_row_with_options_as(
+        &origin_gate::connection_actor(mux, client),
+        pane,
+        height_permille,
+        spawn,
+        size,
+        transaction.clone(),
+    )?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
     result["pane"] = json!(mux.with_state(|state| state.pane_of(surface.id)));
     if let Some(transaction) = transaction {
@@ -86,7 +92,8 @@ pub(super) fn set_row_heights(
     let SetRowHeightsParams { column, heights, fit, transaction } = params;
     let heights = heights.iter().map(|entry| (entry.row, entry.height)).collect::<Vec<_>>();
     let scoped = transaction.map(|transaction| (client, transaction));
-    let outcome = mux.set_row_heights(column, &heights, fit, scoped)?;
+    let actor = origin_gate::connection_actor(mux, client);
+    let outcome = mux.set_row_heights_as(&actor, column, &heights, fit, scoped)?;
     let mut data =
         json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed});
     if let Some(transaction) = transaction {

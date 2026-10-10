@@ -77,7 +77,8 @@ final class CommandHistory {
     /// the capability. Concurrent calls share one read.
     func refresh() async {
         if let refreshing { return await refreshing.value }
-        let task = Task { await readAll() }
+        // The owner's daemons are read before the first suspension, so a weak capture is enough.
+        let task = Task { [weak self] in _ = await self?.readAll() }
         refreshing = task
         await task.value
         refreshing = nil

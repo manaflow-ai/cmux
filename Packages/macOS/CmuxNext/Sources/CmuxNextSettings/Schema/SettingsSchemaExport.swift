@@ -7,6 +7,9 @@ public import Foundation
 /// `schemas/settings/settings-schema.json`; `SettingsSchemaExportTests`
 /// fails when it is stale (`CMUX_UPDATE_ACTION_SURFACES=1` rewrites it).
 ///
+/// `page` is the Settings page layout (categories, group cards, their order
+/// and titles), so the web page and the GPUI client draw the same page.
+///
 /// Every text carries its string catalog key beside the English text, so a
 /// client localizes from the same xcstrings files the app uses. Every row
 /// carries values the Swift validator accepts and refuses, so another
@@ -43,15 +46,39 @@ public struct SettingsSchemaExport {
             ["id": section.rawValue, "title": text(section.title, section.titleKey), "symbol": section.symbol]
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
+        let page = page(text: text)
         let rowsData = Data(try DeterministicJSON().string(rows, pretty: false).utf8)
         let document: [String: Any] = [
             "version": version,
             "schema_hash": SettingsSchemaHash.hex(rowsData),
             "sections": sections,
+            "page": page,
             "rows": rows,
         ]
         guard missing.isEmpty else { throw MissingKeys(keys: missing.sorted()) }
         return try DeterministicJSON().string(document, pretty: true) + "\n"
+    }
+
+    /// The Settings page layout (`SettingsPageLayout`): categories in order,
+    /// each with its group cards and the row keys of every card, resolved
+    /// here so a client draws it without the claim rules.
+    nonisolated func page(text: (String, String?) -> [String: Any]) -> [String: Any] {
+        let categories: [[String: Any]] = SettingsPageLayout().categories().map { category in
+            let spec = category.spec
+            return [
+                "id": spec.id,
+                "title": text(spec.title.text, spec.title.key),
+                "symbol": spec.symbol,
+                "groups": category.groups.map { group in
+                    ["key": group.key, "title": text(group.title.text, group.title.key), "rows": group.rows] as [String: Any]
+                },
+                "lead": spec.lead.map(\.rawValue),
+                "trail": spec.trail.map(\.rawValue),
+                "actions": spec.actions.map(\.rawValue),
+                "aliases": spec.aliases.map(\.rawValue),
+            ]
+        }
+        return ["default_category": SettingsPageLayout.defaultCategory, "categories": categories]
     }
 
     nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
@@ -111,7 +138,9 @@ public struct SettingsSchemaExport {
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
         // value domain the app publishes, not a fixed rule.
-        if descriptor.path == BackdropSelectionSetting().configPath {
+        if descriptor.path == ChatSettings.rootsPath {
+            row["validation"] = "domain:chat_roots"
+        } else if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
         } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
             // Portable: a web address that contains %s or {searchTerms}, or empty.

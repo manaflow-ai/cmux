@@ -18,8 +18,15 @@ MAX_MEMBERS = 1_024
 # size budget (each install downloads exactly one platform package via
 # optionalDependencies). 512 MiB became too small once the Rust relay
 # binaries (chatmux-relay, cmux-relay) started riding every platform
-# package.
-MAX_EXPANDED_BYTES = 768 * 1024 * 1024
+# package. 768 MiB became too small on feat-cmux-next once cmux-tui
+# linked the in-process daemon (cmux-server, acpmux, cmux-app-host,
+# cmux-host): the stripped Linux x64 cmux-tui grew from 42 MB to 79 MB
+# (.text 33 MB -> 60 MB), and every cmux-tui binary ships twice (in
+# cmux-tui-<platform> and beside chatmux-relay in cmux-relay-<platform>)
+# for five platforms. Measured aggregate: 473 MB at main ce6be93cf232,
+# 819 MB at feat-cmux-next 04d120ef87f4. 1.5 GiB keeps ~2x headroom and
+# still refuses a decompression bomb long before it fills a runner disk.
+MAX_EXPANDED_BYTES = 1536 * 1024 * 1024
 
 
 def verify_executables(packages_dir: Path) -> None:
@@ -116,7 +123,10 @@ def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
         member.mode &= 0o777
         expanded_bytes += member.size
         if expanded_bytes > MAX_EXPANDED_BYTES:
-            raise SystemExit("npm package archive exceeds expanded size limit")
+            raise SystemExit(
+                "npm package archive exceeds expanded size limit "
+                f"({MAX_EXPANDED_BYTES} bytes)"
+            )
     return members
 
 

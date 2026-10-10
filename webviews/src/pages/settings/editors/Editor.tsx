@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
 import { ColorEditor } from "./ColorEditor";
 import { DomainListEditor } from "./DomainListEditor";
+import { ChatRootsEditor } from "./ChatRootsEditor";
 import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
@@ -47,7 +48,7 @@ export function Editor(props: EditorProps): ReactNode {
     case "host_list":
       return <HostListEditor {...props} />;
     case "folder_list":
-      return <FolderListEditor {...props} />;
+      return row.key === "agents.chats.roots" ? <ChatRootsEditor {...props} /> : <FolderListEditor {...props} />;
     case "time_range":
       return <TimeRangeEditor {...props} />;
     case "string_list":

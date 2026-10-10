@@ -222,11 +222,11 @@ impl Mux {
                 self.reap_if_dead(&surface);
                 return Ok(surface);
             }
-            let mutation = WorkspaceMutation::local("cmux-tui");
+            let mutation = WorkspaceMutation::daemon_local("cmux-tui");
             let workspace_public_id = WorkspacePublicId::random()?;
             let mut registry = self.workspace_registry.lock().unwrap();
             let delta = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.lock_state_pinned(&registry).unwrap();
                 let name = Self::default_workspace_name(&state);
                 let index = state.workspaces.len();
                 let mut desired = self.registry_projection(&state);
@@ -261,7 +261,7 @@ impl Mux {
                     Err(error) => {
                         drop(state);
                         drop(registry);
-                        self.discard_spawned(vec![surface]);
+                        self.discard_spawned(&Actor::Daemon, vec![surface]);
                         return Err(error);
                     }
                 };

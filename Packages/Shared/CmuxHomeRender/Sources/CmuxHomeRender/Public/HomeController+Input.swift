@@ -33,8 +33,9 @@ extension HomeController {
         return more
     }
 
-    /// The owner refused a send before logging it (for example while offline,
-    /// where nothing queues): the field gets its text back if it is still empty.
+    /// The store refused a send before logging it (a stopped store; a send
+    /// made offline waits for the reconnect instead): the field gets its
+    /// text back if it is still empty.
     public func restoreDraft(for key: IdempotencyKey) {
         guard let pending = pendingSend, pending.intent.key == key else { return }
         pendingSend = nil

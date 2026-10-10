@@ -123,6 +123,23 @@ fn spawn_activated_host(
     std::path::PathBuf,
     (std::os::unix::net::UnixListener, std::os::unix::net::UnixListener),
 ) {
+    spawn_host(dir, idle_exit_ms, env, None)
+}
+
+/// [`spawn_activated_host`], and `stray` (when set) also reaches the host
+/// as fd 9 without close-on-exec, as a descriptor that a launcher leaked
+/// (a terminal, an SSH session, a CI runner) does.
+#[cfg(unix)]
+fn spawn_host(
+    dir: &std::path::Path,
+    idle_exit_ms: u64,
+    env: &[(&str, &std::ffi::OsStr)],
+    stray: Option<std::os::fd::RawFd>,
+) -> (
+    std::process::Child,
+    std::path::PathBuf,
+    (std::os::unix::net::UnixListener, std::os::unix::net::UnixListener),
+) {
     use std::io::{BufRead, BufReader, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixListener;
@@ -161,6 +178,13 @@ fn spawn_activated_host(
                     return Err(std::io::Error::last_os_error());
                 }
             }
+            let stray = match stray {
+                Some(fd) => match libc::fcntl(fd, libc::F_DUPFD, 10) {
+                    high if high < 0 => return Err(std::io::Error::last_os_error()),
+                    high => Some(high),
+                },
+                None => None,
+            };
             for (i, fd) in high.iter().enumerate() {
                 let target = 3 + i as i32;
                 if libc::dup2(*fd, target) != target || libc::fcntl(target, libc::F_SETFD, 0) != 0 {
@@ -170,6 +194,12 @@ fn spawn_activated_host(
             // As the daemon does: nothing else beyond 3..=5 reaches the host.
             for fd in high {
                 libc::close(fd);
+            }
+            if let Some(stray) = stray {
+                if libc::dup2(stray, 9) != 9 || libc::fcntl(9, libc::F_SETFD, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                libc::close(stray);
             }
             Ok(())
         });
@@ -229,7 +259,9 @@ fn a_supervised_host_serves_inherited_sockets_and_exits_when_idle() {
 /// The inherited listening sockets close on exec: a browser the host starts
 /// (and its children) never holds the provider socket, so a compromised
 /// renderer cannot accept the app's provider connection and read the secret.
-/// The fake Chromium records its open descriptors and exits.
+/// No other inherited socket reaches it either: the host gets a stray socket
+/// on fd 9 (a launcher's leak), and the browser must not hold it. The fake
+/// Chromium records its open descriptors and exits.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_browser_the_host_starts_holds_none_of_the_inherited_sockets() {
@@ -254,8 +286,13 @@ fn a_browser_the_host_starts_holds_none_of_the_inherited_sockets() {
     )
     .unwrap();
     std::fs::set_permissions(&chromium, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let (mut child, socket, _listeners) =
-        spawn_activated_host(&dir, 60_000, &[("CMUX_BROWSER_HOST_CHROMIUM", chromium.as_os_str())]);
+    let (stray, _stray_peer) = UnixStream::pair().unwrap();
+    let (mut child, socket, _listeners) = spawn_host(
+        &dir,
+        60_000,
+        &[("CMUX_BROWSER_HOST_CHROMIUM", chromium.as_os_str())],
+        Some(std::os::fd::AsRawFd::as_raw_fd(&stray)),
+    );
     let request = |line: &str| {
         let mut connection = UnixStream::connect(&socket).unwrap();
         connection.set_read_timeout(Some(Duration::from_secs(30))).unwrap();

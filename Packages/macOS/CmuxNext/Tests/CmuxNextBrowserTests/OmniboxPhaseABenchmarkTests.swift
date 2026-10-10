@@ -36,26 +36,27 @@ nonisolated struct OmniboxPhaseABenchmarkTests {
         func run(_ query: OmniboxLocalQuery) -> [BrowserSuggestion] {
             OmniboxPhaseA.rows(for: query, history: history, bookmarks: bookmarks, tabs: tabs, tabKeys: tabKeys)
         }
-        for query in calls { _ = run(query) }
-        func fastest(_ body: () -> Void) -> Duration {
-            (0..<timedPasses).map { _ in clock.measure(body) }.min() ?? .zero
+        // The warmup pass also answers "most prefixes find rows" (the rows are deterministic).
+        let answered = calls.reduce(0) { $0 + (run($1).count > 1 ? 1 : 0) }
+        let optimized = !_isDebugAssertConfiguration()
+        func fastest(of passes: Int, _ body: () -> Void) -> Duration {
+            (0..<passes).map { _ in clock.measure(body) }.min() ?? .zero
         }
+        // The by-part numbers are printed, never asserted: one pass in a debug build.
+        let partPasses = optimized ? timedPasses : 1
         var durations: [Duration] = []
         // Where the time goes: the what-you-typed row, the history lookup, and the whole call by input length.
         var primary: [Duration] = [], lookup: [Duration] = [], byLength: [Int: [Duration]] = [:]
-        var answered = 0
         for (query, text) in zip(calls, queries) {
-            let whole = fastest { _ = run(query) }
+            let whole = fastest(of: timedPasses) { _ = run(query) }
             durations.append(whole)
             byLength[min(text.count, 4), default: []].append(whole)
-            primary.append(fastest { _ = OmniboxPhaseA.primary(for: text, resolver: query.resolver) })
-            lookup.append(fastest { _ = history.search(text, now: OmniboxFixtures.now, limit: 8) })
-            if run(query).count > 1 { answered += 1 }
+            primary.append(fastest(of: partPasses) { _ = OmniboxPhaseA.primary(for: text, resolver: query.resolver) })
+            lookup.append(fastest(of: partPasses) { _ = history.search(text, now: OmniboxFixtures.now, limit: 8) })
         }
         func percentile99(_ values: [Duration]) -> Duration { values.isEmpty ? .zero : values.sorted()[values.count * 99 / 100] }
         durations.sort()
         let p50 = durations[durations.count / 2], p99 = percentile99(durations)
-        let optimized = !_isDebugAssertConfiguration()
         print("R110 phase A (\(optimized ? "optimized" : "debug") build) over \(history.count) rows, \(queries.count) queries, fastest of \(timedPasses) passes: p50 \(p50), p99 \(p99), max \(durations.last ?? .zero)")
         print("R110 phase A p99 by part: what-you-typed \(percentile99(primary)), history lookup \(percentile99(lookup)); by input length "
               + byLength.keys.sorted().map { "\($0)\($0 == 4 ? "+" : ""): \(percentile99(byLength[$0] ?? []))" }.joined(separator: ", "))

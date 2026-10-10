@@ -1,20 +1,20 @@
 import AppKit
 import CmuxNextDesign
 
-// The pointer over the sidebar reveals its titlebar buttons and, in
-// minimal mode (`sidebar.minimalMode`, R54), the chosen pinned bands.
+// The pointer over the sidebar reveals its titlebar buttons, the spaces
+// strip (`sidebar.spacesVisibility` hover, cx-5k3r) and, in minimal mode
+// (`sidebar.minimalMode`, R54), the chosen pinned bands.
 extension SidebarView {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and
-    /// accessibility tree (a fade, not isHidden), so VoiceOver still reaches
-    /// their items. The footer's update pill is not in a band, so it stays
-    /// visible: it is the only update notice. The top band's hairline fades
-    /// with its band (Lawrence 2026-10-05).
+    /// accessibility tree (a fade), so VoiceOver still reaches their items. The
+    /// footer's update pill stays visible (the only update notice). The top
+    /// band's hairline fades with its band (Lawrence 2026-10-05).
     func setChromeRevealed(_ revealed: Bool) {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
-        cardStack.revealed = revealed
+        for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
         let alpha: CGFloat = revealed ? 1 : 0
         let mode = DesignSettings.shared.sidebarSections.minimalMode
@@ -24,11 +24,21 @@ extension SidebarView {
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
         Motion.animate(.hover, in: self) {
-            if changed { newButton.animator().alphaValue = alpha }
+            if changed {
+                newButton.animator().alphaValue = alpha
+                profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
+            }
             aboveFade.animator().alphaValue = above
-            belowFade.animator().alphaValue = below
+            belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
+            footerRegion.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
+    }
+
+    /// The spaces strip's opacity: shown while the sidebar is hovered, or
+    /// always. A fade only: the strip stays in the accessibility tree.
+    func spacesAlpha(revealed: Bool) -> CGFloat {
+        revealed || spacesVisibility == .always ? 1 : 0
     }
 
     /// A band hairline (a layer) to `alpha` with the hover fade, at once in a

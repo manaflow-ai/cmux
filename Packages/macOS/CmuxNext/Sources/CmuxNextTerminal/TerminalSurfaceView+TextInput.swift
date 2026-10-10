@@ -15,11 +15,7 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func selectedRange() -> NSRange {
-        guard let surface else { return NSRange(location: NSNotFound, length: 0) }
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &text) else { return NSRange(location: NSNotFound, length: 0) }
-        defer { ghostty_surface_free_text(surface, &text) }
-        return NSRange(location: Int(text.offset_start), length: Int(text.offset_len))
+        TerminalSelection.read(surface)?.range ?? NSRange(location: NSNotFound, length: 0)
     }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -49,19 +45,14 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        guard let surface, range.length > 0 else { return nil }
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text else { return nil }
+        guard let surface, range.length > 0, let selection = TerminalSelection.read(surface) else { return nil }
         var attributes: [NSAttributedString.Key: Any] = [:]
         if let fontPointer = ghostty_surface_quicklook_font(surface) {
             // Ghostty returns a +1 CTFont.
             let font = Unmanaged<CTFont>.fromOpaque(fontPointer).takeRetainedValue()
             attributes[.font] = font
         }
-        let string = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
-        return NSAttributedString(string: string, attributes: attributes)
+        return NSAttributedString(string: selection.text, attributes: attributes)
     }
 
     public func characterIndex(for point: NSPoint) -> Int {
@@ -77,14 +68,8 @@ extension TerminalSurfaceView: NSTextInputClient {
         var height = Double(cell.height)
         // Quick Look asks for the selection, not the cursor.
         var usedSelection = false
-        if range.length > 0, range != selectedRange() {
-            var text = ghostty_text_s()
-            if ghostty_surface_read_selection(surface, &text) {
-                x = text.tl_px_x - 2
-                y = text.tl_px_y + 2
-                ghostty_surface_free_text(surface, &text)
-                usedSelection = true
-            }
+        if range.length > 0, range != selectedRange(), let selection = TerminalSelection.read(surface) {
+            (x, y, usedSelection) = (selection.topLeft.x - 2, selection.topLeft.y + 2, true)
         }
         if !usedSelection {
             ghostty_surface_ime_point(surface, &x, &y, &width, &height)

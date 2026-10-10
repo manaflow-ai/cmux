@@ -152,11 +152,15 @@ impl ConversationStore {
             };
             let human =
                 head.participant(&message.author).is_some_and(|p| p.kind == ParticipantKind::Human);
-            if human {
-                head.agent_text_streak = 0;
-            } else {
-                head.agent_text_streak = head.agent_text_streak.saturating_add(1);
-                head.last_agent_text_at = Some(message.created_at.clone());
+            // The loop guard counts what the TS core counts: text or question messages are turns,
+            // work cards and attachments are not (home-core import corpus, cx-weuj).
+            if message.parts.iter().any(Part::counts_as_turn) {
+                if human {
+                    head.agent_text_streak = 0;
+                } else {
+                    head.agent_text_streak = head.agent_text_streak.saturating_add(1);
+                    head.last_agent_text_at = Some(message.created_at.clone());
+                }
             }
             write_message(
                 &transaction,
@@ -260,6 +264,50 @@ mod tests {
                 (2, "msg_b2", "agent_mux", "2026-10-06T03:06:04.622Z"),
                 (3, "msg_c1", "user_local", "2026-10-06T04:55:30.495Z"),
             ]
+        );
+    }
+
+    /// The shared corpus case (home-core conversation-import-cases.json): the TypeScript core
+    /// decides which imported messages are agent turns, and the local import must agree.
+    #[test]
+    fn an_imported_agent_work_card_is_not_an_agent_turn_as_the_corpus_says() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../backend/packages/home-core/conformance/conversation-import-cases.json"
+        ))
+        .unwrap();
+        let case = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "import: an imported agent work card is not an agent turn")
+            .expect("the shared import case");
+        let people: Vec<Participant> = serde_json::from_value(serde_json::json!([
+            {"id":"user_me","kind":"human","display_name":"Me"},
+            {"id":"agent_chief","kind":"agent","display_name":"Chief","agent_class":"mux"}
+        ]))
+        .unwrap();
+        let messages: Vec<ImportedMessage> = case["params"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| ImportedMessage {
+                id: None,
+                client_msg_id: m["client_msg_id"].as_str().unwrap().to_string(),
+                author: m["author"].as_str().unwrap().to_string(),
+                parts: serde_json::from_value(m["parts"].clone()).unwrap(),
+                created_at: cmux_conversation::format_rfc3339_millis(
+                    cmux_conversation::parse_rfc3339_millis(m["created_at"].as_str().unwrap())
+                        .unwrap(),
+                ),
+            })
+            .collect();
+        let mut store = ConversationStore::open(None).unwrap();
+        let id = store.create("home-chief", "user_me", "Chief", &people).unwrap().summary.id;
+        store.import(&id, &messages).unwrap();
+        let head = load_head(&store.connection, &id).unwrap().unwrap();
+        assert_eq!(
+            u64::from(head.agent_text_streak),
+            case["expect"]["head"]["agent_text_streak"].as_u64().unwrap()
         );
     }
 

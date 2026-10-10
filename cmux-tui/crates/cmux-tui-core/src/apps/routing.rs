@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 use super::mirror::Origin;
 use super::supervisor::OpRouter;
 use crate::mux::Mux;
-use crate::{MuxEvent, resource_router};
+use crate::{Actor, MuxEvent, resource_router};
 
 const CATALOG_JSON: &str = include_str!("../../../../spec/resource-operations-v2.json");
 
@@ -38,13 +38,13 @@ fn error(code: &str, message: impl Into<String>) -> Value {
 }
 
 /// True when this daemon's own dispatcher owns `op`.
-pub(super) fn is_daemon_op(op: &str) -> bool {
+pub(crate) fn is_daemon_op(op: &str) -> bool {
     catalog()["operations"].get(op).is_some()
 }
 
 /// Builds the protocol request: `machine`/`session` default to `current`
 /// when the op takes them; everything else is the app's params as given.
-pub(super) fn request(
+pub(crate) fn request(
     op: &str,
     params: Value,
     idempotency_key: Option<String>,
@@ -81,7 +81,7 @@ pub(super) fn request(
 
 /// Response envelope to the ABI body: reads answer `{value}`, mutations
 /// already answer a `MutationResult` (`{value, revision, replayed, …}`).
-pub(super) fn answer(op: &str, response: Value) -> Result<Value, Value> {
+pub(crate) fn answer(op: &str, response: Value) -> Result<Value, Value> {
     if response["ok"] == true {
         let result = response.get("result").cloned().unwrap_or(Value::Null);
         let mutation = catalog()["operations"][op]["class"] == "mutation";
@@ -103,7 +103,7 @@ pub(super) fn answer(op: &str, response: Value) -> Result<Value, Value> {
 impl OpRouter for MuxRouter {
     fn route(
         &self,
-        _app: &str,
+        app: &str,
         op: &str,
         params: Value,
         idempotency_key: Option<String>,
@@ -118,8 +118,11 @@ impl OpRouter for MuxRouter {
         crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
             .map_err(|e| json!({ "code": e.code, "message": e.message, "details": e.details, "retryable": e.retryable }))?;
         let message = request(op, params, idempotency_key)?;
-        let parsed = resource_router::parse_resource_request(&message)
-            .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
+        let parsed = resource_router::parse_resource_request_as(
+            &message,
+            Actor::App { id: app.to_string() },
+        )
+        .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
         if resource_router::requires_connection_context(parsed.envelope.operation) {
             return Err(error(
                 "operation.unsupported",

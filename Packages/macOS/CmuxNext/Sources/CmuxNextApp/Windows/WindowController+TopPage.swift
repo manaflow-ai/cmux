@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.locationTrail.pageHistoryDidChange()
         return true
     }
 
@@ -47,6 +48,13 @@ extension WindowController {
         services.windows.recordSaver.stateDidChange(state)
         showWorkspace(requested: state.workspaceID)
         return true
+    }
+
+    /// Every content swap, a top page or a workspace: the titlebar's Back and
+    /// Forward re-read the shown page's history. The sidebar never shows Back
+    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace.
+    func followContentChanges() {
+        root.onContentChange = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
     }
 
     /// The top page this window shows, if any.

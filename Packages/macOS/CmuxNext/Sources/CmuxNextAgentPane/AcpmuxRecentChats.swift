@@ -39,14 +39,29 @@ public nonisolated struct AcpmuxRecentChats: Sendable, Equatable {
     /// Replaces every chat with the sessions of `result`.
     public mutating func reset(_ result: [String: Any]) {
         chats = [:]
+        if let indexed = result["chats"] as? [[String: Any]] {
+            for value in indexed {
+                guard let chat = AcpmuxChat(json: value) else { continue }
+                chats[chat.id] = AcpmuxRecentChat(id: chat.id, title: chat.title, harness: chat.harness,
+                                                  cwd: chat.cwd ?? "", updatedAt: chat.updatedAt.timeIntervalSince1970 * 1000)
+            }
+            return
+        }
         for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) { upsert(summary) }
     }
 
     /// Applies one `_acpmux/session_changed`; a `purged` session leaves.
     public mutating func apply(changed params: [String: Any]) {
-        guard let id = params["sessionId"] as? String else { return }
+        if let key = params["key"] as? String, params["kind"] as? String == "removed" {
+            chats[key] = nil
+            return
+        }
+        guard let id = (params["sessionId"] as? String) ?? (params["key"] as? String) else { return }
         if params["kind"] as? String == "purged" {
             chats[id] = nil
+        } else if let summary = (params["session"] as? [String: Any]) ?? (params["chat"] as? [String: Any]), let chat = AcpmuxChat(json: summary) {
+            chats[chat.id] = AcpmuxRecentChat(id: chat.id, title: chat.title, harness: chat.harness,
+                                               cwd: chat.cwd ?? "", updatedAt: chat.updatedAt.timeIntervalSince1970 * 1000)
         } else if let summary = params["session"] as? [String: Any] {
             upsert(summary)
         }

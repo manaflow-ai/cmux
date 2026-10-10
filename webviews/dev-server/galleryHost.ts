@@ -12,6 +12,8 @@
 //                                          tab strip height, ...) per density, for window mode
 //   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
 //                                          roots, the Swift packages' Fixtures folders) by repo path
+// The agent pane's chart library is served as `__lib/vega.js` beside the frame (the markdown
+// viewer's bundled Vega and Vega-Lite, as the pane's scheme handler serves them).
 //   virtual:cmux-gallery/revision          the checkout's commit (sha, subject, commit time, branch),
 //                                          read when the module loads; the live server pushes newer
 //                                          ones (galleryLive.ts)
@@ -112,10 +114,15 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
  */
 export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
   const text = fs.readFileSync(script, "utf8");
-  const files = [...text.matchAll(/"\$SRC\/([^"$]+\.css)"/g)].map((match) => path.join(SESSION, match[1]!));
+  // `$SRC/...` (the session sources) and `$ROOT/webviews/src/...` (shared ui/ files such as
+  // ui/popupSurface.css), in the script's order, so the gallery pane matches the shipped one.
+  const files = [...text.matchAll(/"\$(SRC|ROOT\/webviews\/src)\/([^"$]+\.css)"/g)].map((match) =>
+    match[1] === "SRC" ? path.join(SESSION, match[2]!) : path.join(webviewsRoot, "src", match[2]!),
+  );
   if (!files.some((file) => file.endsWith("shared/styles.css")))
     throw new Error("gallery: build-agent-pane-web.sh no longer names shared/styles.css; update agentPaneStylesheets");
-  return [path.join(webviewsRoot, "src/pages/shared/desktop.css"), ...files];
+  const desktop = path.join(webviewsRoot, "src/pages/shared/desktop.css");
+  return [desktop, ...files.filter((file) => file !== desktop)];
 }
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
@@ -159,16 +166,40 @@ function agentPaneCSS(): string {
       const css = fs.readFileSync(file, "utf8");
       const body = file.endsWith("shared/styles.css")
         ? css.replace(/^@import .*$/gm, "")
-        : inlineRelativeImports(file, css);
+        : file.endsWith("acpmux/tailwind.css")
+          ? `${css}\n${tailwindSources()}`
+          : inlineRelativeImports(file, css);
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");
 }
 
+/**
+ * The pane's Tailwind entry scans nothing by itself (`source(none)`): the combined stylesheet sits
+ * under the gallery, so it names the pane's sources by absolute path, as
+ * scripts/agent-pane/tailwind-css.mjs does for the app build.
+ */
+function tailwindSources(): string {
+  return [path.join(SESSION, "acpmux"), path.join(webviewsRoot, "src/ui")]
+    .map((dir) => `@source "${dir}/**/*.{ts,tsx}";`)
+    .join("\n");
+}
+
 /** The virtual modules, for the dev server and the static build. */
+/** The markdown viewer's Vega then Vega-Lite, joined as MarkdownPageResource.library joins them. */
+function readVegaLibrary(): string {
+  const folder = path.join(repoRoot, "Resources/markdown-viewer");
+  return ["vega.min.js", "vega-lite.min.js"]
+    .map((name) => fs.readFileSync(path.join(folder, name), "utf8"))
+    .join("\n;\n");
+}
+
 export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
+    },
     resolveId(source) {
       if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID].includes(source)) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
@@ -184,6 +215,11 @@ export function galleryModules(): Plugin {
       return null;
     },
     configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        if (!request.url?.split("?")[0]?.endsWith("/__lib/vega.js")) return next();
+        response.setHeader("Content-Type", "text/javascript; charset=utf-8");
+        response.end(readVegaLibrary());
+      });
       // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
       // where Vite does not watch: watch them, and reload the module built from a changed one.
       const roots = fixtureRoots().map((root) => path.join(repoRoot, root));

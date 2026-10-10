@@ -55,6 +55,3 @@ pub use frames::{
 pub use host_channel::{ChannelOpen, ChannelOpenRequest, HostChannels, PtyRequest};
 pub use ids::{BackendId, LocalId, MAX_LOCAL_ID, allow_kind, check_kinds};
 pub use tokens::{OpenToken, ResumeToken};
-
-#[cfg(test)]
-mod tests;

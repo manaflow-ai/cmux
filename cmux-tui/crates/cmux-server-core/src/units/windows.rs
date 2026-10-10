@@ -22,7 +22,7 @@ pub fn windows_service_create_argv(layout: &Layout) -> Result<Vec<String>, UnitE
     if layout.platform != Platform::Windows || layout.mode != InstallMode::System {
         return Err(UnitError::WrongLayout);
     }
-    let bin_path = format!("\"{}\" {}", exe(layout)?, HOST_RUN_ARGS.join(" "));
+    let bin_path = format!("\"{}\" {} --mode system", exe(layout)?, HOST_RUN_ARGS.join(" "));
     Ok([
         "sc.exe",
         "create",
@@ -83,7 +83,7 @@ pub fn scheduled_task_xml(layout: &Layout, user: &str) -> Result<String, UnitErr
     }
     let command = xml_escape(exe(layout)?);
     let user = xml_escape(user);
-    let args = HOST_RUN_ARGS.join(" ");
+    let args = format!("{} --mode user", HOST_RUN_ARGS.join(" "));
     Ok(format!(
         "<?xml version=\"1.0\" encoding=\"UTF-16\"?>
 <Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">

@@ -69,19 +69,27 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// Spans give items fractional widths: the default bottom row is
     /// Settings at 7 of 8 columns and the account at 1 (R53).
     public var span: Int?
+    /// The title the item had when it was added (a workspace tile's
+    /// workspace name), drawn while its reference does not resolve (a closed
+    /// workspace). Stored with the item; nil for items that resolve by kind.
+    public var label: String?
+
+    /// Longest stored `label` (characters).
+    public static let maxLabelLength = 200
 
     /// The app this item opens, for an app item.
     public var owningAppID: String? { ref.kind == LayoutItemRef.appKind ? ref.value : nil }
 
-    public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true, span: Int? = nil) {
+    public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true, span: Int? = nil, label: String? = nil) {
         self.id = id
         self.ref = ref
         self.showsLabel = showsLabel
         self.span = span
+        self.label = label.map { String($0.prefix(Self.maxLabelLength)) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ref, span
+        case id, ref, span, label
         case showsLabel = "shows_label"
     }
 
@@ -91,5 +99,6 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
         ref = try c.decode(LayoutItemRef.self, forKey: .ref)
         showsLabel = try c.decodeIfPresent(Bool.self, forKey: .showsLabel) ?? true
         span = try c.decodeIfPresent(Int.self, forKey: .span)
+        label = try? c.decodeIfPresent(String.self, forKey: .label)
     }
 }

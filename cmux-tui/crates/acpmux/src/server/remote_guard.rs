@@ -100,6 +100,10 @@ pub(super) async fn check(
     if m == method::MUX_WEB_MODES {
         return Err(refused("_acpmux/web_modes"));
     }
+    // The listener's own credential changes over the unix socket only.
+    if m == method::MUX_WEB_TOKEN_ROTATE {
+        return Err(refused("rotating the web token"));
+    }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
