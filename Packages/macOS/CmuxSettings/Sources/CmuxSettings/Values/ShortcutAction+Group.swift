@@ -7,7 +7,7 @@ extension ShortcutAction {
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
+             .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread, .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,

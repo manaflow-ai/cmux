@@ -8159,6 +8159,9 @@ struct CMUXCLI {
         case "jump-to-unread":
             let payload = try client.sendV2(method: "notification.jump_to_unread")
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+        case "jump-to-last-prompt":
+            let payload = try client.sendV2(method: "surface.jump_to_last_prompt")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2JumpToLastPromptSummary(payload, idFormat: idFormat))
         case "clear-notifications":
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
@@ -21418,6 +21421,16 @@ struct CMUXCLI {
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
             """)
+        case "jump-to-last-prompt":
+            return String(localized: "cli.help.jumpToLastPrompt", defaultValue: """
+            Usage: cmux jump-to-last-prompt
+
+            Focus the surface where you last submitted a prompt to a coding agent, switching workspace and window as needed. With --json, opened is false when there is none.
+
+            Flags:
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
         case "clear-notifications":
             return String(localized: "cli.help.clearNotifications", defaultValue: """
             Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
@@ -22679,6 +22692,13 @@ struct CMUXCLI {
         case .uuids: return id ?? ref ?? "?"
         case .both:  return [ref, id].compactMap({ $0 }).joined(separator: " ")
         }
+    }
+
+    func v2JumpToLastPromptSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        guard (payload["opened"] as? Bool) != false else {
+            return String(localized: "cli.jumpToLastPrompt.noTarget", defaultValue: "No prompt target")
+        }
+        return v2OKSummary(payload, idFormat: idFormat)
     }
 
     func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {

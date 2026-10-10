@@ -92,6 +92,7 @@ extension ShortcutAction {
         case .sendFeedback: return nil
         case .showNotifications: return ShortcutStroke(key: "i", command: true)
         case .jumpToUnread: return ShortcutStroke(key: "u", command: true, shift: true)
+        case .jumpToLastPrompt: return ShortcutStroke(key: "b", command: true, shift: true)
         case .toggleUnread: return ShortcutStroke(key: "u", command: true, option: true)
         case .markOldestUnreadAndJumpNext: return ShortcutStroke(key: "u", command: true, control: true)
         case .markAllNotificationsRead, .clearAllNotifications: return nil

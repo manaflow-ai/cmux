@@ -109,7 +109,7 @@ struct ControlCommandExecutionPolicyTests {
             "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
-            "surface.focus", "workspace.select", "pane.focus", "window.focus",
+            "surface.focus", "surface.jump_to_last_prompt", "workspace.select", "pane.focus", "window.focus",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")

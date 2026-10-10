@@ -34,6 +34,8 @@ extension ShortcutAction {
         case .sendFeedback: return "Send Feedback"
         case .showNotifications: return "Show Notifications"
         case .jumpToUnread: return "Jump to Latest Unread"
+        case .jumpToLastPrompt:
+            return String(localized: "shortcut.jumpToLastPrompt.label", defaultValue: "Jump to Last Prompt")
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
         case .markAllNotificationsRead:

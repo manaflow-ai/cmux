@@ -15728,6 +15728,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .jumpToLastPrompt) {
+            jumpToLastPromptFromUserCommand()
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleUnread) {
             toggleFocusedNotificationUnread(
                 preferredWindow: mainWindowForShortcutEvent(event)
