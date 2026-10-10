@@ -67,8 +67,8 @@ extension cmuxApp {
     /// while exercising the same local admission and focus policy as the app.
     static func makeCloudWorkspaceCoordinator(
         machinePinStore: CloudMachinePinStore,
-        allowsOperation: @escaping @MainActor () -> Bool,
-        loadMachines: @escaping @MainActor () async throws -> [String],
+        allowsOperation: @escaping @MainActor @Sendable () -> Bool,
+        loadMachines: @escaping @MainActor @Sendable () async throws -> [String],
         tabManager: @escaping @MainActor (UUID) -> TabManager?,
         provider: @escaping @MainActor (String) async -> (any SurfaceProvider)?,
         catalog: SurfaceCatalog
