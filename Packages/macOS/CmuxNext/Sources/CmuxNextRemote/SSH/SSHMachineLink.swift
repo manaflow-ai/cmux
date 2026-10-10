@@ -136,11 +136,26 @@ public actor SSHMachineLink {
         handle(.disconnect)
     }
 
+    /// Ends the link client so it can close the remote session at once
+    /// (its close frame goes over its own ssh child), then the whole process
+    /// group if it has not exited within `closeDeadline` (cx-bj1o).
     private func tearDown() {
-        child?.terminate()
+        if let child {
+            child.terminateProcessOnly()
+            // task-owner: one bounded fallback; terminate() is a no-op once the child exited
+            Task.detached {
+                // wakeup-allow: one-shot deadline for a stopped link client
+                try? await Task.sleep(for: Self.closeDeadline)
+                child.terminate()
+            }
+        }
         child = nil
         socket = nil
     }
+
+    /// How long a stopped link client may take to close its session before
+    /// its process group is ended.
+    static let closeDeadline: Duration = .seconds(5)
 
     private func start() async throws -> String {
         tearDown()
@@ -210,7 +225,10 @@ public actor SSHMachineLink {
                 return nil
             }
             guard machine.mayAttempt, self.child === child else {
-                child.terminate()
+                // A disconnect that raced the connected line already ran
+                // tearDown for this child; otherwise stop it the same way, so
+                // the client still closes its new session (cx-bj1o).
+                if self.child === child { tearDown() }
                 throw SSHLinkError.stopped
             }
             self.socket = socket

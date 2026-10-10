@@ -53,6 +53,17 @@ MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-subagents-{TAG}-")
+
+
+def fnv1a32(text):
+    """optchat-chief `paths::home_id`: FNV-1a 32 of the home's path, 8 lowercase hex digits."""
+    h = 0x811C9DC5
+    for b in text.encode():
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+HOME_ID = fnv1a32(MUX_HOME)
 WORK = os.path.join(SCRATCH, "work")
 FRAMES = os.path.join(opts.out, "frames")
 os.makedirs(FRAMES, exist_ok=True)
@@ -155,6 +166,12 @@ def tagged(*args):
 
 
 def workspaces():
+    """Every workspace the app shows, on every machine row (the Chief's owner daemon included):
+    the app's topology (`snapshot.get`). `workspace list` names only the app's own session."""
+    return ((rpc("snapshot.get") or {}).get("topology") or {}).get("workspaces", []) or app_workspaces()
+
+
+def app_workspaces():
     value = tagged("workspace", "list")
     if isinstance(value, dict):
         value = value.get("value", value)
@@ -292,8 +309,17 @@ def ask(text, wait_reply=True):
         if not (isinstance(reply, dict) and reply.get("ok")):
             return f"(drive {action} failed: {reply})"
     # Its index + 1 (index 0 is a found message, and wait() takes only a truthy value).
-    found = wait(lambda: next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
-                               and text[:40] in m["text"]), None), opts.turn_timeout)
+    def logged():
+        return next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
+                     and text[:40] in m["text"]), None)
+    found = wait(logged, 90)
+    if found is None:
+        # A send before Home's owner connection took it stays a draft: show Home and send again.
+        print(f"ask: not logged after 90 s ({json.dumps(rpc('debug.home') or {})[:300]}); sending again", flush=True)
+        show_home()
+        for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
+            rpc("debug.home.drive", {"action": action, **extra})
+        found = wait(logged, opts.turn_timeout)
     mine = None if found is None else found - 1
     if mine is None:
         return "(my message never reached the Chief's log)"
@@ -441,6 +467,11 @@ def parallel_three():
         row("3 workspaces with live agent panes", "the Chief spawns 3 subagents", f"no Chief turn: {reply}", False)
         return
     spawned = wait(lambda: [i for i, s in subs().items() if s.get("session_id")] if len(subs()) >= 3 else None, 120) or []
+    # hq-6d 2026-10-09 (parity timing): a spawn in a turn starts its subagents at once with the
+    # turn's view; it never waits for the compactor to summarize the turn's own tool call.
+    waits = [e.get("settle_ms") for e in trace() if e.get("ev") == "spawn"]
+    row("spawn starts its subagents at once", "the spawn tool waits under 1.5 s before its subagents start",
+        f"spawn waits (ms) {waits}", bool(waits) and all((w or 0) < 1500 for w in waits))
     # The Chief answers a user message while they run: asked first, inside their `sleep 90`
     # (the pane checks below take minutes, so asked after them nothing ran any more).
     running = wait(lambda: [i for i, s in subs().items() if s.get("status") == "running"] or None, 120) or []
@@ -450,6 +481,12 @@ def parallel_three():
     new = wait(lambda: [w for w in workspaces() if w.get("id") not in start and re.match(r"a\d+ · ", ws_name(w))]
                if len([w for w in workspaces() if re.match(r"a\d+ · ", ws_name(w))]) >= 3 else None, 120) or []
     tabs = [w for w in new if agent_tab(w.get("id"))]
+    # hq-6d 2026-10-09: subagent workspaces always live in the Chief's owner daemon (its machine
+    # row, server-host_chief<home id>), also when the app started the Chief, so they outlive the app.
+    rows = {w.get("id"): str(w.get("machine") or "") for w in ((rpc("snapshot.get") or {}).get("topology") or {}).get("workspaces", [])}
+    machines = [rows.get(w.get("id"), "") for w in new]
+    row("subagent workspaces in the Chief's owner daemon", "each subagent workspace is on the Chief row",
+        f"machines {machines}", len(machines) >= 3 and all(m.startswith("server-host_chief") for m in machines))
     # Each pane must show its subagent's own chat: the chat text the pane renders names its file.
     shown = []
     for w in new[:3]:
@@ -599,6 +636,116 @@ def restart_mid_run():
 
 
 @flow
+def subagent_link_opens_its_chat():
+    """Lawrence 2026-10-09: "you need to be able to link to a subagent so I can just click here to
+    get to it". The Chief names its new subagent as a link, Home renders it as a link, and a click
+    (Home's own click path) shows that subagent's workspace with its chat tab."""
+    reply = ask(f"Use spawn to start exactly one subagent with cwd {WORK} whose task is: reply with only the "
+                "word link-probe. Then tell me its name, written as its link from the spawn answer.")
+    print("chief:", reply[:300], flush=True)
+    sub = wait(lambda: next((i for i, v in subs().items() if v.get("session_id") and "link-probe" in (v.get("title") or "")), None), 120)
+    session = (subs().get(sub) or {}).get("session_id")
+    show_home()
+    snapshot("link-home")
+    # This subagent's own link (earlier replies link other subagents).
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
+    print("link click:", json.dumps(clicked)[:300], flush=True)
+    state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("link-opened")
+    url = clicked.get("url") or ""
+    row("subagent link opens its chat", "Home shows the subagent as a link; a click shows its workspace and chat",
+        f"sub {sub}; model wrote a link={'](cmux://chief/' in reply}; clicked {url[:90]!r}; pane session {state.get('sessionId')} "
+        f"(want {session}); task in pane={'link-probe' in pane_text(state)}",
+        # The model writes the plain id (the memory keeps no URL); the posted reply carries the
+        # link (link_subagents), so the click on this subagent's own link is the proof.
+        bool(session) and url.endswith("/session/" + session)
+        and state.get("sessionId") == session and "link-probe" in pane_text(state))
+    show_home()
+
+
+@flow
+def subagent_mentions_are_links():
+    """Lawrence 2026-10-10: "it should be able to link to subagents in general too". A later Chief
+    reply that names its subagents, with no link written by the model, shows each one as a link;
+    a click on a2's opens a2's workspace and chat."""
+    answer = spawn(["Reply with only the word mention-one.", "Reply with only the word mention-two."])
+    ids = ids_in(answer)
+    print("spawn:", json.dumps(answer)[:400], flush=True)
+    wait_done(ids, 300)
+    reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
+    if reply.startswith("(my message"):  # the composer was not shown yet after the last flow's tab
+        reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
+    print("chief:", reply[:300], flush=True)
+    second = ids[1] if len(ids) > 1 else None
+    session = (subs().get(second) or {}).get("session_id") if second else None
+    last = next((m["text"] for m in reversed(log_items()) if m["kind"] == "talk"), "")
+    show_home()
+    snapshot("mentions-home")
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": "cmux://chief/"} if not session else
+                  {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
+    print("mention click:", json.dumps(clicked)[:300], flush=True)
+    state = wait(lambda: (lambda st: st if session and st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("mentions-opened")
+    row("subagent mentions are links", "the reply names a2 as a link; a click opens a2's workspace and chat",
+        f"ids {ids}; model wrote a link={'](cmux://' in last}; clicked {(clicked.get('url') or '')[:90]!r}; "
+        f"pane session {state.get('sessionId')} (want {session})",
+        bool(session) and (clicked.get("url") or "").endswith(f"/session/{session}")
+        and state.get("sessionId") == session and "mention-two" in pane_text(state))
+    show_home()
+
+
+@flow
+def group_move_stays_in_its_row():
+    """A workspace group holds workspaces of one machine row (hq-6d 2026-10-09). A drag refuses a
+    Chief-row subagent workspace into a This Mac group; the palette/CLI move (moveWorkspaceToGroup,
+    `cmux workspace-group add-workspace`) refuses it with the same rule, and writes nothing."""
+    answer = spawn(["Reply with only the word group-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+
+    def topo():
+        return (rpc("snapshot.get") or {}).get("topology") or {}
+    chief = wait(lambda: next((w for w in topo().get("workspaces", []) if ids
+                               and str(w.get("machine") or "").startswith("server-host_chief")
+                               and (w.get("name") or "").lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    local = next((w for w in topo().get("workspaces", [])
+                  if not str(w.get("machine") or "").startswith("server-host_chief")), None)
+    if not (chief and local):
+        row("group move stays in its row", "a Chief-row and a This Mac workspace", f"chief {chief}; local {local}", False)
+        return
+    made = rpc("action.run", {"action": "newWorkspaceGroup", "target": f"workspace:{local['id']}", "args": {"name": "row-probe"}})
+    group = wait(lambda: next((g.get("id") for g in topo().get("workspace_groups", []) if g.get("name") == "row-probe"), None), 30)
+    moved = rpc("action.run", {"action": "moveWorkspaceToGroup", "target": f"workspace:{chief['id']}",
+                               "args": {"group": f"workspace-group:{group}"}}) if group else {"error": "no group"}
+    time.sleep(3)  # test harness: a write that went through would show now
+    after = next((w for w in topo().get("workspaces", []) if w.get("id") == chief["id"]), {})
+    snapshot("group-move-refused")
+    refused = isinstance(moved, dict) and bool(moved.get("error"))
+    row("group move stays in its row", "the move is refused with a reason; the Chief workspace stays out of the group",
+        f"group {group} (made {json.dumps(made)[:80]}); move {json.dumps(moved)[:160]}; group after {after.get('group')}",
+        bool(group) and refused and after.get("group") != group)
+
+
+@flow
+def harness_follows_chief():
+    """Subagents run on the Chief's harness: claude, then codex."""
+    seen = {}
+    for harness in ("codex", "claude-sr"):
+        set_ = engine(harness=harness)
+        reply = ask(f"Use spawn to start one subagent with cwd {WORK} that replies with only the word {harness}-ok.")
+        last = [e for e in trace() if e.get("ev") == "subagent.start"][-1:]
+        seen[harness] = (last[0].get("harness"), last[0].get("harness_profile")) if last else None
+        print("chief:", reply[:200], "engine:", json.dumps(set_)[:200], flush=True)
+    ok = all(v and harness.split("-")[0] in (v[0] or "") + (v[1] or "") for harness, v in seen.items())
+    row("subagents use the Chief's harness", "codex turn -> codex subagent; claude turn -> claude subagent",
+        f"{seen}", ok)
+
+
+@flow
 def stale_tab_never_shows_another_session():
     """P1 2026-10-09: a subagent tab whose session is gone, while the Chief home's acpmux has a
     new session of the same name, says "This chat isn't available" and never shows that session:
@@ -690,21 +837,6 @@ def relaunch_keep_sessions_keeps_the_chief():
         not ended and before.get("sessionId") == session and after.get("sessionId") == session
         and not after.get("missingSession") and "keep-pong" in reply.lower() and bool(ids_in(again)))
     show_home()
-
-
-@flow
-def harness_follows_chief():
-    """Subagents run on the Chief's harness: claude, then codex."""
-    seen = {}
-    for harness in ("codex", "claude-sr"):
-        set_ = engine(harness=harness)
-        reply = ask(f"Use spawn to start one subagent with cwd {WORK} that replies with only the word {harness}-ok.")
-        last = [e for e in trace() if e.get("ev") == "subagent.start"][-1:]
-        seen[harness] = (last[0].get("harness"), last[0].get("harness_profile")) if last else None
-        print("chief:", reply[:200], "engine:", json.dumps(set_)[:200], flush=True)
-    ok = all(v and harness.split("-")[0] in (v[0] or "") + (v[1] or "") for harness, v in seen.items())
-    row("subagents use the Chief's harness", "codex turn -> codex subagent; claude turn -> claude subagent",
-        f"{seen}", ok)
 
 
 def unix_call(path, request, timeout=30):
@@ -932,8 +1064,7 @@ def cleanup():
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
     acpmux("daemon", "shutdown", timeout=30)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    stop_sessions()
     for _ in range(2):
         ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
         for line in ps.splitlines():
@@ -945,6 +1076,17 @@ def cleanup():
                 except OSError:
                     pass
         time.sleep(3)  # test harness: let them exit
+
+
+def stop_sessions():
+    """Stops this tag's app session and its Chief owner session (`cmux-chief-<home id>`) by exact
+    name. A Chief owner left by an earlier run of the same tag kept its conversation after the
+    home was deleted, and the new Chief host never saw a Home message (cx-ebm.55 class)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    for session in (f"cmux-app-{TAG}", f"cmux-chief-{HOME_ID}"):
+        out = subprocess.run([CLI, "server", "stop", "--session", session, "--end-terminals"],
+                             env=env, capture_output=True, text=True, timeout=30)
+        print(f"server stop {session}: exit {out.returncode} {(out.stdout + out.stderr).strip()[:160]}", flush=True)
 
 
 def make_video():
@@ -961,6 +1103,14 @@ def make_video():
 def main():
     if os.path.exists(SOCKET):
         sys.exit(f"{SOCKET} exists: another {TAG} app runs; pick a fresh tag")
+    stop_sessions()  # an earlier run's Chief owner of this tag must not answer this run's Home
+    # The app's Home cache of this Chief home (`cmux-home/cmux-chief-<home id>/home.json`) keeps
+    # an earlier run's conversation: the run deletes the home, the new host makes a new
+    # conversation, and Home sent to the old one (no turn ever came; cx-ebm.55).
+    cache = os.path.expanduser(f"~/Library/Caches/cmux-home/cmux-chief-{HOME_ID}")
+    if os.path.isdir(cache):
+        print(f"removing the stale Home cache {cache}", flush=True)
+        shutil.rmtree(cache)
     os.makedirs(WORK, exist_ok=True)
     config = os.path.join(SCRATCH, "cmux.json")
     open(config, "w").write("{}")

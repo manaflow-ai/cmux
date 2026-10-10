@@ -11,6 +11,8 @@ workspace up and down, move to a new group, group up, and a row drag reorder
 slot's `capture-host launch`, or a tagged build) through its debug socket and
 never launches or quits it.
 
+Strips: scripts/cmux-next/motion-frame-strip.py OUT SCENARIO [EVERY] [COUNT].
+
 Usage: sidebar-motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR [--only NAME ...]
 """
 import argparse, json, os, re, socket, sys, time
@@ -74,15 +76,39 @@ def center(row):
     return frame.get("x", 0) + frame.get("width", 0) / 2, frame.get("y", 0) + frame.get("height", 0) / 2
 
 
-def record(name, trigger):
+def drag_onto(dragged, target):
+    """Drags `dragged` down toward `target` a step at a time and releases
+    once the card's head (the grabbed row, centred on the pointer) sits
+    mid-row on a loose workspace, the band where a drop groups
+    (SidebarGroupBand)."""
+    x, y = center(dragged)
+    _, target_y = center(target)
+    to = target_y - 40
+    rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to, "steps": 20, "release": False})
+    for _ in range(60):
+        over = [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")
+                and r.get("key") != dragged.get("key") and not r.get("group") and not r.get("suppressed")]
+        hit = next((r for r in over if 0.4 <= (to - (r.get("window_frame") or {}).get("y", 0))
+                    / max(1, (r.get("window_frame") or {}).get("height", 1)) <= 0.6), None)
+        if hit:
+            break
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": to, "to_x": x, "to_y": to + 2, "steps": 1, "press": False, "release": False})
+        to += 2
+    print(f"drag-onto: released at {to} over {hit and hit.get('title')}", flush=True)
+    time.sleep(0.3)  # test harness: the onto highlight shows before the drop
+    return rpc("debug.mouse", {"action": "up", "x": x, "y": to})
+
+
+def record(name, trigger, seconds=None):
+    seconds = seconds or opts.seconds
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, name)
     os.makedirs(directory, exist_ok=True)
-    started = rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
+    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
     time.sleep(0.15)  # test harness: a few still frames before the change
     reply = trigger()
-    time.sleep(opts.seconds + 0.6)  # test harness: the recording stops by itself
+    time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{name}: {frames} frames; record={json.dumps(started)[:120]} reply={json.dumps(reply)[:160]}", flush=True)
     time.sleep(0.5)  # test harness: let the list settle before the next scenario
@@ -116,10 +142,17 @@ def main():
     time.sleep(0.5)  # test harness: selection settles
     record("new-tab-row", lambda: action("newSurface"))
     workspace_rows = rows("workspace")
-    if len(workspace_rows) >= 3:
-        x, y = center(workspace_rows[0])
-        _, to_y = center(workspace_rows[2])
-        record("drag-reorder", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y + 4, "steps": 30}))
+    if len(workspace_rows) >= 5:
+        # A loose workspace (with its tab row) dropped between two others: a reorder.
+        x, y = center(workspace_rows[1])
+        to_y = (workspace_rows[4].get("window_frame") or {}).get("y", 0) - 2
+        record("drag-reorder", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
+        time.sleep(0.5)  # test harness: the drop settles
+    workspace_rows = rows("workspace")
+    if len(workspace_rows) >= 4:
+        # Dragged down until the card's head sits mid-row on a workspace below,
+        # then released: the two make a group, whose name editor opens.
+        record("drag-onto", lambda: drag_onto(workspace_rows[1], workspace_rows[3]), seconds=3)
     print("\nRESULT PASS (recorded)")
 
 

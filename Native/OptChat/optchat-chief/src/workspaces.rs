@@ -123,107 +123,6 @@ impl AppWorkspaces {
     }
 }
 
-/// Where a subagent's workspace goes (E17, schemas/chief-cmux-target).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkspaceTarget {
-    /// The app runs: its control socket opens the workspace in its daemon.
-    App,
-    /// No app: the Chief's owner daemon; the app shows it when it connects.
-    Owner,
-}
-
-/// `App` while both the app's control socket and its daemon exist as
-/// sockets, else `Owner`: the same rule as the Chief's `cmux` calls.
-pub fn workspace_target(control: &Path, app_daemon: &Path) -> WorkspaceTarget {
-    use std::os::unix::fs::FileTypeExt;
-    let socket = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket());
-    if socket(control) && socket(app_daemon) {
-        WorkspaceTarget::App
-    } else {
-        WorkspaceTarget::Owner
-    }
-}
-
-/// The opener of a Chief host started by the app or by `cmux chief`: each
-/// open picks its target now (the app may start or quit while the host
-/// runs); a rename or close goes where that workspace was opened.
-pub struct TargetWorkspaces {
-    pub app: AppWorkspaces,
-    pub owner: DaemonWorkspaces,
-    opened: std::sync::Mutex<std::collections::HashMap<String, WorkspaceTarget>>,
-}
-
-impl TargetWorkspaces {
-    /// `owner_daemon` is the host's `--daemon-socket`; the tabs name the Chief
-    /// home `home` (`chief:<home id>`) in both targets.
-    pub fn new(
-        app: AppWorkspaces,
-        owner_daemon: PathBuf,
-        home: &Path,
-        harness: Option<String>,
-    ) -> TargetWorkspaces {
-        TargetWorkspaces {
-            app: app.with_home(home),
-            owner: DaemonWorkspaces {
-                daemon: owner_daemon,
-                host: chief_host(home),
-                host_name: host_name(),
-                harness,
-            },
-            opened: std::sync::Mutex::new(std::collections::HashMap::new()),
-        }
-    }
-
-    fn target(&self) -> WorkspaceTarget {
-        workspace_target(&self.app.control, &self.app.daemon)
-    }
-
-    fn of(&self, key: &str) -> WorkspaceTarget {
-        let opened = self
-            .opened
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        opened.get(key).copied().unwrap_or_else(|| self.target())
-    }
-
-    fn backend(&self, target: WorkspaceTarget) -> &dyn Workspaces {
-        match target {
-            WorkspaceTarget::App => &self.app,
-            WorkspaceTarget::Owner => &self.owner,
-        }
-    }
-}
-
-impl Workspaces for TargetWorkspaces {
-    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
-        let target = self.target();
-        let opened = self.backend(target).open(key, session, name, cwd)?;
-        self.opened
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(opened.clone(), target);
-        Ok(opened)
-    }
-
-    fn close(&self, key: &str) -> Result<(), String> {
-        self.backend(self.of(key)).close(key)
-    }
-
-    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
-        self.backend(self.of(key)).rename(key, name)
-    }
-
-    fn place(&self) -> String {
-        match self.target() {
-            WorkspaceTarget::App => self.app.place(),
-            WorkspaceTarget::Owner => {
-                "the Chief's own cmux session on this Mac (the cmux app shows it when it opens)"
-                    .to_owned()
-            }
-        }
-    }
-}
-
 /// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
 /// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
 /// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
@@ -243,6 +142,101 @@ pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         && token(session))
     .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
+/// `text` with each mention of a known subagent (`a1`, or `[a1]` not already a link) written as
+/// its link (`subagent_link`), so every client shows it as a link whether or not the model
+/// wrote one (Lawrence 2026-10-10). `session_of` names a subagent's session (None: not one of
+/// this Chief's, left as written). Code spans and fences, existing links and words inside a
+/// longer token (`ma1`, `a1b`, `/a1`, `a1.txt`) are left alone.
+pub fn link_subagents(
+    text: &str,
+    parent: &str,
+    session_of: impl Fn(&str) -> Option<String>,
+) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut copied) = (0, 0);
+    let mut fence = false;
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let link_of = |id: &str| session_of(id).and_then(|s| subagent_link(parent, id, &s));
+    while i < b.len() {
+        let line_start = i == 0 || b[i - 1] == b'\n';
+        if line_start && text[i..].starts_with("```") {
+            fence = !fence;
+            i += 3;
+            continue;
+        }
+        if fence {
+            i += 1;
+            continue;
+        }
+        match b[i] {
+            b'`' => {
+                // An inline code span: to its closing backtick on this line.
+                let end = text[i + 1..]
+                    .find(['`', '\n'])
+                    .map_or(b.len(), |e| i + 1 + e);
+                i = if end < b.len() && b[end] == b'`' {
+                    end + 1
+                } else {
+                    i + 1
+                };
+            }
+            b'[' => {
+                let close = text[i + 1..].find([']', '\n']).map(|e| i + 1 + e);
+                match close {
+                    Some(c) if b[c] == b']' && b.get(c + 1) == Some(&b'(') => {
+                        // An existing link: skip it whole.
+                        i = text[c..].find(')').map_or(c + 1, |e| c + e + 1);
+                    }
+                    Some(c) if b[c] == b']' => {
+                        let id = &text[i + 1..c];
+                        if is_id(id)
+                            && let Some(link) = link_of(id)
+                        {
+                            out.push_str(&text[copied..i]);
+                            out.push_str(&link);
+                            copied = c + 1;
+                        }
+                        i = c + 1;
+                    }
+                    _ => i += 1,
+                }
+            }
+            b'a' if i == 0
+                || !(word(b[i - 1])
+                    || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
+            {
+                let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let id = &text[i..end];
+                let bounded = end > i + 1
+                    && !(end < b.len()
+                        && (word(b[end])
+                            || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c)))));
+                if bounded
+                    && is_id(id)
+                    && let Some(link) = link_of(id)
+                {
+                    out.push_str(&text[copied..i]);
+                    out.push_str(&link);
+                    copied = end;
+                }
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// A subagent id: `a` and 1 to 6 digits, no leading zero.
+fn is_id(id: &str) -> bool {
+    let digits = id.strip_prefix('a').unwrap_or("");
+    (1..=6).contains(&digits.len())
+        && !digits.starts_with('0')
+        && digits.bytes().all(|c| c.is_ascii_digit())
 }
 
 /// The agent tab host of a session in Chief home `home`'s acpmux.
@@ -453,6 +447,12 @@ impl Workspaces for DaemonWorkspaces {
     }
 
     fn place(&self) -> String {
+        // The Chief home's own owner daemon (tabs on `chief:<home id>`): the app shows it
+        // as the Chief's machine row.
+        if self.host.starts_with("chief:") {
+            return "the Chief's own cmux session on this Mac (the cmux app shows it under the Chief)"
+                .to_owned();
+        }
         format!(
             "the cmux session on {0} (a cmux app shows it only while connected to {0})",
             self.host_name

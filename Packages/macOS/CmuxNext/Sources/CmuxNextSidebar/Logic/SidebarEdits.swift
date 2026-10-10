@@ -123,6 +123,14 @@ public nonisolated enum SidebarEdits {
         return sections.flatMap(\.workspaces).map(\.id).filter { wanted.contains($0) }
     }
 
+    /// Whether every workspace `ids` names may join group `group`: the group exists and each one
+    /// may live in its section (a group holds workspaces of one machine row). The one rule for a
+    /// drag, the palette and the CLI (`moveWorkspaceToGroup`).
+    public static func canMove(_ ids: [WorkspaceID], toGroup group: GroupID, in sections: [SidebarSection]) -> Bool {
+        guard let (s, _) = locateGroup(group, in: sections), !ids.isEmpty else { return false }
+        return ids.allSatisfy { id in workspace(id, in: sections).map { canPlace($0, in: sections[s]) } ?? false }
+    }
+
     /// Whether a workspace may live in a section.
     public static func canPlace(_ ws: SidebarWorkspace, in section: SidebarSection) -> Bool {
         switch section.kind {

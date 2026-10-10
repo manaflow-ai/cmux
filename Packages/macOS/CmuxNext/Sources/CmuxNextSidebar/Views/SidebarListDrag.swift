@@ -13,6 +13,16 @@ final class SidebarListDrag {
     var grabOffsetX: CGFloat = 0
     let gapHeight: CGFloat
     let lift: DragLiftView
+    /// A workspace card's head row height: the card carries the tab rows
+    /// below it, but drops resolve against the head alone, as for a
+    /// one-row card, so its centre can still reach a row's onto band (cx-ikxz).
+    var headHeight: CGFloat?
+    /// The card as drops see it: the head row of a workspace card.
+    var probeCard: CGRect {
+        var card = lift.frame
+        if let headHeight { card.size.height = min(card.height, headHeight) }
+        return card
+    }
     /// The top section the rows would join (drop-to-pin), while the
     /// pointer is over the band above the list; the list keeps its order.
     var pinTarget: SidebarRegionDrop?

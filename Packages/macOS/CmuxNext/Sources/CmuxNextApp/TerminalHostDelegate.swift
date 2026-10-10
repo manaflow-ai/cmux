@@ -67,6 +67,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// no window, go to the system without waiting for the app it launches.
     @discardableResult
     func openLink(_ url: URL) -> Bool {
+        // A Chief subagent's link (`cmux chief` prints it as an OSC 8 hyperlink): this app's
+        // link.open shows its workspace and tab, never another cmux build through the system.
+        if let services, ChiefSubagentLinks.open(url, services: services) { return true }
         guard url.scheme == "http" || url.scheme == "https" else {
             NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
             return true

@@ -80,6 +80,8 @@ extension HomeNativeTranscriptView {
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
     public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
+    public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
