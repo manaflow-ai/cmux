@@ -246,7 +246,17 @@ final class PaneContentView: NSView, PaneContentChrome {
             // (a pinned strip follows its band constraints), so no layout of
             // this ancestor is requested from inside that pass.
             inner.onPaneHeaderHeightChange = { [weak self] in
-                self?.reportHeaderIfChanged()
+                guard let self else { return }
+                self.reportHeaderIfChanged()
+                // A strip pinned to the browser's band follows the band's
+                // guide: one more layout of this pane, asked for after the
+                // window's pass, never from inside the browser's layout.
+                guard self.isBandActive else { return }
+                if let window = self.window as? ShellWindow {
+                    window.afterLayoutPass { [weak self] in self?.needsLayout = true }
+                } else {
+                    self.needsLayout = true
+                }
             }
         }
         applyCornerRadius()
