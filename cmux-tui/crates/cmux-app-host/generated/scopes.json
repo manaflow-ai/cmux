@@ -385,6 +385,10 @@
       "scope": "coderouter:write",
       "class": "mutation"
     },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
     "coderouter.status": {
       "scope": "coderouter:read",
       "class": "read"

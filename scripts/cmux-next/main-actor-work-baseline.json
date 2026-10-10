@@ -20,9 +20,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/AgentTurnStateFeed.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/ChatsFeed.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
  },
@@ -30,12 +27,15 @@
   "regular expression": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentPane.swift": {
-  "JSON / property-list decode": 2
+  "JSON / property-list decode": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentPaneClick.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedInstallPrincipal.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedService.swift": {
@@ -108,6 +108,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/MockBrowserEngine.swift": {
   "string scan inside a loop": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/WebKitDriver+Cookies.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/GitHubCLIClient.swift": {
   "JSON / property-list decode": 1,
   "line split of a whole input": 2,
@@ -124,9 +127,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": {
   "process launch": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift": {
-  "string scan inside a loop": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyKeyClaims.swift": {
   "line split of a whole input": 1

@@ -119,7 +119,19 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
+    ("agent.message.list", AGENT_MESSAGE_REASON),
+    ("agent.message.mark", AGENT_MESSAGE_REASON),
+    ("agent.message.send", AGENT_MESSAGE_REASON),
 ];
+
+/// `cmux agent message` and `cmux agent inbox` (agent_message.rs) send
+/// several requests per command: the daemon stores a message, then the CLI
+/// delivers it to each acpmux recipient and marks it. A tool for one of the
+/// three operations alone would store a message nobody delivers, or change
+/// another agent's delivery state.
+const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
+     agent inbox`, which store, deliver and mark in one command; one operation alone would \
+     store a message without delivering it or change another agent's delivery state.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =

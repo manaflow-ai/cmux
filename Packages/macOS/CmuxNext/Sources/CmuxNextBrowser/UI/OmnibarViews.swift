@@ -19,16 +19,27 @@ final class OmnibarPillView: NSView {
     private var glass: GlassPanelView?
     /// Ends with the view (the loop holds it weakly).
     private var lookLoop: ObservationLoop?
+    /// The Debug backdrop under the glass (`browser.omnibar.glass.backdrop`).
+    private let backdropView = OmnibarGlassBackdropView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
+        backdropView.frame = bounds
+        backdropView.autoresizingMask = [.width, .height]
+        addSubview(backdropView)
         rebuildMaterial()
         lookLoop = ObservationLoop { [weak self] in
             let next = OmnibarGlassLook.current
-            self?.look = next
+            let backdrop = OmnibarGlassKnobs.backdrop.value
+            guard let self else { return }
+            look = next
+            if backdropView.style != backdrop {
+                backdropView.style = backdrop
+                refresh(animated: false)
+            }
         }
     }
 
@@ -72,7 +83,7 @@ final class OmnibarPillView: NSView {
             } else {
                 let panel = GlassPanelView(style: style, cornerRadius: 0)
                 panel.translatesAutoresizingMaskIntoConstraints = false
-                addSubview(panel, positioned: .below, relativeTo: nil)
+                addSubview(panel, positioned: .above, relativeTo: backdropView)
                 NSLayoutConstraint.activate([
                     panel.leadingAnchor.constraint(equalTo: leadingAnchor),
                     panel.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -95,6 +106,7 @@ final class OmnibarPillView: NSView {
         CATransaction.setDisableActions(true)
         layer?.cornerRadius = radius
         glass?.cornerRadius = radius
+        backdropView.cornerRadius = radius
         if look.shadow && drawsGlass && state != .card {
             layer?.shadowOpacity = 0.18
             layer?.shadowRadius = 6
@@ -111,6 +123,7 @@ final class OmnibarPillView: NSView {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
         glass?.isHidden = !glassy
+        backdropView.isHidden = !glassy || backdropView.style == .none
         Motion.transaction(animated ? .hover : nil) {
             performWithTheme {
                 let fill: NSColor
@@ -180,6 +193,58 @@ final class OmnibarCardTopView: NSView {
     private func refresh() {
         performWithTheme {
             card.backgroundColor = OmnibarStyle.cardFill.cgColor
+        }
+    }
+}
+
+/// Theme colors behind the omnibar glass while Lawrence compares looks
+/// (Debug `browser.omnibar.glass.backdrop`): the toolbar is one flat color,
+/// so the glass needs something to refract. Drawn once per change.
+final class OmnibarGlassBackdropView: NSView {
+    var style: OmnibarGlassBackdrop = .none { didSet { if oldValue != style { needsDisplay = true } } }
+    var cornerRadius: CGFloat = 0 { didSet { if oldValue != cornerRadius { needsDisplay = true } } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard style != .none else { return }
+        performWithTheme {
+            let colors = [Palette.highlight, Palette.success, Palette.attention, Palette.danger]
+            NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius).addClip()
+            switch style {
+            case .none: break
+            case .gradient:
+                NSGradient(colors: colors)?.draw(in: bounds, angle: 0)
+            case .stripes:
+                let width: CGFloat = 14
+                var x = -bounds.height
+                var index = 0
+                while x < bounds.width {
+                    let stripe = NSBezierPath()
+                    stripe.move(to: NSPoint(x: x, y: 0))
+                    stripe.line(to: NSPoint(x: x + width, y: 0))
+                    stripe.line(to: NSPoint(x: x + width + bounds.height, y: bounds.height))
+                    stripe.line(to: NSPoint(x: x + bounds.height, y: bounds.height))
+                    stripe.close()
+                    (index % 2 == 0 ? colors[(index / 2) % colors.count] : Palette.textPrimary).setFill()
+                    stripe.fill()
+                    x += width
+                    index += 1
+                }
+            }
         }
     }
 }

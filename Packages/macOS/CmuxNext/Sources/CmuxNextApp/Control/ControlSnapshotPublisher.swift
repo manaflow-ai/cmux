@@ -21,6 +21,8 @@ final class ControlSnapshotPublisher {
     private var isScheduled = false
     private var isStopped = false
     private var observers: [any NSObjectProtocol] = []
+    /// Per-workspace control values kept between publishes (cx-9c8m).
+    private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
 
     init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource) {
@@ -30,6 +32,7 @@ final class ControlSnapshotPublisher {
     }
 
     func start() {
+        workspaceInfos.onStale = { [weak self] in self?.modelChanged() }
         // Read-your-writes for local state: a CLI mutation's effect on focus
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
@@ -73,7 +76,7 @@ final class ControlSnapshotPublisher {
         guard !isStopped else { return }
         let started = ContinuousClock.now
         let (topology, settings, tabSearch) = withObservationTracking {
-            (Self.topology(services), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
+            (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
@@ -91,11 +94,11 @@ final class ControlSnapshotPublisher {
 
     /// The topology of every machine, window and focus as of now (also
     /// what Search Tabs lists in the palette).
-    static func topology(_ services: AppServices) -> ControlTopology {
+    static func topology(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
         let windows: WindowManager = services.windows
         var topology = ControlTopologyMapper.topology(store: services.daemon.store, selectedTab: { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
-        }, pages: services.controlPageFacts)
+        }, pages: services.controlPageFacts, cache: cache)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         // Read inside tracking: every applied batch republishes, so a compat
         // read waiting on its write barrier wakes (CompatWriteBarrier).
@@ -107,7 +110,7 @@ final class ControlSnapshotPublisher {
             let session = ControlSessions.key(daemon)
             topology.sessionSequences[session] = daemon.store.appliedSequence
             topology.workspaces += daemon.store.workspaces.map { model in
-                var info = ControlTopologyMapper.workspace(from: model, selectedTab: { [services] pane in
+                var info = ControlTopologyMapper.cachedWorkspace(from: model, cache: cache, selectedTab: { [services] pane in
                     services.paneController(for: pane)?.selectedTab?.id
                 }, pages: services.controlPageFacts)
                 info.sessionID = session
@@ -146,6 +149,8 @@ final class ControlSnapshotPublisher {
             topology.focus = ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
                                           paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
         }
+        cache?.retain(services.daemon.store.workspaces
+            + machines.remoteDaemons.filter { $0.store.isLoaded }.flatMap { $0.store.workspaces })
         return topology
     }
 }

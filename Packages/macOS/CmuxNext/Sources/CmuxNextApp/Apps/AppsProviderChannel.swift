@@ -28,13 +28,17 @@ nonisolated struct RoutedAppCall: Sendable, Equatable {
         origin = payload["origin"]?.stringValue == "user" ? "user" : "script"
     }
 
-    /// The `{ok, body}` of the answer: the handler's value, or the ABI error
-    /// body `{code, message, retryable, details?}` (an op without a handler
-    /// is `operation.unsupported`).
+    /// The `{ok, body}` of the answer: the ABI result body `{value}` around
+    /// the handler's value, or the ABI error body `{code, message,
+    /// retryable, details?}` (an op without a handler is
+    /// `operation.unsupported`). The app's `cmux.call` resolves to
+    /// `body.value` and the daemon passes an object body through as is, so a
+    /// bare object answer resolved every Mac-side op to `undefined` (the
+    /// CodeRouter page stayed on "Loading…").
     func answer(with capabilities: AppHostCapabilities) async -> (ok: Bool, body: AppJSON) {
         do throws(AppHostCapabilityError) {
             let value = try await capabilities.handle(AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin))
-            return (true, value)
+            return (true, .object(["value": value]))
         } catch {
             return (false, Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details))
         }
