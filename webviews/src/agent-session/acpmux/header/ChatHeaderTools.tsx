@@ -157,7 +157,7 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
+      <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">

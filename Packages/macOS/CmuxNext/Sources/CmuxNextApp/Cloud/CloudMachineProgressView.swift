@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextWakeups
 
 /// The content of a window that shows a New Cloud Workspace before its
@@ -155,12 +156,12 @@ final class CloudMachineProgressView: NSView {
         let current = stage.stepIndex ?? lastReached
         performWithTheme {
             for (index, row) in stepRows.enumerated() {
-                let (symbol, tint): (String, NSColor) =
-                    if stage.failure != nil, index == current { ("xmark.octagon.fill", Palette.danger) }
-                    else if index < current || stage == .ready { ("checkmark.circle.fill", Palette.success) }
-                    else if index == current { ("circle.dotted.circle", Palette.accent) }
-                    else { ("circle", Palette.textTertiary) }
-                row.icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                let (icon, tint): (IconName, NSColor) =
+                    if stage.failure != nil, index == current { (.statusError, Palette.danger) }
+                    else if index < current || stage == .ready { (.statusComplete, Palette.success) }
+                    else if index == current { (.statusInprogress, Palette.accent) }
+                    else { (.stateIdle, Palette.textTertiary) }
+                row.icon.image = NSImage.icon(icon, size: 16)
                 row.icon.contentTintColor = tint
                 row.label.textColor = index <= current ? Palette.textPrimary : Palette.textTertiary
                 row.label.font = index == current ? Typography.bodyEmphasized : Typography.body

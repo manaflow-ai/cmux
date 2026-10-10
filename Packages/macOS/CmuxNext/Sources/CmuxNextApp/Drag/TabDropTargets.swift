@@ -119,6 +119,9 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
 
     var layoutView: LayoutRootView? { window?.content?.layoutView }
 
+    /// When the pane edge under a resting pointer arms its split; nil when none is pending.
+    var dwellDeadline: CFTimeInterval? { touched?.tabDragDwellDeadline }
+
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
         proposal(screenPoint: screenPoint, dragKey: payload.dragID) { controller in
             // A tab dropped on its own pane keeps its tab group (the end of
@@ -150,7 +153,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         let windowPoint = layout.convert(clamped, to: nil)
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
-        guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane) else {
+        guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane,
+                                                edgeDwell: DragTunables.splitDwell.value) else {
             return nil
         }
         // The ghost lands on the rect the layout's preview shows (R47).

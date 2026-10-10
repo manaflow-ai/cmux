@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import Foundation
 
 /// Engine rules for the toolbar buttons. Design mode, profile, theme and
@@ -12,22 +13,22 @@ public nonisolated struct BrowserToolbarPolicy {
         func hinted(_ text: String) -> String { shortcut.map { "\(text) (\($0))" } ?? text }
         switch button {
         case .designMode:
-            return BrowserToolbarButtonState(symbol: facts.designMode ? "paintbrush.pointed.fill" : "paintbrush.pointed",
+            return BrowserToolbarButtonState(icon: .theme,
                                              label: hinted(Strings.toolbarDesignMode), isActive: facts.designMode)
         case .profile:
             let label = facts.profileName.map(Strings.toolbarProfile) ?? Strings.toolbarProfileUnknown
-            return BrowserToolbarButtonState(symbol: "person.crop.circle", label: label)
+            return BrowserToolbarButtonState(icon: .account, label: label)
         case .theme:
-            return BrowserToolbarButtonState(symbol: facts.colorScheme.symbol, label: Strings.toolbarTheme(facts.colorScheme))
+            return BrowserToolbarButtonState(icon: facts.colorScheme.icon, label: Strings.toolbarTheme(facts.colorScheme))
         case .devTools:
             guard facts.hostsDevTools else {
                 let reason = facts.engine == .cef ? Strings.toolbarDevToolsNeedsChromium : Strings.toolbarDevToolsUnavailable
-                return BrowserToolbarButtonState(symbol: "wrench.and.screwdriver", label: reason, isEnabled: false)
+                return BrowserToolbarButtonState(icon: .tools, label: reason, isEnabled: false)
             }
-            return BrowserToolbarButtonState(symbol: "wrench.and.screwdriver", label: hinted(Strings.toolbarDevTools),
+            return BrowserToolbarButtonState(icon: .tools, label: hinted(Strings.toolbarDevTools),
                                              isActive: facts.devToolsOpen)
         case .overflow:
-            return BrowserToolbarButtonState(symbol: "ellipsis", label: Strings.toolbarMore)
+            return BrowserToolbarButtonState(icon: .actionMore, label: Strings.toolbarMore)
         }
     }
 }
