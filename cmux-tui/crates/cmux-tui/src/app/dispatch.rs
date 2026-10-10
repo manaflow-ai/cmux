@@ -7,9 +7,16 @@ mod app_events;
 mod mux_events;
 mod session_events;
 
-// The arms came verbatim from app.rs and name its items and imports.
+use std::sync::atomic::Ordering;
+
+use cmux_tui_core::MuxEvent;
+
+use crate::app::App;
+use crate::app::events::AppEvent;
 use crate::app::pointer::TerminalPointerAdmission;
-use crate::app::*;
+use crate::app::pointer::deferred::ReplayedInputContext;
+use crate::app::render_pacing::RenderAction;
+use crate::localization;
 
 impl App {
     pub(super) fn dispatch_event(

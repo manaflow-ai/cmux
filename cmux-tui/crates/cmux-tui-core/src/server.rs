@@ -164,7 +164,7 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 #[cfg(test)]
-use cmd_server::{machine_listening_tcp_json, stamped_build_commit, stamped_ghostty_commit};
+use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
 mod cmd_subscribe;

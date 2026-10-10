@@ -420,6 +420,8 @@ pub struct Agents {
     pub prompt_sets: Vec<(String, String)>,
     /// Each turn's prompt blocks.
     pub prompts: Vec<Vec<Value>>,
+    /// Every `probe_models` request, in order.
+    pub probed: Vec<String>,
     pub prompt_ids: Vec<String>,
     pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
     pub ended: Vec<String>,
@@ -724,6 +726,11 @@ impl AgentPort for FakeAgents {
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.inner.lock().unwrap().finds.push(name.to_owned());
         Ok(None)
+    }
+
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        self.inner.lock().unwrap().probed.push(harness.to_owned());
+        Ok(())
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {
