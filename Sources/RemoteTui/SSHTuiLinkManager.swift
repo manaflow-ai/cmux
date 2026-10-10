@@ -27,6 +27,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private var browserStarting: Task<CloudBrowserProxyEndpoint, Error>?
     private var loopbackForwards: [LoopbackForwardKey: SSHTuiLoopbackForwardProcess] = [:]
     private var loopbackForwardStarts: [LoopbackForwardKey: Task<UInt16, Error>] = [:]
+    private var loopbackForwardClosures: [LoopbackForwardKey: Task<Void, Never>] = [:]
 
     init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths,
          listenerRegistry: SSHTuiLoopbackListenerLeaseRegistry = SSHTuiLoopbackListenerLeaseRegistry(),
@@ -163,6 +164,13 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             throw CancellationError()
         }
         let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)
+        if let closing = loopbackForwardClosures[key] {
+            await closing.value
+            try Task.checkCancellation()
+            if loopbackForwardClosures[key] == closing {
+                loopbackForwardClosures[key] = nil
+            }
+        }
         if let starting = loopbackForwardStarts[key] {
             return try await awaitSharedForwardStart(starting)
         }
@@ -259,9 +267,26 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
 
     func closeLoopbackForward(machineID: String, target: CloudPortForwardTarget) async {
         let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)
-        loopbackForwardStarts.removeValue(forKey: key)?.cancel()
+        if let closing = loopbackForwardClosures[key] {
+            await closing.value
+            if loopbackForwardClosures[key] == closing {
+                loopbackForwardClosures[key] = nil
+            }
+            return
+        }
+        let start = loopbackForwardStarts.removeValue(forKey: key)
+        start?.cancel()
         let process = loopbackForwards.removeValue(forKey: key)
-        await process?.stop()
+        guard start != nil || process != nil else { return }
+        let closing = Task { [start, process] in
+            if let start { _ = try? await start.value }
+            await process?.stop()
+        }
+        loopbackForwardClosures[key] = closing
+        await closing.value
+        if loopbackForwardClosures[key] == closing {
+            loopbackForwardClosures[key] = nil
+        }
     }
 
     /// Detaching a Mac closes its carrier, never the daemon or its terminal processes.
@@ -282,7 +307,10 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         loopbackForwards.removeAll()
         let starts = loopbackForwardStarts.values
         loopbackForwardStarts.removeAll()
+        let closures = loopbackForwardClosures.values
+        loopbackForwardClosures.removeAll()
         for start in starts { start.cancel() }
+        for closure in closures { await closure.value }
         for forward in forwards { await forward.stop() }
         await previous?.disconnect()
     }

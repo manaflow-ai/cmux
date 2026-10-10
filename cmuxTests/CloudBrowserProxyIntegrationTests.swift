@@ -141,19 +141,18 @@ struct CloudBrowserProxyIntegrationTests {
             stopForward: {}, route: .loopback,
             stopForwardForTarget: { stoppedTarget.resolve($0) }, allowsLoopback: true
         )
-        defer { Task { await model.retire() } }
-
-        let url = try #require(URL(string: "http://127.0.0.1:\(clientService.port)/echo"))
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("from-managed-ssh".utf8)
-        let resourceID = SurfaceResourceID(machine: .ssh("ssh-loopback-test"), kind: .browser, key: "port:3000")
-        panel.configureCloudBrowser(model: model, url: url, resourceID: resourceID, request: request)
-        let readyDeadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !model.isReady && ContinuousClock.now < readyDeadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        do {
+            let url = try #require(URL(string: "http://127.0.0.1:\(clientService.port)/echo"))
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data("from-managed-ssh".utf8)
+            let resourceID = SurfaceResourceID(machine: .ssh("ssh-loopback-test"), kind: .browser, key: "port:3000")
+            panel.configureCloudBrowser(model: model, url: url, resourceID: resourceID, request: request)
+            let readyDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while !model.isReady && ContinuousClock.now < readyDeadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
         // Route setup may replace the initial WebView to bind its exact data
         // store. Keep this test host attached to the current instance, as the
         // SwiftUI browser host does when its observed WebView changes.
@@ -254,8 +253,12 @@ struct CloudBrowserProxyIntegrationTests {
         }
         #expect(receivedNextRequest, "Subsequent address-bar navigation must use the same SSH forward")
         #expect(clientService.requests.isEmpty)
-        await model.retire()
-        #expect(await stoppedTarget.result == CloudPortForwardTarget(host: "127.0.0.1", port: Int(clientService.port)))
+            await model.retire()
+            #expect(await stoppedTarget.result == CloudPortForwardTarget(host: "127.0.0.1", port: Int(clientService.port)))
+        } catch {
+            await model.retire()
+            throw error
+        }
     }
 
     @Test("Cloud websites keep the pane background while styles load, then restore normal page rendering",
