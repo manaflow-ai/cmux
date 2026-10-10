@@ -60,7 +60,7 @@ static_assert(std::is_same_v<
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().new_pane_right(
                   std::declval<const cmux::raw::NewPaneRightRequest&>())),
-              cmux::raw::Result<cmux::raw::SurfaceResult>>);
+              cmux::raw::Result<cmux::raw::PaneSurfaceResult>>);
 static_assert(std::is_same_v<
               decltype(
                   std::declval<cmux::raw::Client&>().set_viewport_pane_width(
