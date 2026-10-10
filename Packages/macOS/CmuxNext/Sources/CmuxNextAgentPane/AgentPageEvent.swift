@@ -63,6 +63,10 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
+    /// A command with its detail (`{name, detail}`): a pinned permission answer (cx-zk9t).
+    public static func command(_ name: String, detail: JSONValue) -> AgentPageEvent {
+        AgentPageEvent(kind: "command", value: ["name": .string(name), "detail": detail])
+    }
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
     public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {

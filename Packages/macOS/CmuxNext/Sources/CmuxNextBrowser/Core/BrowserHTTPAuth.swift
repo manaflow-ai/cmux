@@ -37,7 +37,7 @@ enum BrowserHTTPAuth {
             ],
             buttons: [.cancel(Strings.cancel),
                       CmuxDialogButton(id: "sign-in", title: String(localized: "browser.auth.signIn", defaultValue: "Sign In", bundle: .module), role: .default)],
-            identifier: "browser.dialog.httpAuth")
+            identifier: "browser.dialog.httpAuth", confirmKind: .consent)
     }
 
     /// The URL credential for a prompt response; nil unless it carries one.

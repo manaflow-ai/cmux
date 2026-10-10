@@ -18,7 +18,7 @@ loads (the omnibar path) and Back returns (rb.history); hover reports a pointer 
 bottom edge opens a native menu and the chosen item reaches the page; a date input opens a
 popup surface; a target=_blank link opens a second remote tab on its own host (rb.open_tab);
 closing a tab stops its host; an <input list> shows its datalist suggestions as an autofill
-surface (CEF API 21) and a click on a suggestion fills the field. Ends with quitEndSessions and the tag teardown.
+surface (CEF API 21) and a click on a suggestion fills the field. Ends with debug.quit fixture_quit end-sessions and the tag teardown.
 """
 import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
 
@@ -456,7 +456,7 @@ finally:
     report["final_state"] = rb("state")
     host_pids = [h["pid"] for h in (report["final_state"].get("local_hosts") or [])] \
         if isinstance(report["final_state"], dict) else []
-    print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
+    print("quit", rpc("debug.quit", {"fixture_quit": "end-sessions"}), flush=True)
     try:
         app.wait(30)
     except subprocess.TimeoutExpired:

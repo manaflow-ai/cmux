@@ -37,7 +37,8 @@ enum KeymapHandlers {
             ? [.ok(KeymapStrings.ok)]
             : [.cancel(KeymapStrings.cancel), CmuxDialogButton(id: "apply", title: KeymapStrings.apply, role: .default)]
         let spec = CmuxDialogSpec(title: KeymapStrings.title(presetName(plan.preset, registry)),
-                                  lines: summary(plan, registry: registry), buttons: buttons, identifier: "cmux.dialog.keymap")
+                                  lines: summary(plan, registry: registry), buttons: buttons, identifier: "cmux.dialog.keymap",
+                                  confirmKind: plan.isEmpty ? .none : .destructive)
         let scope: CmuxDialogScope = (window ?? NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
         CmuxDialogCenter.shared.present(spec, in: scope) { answer in
             if answer.button == "apply" { apply() }

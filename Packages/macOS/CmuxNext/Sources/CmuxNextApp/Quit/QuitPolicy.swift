@@ -39,7 +39,9 @@ enum QuitPolicy {
         // Power off and SIGTERM never ask and never end terminals.
         case .powerOff, .signal: return .quit(.keep)
         case .explicit(let choice): return .quit(choice)
-        case .scripted: return .quit(remembered ?? .keep)
+        // A scripted quit (socket, CLI) never ends sessions, also when the remembered
+        // choice would: ending them is the person's (cx-zk9t).
+        case .scripted: return .quit(.keep)
         case .interactive: break
         }
         // Only work in progress asks: a foreground program or an agent in a turn.

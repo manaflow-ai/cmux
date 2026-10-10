@@ -168,7 +168,7 @@ declare global {
         layout?: Record<string, unknown>;
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
-      command?(name: string): void;
+      command?(name: string, detail?: unknown): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
@@ -1877,7 +1877,7 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
-      command(name) {
+      command(name, detail) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
         if (name === "find") findRef.current.show();
@@ -1898,7 +1898,7 @@ function AcpmuxPane() {
             "permissionRefresh",
           ].includes(name)
         ) {
-          window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
+          window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`, { detail }));
         }
         if (
           name === "continueIn" &&

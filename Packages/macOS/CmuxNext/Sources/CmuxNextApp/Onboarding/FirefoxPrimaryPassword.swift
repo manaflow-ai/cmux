@@ -19,7 +19,7 @@ struct FirefoxPrimaryPassword {
             lines: [FirefoxPrimaryPasswordStrings.message],
             fields: [.text(id: field, label: FirefoxPrimaryPasswordStrings.field, initial: "", placeholder: nil, secure: true)],
             buttons: [.cancel(FirefoxPrimaryPasswordStrings.skip), CmuxDialogButton(id: "import", title: FirefoxPrimaryPasswordStrings.importButton, role: .default)],
-            identifier: "cmux.dialog.firefoxPrimaryPassword")
+            identifier: "cmux.dialog.firefoxPrimaryPassword", confirmKind: .consent)
         let scope: CmuxDialogScope = (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
         let answer = await center.present(spec, in: scope)
         guard answer.button == "import", let text = answer.values[field]?.text, !text.isEmpty else { return nil }

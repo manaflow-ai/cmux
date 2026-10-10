@@ -22,13 +22,26 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
+        /// What the confirm grants; only the person answers it (cx-zk9t).
+        var kind: CmuxDialogConfirmKind = .destructive
+        /// The pinned target's name, shown first (cx-zk9t).
+        var subject: String? = nil
     }
 
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
+                // The effect is resolved first and shown in the question; the run acts only on it. A
+                // person-only action whose object or parameter cannot be pinned asks nothing (cx-zk9t).
+                guard let pin = await ActionEffectPin.resolve(id, invocation, services) else {
+                    return services.registry.refuse(RefusalStrings.nothingToConfirm)
+                }
+                let pinned = pin.apply(to: invocation)
+                // A person-only action never runs unasked, also when its own prompt has nothing to say (cx-zk9t).
+                guard var prompt = await prompt(for: id, pinned, services) ?? PersonOnlyConfirmation.prompt(for: id, services.registry)
+                else { return proceed(pinned) }
+                if let subject = pin.subject, !prompt.title.contains(subject) { prompt.subject = subject }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(pinned) } }
             }
         }
     }
@@ -76,7 +89,8 @@ enum DestructiveConfirmation {
                           body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
                           suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         default:
-            return nil
+            // Every other person-only action asks too (cx-zk9t).
+            return PersonOnlyConfirmation.prompt(for: id, services.registry)
         }
     }
 
@@ -136,10 +150,10 @@ enum DestructiveConfirmation {
     static let suppressID = "dont-ask-again"
 
     static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
+        CmuxDialogSpec(title: prompt.title, lines: [prompt.subject, prompt.body.isEmpty ? nil : prompt.body].compactMap { $0 },
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
                        buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
-                       identifier: "cmux.dialog.confirmation")
+                       identifier: "cmux.dialog.confirmation", confirmKind: prompt.kind)
     }
 
     private static func turnOff(_ path: [String], _ settings: SettingsController?) {

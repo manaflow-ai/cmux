@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextMallocZone
 import CmuxNextTerminal
 
@@ -42,6 +43,12 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        // A user-only dialog button takes only the person's own input (cx-zk9t): the app's
+        // own posted input (debug socket) is not the person's.
+        CmuxPersonInput.shared.isAppSynthetic = { event in
+            (NSApp as? CmuxApplication)?.currentEventIsSynthetic == true || SyntheticInput.isRegistered(event)
+        }
+        CmuxPersonInput.shared.isDispatchingEvent = { (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart)
         app.delegate = delegate
         app.setActivationPolicy(.regular)

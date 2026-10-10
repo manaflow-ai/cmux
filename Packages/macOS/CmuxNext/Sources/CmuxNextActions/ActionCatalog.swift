@@ -122,6 +122,7 @@ public nonisolated enum ActionCatalog {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
+        for index in all.indices where personOnlyEffectIDs.contains(all[index].id) { all[index].isPersonOnly = true }
         return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
     }
 }
