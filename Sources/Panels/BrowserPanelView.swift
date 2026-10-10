@@ -1661,21 +1661,31 @@ struct BrowserPanelView: View {
         Button(action: {
             isBrowserImportHintPopoverPresented.toggle()
         }) {
-            HStack(spacing: 4) {
-                CmuxSystemSymbolImage(systemName: "square.and.arrow.down.on.square", pointSize: 10, weight: .medium, tint: devToolsColorOption.color(accent: cmuxAccent))
-                Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
-                    .cmuxFont(size: 11, weight: .medium)
-                    .lineLimit(1)
+            let icon = CmuxSystemSymbolImage(systemName: "square.and.arrow.down.on.square", pointSize: 10, weight: .medium, tint: devToolsColorOption.color(accent: cmuxAccent))
+            // The omnibar comes first: a compact toolbar keeps just the icon,
+            // as square as the other tools, so the label never truncates to
+            // "I...".
+            if isChromeCompact {
+                icon.frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            } else {
+                HStack(spacing: 4) {
+                    icon
+                    Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
+                        .cmuxFont(size: 11, weight: .medium)
+                        .lineLimit(1)
+                }
+                .fixedSize()
+                .foregroundStyle(devToolsColorOption.color(accent: cmuxAccent))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
             }
-            .foregroundStyle(devToolsColorOption.color(accent: cmuxAccent))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .popover(isPresented: $isBrowserImportHintPopoverPresented, arrowEdge: .bottom) {
             browserImportHintPopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
         .safeHelp(String(localized: "browser.import.hint.toolbar.help", defaultValue: "Import browser data"))
+        .accessibilityLabel(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
         .accessibilityIdentifier("BrowserImportHintToolbarChip")
     }
 
@@ -4188,7 +4198,9 @@ final class OmnibarNativeTextField: NSTextField {
         isBezeled = false
         drawsBackground = false
         focusRingType = .none
-        lineBreakMode = .byTruncatingTail
+        // Clipped, not ellipsized: the text then reads the same while a
+        // sidebar slide narrows the pane as once it lands.
+        lineBreakMode = .byClipping
         usesSingleLineMode = true
     }
 
@@ -4967,7 +4979,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
         field.font = .systemFont(ofSize: fontSize)
-        field.placeholderString = placeholder
+        applyPlaceholder(to: field)
         field.delegate = context.coordinator
         field.target = nil
         field.action = nil
@@ -4986,6 +4998,22 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         return field
     }
 
+    /// The placeholder, clipped like the field's text. While the omnibar is
+    /// focused its field editor draws the placeholder and would otherwise
+    /// wrap it at a word, dropping "URL" outright the moment the field
+    /// narrows (a sidebar slide's landing).
+    private func applyPlaceholder(to field: NSTextField) {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byClipping
+        let placeholder = NSAttributedString(string: placeholder, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize),
+            .foregroundColor: NSColor.placeholderTextColor,
+            .paragraphStyle: style,
+        ])
+        guard field.placeholderAttributedString != placeholder else { return }
+        field.placeholderAttributedString = placeholder
+    }
+
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
@@ -4994,10 +5022,10 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
         nsView.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
-        nsView.placeholderString = placeholder
         if nsView.font?.pointSize != fontSize {
             nsView.font = .systemFont(ofSize: fontSize)
         }
+        applyPlaceholder(to: nsView)
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
