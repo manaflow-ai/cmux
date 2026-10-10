@@ -16,6 +16,9 @@
 #     with --docs-shortcuts);
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
 #     whose type is fixed or gone (shrink only; with --ratchets);
+#   - the cloud wire clients: the TypeScript and Rust clients from the committed
+#     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
+#     export-rust-client.ts; with --cloud-clients);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -25,10 +28,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--cloud-clients] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 ratchets=0 fmt=1
+generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 ratchets=0 cloud_clients=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -37,11 +40,12 @@ while (( $# > 1 )); do
     --sdk) sdk=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --ratchets) ratchets=1; shift ;;
+    --cloud-clients) cloud_clients=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--cloud-clients] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--cloud-clients] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -141,6 +145,22 @@ if (( ratchets )) && [[ -f "$repo/$ratchet" ]]; then
     (cd "$repo" && NAMESPACE_RATCHET_UPDATE=1 bash scripts/lint-ios-package-conventions.sh >/dev/null 2>&1) || true
     [[ "$before" == "$(cksum < "$repo/$ratchet")" ]] || echo "fixed: dropped stale rows from $ratchet"
   fi
+fi
+
+# 1g. The cloud wire clients. The generators need no installed packages.
+protocol=backend/packages/protocol
+if (( cloud_clients )) && [[ -f "$repo/$protocol/scripts/export-rust-client.ts" ]]; then
+  (cd "$repo/$protocol" && bun scripts/export-client.ts >/dev/null && bun scripts/export-rust-client.ts >/dev/null)
+  changed="$(git -C "$repo" ls-files --modified --deleted --others --exclude-standard -- clients/ts/cloud cmux-tui/crates/cmux-cloud-wire/src/generated)"
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    if frozen "$rel"; then
+      git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+      echo "skipped (frozen): $rel (stale; bun run catalog:client and catalog:rust in $protocol)"
+    else
+      echo "fixed: regenerated $rel"
+    fi
+  done <<<"$(sort -u <<<"$changed")"
 fi
 
 # 2. cmux-tui tree inputs: reported only. Each must also be a pull_request_target
