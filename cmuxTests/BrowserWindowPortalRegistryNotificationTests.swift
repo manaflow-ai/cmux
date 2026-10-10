@@ -247,7 +247,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         let manager = TabManager()
         manager.window = window
         let workspace = try #require(manager.selectedWorkspace)
-        let browserID = try #require(workspace.openBrowser(inWorkspace: workspace.id, preferSplitRight: true))
+        let browserID = try #require(manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true))
         let browser = try #require(workspace.browserPanel(for: browserID))
         defer {
             workspace.setPortalRenderingEnabled(false, reason: "test.cleanup")
