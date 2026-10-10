@@ -119,10 +119,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
   (daemon `close-workspace` by key, into the closed history) instead of the
   done mark.
-- The opener follows the E17 rule (schemas/chief-cmux-target) at each
-  open: the app while its control socket and daemon exist, else the
-  Chief's own owner daemon (a Chief that `cmux chief` started without the
-  app). The app shows that owner daemon as a machine row named after the
+- Subagent workspaces always live in the Chief's own owner daemon (the
+  host's `--daemon-socket`), also when the app started the Chief (hq-6d
+  2026-10-09): one place, and they outlive the app. Before, the app's
+  session took them while the app ran (E17's TargetWorkspaces switch). The
+  app shows that owner daemon as a machine row named after the
   Chief, on the paired-server path (`ServerReach.localChief`, route `unix`
   to the owner's socket), signed in or not, so the workspaces appear when
   the app opens. Every subagent

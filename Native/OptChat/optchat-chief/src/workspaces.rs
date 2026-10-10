@@ -123,107 +123,6 @@ impl AppWorkspaces {
     }
 }
 
-/// Where a subagent's workspace goes (E17, schemas/chief-cmux-target).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkspaceTarget {
-    /// The app runs: its control socket opens the workspace in its daemon.
-    App,
-    /// No app: the Chief's owner daemon; the app shows it when it connects.
-    Owner,
-}
-
-/// `App` while both the app's control socket and its daemon exist as
-/// sockets, else `Owner`: the same rule as the Chief's `cmux` calls.
-pub fn workspace_target(control: &Path, app_daemon: &Path) -> WorkspaceTarget {
-    use std::os::unix::fs::FileTypeExt;
-    let socket = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket());
-    if socket(control) && socket(app_daemon) {
-        WorkspaceTarget::App
-    } else {
-        WorkspaceTarget::Owner
-    }
-}
-
-/// The opener of a Chief host started by the app or by `cmux chief`: each
-/// open picks its target now (the app may start or quit while the host
-/// runs); a rename or close goes where that workspace was opened.
-pub struct TargetWorkspaces {
-    pub app: AppWorkspaces,
-    pub owner: DaemonWorkspaces,
-    opened: std::sync::Mutex<std::collections::HashMap<String, WorkspaceTarget>>,
-}
-
-impl TargetWorkspaces {
-    /// `owner_daemon` is the host's `--daemon-socket`; the tabs name the Chief
-    /// home `home` (`chief:<home id>`) in both targets.
-    pub fn new(
-        app: AppWorkspaces,
-        owner_daemon: PathBuf,
-        home: &Path,
-        harness: Option<String>,
-    ) -> TargetWorkspaces {
-        TargetWorkspaces {
-            app: app.with_home(home),
-            owner: DaemonWorkspaces {
-                daemon: owner_daemon,
-                host: chief_host(home),
-                host_name: host_name(),
-                harness,
-            },
-            opened: std::sync::Mutex::new(std::collections::HashMap::new()),
-        }
-    }
-
-    fn target(&self) -> WorkspaceTarget {
-        workspace_target(&self.app.control, &self.app.daemon)
-    }
-
-    fn of(&self, key: &str) -> WorkspaceTarget {
-        let opened = self
-            .opened
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        opened.get(key).copied().unwrap_or_else(|| self.target())
-    }
-
-    fn backend(&self, target: WorkspaceTarget) -> &dyn Workspaces {
-        match target {
-            WorkspaceTarget::App => &self.app,
-            WorkspaceTarget::Owner => &self.owner,
-        }
-    }
-}
-
-impl Workspaces for TargetWorkspaces {
-    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
-        let target = self.target();
-        let opened = self.backend(target).open(key, session, name, cwd)?;
-        self.opened
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(opened.clone(), target);
-        Ok(opened)
-    }
-
-    fn close(&self, key: &str) -> Result<(), String> {
-        self.backend(self.of(key)).close(key)
-    }
-
-    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
-        self.backend(self.of(key)).rename(key, name)
-    }
-
-    fn place(&self) -> String {
-        match self.target() {
-            WorkspaceTarget::App => self.app.place(),
-            WorkspaceTarget::Owner => {
-                "the Chief's own cmux session on this Mac (the cmux app shows it when it opens)"
-                    .to_owned()
-            }
-        }
-    }
-}
-
 /// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
 /// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
 /// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
@@ -453,6 +352,12 @@ impl Workspaces for DaemonWorkspaces {
     }
 
     fn place(&self) -> String {
+        // The Chief home's own owner daemon (tabs on `chief:<home id>`): the app shows it
+        // as the Chief's machine row.
+        if self.host.starts_with("chief:") {
+            return "the Chief's own cmux session on this Mac (the cmux app shows it under the Chief)"
+                .to_owned();
+        }
         format!(
             "the cmux session on {0} (a cmux app shows it only while connected to {0})",
             self.host_name
