@@ -113,7 +113,7 @@ let package = Package(
     name: "CmuxNext",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v26),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),

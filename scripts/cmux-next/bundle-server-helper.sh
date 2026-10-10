@@ -158,7 +158,7 @@ helper="$app/Contents/Resources/libexec/cmux-server-helper"
 root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 sources="$root/Packages/macOS/CmuxNext/Sources"
 work="${TARGET_TEMP_DIR:-$(mktemp -d)}/server-helper"
-min_macos="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
+min_macos="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 optimize="-O"
 [[ "${CONFIGURATION:-Debug}" == "Debug" ]] && optimize="-Onone"
 swift_flags=(

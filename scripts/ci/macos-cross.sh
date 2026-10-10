@@ -380,9 +380,9 @@ cmd_ffi() {
     grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u > "$out/work/exports.txt"
   for t in "${TARGETS[@]}"; do
-    use_target "$t" 26.0
+    use_target "$t" 14.0
     (cd "$crates/cmux-app-ffi" && cargo build --locked --release --target "$t")
-    "$LLVM_BIN/clang" --target="$(arch_of "$t")-apple-macos26.0" -isysroot "$SYSROOT" --ld-path="$ct-ld" -r -nostdlib \
+    "$LLVM_BIN/clang" --target="$(arch_of "$t")-apple-macos14.0" -isysroot "$SYSROOT" --ld-path="$ct-ld" -r -nostdlib \
       -Wl,-force_load,"$CARGO_TARGET_DIR/$t/release/libcmux_app_ffi.a" \
       -Wl,-exported_symbols_list,"$out/work/exports.txt" -o "$out/work/$t.o"
     "$ct-libtool" -static -o "$out/slices/$t.a" "$out/work/$t.o"

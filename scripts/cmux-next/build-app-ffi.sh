@@ -46,7 +46,7 @@ for target in "${targets[@]}"; do
 done
 
 export CARGO_TARGET_DIR="$out_root/cargo"
-export MACOSX_DEPLOYMENT_TARGET=26.0
+export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
 export CARGO_PROFILE_RELEASE_LTO=off
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"

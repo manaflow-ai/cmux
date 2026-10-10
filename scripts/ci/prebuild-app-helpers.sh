@@ -42,9 +42,8 @@ derived_data="$(mkdir -p "$derived_data" && cd "$derived_data" && pwd)"
 # TARGET_TEMP_DIR holds the Cargo target directory) and the sidecar's own
 # macOS floor (CMUX_DIFF_SIDECAR_MIN_MACOS, which build-diff-sidecar.sh hands
 # cargo as MACOSX_DEPLOYMENT_TARGET). rustc records that value in its
-# dep-info, so a different one would make the phase rebuild. The project's
-# targets have different deployment targets (cmux-next 26.0, the CLI 14.0),
-# so a project-wide value does not exist.
+# dep-info, so a different one would make the phase rebuild. The sidecar
+# floor is its own setting, independent of each target's deployment target.
 read -r phase_target sidecar_min_macos < <(python3 - "$ROOT/cmux.xcodeproj/project.pbxproj" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()

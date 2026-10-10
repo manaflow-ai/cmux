@@ -201,7 +201,7 @@ copy_if_changed() {
 copy_if_changed "$shim_out/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim.dylib"
 
 # 3. Helper apps. CEF derives the variant names from the base helper name.
-min_os="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
+min_os="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 kinds=("" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)")
 suffixes=("" ".gpu" ".renderer" ".plugin" ".alerts")
 wanted=()
