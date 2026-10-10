@@ -6,8 +6,6 @@ import { CheckpointReview } from "./Review";
 import type { Checkpoint, CheckpointList } from "./protocol";
 import { checkpointStrings } from "./strings";
 
-const strings = checkpointStrings();
-
 const base: Checkpoint = {
   checkpoint_id: "checkpoint-a",
   repository_id: "repo-gallery",
@@ -58,7 +56,7 @@ type Props = { mode: "create" | "receipt" | "copy-replacement" | "retained" };
 
 const createSelection: Play = async (ctx) => {
   await ctx.click({ role: "checkbox", name: "src/agent.test.ts" });
-  await ctx.click({ role: "button", name: strings.create });
+  await ctx.click({ selector: '.acpmux-checkpoint-actions button[type="submit"]' });
   await ctx.waitFor(() => ctx.find({ text: "refs/cmux/checkpoints/gallery-a" }));
 };
 
@@ -69,14 +67,14 @@ const keyboardSelection: Play = async (ctx) => {
     const checkbox = ctx.find({ role: "checkbox", name: "src/agent.test.ts" });
     return !(checkbox as HTMLInputElement).checked;
   });
-  await ctx.click({ role: "button", name: strings.create });
+  await ctx.click({ selector: '.acpmux-checkpoint-actions button[type="submit"]' });
   await ctx.waitFor(() => ctx.find({ text: "refs/cmux/checkpoints/gallery-a" }));
 };
 
 const copyReplacement: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: strings.copyReference });
+  await ctx.click({ selector: ".acpmux-checkpoint-actions button:first-child" });
   await ctx.waitFor(() => ctx.find({ text: "refs/cmux/checkpoints/gallery-b" }));
-  await ctx.waitFor(() => ctx.find({ role: "button", name: strings.copyReference }));
+  await ctx.waitFor(() => ctx.find({ selector: ".acpmux-checkpoint-actions button:first-child" }));
 };
 
 export default componentEntry<Props>({
@@ -88,6 +86,9 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/checkpoints/Review.tsx#CheckpointReview"],
   load: async () => {
     function GalleryCheckpointReview({ mode }: Props) {
+      // Resolve after the gallery frame installs __cmuxPaneStrings. Resolving this at module
+      // load time falls back to raw checkpoint keys in the static gallery bundle.
+      const strings = checkpointStrings();
       const [record, setRecord] = useState<Checkpoint | undefined>(mode === "create" ? undefined : mode === "retained" ? retained : base);
       const next = { ...base, checkpoint_id: "checkpoint-b", ref: "refs/cmux/checkpoints/gallery-b" };
       if (!record) {
