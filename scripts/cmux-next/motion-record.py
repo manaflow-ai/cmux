@@ -14,7 +14,7 @@ Surfaces:
   tabs   tab open, close, move right and left, a drag reorder
   panes  split right, split down, close, equalize, zoom
   focus  focus moves between panes (left, right)
-  toasts a toast appears (pin a tab), a second stacks under it (a tab icon),
+  toasts a toast appears (pin a tab), a second stacks under it (close a tab),
          and the newest ends (undo) while the other slides back down
 
 Usage: motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR
@@ -152,7 +152,15 @@ def focus():
 def toasts():
     save_layout("toasts")
     record("toasts", "appear", lambda: action("palette.toggleTabPin"))
-    record("toasts", "stack", lambda: action("tab.setIcon", args={"icon": "star"}))
+    # A second, different toast: a user close of the first tab (its x, a
+    # click as a person makes it; automation closes show no toast).
+    pill = first_pill()
+    if pill:
+        left, top, width, height = pill
+        x, y = left + width - 14, top + height / 2
+        rpc("debug.mouse", {"action": "move", "x": x, "y": y})
+        time.sleep(0.3)  # test harness: the hovered tab shows its x
+        record("toasts", "stack", lambda: rpc("debug.mouse", {"action": "click", "x": x, "y": y}))
     record("toasts", "undo", lambda: action("undo"))
 
 
