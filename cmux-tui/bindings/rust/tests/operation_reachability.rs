@@ -7,6 +7,7 @@ fn every_high_level_operation_constant_has_a_facade_call_site() {
         include_str!("../src/resource/handles/closed.rs"),
         include_str!("../src/resource/handles/column_update.rs"),
         include_str!("../src/resource/handles/home.rs"),
+        include_str!("../src/resource/handles/palette_usage.rs"),
         include_str!("../src/resource/handles/saved_tab_groups.rs"),
         include_str!("../src/resource/handles/tab_groups.rs"),
         include_str!("../src/resource/handles/tab_update.rs"),
@@ -26,7 +27,7 @@ fn every_high_level_operation_constant_has_a_facade_call_site() {
             Some(rest.split(':').next().unwrap())
         })
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 149, "update this count only with the accepted inventory");
+    assert_eq!(names.len(), 154, "update this count only with the accepted inventory");
     for name in names {
         assert!(
             call_sites.contains(&format!("ops::{name}")),
