@@ -17,9 +17,12 @@ extension CMUXCLI {
           --ssh-option <opt>      Extra SSH -o option (repeatable)
           --window <id|ref|index> Target window for the managed workspace
           --no-focus              Create workspace without switching to it
+          --here                  Reuse the current pane instead of creating a new workspace.
+                                  Requires a single-terminal local cmux workspace. Keeps its sidebar group.
 
         Example:
           cmux ssh dev@my-host
+          cmux ssh --here dev@my-host
           cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
           cmux ssh dev@my-host --forward-agent
           cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
@@ -47,7 +50,16 @@ extension CMUXCLI {
               cmux ssh dev@my-host --command 'omp "investigate auth"'
             """
         )
-        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(openFocusFlagsHelp)"
+        let hereHelp = String(
+            localized: "cli.help.ssh.hereLimitations",
+            defaultValue: """
+            In-place SSH:
+              --here requires one local terminal pane and interactive SSH; Mosh and Canvas are not supported.
+              Disconnect or exit returns to the original local shell while cmux stays open.
+              After restarting cmux, the session restores as a normal remote SSH workspace.
+            """
+        )
+        return "\(help)\n\n\(hereHelp)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(openFocusFlagsHelp)"
     }
 
     static var moshCommandUsage: String {

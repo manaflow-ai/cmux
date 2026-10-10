@@ -12163,6 +12163,7 @@ struct CMUXCLI {
             defaultTerminalTransport: defaultTerminalTransport,
             terminalProfile: terminalProfile
         )
+        _ = try sshHereCallerContext(options: sshOptions)
         try runSSHWithOptions(
             sshOptions,
             relayID: relayID,
@@ -12444,6 +12445,11 @@ struct CMUXCLI {
                           client: client, jsonOutput: jsonOutput, idFormat: idFormat,
                           routeIdentifier: resolvedRouteIdentifier)
             return
+        }
+        if sshOptions.reuseCurrentPane {
+            // Host RequestTTY settings can select the legacy path even when
+            // the command-line flags passed the early caller-context check.
+            throw sshHereRequiresInteractiveSSH()
         }
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
@@ -12966,6 +12972,7 @@ struct CMUXCLI {
         var initialCommand: String?
         var windowRaw: String?
         var focus: Bool?
+        var reuseCurrentPane = false
         var sshOptions: [String] = []
         var undelimitedRemoteCommandArguments: [String] = []
         var delimitedRemoteCommandArguments: [String]?
@@ -13029,6 +13036,9 @@ struct CMUXCLI {
                 let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh")
                 focus = flag?.focus
                 index += flag?.consumed ?? 1
+            case "--here":
+                reuseCurrentPane = true
+                index += 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
                 index += 1
@@ -13131,6 +13141,7 @@ struct CMUXCLI {
             // unless the caller passes `--no-focus`; script/agent callers can
             // opt out explicitly without silently leaving the new pane behind.
             noFocus: focus == false,
+            reuseCurrentPane: reuseCurrentPane,
             sshOptions: agentForwarding.sshOptions,
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
