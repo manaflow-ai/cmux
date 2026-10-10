@@ -115,7 +115,7 @@ pub(super) struct TerminalReservationRequest {
     pub(super) expected_revision: Option<u64>,
     pub(super) on_exit: TerminalOnExit,
     /// `split-client-keys-v1`: the tab id fixed when the creation was prepared.
-    pub(super) tab_id: Option<crate::resource::TabPublicId>,
+    pub(super) tab_id: Option<TabPublicId>,
     /// Extra environment for this terminal's child only (such as the
     /// frontend user's login-shell environment), applied at spawn. Like
     /// argv and cwd it is kept with the creation receipt in the local state
