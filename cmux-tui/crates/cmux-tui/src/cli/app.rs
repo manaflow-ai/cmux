@@ -742,7 +742,7 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);
     let (daemon, _) = super::wire::resolve_socket_with_origin(global)
-        .map_err(|_| crate::localization::catalog().startup.invalid_session_name.to_owned())?;
+        .map_err(|error| super::wire::resolve_failure_message(&error))?;
     match identity {
         Some(identity) if app_owns_daemon(&identity, &daemon) => Ok(identity.control_socket(&home)),
         _ => Err(no_app()),
@@ -811,6 +811,54 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
+/// The app methods that place a new tab or report where the caller is: the
+/// app opens an agent's tabs in the column right of its chat
+/// (`beside_caller`) and marks the caller in `snapshot.get` and
+/// `system.identify`.
+const CALLER_METHODS: [&str; 4] =
+    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+
+/// Who calls, from the environment: the acpmux agent session
+/// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
+/// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
+pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
+    let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    if let Some(session) = set("CMUX_AGENT_SESSION") {
+        return Some(json!({ "agent_session": session }));
+    }
+    set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
+}
+
+/// `params` with the caller added for a [`CALLER_METHODS`] method that names
+/// none, and whether it was added. `browser.open_split` names a terminal with
+/// its own `terminal_id`, so it gets only an agent caller.
+fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
+    if !CALLER_METHODS.contains(&method) {
+        return (params, false);
+    }
+    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
+    if method == "browser.open_split" && caller.get("agent_session").is_none() {
+        return (params, false);
+    }
+    let mut added = false;
+    if let Some(object) = params.as_object_mut()
+        && !object.contains_key("caller")
+    {
+        object.insert("caller".into(), caller);
+        added = true;
+    }
+    (params, added)
+}
+
+/// An app from before `caller` refuses it as an unknown param (its
+/// `browser.open_split` takes no unknown params): the request is sent again
+/// without it, so a newer CLI still opens the tab there.
+fn refused_caller(response: &Result<Value, Value>) -> bool {
+    let Err(error) = response else { return false };
+    error_code(error) == Some("invalid_params")
+        && error.get("message").and_then(Value::as_str).is_some_and(|text| text.contains("caller"))
+}
+
 /// `timeout: None` reads until the app answers or closes the connection.
 pub(super) fn request(
     stream: &mut UnixStream,
@@ -818,7 +866,13 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    exchange(stream, method, with_read_barrier(params), timeout)
+    let timeout = timeout.into();
+    let (with, added) = with_caller(method, params.clone());
+    let response = exchange(stream, method, with_read_barrier(with), timeout)?;
+    if added && refused_caller(&response) {
+        return exchange(stream, method, with_read_barrier(params), timeout);
+    }
+    Ok(response)
 }
 
 /// One request with exactly `params` (no read barrier) and its response.

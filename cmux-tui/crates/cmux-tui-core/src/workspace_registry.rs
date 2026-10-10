@@ -32,6 +32,9 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+mod detached_terminals;
+pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
+use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 mod idle_policy_store;
@@ -4531,20 +4534,6 @@ fn validate_terminal_transition(
     }
     if existing.on_exit != desired.on_exit {
         anyhow::bail!("terminal on-exit policy is fixed at reservation");
-    }
-    Ok(())
-}
-
-fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
-    let live = connection
-        .query_row(
-            "SELECT 1 FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
-            [workspace_key],
-            |_| Ok(()),
-        )
-        .optional()?;
-    if live.is_none() {
-        anyhow::bail!("terminal workspace is missing or closed: {workspace_key}");
     }
     Ok(())
 }

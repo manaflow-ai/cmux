@@ -61,7 +61,21 @@ final class RemoteViewPageTab: BrowserTab {
             session = nil
             contentView = RemoteViewUnavailableView(content: .unavailable(reason))
         }
+        #if DEBUG
+        Self.live.add(self)
+        #endif
     }
+
+    #if DEBUG
+    /// Every live remote view tab, for `debug.remote_view` (weak).
+    static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
+
+    /// The Connect button of a tab that asks first; nil for any other tab.
+    var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
+
+    /// The tab's session, when it streams (development path or mock).
+    var debugSession: RemoteViewPageSession? { session }
+    #endif
 
     func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

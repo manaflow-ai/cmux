@@ -43,3 +43,13 @@ pub(super) fn parse_zoom_mode(mode: Option<String>) -> anyhow::Result<ZoomMode> 
         other => anyhow::bail!("bad mode {other:?} (want \"toggle\", \"on\", or \"off\")"),
     }
 }
+
+/// Deserialize a field whose absence and `null` mean different things:
+/// absent is `None` (via `#[serde(default)]`), `null` is `Some(None)`.
+pub(super) fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}

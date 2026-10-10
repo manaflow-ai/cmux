@@ -216,8 +216,7 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            let insert_result = self.insert_created_terminal(surface.clone(), workspace_key);
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
@@ -357,8 +356,7 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            let insert_result = self.insert_created_terminal(surface.clone(), workspace_key);
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(

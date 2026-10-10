@@ -542,8 +542,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "8950cf6ef31947901fd3bf268de4e4182b7e4c622c673ae5010bd73e149bbeb9",
-      "size": 65837
+      "sha256": "7752b391cedd58d594daf5640d878677d88c378422769f71b2f655307dc02f03",
+      "size": 66748
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -807,8 +807,8 @@
     },
     {
       "path": "CreateTerminalRequest.java",
-      "sha256": "da50ad29926f9080ee3337acecc5a08c44eec2f39d71b610af5f937cb0c44c61",
-      "size": 12299
+      "sha256": "e67371d6ed4f1e381469097c72a7f4b8f3f245379dae43974681652c3b4d45b8",
+      "size": 12937
     },
     {
       "path": "CreateWorkspaceGroupRequest.java",
@@ -1047,8 +1047,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "12e99ec8606b0154056e5e9f1d0e3ecc4fe8ce893256df80cc363ea2ea4776bf",
-      "size": 57593
+      "sha256": "e20f938d43475a288be16f6ef693e920afb41e319c8d012b3ffdb78c4f5d6221",
+      "size": 58327
     },
     {
       "path": "GetBlobRequest.java",
@@ -1516,6 +1516,11 @@
       "size": 9587
     },
     {
+      "path": "NewRemoteTerminalTabRequest.java",
+      "sha256": "89af0a2bece5bdf93b597aa9ca789fb2be84345402036198ce5f64e977d637bb",
+      "size": 6187
+    },
+    {
       "path": "NewRowRequest.java",
       "sha256": "f414c43595164f5920d039df016fa56dc82f90d4cde297243617bd0994cb9694",
       "size": 8048
@@ -1687,7 +1692,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "367dbc3441c16e4fc9be2a41d77824f7ef07b3e47fc5ca69a4d96439fb12c73b",
+      "sha256": "034d062957614de55eae3a3e520007891accd24e3acaa2747dd3ed33a10e1ccd",
       "size": 5901
     },
     {
@@ -1774,6 +1779,11 @@
       "path": "ReloadConfigResult.java",
       "sha256": "94b93c987c315a63322d159d8a9157d8b136498ee754a7adaa512eeda6b2797c",
       "size": 2136
+    },
+    {
+      "path": "RemoteTerminalSnapshotRequest.java",
+      "sha256": "ca5af619716610ef20457c81a73d064616dcd3ebddf62b31bde64a7c2b43af81",
+      "size": 2148
     },
     {
       "path": "RemoveScreensFromScreenGroupRequest.java",
@@ -2222,8 +2232,8 @@
     },
     {
       "path": "SetTerminalKeepResult.java",
-      "sha256": "5af4d11c8c16369e890c05646832531de55bfff2f20c3c2db8182a1a626e42f5",
-      "size": 2676
+      "sha256": "173eb66d377669f0a5b05c9fa51ecde970239911fe6e6c06897fe91df4d6b0c1",
+      "size": 3555
     },
     {
       "path": "SetViewportPaneWidthRequest.java",
@@ -2602,8 +2612,8 @@
     },
     {
       "path": "TerminalPlacement.java",
-      "sha256": "dac1c0f9828e387d889a1a6cf097a2545f34d6f7b254f2aaef38f8d749c7553c",
-      "size": 11717
+      "sha256": "d65a405328b933ec4700a20887e4e5a6353fcb76b237e9757dae5d323d644b67",
+      "size": 12545
     },
     {
       "path": "TerminalReadRangeRequest.java",
@@ -2751,6 +2761,11 @@
       "size": 6827
     },
     {
+      "path": "UpdateRemoteTerminalTabRequest.java",
+      "sha256": "0122dc18364f45ab1411de34fe90d82460980ce1734e81e6cafaa3ec7d22a826",
+      "size": 4208
+    },
+    {
       "path": "UpdateScreenGroupRequest.java",
       "sha256": "70a5203d636ce4a02a580f5516b00db0ca9f967a8a470b7aa589143f5694f7d2",
       "size": 3962
@@ -2882,7 +2897,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "bfd8e31d1ae5b67f877d16d6152b6d873196bab92da901cd0d1c38ba2fed90c4",
+  "ir_sha256": "58ca7257f6cbe1cc4e0e0bc77bea9c72ee7ad72d681fc496e52263fcaf180d42",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

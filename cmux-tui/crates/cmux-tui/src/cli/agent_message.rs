@@ -145,12 +145,11 @@ struct Connection {
 
 impl Connection {
     fn open(global: &GlobalArgs) -> Result<Self, Failure> {
-        let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|_| {
-            Failure::Transport(format!(
-                "cmux: {}",
-                crate::localization::catalog().startup.invalid_session_name
-            ))
-        })?;
+        let (socket, derived) =
+            super::wire::resolve_socket_with_origin(global).map_err(|error| Failure::Local {
+                error: super::wire::resolve_failure(&error),
+                exit: super::wire::RESOLVE_FAILURE_EXIT,
+            })?;
         let stream =
             cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
                 Failure::Transport(format!(
@@ -416,7 +415,7 @@ fn deliver_queued(
 
 fn failure_text(failure: &Failure) -> String {
     match failure {
-        Failure::Resource(error) => {
+        Failure::Resource(error) | Failure::Local { error, .. } => {
             error["message"].as_str().map_or_else(|| error.to_string(), str::to_owned)
         }
         Failure::Transport(message) => message.clone(),
