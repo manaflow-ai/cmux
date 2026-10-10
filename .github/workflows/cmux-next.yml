@@ -19,8 +19,8 @@ name: cmux-next
 #   daemon     the same-tree cmux-tui and the live-daemon suites, for daemon,
 #              Rust core, FFI and control paths
 # A batch integration PR labeled full-ci, and an explicit workflow dispatch,
-# run every tier. A feat-cmux-next push runs the Linux checks and the warm
-# Swift canary only; the scheduled cmux-next nightly dispatcher promotes the
+# run every tier. A feat-cmux-next push runs the warm Swift canary only; the
+# scheduled cmux-next nightly dispatcher promotes the
 # latest canary-green head to nightly-next about every 30 minutes, where the
 # broader Release/scheme/daemon coverage runs.
 
@@ -466,8 +466,8 @@ jobs:
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
           if [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/feat-cmux-next ]]; then
-            # Base pushes keep the cheap Linux checks above, then type-check the
-            # app package on the placed mini. PRs and explicit dispatches retain
+            # Base pushes type-check the app package on the placed mini. PRs and
+            # explicit dispatches retain
             # the normal path router and its full-ci escape hatch.
             {
               echo 'native=false'
@@ -497,7 +497,7 @@ jobs:
               echo
               echo 'Swift canary targets: CmuxNextApp'
               echo
-              echo '- feat-cmux-next push: Linux checks and the warm Swift canary are the push gate; broad app coverage runs from the 30-minute nightly dispatcher.'
+              echo '- feat-cmux-next push: the warm Swift canary is the push gate; broad app coverage runs from the 30-minute nightly dispatcher.'
             } >> "$GITHUB_STEP_SUMMARY"
           else
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \

@@ -1,7 +1,7 @@
 name: cmux-next nightly dispatcher
 
-# feat-cmux-next pushes keep the fast Linux checks and Swift canary. This
-# schedule advances the protected nightly-next branch to the latest canary
+# feat-cmux-next pushes keep the fast Swift canary. This schedule advances the
+# protected nightly-next branch to the latest canary
 # green head; the existing nightly workflow then runs the Release, scheme and
 # daemon coverage and publishes through its normal guarded path.
 on:

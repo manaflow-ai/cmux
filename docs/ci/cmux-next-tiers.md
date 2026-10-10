@@ -5,8 +5,8 @@ A pull request into `feat-cmux-next` runs only the checks its change can break.
 against its first parent) and picks the tiers; the `cmux-next path routing`
 job's summary lists each tier and the reason for it.
 
-Pushes to `feat-cmux-next` use a separate fast path: Linux `checks` plus a
-warm Swift canary that builds `CmuxNextApp`. The scheduled
+Pushes to `feat-cmux-next` use a separate fast path: a warm Swift canary that
+builds `CmuxNextApp`. The scheduled
 `.github/workflows/cmux-next-nightly-dispatch.yml` advances the latest
 canary-green head to `nightly-next` about every 30 minutes; that branch runs
 the broader Release, scheme and daemon coverage through `nightly.yml`.
@@ -55,9 +55,9 @@ Every tier runs on:
 - a pull request labeled `full-ci`. Use it on a batch integration PR, so the
   heavy suites run once for the batch before it merges;
 - the scheduled `nightly-next` build from the latest `feat-cmux-next` head (about
-  every 30 minutes). The fast push run still has Linux checks and the Swift
-  canary; `cmux-next push attribution` names the pull requests in a red push
-  range so the owning lane can fix forward;
+  every 30 minutes). The fast push run is the Swift canary; `cmux-next push
+  attribution` names the pull requests in a red push range so the owning lane
+  can fix forward;
 - a change to the manifest, the target graph, the router, the workflow or the
   test runner scripts, or to a file in the CmuxNext package that no target owns.
 
