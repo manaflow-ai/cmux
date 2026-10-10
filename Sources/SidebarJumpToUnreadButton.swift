@@ -183,7 +183,11 @@ struct SidebarJumpToUnreadButton: View {
             .accessibilityValue(resolved.countText ?? "")
             .accessibilityIdentifier("SidebarJumpToUnreadButton")
             if showsClose {
-                closeButton.padding(.trailing, 6).transition(.opacity)
+                // Fades in once the capsule has finished widening, and out at once.
+                closeButton.padding(.trailing, 6).transition(.asymmetric(
+                    insertion: .opacity.animation(.easeOut(duration: 0.12).delay(0.15)),
+                    removal: .opacity.animation(.easeOut(duration: 0.06))
+                ))
             }
         }
         .fixedSize()
