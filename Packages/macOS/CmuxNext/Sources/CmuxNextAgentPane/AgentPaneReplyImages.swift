@@ -20,6 +20,8 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
     case imageTooLarge = "link.image_too_large"
     /// The transfer failed, or the bytes are not an image the pane shows.
     case imageFailed = "link.image_failed"
+    /// Not a local video or audio file the pane plays (``AgentPaneMediaGrants``).
+    case mediaRefused = "link.media_refused"
     /// A browser id the last `browser.list` did not give.
     case browserUnknown = "link.browser_unknown"
     case openFailed = "link.open_failed"

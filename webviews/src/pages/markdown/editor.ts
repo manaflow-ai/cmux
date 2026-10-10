@@ -34,6 +34,7 @@ import {
   type LinkHost,
 } from "./linkEditing";
 import { findHeading } from "./links";
+import { githubReferences } from "../../githubReferences";
 import { LinkOverlays } from "./overlays";
 import {
   RAW_NODE,
@@ -61,6 +62,8 @@ export interface MarkdownEditorHost {
   label(key: EditorLabel): string;
   /** Sanitized HTML for an HTML block's preview. */
   htmlPreview?(html: string): DocumentFragment | null;
+  /** The workspace's GitHub `owner/repo`, used for bare issue references. */
+  githubRepository?: string;
   /** Link checks, hover card strings and path completion. */
   links?: LinkHost;
 }
@@ -255,6 +258,7 @@ export class MarkdownEditor {
       .use(rawSchema)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())
+      .use(githubReferencePlugin(() => host.githubRepository))
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
     if (host.links)
@@ -473,6 +477,45 @@ function buildNodes(schema: Schema, root: MdastRoot): ProseNode[] {
 const activeKey = new PluginKey("cmuxMarkdownActive");
 
 const taskCheckboxKey = new PluginKey<DecorationSet>("cmuxMarkdownTaskCheckbox");
+
+const githubReferenceKey = new PluginKey<DecorationSet>("cmuxMarkdownGithubReferences");
+
+/** Renders GitHub issue references without changing the Markdown source or editor marks. */
+function githubReferencePlugin(repository: () => string | undefined) {
+  return $prose(
+    () =>
+      new Plugin<DecorationSet>({
+        key: githubReferenceKey,
+        state: {
+          init: (_config, state) => githubReferenceDecorations(state.doc, repository()),
+          apply: (tr, previous, _old, state) =>
+            tr.docChanged ? githubReferenceDecorations(state.doc, repository()) : previous.map(tr.mapping, state.doc),
+        },
+        props: { decorations: (state) => githubReferenceKey.getState(state) },
+      }),
+  );
+}
+
+function githubReferenceDecorations(doc: ProseNode, repository?: string): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, pos, parent) => {
+    if (parent?.type.spec.code) return false;
+    if (!node.isText) return true;
+    if (node.marks.some((mark) => mark.type.name === "link" || mark.type.spec.code)) return false;
+    for (const reference of githubReferences(node.text!, repository)) {
+      decorations.push(
+        Decoration.inline(pos + reference.start, pos + reference.end, {
+          nodeName: "a",
+          href: reference.href,
+          title: reference.href,
+          class: "md-github-reference",
+        }),
+      );
+    }
+    return false;
+  });
+  return DecorationSet.create(doc, decorations);
+}
 
 /** Draws the same custom task checkbox as the agent reply renderer. It is a widget rather than a
  * pseudo-element so the task state is exposed to assistive technology in the rich editor. */

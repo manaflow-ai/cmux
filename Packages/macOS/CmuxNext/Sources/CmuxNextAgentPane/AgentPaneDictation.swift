@@ -124,7 +124,7 @@ final class AgentPaneDictation {
             return event
         }
         resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endHold() }
+            MainActor.assumeIsolated { self?.endHold() } // main-proof: observer on queue: .main
         }
     }
 
@@ -187,7 +187,7 @@ final class AgentPaneDictation {
         activeSession().start()
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.session?.stop() }
+                MainActor.assumeIsolated { self?.session?.stop() } // main-proof: observer on queue: .main
             }
         }
     }

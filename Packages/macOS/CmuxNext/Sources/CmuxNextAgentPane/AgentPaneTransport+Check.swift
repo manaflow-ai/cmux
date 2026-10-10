@@ -88,6 +88,10 @@ extension AgentPaneTransport {
         if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
             return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
         }
+        // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
+        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
+            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        }
         // A prompt block's own _meta never reaches the harness.
         var frame = AcpmuxPaneMethods.strippingPromptMeta(object) ?? object
         var facts = Facts(isFirst: snapshot.isFirst, method: method, pageID: pageID)
@@ -155,7 +159,7 @@ extension AgentPaneTransport {
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
-    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, rootRequested: Bool = false) -> Step {
+    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket) -> Step {
         guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
@@ -164,7 +168,7 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, rootRequested: rootRequested))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method))
         }
         return .refused(error)
     }

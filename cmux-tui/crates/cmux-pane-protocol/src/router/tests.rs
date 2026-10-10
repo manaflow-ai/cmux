@@ -6,7 +6,7 @@ use crate::catalog::{DIFF_SOURCE, catalog};
 use crate::token::{ROUTER_AUDIENCE, Verifier, verify_signature};
 
 fn router() -> Arc<Router> {
-    let router = Router::new(SigningKey::from_seed(&[1; 32]), catalog());
+    let router = Router::new(SigningKey::from_seed(&[1; 32]).unwrap(), catalog());
     for (app_id, credential, grants) in [
         ("cmux.git", None, vec!["git:read".to_owned()]),
         ("com.example.hello", Some("secret".to_owned()), vec!["hello:read".to_owned()]),

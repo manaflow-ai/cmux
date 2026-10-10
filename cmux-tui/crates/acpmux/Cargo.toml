@@ -18,6 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-chat-index.workspace = true
+cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 anyhow = "1"
 cmux-unix-socket.workspace = true

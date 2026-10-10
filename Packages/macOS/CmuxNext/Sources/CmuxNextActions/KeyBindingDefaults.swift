@@ -21,12 +21,12 @@ public import AppKit
 /// Unbinding `nextSurface` or `prevSurface` in cmux.json removes its entries.
 public nonisolated struct KeyBindingDefaults {
     public nonisolated init() {}
-    static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
-    static let left = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey))!))
+    static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
+    static let left = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey)) ?? UnicodeScalar(0)))
     static let up = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey)) ?? UnicodeScalar(0)))
     static let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey)) ?? UnicodeScalar(0)))
-    public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
-    public static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
+    public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey)) ?? UnicodeScalar(0)))
+    public static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey)) ?? UnicodeScalar(0)))
     public static let home = String(Character(UnicodeScalar(UInt32(NSHomeFunctionKey)) ?? UnicodeScalar(0)))
     public static let end = String(Character(UnicodeScalar(UInt32(NSEndFunctionKey)) ?? UnicodeScalar(0)))
 

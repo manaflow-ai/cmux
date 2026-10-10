@@ -107,7 +107,10 @@ export function chromeSandboxCommand(entry: RoleManifestEntry): string {
   const chrome = entry.env.CMUX_BROWSER_HOST_CHROMIUM;
   return [
     `d=$(mktemp -d); export ${envPrefix(entry.env)}`,
-    `setsid ${sq(chrome)} --headless --no-first-run --user-data-dir="$d/p1" --remote-debugging-port=0 about:blank >"$d/chrome.log" 2>&1 & b=$!`,
+    // A DevTools pipe, never a port (cx-2u5k: no cmux process opens a loopback DevTools port on a
+    // machine). fd 3 is an open FIFO that never carries a message, so Chrome stays up; fd 4 is unread.
+    `mkfifo "$d/cdp" && exec 9<>"$d/cdp"`,
+    `setsid ${sq(chrome)} --headless --no-first-run --user-data-dir="$d/p1" --remote-debugging-pipe about:blank 3<&9 4>/dev/null >"$d/chrome.log" 2>&1 & b=$!`,
     // Test-side wait (bounded) for the renderer process to exist.
     `r=""; for i in $(seq 1 100); do r=$(pgrep -s "$b" -f -- '--type=renderer' | head -1); [ -n "$r" ] && break; sleep 0.1; done`,
     `echo "renderer=\${r:-none}"`,
@@ -116,7 +119,7 @@ export function chromeSandboxCommand(entry: RoleManifestEntry): string {
     `if tr '\\0' ' ' < /proc/$b/cmdline | grep -qE -- '--no-sandbox|--disable-setuid-sandbox'; then echo browser_args=sandbox-off; else echo browser_args=sandbox-on; fi`,
     `kill -- -"$b" 2>/dev/null; wait "$b" 2>/dev/null`,
     `grep -m3 -iE 'sandbox|fatal' "$d/chrome.log" | sed 's/^/LOG /'`,
-    `pkill -f -- "$d/" 2>/dev/null; rm -rf "$d"`,
+    `exec 9>&-; pkill -f -- "$d/" 2>/dev/null; rm -rf "$d"`,
   ].join("\n");
 }
 

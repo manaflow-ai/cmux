@@ -33,6 +33,20 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/ImageViewer.tsx"],
   // The viewer opens over the pane; nothing under it moves.
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }, { selector: ".acpmux-scroll" }],
+  checks: {
+    popupLayer: {
+      value: true,
+      reason: "The image viewer backdrop and dialog must stay the top, viewport-filling layer over the transcript.",
+    },
+    anchorMovePx: {
+      value: 0,
+      reason: "Opening or dismissing the viewer is portaled and must not move the transcript or composer anchors.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "Opening, stepping and dismissing an image viewer should settle within a quarter second.",
+    },
+  },
   variants: {
     "reply-images": {
       note: "A reply with three images; each opens the viewer.",
@@ -63,6 +77,23 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.find({ role: "dialog", name: "Weekly builds" }));
         await ctx.press("+");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer-stage.is-zoomed"));
+      },
+    },
+    "dismiss-and-restore": {
+      note: "Play: open the first reply image, step to the next image, then dismiss with Escape and restore focus to the opener.",
+      snapshot: replyImages(),
+      play: async (ctx) => {
+        const opener = { role: "button", name: "Weekly builds" } as const;
+        await ctx.click(opener);
+        await ctx.waitFor(() => ctx.find({ role: "dialog", name: "Weekly builds" }));
+        await ctx.click({ role: "button", name: "Next image" });
+        await ctx.waitFor(() => ctx.find({ role: "dialog", name: "Dusk gradient" }));
+        await ctx.press("Escape");
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector('[role="dialog"]') &&
+            ctx.document.activeElement === ctx.document.querySelector("button.cv-img-open"),
+        );
       },
     },
     "across-turns": {

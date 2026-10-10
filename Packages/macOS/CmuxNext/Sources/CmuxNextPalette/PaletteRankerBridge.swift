@@ -87,7 +87,7 @@ public final class PaletteRankerBridge {
             version: version,
             query: query,
             sectionOrders: sectionOrders,
-            frecency: PaletteRankerBridgeFrecency(frecency),
+            frecency: PaletteRankerBridgeFrecency(frecency, query: query),
             now: now.timeIntervalSinceReferenceDate,
             showsRecent: showsRecent,
             keepsSectionOrder: keepsSectionOrder,

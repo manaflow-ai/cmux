@@ -69,15 +69,25 @@ typedef struct {
   // Chromium reset this browser's dialog state (navigation, close): its
   // pending dialog callbacks are gone; the host cancels them on the viewers.
   void (*on_dialog_reset)(void* context, int browser_id);
-  // A popup surface (RP7; date, color and datalist pickers): opened or moved
-  // (visible 1, rect in the page's DIP) or gone (visible 0). `kind` is
-  // cef_cmux.h's CMUX_RP_SURFACE_* (1 = page popup).
+  // A popup surface (RP7; date and color pickers, autofill and datalist
+  // suggestions, extension popups): opened or moved (visible 1, rect in the
+  // page's DIP) or gone (visible 0). `kind` is cef_cmux.h's CMUX_RP_SURFACE_*
+  // (1 page popup; API 21: 2 autofill, 3 extension popup, 4 bubble).
   void (*on_surface)(void* context, int browser_id, int surface_id, int kind,
                      int visible, int x, int y, int width, int height);
   // A captured frame of a surface (rb_shim_surface_capture); hand it back
   // with rb_shim_frame_release(lease).
   void (*on_surface_frame)(void* context, int surface_id,
                            const rb_frame_t* frame);
+  // The page started or stopped loading; history can go back or forward.
+  void (*on_loading_state)(void* context, int browser_id, int loading,
+                           int can_go_back, int can_go_forward);
+  // The page's cursor changed (`cef_cursor_type_t`).
+  void (*on_cursor)(void* context, int browser_id, int cursor_type);
+  // The page asked for a new tab or window; the shim cancelled the native
+  // popup. `disposition` is a `cef_window_open_disposition_t`.
+  void (*on_open_tab)(void* context, int browser_id, const char* url_utf8,
+                      int disposition, int user_gesture);
 } rb_shim_callbacks_t;
 
 // Runs the process: helper processes return their exit code at once; the
@@ -138,6 +148,9 @@ int rb_shim_surface_capture(int surface_id);
 int rb_shim_surface_send_mouse(int surface_id, int kind, double x, double y,
                                int button, int click_count, int modifiers);
 int rb_shim_surface_close(int surface_id);
+// One full frame of a captured surface now (cmux_rp_surface_refresh, API 21;
+// 0 on an older fork or for an unknown surface).
+int rb_shim_surface_refresh(int surface_id);
 
 // Menu answers: command id (-1 cancels) / option indices (count < 0 cancels).
 int rb_shim_context_menu_result(int64_t token, int command_id);
@@ -145,6 +158,14 @@ int rb_shim_popup_menu_result(int64_t token, const int* indices, int count);
 // Dialog answer: accept (OK/Leave) or not, with the prompt text (may be NULL).
 // Returns 0 when the token is not pending (answered or reset).
 int rb_shim_dialog_result(int64_t token, int accept, const char* text_utf8);
+
+// Navigation of the main frame: load a URL, back, forward, reload (bypassing
+// the cache when `ignore_cache`), stop. Return 0 for an unknown browser.
+int rb_shim_load_url(int browser_id, const char* url_utf8);
+int rb_shim_go_back(int browser_id);
+int rb_shim_go_forward(int browser_id);
+int rb_shim_reload(int browser_id, int ignore_cache);
+int rb_shim_stop_load(int browser_id);
 
 #ifdef __cplusplus
 }

@@ -37,9 +37,25 @@
 //! Focus (active screen, pane and tab) is per-client view state and is not
 //! part of the model; ops name their destination explicitly.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 mod rows;
+mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
 use std::fmt;
 
@@ -739,70 +755,6 @@ impl LayoutState {
         self.slot(pane).ok_or(Reject::UnknownPane(pane))
     }
 
-    /// Remove `tab` from `pane`, removing the pane (and an emptied column
-    /// and screen) when it was the pane's last tab.
-    fn take_tab(&mut self, tab: TabId, pane: PaneId, events: &mut Vec<LayoutEvent>) {
-        let tabs = self.panes.get_mut(&pane).expect("taken tab's pane exists");
-        tabs.retain(|candidate| *candidate != tab);
-        if tabs.is_empty() {
-            self.remove_pane(pane, events);
-        }
-    }
-
-    fn remove_pane(&mut self, pane: PaneId, events: &mut Vec<LayoutEvent>) {
-        self.panes.remove(&pane);
-        events.push(LayoutEvent::PaneRemoved { pane });
-        let Some(slot) = self.slot(pane) else { return };
-        let workspace = &mut self.workspaces[slot.workspace];
-        let screen = &mut workspace.screens[slot.screen];
-        let column = &mut screen.columns[slot.column];
-        column.note_removed(slot.pane, events);
-        column.panes.remove(slot.pane);
-        if column.panes.is_empty() {
-            let column = screen.columns.remove(slot.column);
-            if screen.columns_active {
-                events.push(LayoutEvent::ColumnRemoved { column: column.id });
-            }
-        }
-        if screen.columns.is_empty() {
-            let screen = workspace.screens.remove(slot.screen);
-            events.push(LayoutEvent::ScreenRemoved { screen: screen.id });
-        }
-    }
-
-    /// Put `tab` at insertion `index` of `pane`.
-    fn place_tab(&mut self, tab: TabId, pane: PaneId, index: usize) -> usize {
-        let tabs = self.panes.get_mut(&pane).expect("destination pane exists");
-        let index = index.min(tabs.len());
-        tabs.insert(index, tab);
-        index
-    }
-
-    /// The `MoveTab` step, shared by the ops that end in an existing pane.
-    fn move_tab(
-        &mut self,
-        tab: TabId,
-        source: PaneId,
-        target: PaneId,
-        index: usize,
-        events: &mut Vec<LayoutEvent>,
-    ) {
-        if source == target {
-            let tabs = self.panes.get_mut(&source).expect("source pane exists");
-            let old = tabs.iter().position(|candidate| *candidate == tab).expect("tab in pane");
-            let new = if index > old { index - 1 } else { index }.min(tabs.len() - 1);
-            if new != old {
-                let moved = tabs.remove(old);
-                tabs.insert(new, moved);
-                events.push(LayoutEvent::TabMoved { tab, from: source, to: target, index: new });
-            }
-            return;
-        }
-        self.take_tab(tab, source, events);
-        let index = self.place_tab(tab, target, index);
-        events.push(LayoutEvent::TabMoved { tab, from: source, to: target, index });
-    }
-
     fn insert_pane(&mut self, pane: PaneId) {
         self.panes.insert(pane, Vec::new());
     }
@@ -817,7 +769,7 @@ fn apply_kind(
         LayoutOpKind::MoveTab { tab, pane, index } => {
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             state.require_pane(*pane)?;
-            state.move_tab(*tab, source, *pane, *index, events);
+            state.move_tab(*tab, source, *pane, *index, events)?;
         }
         LayoutOpKind::MoveTabToSplit { tab, pane, edge, new_pane, respawn } => {
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
@@ -831,7 +783,11 @@ fn apply_kind(
                     state.ensure_fresh(&[*new_pane, respawn.tab])?;
                     // The fresh tab first: the pane keeps a tab throughout.
                     state.tabs.insert(respawn.tab, respawn.content.clone());
-                    state.panes.get_mut(&source).expect("source pane exists").push(respawn.tab);
+                    state
+                        .panes
+                        .get_mut(&source)
+                        .ok_or(Reject::UnknownPane(source))?
+                        .push(respawn.tab);
                     events.push(LayoutEvent::TabCreated { tab: respawn.tab, pane: source });
                 }
             }
@@ -842,7 +798,7 @@ fn apply_kind(
             let screen_id = screen.id;
             state.insert_pane(*new_pane);
             events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
-            state.move_tab(*tab, source, *new_pane, 0, events);
+            state.move_tab(*tab, source, *new_pane, 0, events)?;
         }
         LayoutOpKind::MoveTabToColumn {
             tab,
@@ -890,12 +846,12 @@ fn apply_kind(
             state.insert_pane(*new_pane);
             events.push(LayoutEvent::ColumnCreated { column: *new_column, screen: screen_id });
             events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
-            state.move_tab(*tab, source, *new_pane, 0, events);
+            state.move_tab(*tab, source, *new_pane, 0, events)?;
         }
         LayoutOpKind::MoveTabToNewWorkspace { tab, index, new_workspace, new_screen, new_pane } => {
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             state.ensure_fresh(&[*new_workspace, *new_screen, *new_pane])?;
-            state.take_tab(*tab, source, events);
+            state.take_tab(*tab, source, events)?;
             let position = index.unwrap_or(state.workspaces.len()).min(state.workspaces.len());
             state.workspaces.insert(
                 position,
@@ -933,15 +889,15 @@ fn apply_kind(
                     })
                     .ok_or(Reject::PaneNotInWorkspace { pane: *pane, workspace: *workspace })?;
                 let end = state.panes[&destination].len();
-                state.move_tab(*tab, source, destination, end, events);
+                state.move_tab(*tab, source, destination, end, events)?;
             } else {
                 state.ensure_fresh(&[*new_screen, *new_pane])?;
-                state.take_tab(*tab, source, events);
+                state.take_tab(*tab, source, events)?;
                 let target = state
                     .workspaces
                     .iter()
                     .position(|candidate| candidate.id == *workspace)
-                    .expect("destination workspace stays");
+                    .ok_or(Reject::UnknownWorkspace(*workspace))?;
                 state.workspaces[target].screens.push(single_pane_screen(*new_screen, *new_pane));
                 state.panes.insert(*new_pane, vec![*tab]);
                 events.push(LayoutEvent::ScreenCreated {
@@ -965,7 +921,7 @@ fn apply_kind(
             let pane = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             state.tabs.remove(tab);
             events.push(LayoutEvent::TabClosed { tab: *tab, pane });
-            state.take_tab(*tab, pane, events);
+            state.take_tab(*tab, pane, events)?;
         }
         LayoutOpKind::RuntimeExited { runtime } => {
             // A runtime with no tab (a detached terminal) is not an error:

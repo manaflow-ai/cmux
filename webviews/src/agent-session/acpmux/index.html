@@ -5,7 +5,7 @@
     <!-- Dev server only (vite.config.acpmux-pane.mjs). The bundled pane keeps its own stricter CSP (scripts/cmux-next/build-agent-pane-web.sh). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>cmux Agent (dev)</title>

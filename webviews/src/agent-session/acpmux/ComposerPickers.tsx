@@ -8,16 +8,18 @@ import {
   resolvedModel,
 } from "./defaultChoice";
 import type { AcpmuxSnapshot } from "./model";
-import { EffortPicker } from "./EffortPicker";
+import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import type { CatalogRefreshState } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
+import { ContextMenu } from "../../ui/ContextMenu";
+import { setComposerSettings, useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -27,6 +29,7 @@ export const PICKER_LABELS = {
   plan: "picker.plan",
   build: "picker.build",
   planHint: "picker.planHint",
+  fullAccessWarning: "picker.fullAccessWarning",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
 } as const satisfies Record<string, StringKey>;
@@ -97,6 +100,8 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
   onHarnessEnable?(folder: string, id: string): void;
+  /// The model picker's + (see ModelPickerProps.onAddAgent).
+  onAddAgent?(): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -108,6 +113,8 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
+  /// Writes `agentPane.showContextUsage` (the ring's Hide and the footer's Show Context Usage).
+  onShowContextUsage?(show: boolean): void;
 };
 
 /// The composer bar's controls: the
@@ -123,6 +130,7 @@ export function ComposerPickers({
   onHarness,
   onHarnessHint,
   onHarnessEnable,
+  onAddAgent,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -130,8 +138,15 @@ export function ComposerPickers({
   onCompact,
   catalogRefresh,
   pickerCatalog,
+  onShowContextUsage,
 }: Props) {
   const t = useT();
+  const { showContextUsage } = useComposerSettings();
+  // The ring goes or comes back at once; the host's write then pushes the same value.
+  const showUsage = (show: boolean) => {
+    setComposerSettings({ showContextUsage: show });
+    onShowContextUsage?.(show);
+  };
   const summary = snapshot.summary;
   const pickerEntries: AcpmuxSnapshot["catalog"] = pickerCatalog
     ? [
@@ -167,10 +182,12 @@ export function ComposerPickers({
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
-  const efforts: Choice[] = (effort?.options ?? []).map((option) => {
-    const choice = { id: option.value, name: option.name || option.value };
-    return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
-  });
+  // The running model's catalog row (live list_models / model/list when known): which levels it
+  // supports and which one is its own default.
+  const catalogModel = pickerCatalog?.harnesses
+    .find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
+    ?.models.find((entry) => entry.id === summary?.model);
+  const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
   const fastOption = snapshot.summary?.configOptions?.find(
     (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
   );
@@ -179,9 +196,9 @@ export function ComposerPickers({
   const fastOff =
     fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
   const fastMode =
-    fastOption?.name && fastOn && fastOff && fastOn.value !== fastOff.value
+    fastOption && fastOn && fastOff && fastOn.value !== fastOff.value
       ? {
-          name: fastOption.name,
+          name: fastOption.name ?? t("picker.fastModeSection"),
           currentValue: fastOption.currentValue,
           onValue: fastOn.value,
           offValue: fastOff.value,
@@ -253,6 +270,53 @@ export function ComposerPickers({
     )
       onEffort(effort.id, pickedEffort);
   };
+  // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
+  // fast mode turns on once the agent reports the model and offers it. A combo for another harness
+  // starts that harness and waits for its new session, then lands the same way. A failed switch,
+  // or a session that is not the one the pick started, drops it.
+  const crossing = useRef<(ModelCombo & { from?: string }) | undefined>(undefined);
+  const fastWanted = useRef<{ sessionId?: string; model: string } | undefined>(undefined);
+  const combo = (picked: ModelCombo) => {
+    crossing.current = undefined;
+    fastWanted.current = undefined;
+    if (picked.harness !== harness) {
+      if (!onHarness) return;
+      crossing.current = { ...picked, from: summary?.sessionId };
+      onHarness(picked.harness);
+      return;
+    }
+    land(picked.model, picked.effort);
+    if (!picked.fast) return;
+    // The model already runs: fast mode changes now; else once the agent reports the model.
+    if (picked.model === current && fastMode) {
+      if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+    } else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
+  };
+  const switchFailed = snapshot.switching?.phase === "failed";
+  useEffect(() => {
+    const wanted = crossing.current;
+    if (!wanted) return;
+    if (switchFailed) {
+      crossing.current = undefined;
+      return;
+    }
+    if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
+    crossing.current = undefined;
+    land(wanted.model, wanted.effort);
+    if (wanted.fast) fastWanted.current = { sessionId: summary.sessionId, model: wanted.model };
+  });
+  const fastValue = fastMode?.currentValue;
+  useEffect(() => {
+    const wanted = fastWanted.current;
+    if (!wanted) return;
+    if (wanted.sessionId !== summary?.sessionId) {
+      fastWanted.current = undefined;
+      return;
+    }
+    if (current !== wanted.model || !fastMode) return;
+    fastWanted.current = undefined;
+    if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+  });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else "Default".
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
@@ -269,7 +333,7 @@ export function ComposerPickers({
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
-  return (
+  const chips = (
     <div className="acpmux-chips">
       {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
         <ModelPicker
@@ -277,6 +341,7 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -286,8 +351,10 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={onHarness}
+          onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
+          onAddAgent={onAddAgent}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
@@ -298,17 +365,37 @@ export function ComposerPickers({
           measureRoom={measurePickerRoom}
         />
       )}
-      {/* The context ring stays immediately to the right of the model control. */}
-      {(usage || summary?.sessionId) && (
-        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
+      {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
+      {showContextUsage && (usage || summary?.sessionId) && (
+        <ContextMenu
+          className="acpmux-context-usage-menu"
+          items={[{ id: "hide", label: t("context.hide"), onSelect: () => showUsage(false) }]}
+        >
+          <ContextRing
+            used={usage?.used}
+            size={usage?.size}
+            setup={setupTokens(summary?.sessionId, summary?.turnCount, usage?.used)}
+            onCompact={compact}
+            working={snapshot.isWorking}
+          />
+        </ContextMenu>
       )}
-      {/* Reasoning is its own stable control, separate from the model and harness picker. */}
-      {effort && efforts.length > 0 && (
+      {/* Reasoning is its own stable control, separate from the model and harness picker. A model
+          whose only level is the agent's default has nothing to pick, so it shows no control. */}
+      {effort && efforts.length > 1 && (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
-          current={effort.currentValue}
-          model={modelName}
+          current={
+            effort.currentValue === "default" && catalogModel?.defaultEffort
+              ? catalogModel.defaultEffort
+              : effort.currentValue
+          }
+          speed={
+            fastMode && fastOn && fastOff
+              ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
+              : undefined
+          }
           chevron={<ChevronIcon />}
           onPick={(value) => {
             pending.current = undefined;
@@ -318,7 +405,14 @@ export function ComposerPickers({
       )}
       <span className="acpmux-chips-spacer" />
       {modes.length > 0 && (
-        <AccessMenu label={t(PICKER_LABELS.mode)} modes={modes} current={mode?.id} onMode={onMode} />
+        <AccessMenu
+          label={t(PICKER_LABELS.mode)}
+          modes={modes}
+          current={mode?.id}
+          sessionId={summary?.sessionId}
+          warning={t(PICKER_LABELS.fullAccessWarning)}
+          onMode={onMode}
+        />
       )}
       {showPlan && plan && (
         <button
@@ -334,6 +428,17 @@ export function ComposerPickers({
       )}
     </div>
   );
+  // Hidden, the ring's way back is a right-click anywhere on the footer's controls.
+  return showContextUsage ? (
+    chips
+  ) : (
+    <ContextMenu
+      className="acpmux-context-usage-menu"
+      items={[{ id: "show", label: t("context.show"), onSelect: () => showUsage(true) }]}
+    >
+      {chips}
+    </ContextMenu>
+  );
 }
 
 /** The permission control stays quiet in the footer: a lock names the control and the menu
@@ -342,26 +447,41 @@ function AccessMenu({
   label,
   modes,
   current,
+  sessionId,
+  warning,
   onMode,
 }: {
   label: string;
   modes: Choice[];
   current?: string;
+  sessionId?: string;
+  warning: string;
   onMode(modeId: string): void;
 }) {
   const [open, setOpen] = useState(false);
-  const value = current ?? modes[0]?.id ?? "";
+  const [optimistic, setOptimistic] = useState<{ sessionId?: string; modeId: string }>();
+  useEffect(() => {
+    if (optimistic && optimistic.sessionId !== sessionId) setOptimistic(undefined);
+  }, [optimistic, sessionId]);
+  useEffect(() => {
+    if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
+  }, [current, optimistic, sessionId]);
+  const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
+  const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
+  const currentMode = modes.find((choice) => choice.id === value);
   return (
-    <span className={`acpmux-mode acpmux-access${current && unrestricted(current) ? " acpmux-unrestricted" : ""}`}>
+    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
+          <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
           <ChevronIcon />
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-access-menu">
           <MenuRadioGroup
             value={value}
             onValueChange={(next) => {
+              setOptimistic({ sessionId, modeId: next });
               onMode(next);
               setOpen(false);
             }}
@@ -377,7 +497,9 @@ function AccessMenu({
                 </span>
                 <span className="acpmux-menu-text">
                   <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.description ? <span className="acpmux-menu-description">{choice.description}</span> : null}
+                  {choice.description || unrestricted(choice.id) ? (
+                    <span className="acpmux-menu-description">{choice.description ?? warning}</span>
+                  ) : null}
                 </span>
               </MenuRadioItem>
             ))}
@@ -393,16 +515,29 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
+/// A new chat's first usage reading, per session: the agent's system prompt, tools and
+/// instructions, plus the first message. No harness reports that split over ACP, so this is the
+/// closest the pane can tell. A chat first seen past its first turn (resumed) has none.
+const firstReadings = new Map<string, number | null>();
+function setupTokens(sessionId?: string, turnCount?: number, used?: number): number | undefined {
+  if (!sessionId || used === undefined || used <= 0) return undefined;
+  if (!firstReadings.has(sessionId)) firstReadings.set(sessionId, (turnCount ?? 0) <= 1 ? used : null);
+  return firstReadings.get(sessionId) ?? undefined;
+}
+
 /// How much of the context window the session has used, as a ring that fills. A click opens
 /// the details: the share used, tokens used of the window, and Compact when the agent offers it.
 export function ContextRing({
   used,
   size,
+  setup,
   onCompact,
   working = false,
 }: {
   used?: number;
   size?: number;
+  /// Tokens the agent took before the conversation; the details split it out when known.
+  setup?: number;
   onCompact?(): void;
   working?: boolean;
 }) {
@@ -432,6 +567,8 @@ export function ContextRing({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        // Before the first usage report there is nothing to show: the ring keeps its place, off.
+        disabled={!known}
         onPointerDown={() => (openAtPress.current = open)}
         onClick={() => {
           setOpen(!(openAtPress.current ?? open));
@@ -471,6 +608,19 @@ export function ContextRing({
         {known && (
           <div className="acpmux-context-tokens">
             {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+          </div>
+        )}
+        {known && setup !== undefined && setup <= used && (
+          <div className="acpmux-context-parts">
+            <div className="acpmux-context-part">
+              <span className="acpmux-context-part-name">{t("context.setup")}</span>
+              <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
+              <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
+            </div>
+            <div className="acpmux-context-part">
+              <span className="acpmux-context-part-name">{t("context.conversation")}</span>
+              <span className="acpmux-context-part-tokens">{tokens.format(used - setup)}</span>
+            </div>
           </div>
         )}
         {onCompact && (
@@ -595,6 +745,9 @@ export function Picker({
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      if (rows.length > 0) setActive(event.key === "Home" ? 0 : rows.length - 1);
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(selected);
@@ -640,7 +793,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`}>
+        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`} data-side="above">
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (
@@ -676,8 +829,9 @@ export function Picker({
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}
-                        aria-selected={at === selected}
-                        aria-checked={section.current === undefined ? undefined : current}
+                        // `aria-selected` is the option's value; the combobox's
+                        // `aria-activedescendant` carries the keyboard highlight.
+                        aria-selected={section.current === undefined ? false : current}
                         className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
                         onMouseMove={() => {
                           if (at !== selected) setActive(at);
@@ -813,3 +967,74 @@ export const SlashIcon = () => (
     <path d="M10.5 2.5 5.5 13.5" />
   </Icon>
 );
+
+/// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
+const LEVEL_KEYS: Record<string, StringKey> = {
+  low: "effort.level.low",
+  medium: "effort.level.medium",
+  high: "effort.level.high",
+  xhigh: "effort.level.xhigh",
+  max: "effort.level.max",
+  ultra: "effort.level.ultra",
+  ultracode: "effort.level.ultracode",
+  ultrathink: "effort.level.ultrathink",
+};
+/// The plain levels a catalog row can list (`PickerModel.efforts`).
+const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+
+/// The Reasoning section's rows: the agent's levels, named by the pane, narrowed to what the
+/// running model supports when its catalog row says (Ultracode needs Extra High; Ultrathink needs
+/// any level), with the model's own level badged Default in place of a bare "Default" row.
+export function reasoningChoices(
+  options: { value: string; name?: string; description?: string }[],
+  model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
+  t: (key: StringKey) => string,
+): Choice[] {
+  const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
+  const offered = options.filter((option) => {
+    if (option.value === "default") return !model?.defaultEffort;
+    if (!levels) return true;
+    if (option.value === "ultracode") return levels.has("xhigh");
+    if (option.value === "ultrathink") return true;
+    return !PLAIN_LEVELS.has(option.value) || levels.has(option.value);
+  });
+  return offered.map((option) => {
+    const key = LEVEL_KEYS[option.value];
+    const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
+    if (isDefaultChoice(base)) return { ...base, name: t("picker.default") };
+    if (option.value === "ultracode") base.description = t("effort.ultracodeDetail");
+    if (model?.defaultEffort === option.value) base.hint = t("picker.default");
+    return base;
+  });
+}
+
+/// The menu's speed section: Codex calls fast mode a Service Tier (Standard, the default, or
+/// Fast with Codex's own description); Claude Code's is Fast Mode, On or Off.
+function speedSection(
+  codex: boolean,
+  fast: { currentValue?: string; onValue: string; offValue: string; onPick(value: string): void },
+  on: { description?: string },
+  t: (key: StringKey) => string,
+): SpeedSection {
+  return codex
+    ? {
+        title: t("picker.serviceTier"),
+        choices: [
+          { id: fast.offValue, name: t("picker.tierStandard"), hint: t("picker.default") },
+          { id: fast.onValue, name: t("picker.tierFast"), description: on.description },
+        ],
+        current: fast.currentValue,
+        on: fast.onValue,
+        onPick: fast.onPick,
+      }
+    : {
+        title: t("picker.fastModeSection"),
+        choices: [
+          { id: fast.onValue, name: t("picker.on") },
+          { id: fast.offValue, name: t("picker.off") },
+        ],
+        current: fast.currentValue,
+        on: fast.onValue,
+        onPick: fast.onPick,
+      };
+}

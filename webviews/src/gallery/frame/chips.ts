@@ -27,6 +27,11 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
       const data = typeof src === "string" ? fixture.images?.[src] : undefined;
       return typeof data === "string" ? { src: data } : null;
     }
+    if (method === "media.load") {
+      const src = params.src;
+      const url = typeof src === "string" ? fixture.media?.[src] : undefined;
+      return typeof url === "string" ? { src: url } : null;
+    }
     if (method === "browser.list") return { browsers: fixture.browsers ?? [] };
     return null;
   });

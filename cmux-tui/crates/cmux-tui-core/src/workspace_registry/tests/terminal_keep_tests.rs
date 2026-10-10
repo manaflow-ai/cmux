@@ -20,7 +20,7 @@ fn terminal_keep_persists_and_rejects_unknown_and_closed_terminals() {
     assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
 
     registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-    let close = WorkspaceMutation::new("close-kept", "test").unwrap();
+    let close = WorkspaceMutation::daemon("close-kept", "test").unwrap();
     registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
     assert_eq!(registry.prune_terminal_keep().unwrap(), 1);
     assert!(registry.kept_terminals().unwrap().is_empty());

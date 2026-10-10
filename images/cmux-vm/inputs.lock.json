@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "e4da89280cbc1129465e98d979b89c599b6bd477",
-      "url": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "b14daae931900ce54a7fc58e7587d23e305a1e2f3ca81888e71e98ab116517ee",
-      "size": 71639840,
+      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
+      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "f44d6a65abffb0a22fecfd299161c5421a7bc5b48a143bd87b36124d9e2fe98a",
+      "size": 79097184,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux-tui": "cmux-tui" },
+      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
+      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "e4da89280cbc1129465e98d979b89c599b6bd477",
-      "url": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "72840726d158be2f8649340cb547fc1cf4258de2298192803fe4ce33319ed0b1",
-      "size": 3621600,
+      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
+      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "3851906633bdd78602c9c3ff9c7edc2d54cc49701e2b4426c1957565e5d10a3a",
+      "size": 3676200,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
+      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
     },
     {
       "name": "coderouter",

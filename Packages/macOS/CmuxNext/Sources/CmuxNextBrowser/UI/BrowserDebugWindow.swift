@@ -32,7 +32,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     @discardableResult
     public static func showIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         guard let engineName = environment["CMUX_NEXT_DEBUG_BROWSER"], !engineName.isEmpty else { return nil }
-        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com")!
+        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com") ?? URL(fileURLWithPath: "/dev/null")
         let report = environment["CMUX_NEXT_DEBUG_BROWSER_REPORT"].map { URL(filePath: $0) }
         let configuration = BrowserTabConfiguration(initialURL: url, pane: BrowserPaneID(rawValue: "debug-window"))
         do {
@@ -110,6 +110,9 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             chrome.showNotice(text)
         case .rerouteStore:
             // The debug window has no machines, so it never sets a guard.
+            break
+        case .openLocalFile:
+            // The debug window has no file pages or WebKit tab to hand to.
             break
         }
     }

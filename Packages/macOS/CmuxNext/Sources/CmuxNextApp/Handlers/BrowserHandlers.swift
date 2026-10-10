@@ -95,16 +95,19 @@ enum BrowserHandlers {
     /// focus.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              context: AppActionContext) throws {
-        let handle = pane.pane.handle
-        let connection = try context.requireConnection()
-        let browserTabs = context.services.cache.browserTabs!
+        let handle = pane.pane.handle, model = pane.pane
+        let browserTabs = context.services.cache.browserTabs
+        if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
+        // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
+        let daemon = context.services.daemon(for: model)
+        let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
         // The default engine (never refused: no engine is requested).
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
         Task {
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
+                let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
                 try await connection.split(handle, direction: direction, movingTab: surface)
                 // The new pane takes focus (its address bar the keyboard
                 // for a new-tab page). The daemon may report the tab in the
@@ -145,7 +148,6 @@ enum BrowserHandlers {
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
-        unavailable(["openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
         unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
     }
