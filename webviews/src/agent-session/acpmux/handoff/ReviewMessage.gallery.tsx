@@ -10,10 +10,9 @@ import { HandoffReviewMessage } from "./ReviewMessage";
 import { handoffStrings } from "./strings";
 import type { Handoff } from "./protocol";
 import type { HandoffClientState } from "./client";
+import type { HandoffStrings } from "./strings";
 
-type Props = ComponentProps<typeof HandoffReviewMessage>;
-
-const strings = handoffStrings();
+type Props = Omit<ComponentProps<typeof HandoffReviewMessage>, "strings"> & { strings?: HandoffStrings };
 
 const coverage: Handoff["source"]["coverage"] = [
   { item: "transcript", status: "included", detail: "Recent messages" },
@@ -118,7 +117,6 @@ function propsFor(reviewRecord: Handoff, state: HandoffClientState = ready): Pro
   return {
     record: reviewRecord,
     state,
-    strings,
     onSave: async () => reviewRecord,
     onStart: async () => undefined,
     onReturn: () => undefined,
@@ -128,12 +126,16 @@ function propsFor(reviewRecord: Handoff, state: HandoffClientState = ready): Pro
 }
 
 function GalleryReview(props: Props) {
+  // Resolve after the gallery frame installs __cmuxPaneStrings. Resolving this at module load
+  // time falls back to raw handoff keys in the static gallery bundle.
+  const strings = handoffStrings();
   const [reviewRecord, setReviewRecord] = useState(props.record);
   const [action, setAction] = useState("");
   return (
     <div className="handoff-review-gallery" data-handoff-action={action}>
       <HandoffReviewMessage
         {...props}
+        strings={strings}
         record={reviewRecord}
         onSave={async (review) => {
           const saved: Handoff = {
@@ -176,28 +178,28 @@ function GalleryReview(props: Props) {
 }
 
 const edit: Play = async (ctx) => {
-  await ctx.type("\nThe source's latest decision is preserved.", { role: "textbox", name: strings.context });
+  await ctx.type("\nThe source's latest decision is preserved.", { selector: ".acpmux-handoff-review textarea" });
   await ctx.click({ selector: ".acpmux-handoff-review details:not(.acpmux-handoff-coverage) > summary" });
   await ctx.waitFor(
     () => ctx.document.querySelector(".acpmux-handoff-review details:not(.acpmux-handoff-coverage)[open]") !== null,
   );
-  await ctx.type("MEMORY.md:200-204", { role: "textbox", name: strings.memoryHelp });
+  await ctx.type("MEMORY.md:200-204", { selector: ".acpmux-handoff-review details:not(.acpmux-handoff-coverage) textarea" });
   await ctx.waitFor(
     () =>
       ctx.document
-        .querySelector<HTMLTextAreaElement>('[aria-label="' + strings.memoryHelp + '"]')
+        .querySelector<HTMLTextAreaElement>(".acpmux-handoff-review details:not(.acpmux-handoff-coverage) textarea")
         ?.value.includes("MEMORY.md:200-204") ?? false,
   );
 };
 
 const checkpointGating: Play = async (ctx) => {
-  await ctx.type("refs/cmux/gallery-confirmed", { role: "textbox", name: strings.checkpoint });
-  await ctx.click({ role: "checkbox", name: strings.checkpointConfirm });
+  await ctx.type("refs/cmux/gallery-confirmed", { selector: '.acpmux-handoff-review input:not([type="checkbox"])' });
+  await ctx.click({ selector: ".acpmux-handoff-confirm input[type=checkbox]" });
   await ctx.waitFor(() => {
     const button = ctx.document.querySelector<HTMLButtonElement>('button[type="submit"]');
     return button !== null && !button.disabled;
   });
-  await ctx.focus({ role: "button", name: new RegExp(strings.continueTarget.replace("%@", "")) });
+  await ctx.focus({ selector: '.acpmux-handoff-review button[type="submit"]' });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[data-handoff-action="started"]') !== null);
 };
@@ -210,7 +212,7 @@ const memoryDisclosure: Play = async (ctx) => {
 };
 
 const validation: Play = async (ctx) => {
-  await ctx.focus({ role: "button", name: new RegExp(strings.continueTarget.replace("%@", "")) });
+  await ctx.focus({ selector: '.acpmux-handoff-review button[type="submit"]' });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]')?.textContent?.includes("at most 32") ?? false);
 };
