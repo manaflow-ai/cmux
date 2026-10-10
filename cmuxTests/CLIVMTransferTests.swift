@@ -1122,23 +1122,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
 
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "push", "--secret", "brave-otter", localFile.path, "~"],
-            environment: vmTransferEnvironment(socketPath: socketPath),
-            timeout: 30
-        )
+        for destination in ["~", "nested/~", "~/\u{301}child"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "push", "--secret", "brave-otter", localFile.path, destination],
+                environment: vmTransferEnvironment(socketPath: socketPath),
+                timeout: 30
+            )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0, "a literal tilde destination must fail closed")
-        XCTAssertTrue(result.stderr.contains("~"), result.stderr)
-        XCTAssertTrue(state.snapshot().isEmpty, "rejected remote paths must not reach the machine")
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0, "a literal tilde destination must fail closed")
+            XCTAssertTrue(result.stderr.contains("unexpanded '~'"), result.stderr)
+            XCTAssertFalse(result.stderr.contains("rm -rf"), "rejection must not suggest destructive cleanup")
+            XCTAssertTrue(state.snapshot().isEmpty, "rejected remote paths must not reach the machine")
+        }
     }
 
     func testVMPushRejectsTildeArchiveMembersAcrossEntryPoints() throws {
         let cliPath = try bundledCLIPath()
         for member in ["~", "nested/~", "line\nbreak/~", "~/́child"] {
-            for entryPoint in ["push", "watch", "agent"] {
+            for entryPoint in ["push", "watch", "agent", "run"] {
                 let socketPath = makeSocketPath("archive-tilde")
                 let listenerFD = try bindUnixSocket(at: socketPath)
                 let state = MockSocketServerState()
@@ -1160,7 +1163,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     )
                 }
                 let arguments: [String]
-                if entryPoint == "agent" {
+                let executablePath = entryPoint == "run" ? "/bin/sh" : cliPath
+                if entryPoint == "run" {
+                    arguments = ["-c", "cd \"$1\" && shift && exec \"$@\"", "cmux-tilde-test",
+                                 source.path, cliPath, "vm", "run", "--machine", "vivid-newt", "--sync", "--", "true"]
+                } else if entryPoint == "agent" {
                     arguments = ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt",
                                  "--no-open", "--sync", "--cwd", source.path, "--", "check the cwd"]
                 } else {
@@ -1168,7 +1175,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         + (entryPoint == "watch" ? ["--watch"] : [])
                 }
                 let result = runProcess(
-                    executablePath: cliPath, arguments: arguments,
+                    executablePath: executablePath, arguments: arguments,
                     environment: vmTransferEnvironment(socketPath: socketPath, home: home), timeout: 30
                 )
                 XCTAssertFalse(result.timedOut, "\(entryPoint) \(member): \(result.stderr)")

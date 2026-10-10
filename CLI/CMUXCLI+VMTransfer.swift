@@ -103,8 +103,9 @@ extension CMUXCLI {
     /// directory that later shell guidance such as `rm -rf ~` resolves to the
     /// machine user's home. Reject it before any remote mkdir or file delivery.
     static func rejectLiteralTildePath(_ path: String, operation: String) throws {
-        let components = path.unicodeScalars.split(separator: "/", omittingEmptySubsequences: true)
-        guard !components.contains(where: { $0.count == 1 && $0.first?.value == 0x7e }) else {
+        // Filesystem separators are bytes, even when a combining mark follows `/`.
+        let components = path.utf8.split(separator: 0x2f, omittingEmptySubsequences: true)
+        guard !components.contains(where: { $0.count == 1 && $0.first == 0x7e }) else {
             let message = String(
                 localized: "cli.vm.path.unexpandedTilde",
                 defaultValue: "%1$@ contains an unexpanded '~' path component; expand it or use an absolute path"
@@ -172,18 +173,12 @@ extension CMUXCLI {
         let vmID = positional[0]
         let localPath = (positional[1] as NSString).expandingTildeInPath
         let localURL = URL(fileURLWithPath: localPath)
-        let requestedRemotePath = positional.count == 3 ? positional[2] : nil
-        if let requestedRemotePath {
-            try Self.rejectLiteralTildePath(requestedRemotePath, operation: "vm push remote path")
-        }
+        let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
+        try Self.rejectLiteralTildePath(remotePath, operation: "vm push remote path")
 
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDirectory) else {
             throw CLIError(message: "No such local path: \(localPath)")
-        }
-        let remotePath = requestedRemotePath ?? localURL.lastPathComponent
-        if requestedRemotePath == nil {
-            try Self.rejectLiteralTildePath(remotePath, operation: "vm push remote path")
         }
 
         if secret {
@@ -1695,10 +1690,14 @@ extension CMUXCLI {
             timeout: 30
         )
         guard result.status == 0 else {
-            throw CLIError(message: "tar failed listing the transfer archive (exit \(result.status))")
+            throw CLIError(message: String(
+                localized: "cli.vm.push.archiveValidationFailed",
+                defaultValue: "Could not validate the paths in the push archive."
+            ))
         }
-        let listing = String(data: result.stdout, encoding: .utf8) ?? ""
-        for entry in listing.utf8.split(separator: 0x0a, omittingEmptySubsequences: true) {
+        // macOS tar escapes embedded ASCII newlines and backslashes in names.
+        // Split only its LF record delimiter; other Unicode newlines are filenames.
+        for entry in result.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
             try Self.rejectLiteralTildePath(String(decoding: entry, as: UTF8.self), operation: "vm push archive path")
         }
     }
