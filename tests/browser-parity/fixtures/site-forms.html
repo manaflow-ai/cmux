@@ -24,7 +24,12 @@
     const signature = subject === null ? "" : '<div class="gmail_signature">-- Sent from the fixture</div>';
     const form = el(`<form>${row("to", rcpt.to)}${row("cc", rcpt.cc)}${row("bcc", rcpt.bcc)}${subject === null ? "" : '<input name="subjectbox">'}<div role="textbox" aria-label="Message Body" contenteditable="true" style="min-height:3em"><div class="draft"></div>${signature}</div><div role="button" data-tooltip="Send">Send</div></form>`);
     if (subject !== null) form.querySelector('[name="subjectbox"]').value = subject;
-    form.querySelector(".draft").textContent = body;
+    // Gmail draws an emoji as an image whose alt is the emoji.
+    const draft = form.querySelector(".draft");
+    for (const [i, part] of body.split("🙂").entries()) {
+      if (i) draft.appendChild(Object.assign(document.createElement("img"), { alt: "🙂", className: "an1" }));
+      draft.appendChild(document.createTextNode(part));
+    }
     form.querySelector('[data-tooltip="Send"]').onclick = () => (document.body.innerHTML = "<p>Message sent</p>");
     return form;
   };
@@ -34,8 +39,10 @@
     if (tamper === "to") rcpt.to.push("eve@example.com");
     if (tamper === "bcc") rcpt.bcc.push("eve@example.com");
     if (tamper === "subject") subject = "Re: something else";
+    let body = q.get("body") || "";
+    if (tamper === "body") body = body.slice(0, Math.max(0, body.length - 12)) + " but not that";
     const dialog = el('<div role="dialog"></div>');
-    dialog.appendChild(compose(rcpt, subject, q.get("body") || ""));
+    dialog.appendChild(compose(rcpt, subject, body));
     if (tamper === "outside") dialog.querySelector("form").insertBefore(el(chip("eve@example.com")), dialog.querySelector('[role="textbox"]'));
     document.body.appendChild(dialog);
   } else if (site === "gmail-thread") {
