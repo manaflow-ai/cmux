@@ -787,13 +787,15 @@ final class ConversationStartCell: UICollectionViewCell {
     /// Room above the label (ChatKit's header sits 13.67 pt under the
     /// transcript's top inset).
     static let topInset: CGFloat = 41.0 / 3.0
-    /// Messages sets the separator's baseline 27.98 pt under "Encrypted"'s
-    /// baseline; `TimestampCell` puts its baseline `TimestampCell.baselineOffset`
-    /// into its row, so this row ends the rest of that distance below ours.
-    static let baselineToTimestampBaseline: CGFloat = 27.98
+    // Messages starts the first separator's line box
+    // `headerToTimestampGap` under the header's (14.67 pt at Large, 21.67 at
+    // XL); `TimestampCell` starts its line `lineTop` into its row.
     static var height: CGFloat {
-        let secondBaseline = topInset + textHeight + ConversationTheme.timestampFont.descender
-        return secondBaseline + baselineToTimestampBaseline - TimestampCell.baselineOffset
+        let font = ConversationTheme.captionFont
+        let gap = ConversationTranscriptMetrics.headerToTimestampGap(
+            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+        )
+        return topInset + textHeight + gap - TimestampCell.lineTop
     }
 
     /// Both lines, lock included (the glyph can make its line a hair taller
