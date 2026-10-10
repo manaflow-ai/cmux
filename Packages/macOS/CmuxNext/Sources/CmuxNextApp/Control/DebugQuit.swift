@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 
 #if DEBUG
@@ -8,14 +9,25 @@ import CmuxNextSettings
 /// its daemon). `{open: true}` starts a quit exactly as Cmd-Q does
 /// (interactive origin); `{remember: bool}` sets "Don't ask again";
 /// `{open: true, inactive: true}` does it as a Dock quit of an inactive app;
-/// `{press: "keep" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
-/// clicks that button. While "Some sessions did not end" shows, the report
+/// `{press: "keep" | "quit" | "cancel"}` clicks that button; the end choices
+/// ("confirm-quit-everything", "end-everything") answer only to the user
+/// (cx-zk9t), so scripts quit with `quit_with` instead.
+/// `{fixture_discard_unsaved: true}` (test fixture) drops unsaved changes first. While "Some sessions did not end" shows, the report
 /// carries `failure` (its lines and buttons) and `press: "retry" |
 /// "quit-anyway"` answers it.
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let quit = services.quit
+        // DEV-only test fixture (cx-zk9t; this file is DEBUG-only, so no release build has it):
+        // drops every unsaved document's changes, so the next quit asks no "Don't Save"
+        // question. It replaces a Don't Save press, which automation may not make.
+        if params["fixture_discard_unsaved"]?.boolValue == true {
+            let registry = quit.unsaved
+            let participants = registry.unsaved()
+            Task { @MainActor in await registry.discard(participants) }
+            return .object(["discarding": .number(Double(participants.count))])
+        }
         if params["open"]?.boolValue == true {
             let started = !quit.isQuitting
             // `inactive`: as a quit from the Dock while cmux is in the background.
@@ -23,10 +35,25 @@ enum DebugQuit {
             quit.requestQuit(.interactive)
             return .object(["requested": .bool(started)])
         }
-        if let remember = params["remember"]?.boolValue { quit.sheet?.remembers = remember }
+        // Through the dialog center's automation door (cx-zk9t): the quit sheet is
+        // destructive, so only Cancel passes; quit without it by `quit_with`.
+        var refusal: CmuxDialogAutomationRefusal?
+        do throws(CmuxDialogAutomationRefusal) {
+            if let remember = params["remember"]?.boolValue { try quit.sheet?.automationRemember(remember) }
+        } catch { refusal = error }
         var result = report(quit)
-        if let id = params["press"]?.stringValue {
-            result["pressed"] = .bool(quit.sheet?.press(id) ?? quit.failureAlert?.press(id) ?? false)
+        if refusal == nil, let id = params["press"]?.stringValue {
+            do throws(CmuxDialogAutomationRefusal) {
+                if let sheet = quit.sheet {
+                    result["pressed"] = .bool(try sheet.automationPress(id))
+                } else {
+                    result["pressed"] = .bool(try quit.failureAlert?.automationPress(id) ?? false)
+                }
+            } catch { refusal = error }
+        }
+        if let refusal {
+            result["error"] = .string(refusal.message)
+            result["refused"] = .object(["dialog": .number(Double(refusal.dialog)), "confirm_kind": .string(refusal.kind.rawValue)])
         }
         return .object(result)
     }
@@ -47,6 +74,7 @@ enum DebugQuit {
 
     private static func report(_ quit: QuitCoordinator) -> [String: JSONValue] {
         var result: [String: JSONValue] = ["quitting": .bool(quit.isQuitting), "asking": .bool(quit.sheet != nil),
+                                           "unsaved_documents": .number(Double(quit.unsaved.unsaved().count)),
                                            "activated": .bool(quit.lastAskActivated), "quit_with": quitWith]
         if let failure = quit.failureAlert {
             result["failure"] = .object([

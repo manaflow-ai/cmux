@@ -95,7 +95,7 @@ struct BookmarkBrowserImport {
         if !blocked.isEmpty { buttons.append(CmuxDialogButton(id: "privacy", title: BookmarkAppStrings.importOpenPrivacy)) }
         if !readable.isEmpty { buttons.append(CmuxDialogButton(id: "import", title: BookmarkAppStrings.importConfirm, role: .default)) }
         let spec = CmuxDialogSpec(title: BookmarkAppStrings.importTitle, lines: lines, fields: fields, buttons: buttons,
-                                  identifier: "cmux.dialog.bookmarks.importBrowser")
+                                  identifier: "cmux.dialog.bookmarks.importBrowser", confirmKind: .consent)
         CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
             switch answer.button {
             case "import":

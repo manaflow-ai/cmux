@@ -31,8 +31,8 @@ json_quote() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
 
 cleanup() {
   set +e
-  cli rpc debug.quit '{"open":true}' >/dev/null 2>&1
-  cli rpc debug.quit '{"press":"end-everything"}' >/dev/null 2>&1
+  # An explicit quit (no sheet): automation may not press End Everything (cx-zk9t).
+  cli rpc action.run '{"id":"quitEndEverything"}' >/dev/null 2>&1
   local app="$HOME/Library/Developer/Xcode/DerivedData/cmux-$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')/Build/Products/Debug/cmux DEV $TAG.app/Contents/MacOS/cmux DEV"
   local pid
   pid=$(pgrep -n -f -- "$app" 2>/dev/null || true)

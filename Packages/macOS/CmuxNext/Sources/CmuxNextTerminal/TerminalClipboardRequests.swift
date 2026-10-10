@@ -77,7 +77,7 @@ final class TerminalClipboardRequests {
                 CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),
                 CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module), role: .normal),
             ],
-            identifier: "cmux.dialog.terminalClipboard")
+            identifier: "cmux.dialog.terminalClipboard", confirmKind: .consent)
     }
 
     private func complete(state: UncheckedPointer, with text: String) {

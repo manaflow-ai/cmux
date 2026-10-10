@@ -94,11 +94,6 @@ cli() { "$BIN/cmux" --socket "$DSOCK" "$@"; }
 acp() { "$BIN/acpmux" "$@"; }
 snapshot() { rpc_ok debug.window_snapshot "{\"path\":\"$out/$1.png\"}" >/dev/null || true; }
 
-# quit_with BUTTON...: debug.quit {open} then press each button in turn.
-quit_with() {
-  local r; r="$(rpc_ok debug.quit '{"open":true}')"; sleep 3
-  for b in "$@"; do rpc_ok debug.quit "{\"press\":\"$b\"}" >/dev/null || true; sleep 2; done
-}
 
 log "app $app tag $tag out $out"
 launch
@@ -247,7 +242,8 @@ launch
 
 # 8b. Quit Everything, keep layout (D1: End Sessions, Keep Layout today) -------------
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
-quit_with end end-keep-layout
+# An explicit quit (no sheet): automation may not press the end choices (cx-zk9t).
+rpc_ok action.run '{"id":"quitEndSessions"}' >/dev/null
 check quit-everything-app-quits "$(cond wait_exit "$APP_PID" 70)"
 for p in $HOSTS "$SHELL_PID" "$LOOP_PID" "$TUI_PID"; do check "quit-everything-ends-$p" "$(cond wait_exit "$p" 20)"; done
 # Every End choice ends the agents (acpmux _acpmux/shutdown endAgents) before
@@ -272,9 +268,7 @@ sys.exit(0 if a==b else 1)")"
 cli terminal list --json >"$out/ee-term.json"
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
 log "End Everything: cmux-tui $TUI_PID hosts $HOSTS"
-rpc_ok debug.quit '{"open":true}' >/dev/null; sleep 3
-rpc_ok debug.quit '{"press":"end"}' >/dev/null; sleep 2
-rpc_ok debug.quit '{"press":"end-everything"}' >/dev/null || true
+rpc_ok action.run '{"id":"quitEndEverything"}' >/dev/null || true
 sleep 3
 failure="$(rpc_ok debug.quit '{}' || true)"
 if printf '%s' "$failure" | grep -q '"failure"'; then
