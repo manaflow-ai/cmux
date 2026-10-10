@@ -2493,7 +2493,14 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
+      {showsFolderChoice({
+        offered: chooseFolder,
+        freshChat,
+        quick,
+        projectDraft,
+        sessionId: snapshot.sessionId,
+        missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+      }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {

@@ -36,6 +36,7 @@ cmux-local-auth.workspace = true
 cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
+parking_lot = { workspace = true, features = ["arc_lock"] }
 fs4.workspace = true
 sha2.workspace = true
 quick-xml.workspace = true

@@ -3,6 +3,7 @@ import { isMachineInstallKind } from "../machine-installs.ts"
 import type { Domain, OutboxItem, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
+import { ROLES } from "./team-roles.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
@@ -13,7 +14,7 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 /** Most teams one user's index holds (the user head is one SQLite row). */
 export const MAX_TEAM_INDEX = 1_000
-const TEAM_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
+const TEAM_ROLES: ReadonlySet<string> = new Set(ROLES)
 const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
 export interface UserState extends PushTargetsState, ChiefsState {
@@ -431,7 +432,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           const { [v.team]: _gone, ...rest } = state.team_index ?? {}
           return { ok: true, state: { ...state, team_index: rest }, value: null }
         }
-        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be owner, admin or member; kind personal or stack")
+        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be a team role (owner, admin, member, billing, guest); kind personal or stack")
         const role = v.role as string
         const kind = v.kind as string
         if (cur && cur.role === role && cur.kind === kind) return { ok: true, state, value: cur, changed: false }

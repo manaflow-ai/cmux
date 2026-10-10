@@ -10,9 +10,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
     let cases = cases::safe_operation_cases();
 
-    assert_eq!(cases.len(), 187);
+    assert_eq!(cases.len(), 188);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 210);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 211);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -41,6 +41,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
+        // closed.delete takes either a group (with members) or all.
+        (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (

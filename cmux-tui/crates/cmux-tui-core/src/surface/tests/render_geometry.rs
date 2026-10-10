@@ -10,9 +10,8 @@ fn producer_without_render_taps_skips_frame_but_emits_output() {
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let pty = surface.as_pty().unwrap();
 
-    let mut term = pty.term.lock().unwrap();
-    assert!(!pty.build_frame_locked(&mut term, 2, true).unwrap());
-    drop(term);
+    let term = pty.term.lock().unwrap();
+    assert!(!pty.build_producer_frame(term, 2).unwrap());
 
     let render = pty.render.lock().unwrap();
     assert_eq!(render.built_generation, 0);

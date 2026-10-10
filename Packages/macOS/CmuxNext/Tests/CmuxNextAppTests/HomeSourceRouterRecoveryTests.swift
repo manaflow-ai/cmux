@@ -52,8 +52,20 @@ nonisolated final class SwitchableLocalHomeSource: HomeSource {
         while let event = await iterator.next() {
             if event == .connection(.online) { break }
         }
-        // Both owners' first events land (a test-only settle delay).
-        try await Task.sleep(for: .milliseconds(300))
+        // Both owners are online in the router before the local one drops.
+        // (A fixed 300 ms settle lost to a loaded host: the drop landed
+        // before the cloud's online, so the return was a merged change, not a
+        // recovery, and the test waited out its time limit.)
+        func bothOnline() -> Bool {
+            let owners = router.ownerConnections
+            return owners.local == .online && owners.cloud == .online
+        }
+        let clock = ContinuousClock()
+        let end = clock.now + .seconds(30)
+        while !bothOnline(), clock.now < end {
+            try await clock.sleep(for: .milliseconds(10)) // test-only wait
+        }
+        try #require(bothOnline(), "both owners online in the router")
         local.set(.offline(since: Date()))
         local.set(.online)
         var recovered = false

@@ -22,9 +22,13 @@ struct RecoveryNoticeTests {
         try "version two".write(to: file, atomically: true, encoding: .utf8)
         await clock.sleepers(atLeast: 1)
         clock.advance(by: .seconds(1))
+        // The fired debounce writes off the main actor; wait (bounded) for the
+        // file. 500 Task.yield calls ran out first on a loaded host.
+        let wall = ContinuousClock()
+        let end = wall.now + .seconds(30)
         var drafts = await store.drafts()
-        for _ in 0..<500 where drafts.isEmpty {
-            await Task.yield()
+        while drafts.isEmpty, wall.now < end {
+            try await wall.sleep(for: .milliseconds(10)) // test-only wait
             drafts = await store.drafts()
         }
         let draft = try #require(drafts.first)

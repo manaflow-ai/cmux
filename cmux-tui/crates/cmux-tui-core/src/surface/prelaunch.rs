@@ -103,3 +103,17 @@ impl Surface {
         )
     }
 }
+
+#[cfg(unix)]
+impl PrelaunchedHost {
+    /// The caller's tab id (`split-client-keys-v1`) for the tab that adopts
+    /// this host; the host's environment carries only the terminal id, so
+    /// the tab id may change until adoption.
+    pub(crate) fn with_tab_id(mut self, tab_id: Option<crate::resource::TabPublicId>) -> Self {
+        if let Some(tab_id) = tab_id {
+            let content_id = self.resource_identity.content_id.clone();
+            self.resource_identity = TabResourceIdentity::new(tab_id, content_id);
+        }
+        self
+    }
+}

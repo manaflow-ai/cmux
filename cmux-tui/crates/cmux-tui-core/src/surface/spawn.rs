@@ -80,6 +80,7 @@ impl Surface {
         // is fine, but keeping it queued makes the locking obvious).
         let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
+        let pending_bells = PendingBells::default();
         let terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
 
         let callbacks = Callbacks {
@@ -91,14 +92,8 @@ impl Surface {
                 let flag = title_changed.clone();
                 move || flag.store(true, Ordering::Relaxed)
             })),
-            on_bell: Some(Box::new({
-                let mux = mux.clone();
-                move || {
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
-                    }
-                }
-            })),
+            // Counted only: the reader emits after it releases the terminal lock.
+            on_bell: Some(pending_bells.callback()),
             on_clipboard_read: None,
             // The daemon owns this terminal's OSC 7501 records, and its
             // parser answers the support query through `on_pty_write`.
@@ -265,6 +260,7 @@ impl Surface {
                             Err(_) => break,
                         };
                         let mut scroll_changed = None;
+                        let mut title_update = None;
                         let terminal_notifications;
                         let finished_commands;
                         let generation = {
@@ -307,9 +303,7 @@ impl Surface {
                             if title_changed.swap(false, Ordering::Relaxed) {
                                 let title = term.title().unwrap_or_default();
                                 *pty.title.lock().unwrap() = title.clone();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.emit_terminal_title(surface.id, title.into());
-                                }
+                                title_update = Some(title);
                             }
                             pty.record_directory(term.pwd());
                             if before != after {
@@ -341,6 +335,14 @@ impl Surface {
                         surface.publish_pending_progress();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
+                        // Mux events take `Mux::state`; publish them only after
+                        // the terminal lock is released (see PtyTerminalRuntime).
+                        pending_bells.publish(&mux, surface.id);
+                        if let Some(title) = title_update
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.emit_terminal_title(surface.id, title.into());
+                        }
                         if let Some((offset, at_bottom)) = scroll_changed
                             && let Some(mux) = mux.upgrade()
                         {

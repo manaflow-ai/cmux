@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use optchat_core::{
-    block_cuts, compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId,
+    block_cuts, compact_request, finish_line, size_check_for, CompactRequest, Memory, NodeId,
     SizeCheck, Work,
 };
 
@@ -461,7 +461,15 @@ fn size_loop(model: &dyn CompactModel, request: &CompactRequest) -> Result<Strin
             None => &reply.text,
         };
         tries.push(text.to_string());
-        match size_check_in(&tries, room) {
+        // The step's <input>: what a try that does not fit is measured
+        // against, when the tries run out.
+        let input = request
+            .step
+            .split_once("<input>\n")
+            .map_or("", |(_, rest)| {
+                rest.rsplit_once("\n</input>").map_or(rest, |(i, _)| i)
+            });
+        match size_check_for(&tries, room, input) {
             SizeCheck::Accept(text) => return Ok(text),
             SizeCheck::Fail => return Err(ModelError::new("empty reply")),
             SizeCheck::Retry(retry) => followups.push(Followup { reply, retry }),

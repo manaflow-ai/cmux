@@ -3,7 +3,7 @@ import { formatReport, evaluate } from "../src/palette/eval";
 import { loadEval } from "../scripts/palette-eval";
 
 // The palette ranking eval (plans/cmux-next/palette-ranking.md section 3): real root-palette
-// entries, 114 queries with expected rows (2 guard cases, 2 for the agent harness actions) and 8 learning (replay) cases. A ranking change must not lower these floors; raise
+// entries, 114 queries with expected rows (2 guard cases, 2 for the agent harness actions) and 9 learning (replay) cases. A ranking change must not lower these floors; raise
 // them when a change improves the numbers, and paste the report into the landing.
 // Recorded 2026-10-09 with the tiered scorer and commands-first ties (palette-ranking.md section 6, step 2b).
 const floors = { top1: 0.69, top3: 0.81, mrr: 0.765 };
@@ -31,7 +31,7 @@ describe("palette ranking eval", () => {
   test("every learning (replay) case ranks as expected", () => {
     const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.replay) });
     const failed = report.results.filter((r) => r.rank !== 1).map((r) => `${r.query}: ${r.top.join(", ")}`);
-    expect(report.cases).toBeGreaterThanOrEqual(8);
+    expect(report.cases).toBeGreaterThanOrEqual(9);
     expect(failed).toEqual([]);
   });
 

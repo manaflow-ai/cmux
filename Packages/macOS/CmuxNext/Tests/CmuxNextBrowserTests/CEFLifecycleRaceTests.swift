@@ -29,6 +29,12 @@ import Testing
         return window
     }
 
+    /// One pass of the main run loop with no wait: a conceal hides the page
+    /// in a block queued for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
+    private func endTurn() {
+        _ = CFRunLoopRunInMode(.defaultMode, 0, true)
+    }
+
     /// Chromium echoes the activation of a tab it created or that cmux
     /// activated. The echo can land after the user selected another tab;
     /// it must not select this one again (the selection jumped back).
@@ -53,9 +59,12 @@ import Testing
         window.contentView?.addSubview(tab.contentView)
         #expect(tab.host.visibleTab === tab)
         tab.setContentVisible(false)
+        endTurn()
         #expect(tab.host.hostView.isHidden)
         tab.contentView.removeFromSuperview()
         window.contentView?.addSubview(tab.contentView)
+        #expect(tab.host.hostView.isHidden)
+        endTurn()
         #expect(tab.host.hostView.isHidden)
     }
 }

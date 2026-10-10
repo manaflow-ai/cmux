@@ -48,6 +48,23 @@ import Testing
         #expect(card.width == barRect.width + 2 * OmnibarStyle.cardSideOutset)
         #expect(bar.suggestionPanel.rowViews.count == bar.state.popup.rows.count)
 
+        // The attached popup is an AX list whose rows retain their live
+        // parent relationship and expose keyboard selection to VoiceOver.
+        let list = try #require((bar.suggestionPanel.cardView as? SuggestionCardView)?.card)
+        #expect(list.isAccessibilityElement())
+        #expect(list.accessibilityRole() == .list)
+        let children = try #require(list.accessibilityChildren())
+        #expect(children.count == bar.suggestionPanel.rowViews.count)
+        let rows = children.compactMap { $0 as? SuggestionRowView }
+        #expect(rows.count == children.count)
+        #expect(rows.allSatisfy { ($0.accessibilityParent() as AnyObject?) === list })
+        #expect(rows.filter { $0.isAccessibilitySelected() }.count == 1)
+
+        bar.suggestionPanel.highlight(1)
+        let selected = try #require(list.accessibilitySelectedChildren())
+        #expect(selected.count == 1)
+        #expect((selected.first as AnyObject?) === rows[1])
+
         // What debug.omnibar reports for the live proof agrees.
         let reported = try #require(bar.debugCard)
         #expect(reported.paneLayer && reported.isFlushUnderBar)
