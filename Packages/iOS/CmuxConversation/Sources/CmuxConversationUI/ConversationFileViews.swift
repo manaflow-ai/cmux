@@ -169,64 +169,49 @@ final class ConversationFileBubbleView: UIView {
     }
 }
 
-/// A picked document in the composer's attachment card: the thumbnail over
-/// its name and "type · size", on the card's rounded tile.
-final class ComposerFileChipView: UIView {
-    let thumbnailView = UIImageView()
-    private let nameLabel = UILabel()
-    private let detailLabel = UILabel()
+/// A picked document as the composer's attachment card shows it: the
+/// thumbnail over its name and "type · size" on the received-balloon gray,
+/// at the document balloon's aspect. Rendered to an image, so the card
+/// lays it out, rounds and removes it like a photo preview.
+@MainActor
+enum ComposerFileChip {
+    /// The chip at the card's 154 pt preview height.
+    static let size = CGSize(width: (154 * ConversationFileBubbleLayout.size.width / ConversationFileBubbleLayout.size.height).rounded(), height: 154)
 
-    /// The chip's width for the card's `height`, the document balloon's aspect.
-    static func width(forHeight height: CGFloat) -> CGFloat {
-        (height * ConversationFileBubbleLayout.size.width / ConversationFileBubbleLayout.size.height).rounded()
-    }
-
-    init(file: ConversationFileInfo, url: URL?) {
-        super.init(frame: .zero)
-        backgroundColor = ConversationTheme.incomingBubble
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
-        clipsToBounds = true
-        thumbnailView.contentMode = .scaleAspectFit
-        thumbnailView.tintColor = .secondaryLabel
-        thumbnailView.image = ConversationFileThumbnailer.icon(for: file)
-        addSubview(thumbnailView)
-        nameLabel.text = file.name
-        nameLabel.font = ConversationFileBubbleLayout.nameFont
-        nameLabel.textAlignment = .center
-        nameLabel.lineBreakMode = .byTruncatingMiddle
-        addSubview(nameLabel)
-        detailLabel.text = ConversationFileBubbleLayout.detail(for: file)
-        detailLabel.font = ConversationFileBubbleLayout.detailFont
-        detailLabel.textColor = .secondaryLabel
-        detailLabel.textAlignment = .center
-        addSubview(detailLabel)
-        isAccessibilityElement = true
-        accessibilityLabel = "\(file.name), \(ConversationFileBubbleLayout.detail(for: file))"
-        accessibilityIdentifier = "conversation.composer.file"
+    /// Renders the chip for `file`, with the Quick Look thumbnail of the
+    /// picked copy at `url` when one can be made.
+    static func render(file: ConversationFileInfo, url: URL?, traits: UITraitCollection) async -> UIImage {
+        var thumbnail: UIImage?
         if let url {
-            Task { @MainActor [weak self] in
-                guard let image = await ConversationFileThumbnailer.generate(url: url, size: CGSize(width: 72, height: 90), scale: 3) else { return }
-                self?.thumbnailView.image = image
-                self?.setNeedsLayout()
+            thumbnail = await ConversationFileThumbnailer.generate(url: url, size: CGSize(width: 64, height: 80), scale: traits.displayScale)
+        }
+        let image = thumbnail ?? ConversationFileThumbnailer.icon(for: file)?.withTintColor(.secondaryLabel.resolvedColor(with: traits), renderingMode: .alwaysOriginal)
+        let format = UIGraphicsImageRendererFormat(for: traits)
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            ConversationTheme.incomingBubble.resolvedColor(with: traits).setFill()
+            UIRectFill(CGRect(origin: .zero, size: size))
+            let nameFont = ConversationFileBubbleLayout.nameFont
+            let detailFont = ConversationFileBubbleLayout.detailFont
+            let textHeight = ceil(nameFont.lineHeight) + 2 + ceil(detailFont.lineHeight)
+            let box = CGRect(x: 14, y: 14, width: size.width - 28, height: size.height - 28 - textHeight - 8)
+            if let image, image.size.width > 0, image.size.height > 0 {
+                let scale = min(box.width / image.size.width, box.height / image.size.height)
+                let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                let rect = CGRect(x: box.midX - drawn.width / 2, y: box.midY - drawn.height / 2, width: drawn.width, height: drawn.height)
+                image.draw(in: rect)
+                if thumbnail != nil, image.accessibilityIdentifier == "thumbnail" {
+                    UIColor.separator.resolvedColor(with: traits).setStroke()
+                    UIBezierPath(rect: rect.insetBy(dx: 0.25, dy: 0.25)).stroke()
+                }
             }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            paragraph.lineBreakMode = .byTruncatingMiddle
+            let nameRect = CGRect(x: 10, y: box.maxY + 8, width: size.width - 20, height: ceil(nameFont.lineHeight))
+            (file.name as NSString).draw(in: nameRect, withAttributes: [.font: nameFont, .foregroundColor: UIColor.label.resolvedColor(with: traits), .paragraphStyle: paragraph])
+            let detailRect = CGRect(x: 10, y: nameRect.maxY + 2, width: size.width - 20, height: ceil(detailFont.lineHeight))
+            (ConversationFileBubbleLayout.detail(for: file) as NSString).draw(in: detailRect, withAttributes: [.font: detailFont, .foregroundColor: UIColor.secondaryLabel.resolvedColor(with: traits), .paragraphStyle: paragraph])
         }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let textHeight = ceil(nameLabel.font.lineHeight) + 2 + ceil(detailLabel.font.lineHeight)
-        let box = CGRect(x: 14, y: 14, width: bounds.width - 28, height: max(20, bounds.height - 28 - textHeight - 8))
-        if let image = thumbnailView.image, image.size.width > 0 {
-            let scale = min(box.width / image.size.width, box.height / image.size.height)
-            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            thumbnailView.frame = CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height).integral
-        }
-        nameLabel.frame = CGRect(x: 10, y: box.maxY + 8, width: bounds.width - 20, height: ceil(nameLabel.font.lineHeight))
-        detailLabel.frame = CGRect(x: 10, y: nameLabel.frame.maxY + 2, width: bounds.width - 20, height: ceil(detailLabel.font.lineHeight))
     }
 }
 #endif

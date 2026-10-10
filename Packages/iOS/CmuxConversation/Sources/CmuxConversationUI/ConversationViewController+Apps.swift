@@ -557,21 +557,24 @@ final class ConversationMediaDelegate: NSObject, UIImagePickerControllerDelegate
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         for url in urls {
-            if let attachment = Self.composerAttachment(for: url) {
-                self.controller?.composer.addAttachment(attachment)
+            Task { @MainActor [weak self] in
+                guard let traits = self?.controller?.traitCollection,
+                      let attachment = await Self.composerAttachment(for: url, traits: traits) else { return }
+                self?.controller?.composer.addAttachment(attachment)
             }
         }
     }
 
     /// A picked file: a photo becomes a photo attachment (as from Photos);
     /// anything else (or an image UIKit cannot decode) is sent as a file.
-    static func composerAttachment(for url: URL) -> ComposerAttachment? {
+    static func composerAttachment(for url: URL, traits: UITraitCollection) async -> ComposerAttachment? {
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         let file = ConversationPendingFile(data: data, name: url.lastPathComponent)
         if file.info.isImage, let image = UIImage(data: data) {
             return ComposerAttachment(image: image, data: data, mimeType: file.info.mimeType)
         }
-        return ComposerAttachment(file: file, url: url)
+        let chip = await ComposerFileChip.render(file: file.info, url: url, traits: traits)
+        return ComposerAttachment(file: file, chip: chip)
     }
 }
 #endif
