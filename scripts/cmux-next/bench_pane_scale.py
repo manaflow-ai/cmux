@@ -62,7 +62,21 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
+from bench_idle import Client, process_table, usage, wait_for_socket  # noqa: E402
+from bench_idle import classify as classify_by_path  # noqa: E402
+
+
+def classify(app_pid, bundle):
+    """bench_idle.classify, plus terminal hosts found by parent: since the
+    posix_spawn change hosts run as a bare `cmux-tui __terminal-host`, so
+    their path no longer names the app. A host is a `__terminal-host`
+    child of one of this app's daemons."""
+    kinds = classify_by_path(app_pid, bundle)
+    daemons = {pid for pid, kind in kinds.items() if kind == "daemon"}
+    for pid, ppid, cmd in process_table():
+        if ppid in daemons and "__terminal-host" in cmd:
+            kinds[pid] = "terminal-host"
+    return kinds
 from daemon_teardown import end_terminals  # noqa: E402
 
 
