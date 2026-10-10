@@ -125,8 +125,11 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
         },
     )
     .unwrap();
-    // Typing has no cloud frame yet: a no-op, nothing sent.
-    port.typing(CONV, true).unwrap();
+    // Typing has no cloud frame yet: said (typing_unsupported), nothing sent.
+    assert!(matches!(
+        port.typing(CONV, true),
+        Err(OpError::Rejected(reason)) if reason == "typing_unsupported"
+    ));
     let calls = rpc.calls.lock().unwrap();
     assert_eq!(calls.len(), 4);
     assert_eq!(calls[0].0, "cloud-conversation-snapshot");
