@@ -228,13 +228,32 @@ enum RemoteBrowserPages {
                     "failure": session.tab?.pane.view.failureMessage.map(JSONValue.string) ?? .null,
                     "cursor": session.nativeUI.cursorKind.map(JSONValue.string) ?? .null,
                     "surfaces": .array(session.surfaces.surfaceIDs.map { .number(Double($0)) }),
+                    // `frame`: the anchor in page CSS pixels; `panel`: the
+                    // surface's child panel (window number, screen frame
+                    // x,y w x h from the bottom left, parent window number,
+                    // shown, key).
                     "surface_info": .array(session.surfaces.surfaceIDs.map { id in
-                        let frame = session.surfaces.view(of: id)?.frame ?? .zero
+                        let frame = session.surfaces.anchor(of: id) ?? .zero
+                        let panel: JSONValue = session.surfaces.panel(of: id).map { panel -> JSONValue in
+                            let f = panel.frame
+                            return .object([
+                                "window_number": .number(Double(panel.windowNumber)),
+                                "screen_frame": .string("\(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))"),
+                                "parent": panel.parent.map { JSONValue.number(Double($0.windowNumber)) } ?? .null,
+                                "visible": .bool(panel.isVisible), "key": .bool(panel.isKeyWindow),
+                            ])
+                        } ?? .null
                         return .object([
                             "id": .number(Double(id)), "kind": session.surfaces.kind(of: id).map(JSONValue.string) ?? .null,
                             "frame": .string("\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"),
+                            "panel": panel,
                         ])
                     }),
+                    "page_screen_frame": session.pane.view.window.map { window -> JSONValue in
+                        let f = window.convertToScreen(session.pane.view.convert(session.pane.view.bounds, to: nil))
+                        return .string("\(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))")
+                    } ?? .null,
+                    "key_window": NSApp.keyWindow.map { JSONValue.number(Double($0.windowNumber)) } ?? .null,
                     "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
                 ])
             }
@@ -281,8 +300,9 @@ enum RemoteBrowserPages {
             return ["clicked": true]
         case "surface_click":
             // A left click at `x`,`y` (the surface's CSS pixels from its top
-            // left) on open popup surface `surface`, through the surface
-            // view's own pointer path.
+            // left) on open popup surface `surface`, sent to the surface's
+            // panel as AppKit delivers a click (hit test, first mouse in a
+            // panel that is never key, the view's pointer path).
             guard let target, let id = params["surface"]?.intValue,
                   let view = target.surfaces.view(of: UInt32(clamping: id)) else { return ["error": "no such surface"] }
             guard let window = view.window else { return ["error": "the surface is not in a window"] }
@@ -291,7 +311,7 @@ enum RemoteBrowserPages {
                 guard let event = NSEvent.mouseEvent(
                     with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                view.eventTarget?.handlePointer(event)
+                window.sendEvent(event)
             }
             return ["clicked": true]
         case "type":
