@@ -60,7 +60,7 @@ extension GroupColor {
     /// 2026-10-10: the terminal palette in a stable order): the ANSI
     /// accents by index, then the two mixed ones. Blue is left to people
     /// (the no-blue rule covers what the app picks by itself).
-    public static let automaticOrder: [GroupColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink]
+    nonisolated public static let automaticOrder: [GroupColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink]
 
     nonisolated func headerRGB(_ tokens: ThemeTokens) -> ThemeRGB {
         themeRGB(tokens) ?? tokens.sidebarBackground.withAlpha(1).mixed(toward: tokens.isDark ? .white : .black, 0.12)
