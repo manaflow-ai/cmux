@@ -68,7 +68,14 @@ final class CloudSheetWindow {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if self.isAttachedToHost {
-                    self.recordAttachedSheetMoveIfHostMoveIsPending()
+                    let didRefreshHostAnchor = self.recordAttachedSheetMoveIfHostMoveIsPending()
+                    if didRefreshHostAnchor {
+                        // A host move can arrive while AppKit still exposes a
+                        // transient 1×0 sheet. The later sheet move completes
+                        // the handshake; apply any content size that arrived
+                        // while resizing was blocked.
+                        self.applyPendingContentSize()
+                    }
                     self.scheduleAttachedSheetAnchorCorrection()
                 } else {
                     self.recordFloatingWindowMoveIfStable()
@@ -216,13 +223,15 @@ final class CloudSheetWindow {
         scheduleHostAnchorRefresh()
     }
 
-    private func recordAttachedSheetMoveIfHostMoveIsPending() {
-        guard isHostMovePending else { return }
-        guard !isOpening, !isApplyingFrame else { return }
+    @discardableResult
+    private func recordAttachedSheetMoveIfHostMoveIsPending() -> Bool {
+        guard isHostMovePending else { return false }
+        guard !isOpening, !isApplyingFrame else { return false }
         let contentSize = window.contentRect(forFrameRect: window.frame).size
-        guard contentSize.width > 1, contentSize.height > 1 else { return }
+        guard contentSize.width > 1, contentSize.height > 1 else { return false }
         topEdgeAnchor = window.frame.maxY
         isHostMovePending = false
+        return true
     }
 
     private func scheduleHostAnchorRefresh() {
