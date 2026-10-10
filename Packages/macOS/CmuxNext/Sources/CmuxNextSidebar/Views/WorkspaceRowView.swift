@@ -93,6 +93,7 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
         placeholderBar.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
+        moreButton.onPress = { [weak self] in self?.onMore?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
     }
 
