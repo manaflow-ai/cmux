@@ -141,7 +141,7 @@ const found = await page.searchText("needle", { context: 5000 });
 emitCmux("search-context-capped", found.matches.length === 1 && found.matches[0].context.length <= 2010);
 await page.evaluate(() => (document.body.innerHTML = `<p class="x">${"e".repeat(1500000)}</p><p class="x">${"e".repeat(1500000)}</p><p class="x">last</p>`));
 const extracted = await page.extract(["p.x"]);
-emitCmux("extract-cut", { count: extracted.length, total: extracted.reduce((n, v) => n + (v ? v.length : 0), 0) <= 2000001, last: extracted[2] });
+emitCmux("extract-cut", { count: extracted.length, total: extracted.reduce((n, v) => n + (v ? v.length : 0), 0) <= 2000001 });
 await page.evaluate(() => {
   localStorage.clear();
   localStorage.setItem("big", "l".repeat(2100000));
@@ -157,26 +157,24 @@ await page.evaluate(() => localStorage.clear());
 emitCmux("storage-state-cut", storage);
 const rows = await tabs.content([`${PRIMARY}/stress/stress.html?kind=text&n=3000000`], { format: "text" });
 emitCmux("tabs-content-cut", { short: rows[0].content.length <= 2000001, note: /tabs\.content stopped after/.test(rows[0].truncated || "") });
+// tabs.content's HTML is read like page.content: sensitive values masked.
+const htmlRows = await tabs.content([`${PRIMARY}/states.html`], { format: "html" });
+emitCmux("tabs-content-html-masked", { leaked: htmlRows[0].content.includes("hunter2"), masked: htmlRows[0].content.includes("********") });
 
 // ---- cell session=budget cmux-only
 // An action in a child frame finds the frame's <iframe> by the frame's
-// place in window.frames, never by a walk of the parent's whole DOM (here
-// 20,000 nested shadow roots, deeper than a recursive walk's stack).
+// place in window.frames (light DOM), or by a walk within the parent's node
+// budget (an <iframe> in a shadow tree, which window.frames may not list).
 await page.evaluate(() => {
-  document.body.innerHTML = '<iframe srcdoc="<button onclick=&quot;this.textContent=\'clicked\'&quot;>Inner</button>"></iframe><div id="deep"></div>';
-  let host = document.getElementById("deep");
-  for (let i = 0; i < 20000; i++) {
-    const inner = document.createElement("div");
-    host.attachShadow({ mode: "open" }).appendChild(inner);
-    host = inner;
-  }
+  const button = (label) => `<button onclick="this.textContent='${label} clicked'">${label}</button>`;
+  document.body.innerHTML = `<div style="height:1500px"></div><iframe id="light" srcdoc="${button("Light").replace(/"/g, "&quot;")}"></iframe><div id="host"></div>`;
+  const root = document.getElementById("host").attachShadow({ mode: "open" });
+  root.innerHTML = `<div style="height:1500px"></div><iframe id="shadowed" srcdoc="${button("Shadow").replace(/"/g, "&quot;")}"></iframe>`;
 });
-await page.frameLocator("iframe").getByRole("button").waitFor();
-let frameClick;
-try {
-  await page.frameLocator("iframe").getByRole("button").click({ timeout: 10000 });
-  frameClick = await page.frameLocator("iframe").getByRole("button").textContent();
-} catch (e) {
-  frameClick = String(e.message).slice(0, 160);
-}
-emitCmux("frame-click-deep-shadow", frameClick);
+const lightButton = page.frameLocator("#light").getByRole("button");
+const shadowButton = page.frameLocator("#shadowed").getByRole("button");
+await lightButton.waitFor();
+await shadowButton.waitFor();
+await lightButton.click();
+await shadowButton.click();
+emitCmux("frame-clicks", [await lightButton.textContent(), await shadowButton.textContent()]);

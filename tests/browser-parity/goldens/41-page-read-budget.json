@@ -65,6 +65,13 @@
       "short": true,
       "note": true
     },
-    "frame-click-deep-shadow": "clicked"
+    "frame-clicks": [
+      "Light clicked",
+      "Shadow clicked"
+    ],
+    "tabs-content-html-masked": {
+      "leaked": false,
+      "masked": true
+    }
   }
 }
