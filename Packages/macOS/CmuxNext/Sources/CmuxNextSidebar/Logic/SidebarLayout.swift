@@ -129,7 +129,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
-            let machineLabel = flat && section.machine?.kind != .local ? section.machine.map(Self.rowMachineLabel) : nil
+            let machineLabel = flat && section.machine?.kind != .local ? section.machine.map { machine in o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name } : nil
             // Without a header there is nothing to expand it from: a list the
             // old "Projects" header folded shows again.
             let collapsed = showsHeader && section.isCollapsed && !filtering
@@ -261,19 +261,5 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             gapHeight: gapY == nil ? 0 : o.gapHeight,
             gapShift: gapY == nil ? 0 : o.gapHeight + m.rowSpacing
         )
-    }
-
-    /// A computer's name on its workspaces' second line in one list, then
-    /// its status when it cannot connect until the person acts (cx-mdo0).
-    static func rowMachineLabel(_ machine: SidebarMachine) -> String {
-        let status: String? = switch machine.status {
-        case .authFailed: Strings.statusAuthFailed
-        case .unreachable: Strings.statusUnreachable
-        case .installRequired: Strings.statusInstallRequired
-        case .updateRequired: Strings.statusUpdateRequired
-        case .failed: Strings.statusFailed
-        case .connected, .connecting, .offline, .updateAvailable, .installing: nil
-        }
-        return status.map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }
 }

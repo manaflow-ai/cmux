@@ -321,6 +321,13 @@ public final class SidebarModel {
         o.collapsedWorkspaces = collapsedWorkspaces
         o.workspaceRow = workspaceRow
         o.flattensMachines = !groupsByComputer
+        if o.flattensMachines {
+            for section in sections {
+                guard let machine = section.machine, machine.kind != .local,
+                      let status = Strings.attentionStatus(machine.status) else { continue }
+                o.machineStatusLabels[machine.id] = status
+            }
+        }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         o.groupsByFolder = groupsByFolder
