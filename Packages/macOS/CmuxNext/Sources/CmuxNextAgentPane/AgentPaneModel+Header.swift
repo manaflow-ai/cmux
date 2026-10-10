@@ -2,14 +2,23 @@ import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
 /// ``AgentPaneModel/headerActions`` id on the chat's tab, a split in `cwd` when given,
+/// toggles a quick action's split (`mode: "toggle"`: close the one it opened, else open),
 /// and reads the tab's state the "..." menu's labels show (`{pinned}`).
 public struct AgentPaneHeaderHooks {
     public var run: @MainActor (String, String?) -> Void
+    public var toggle: @MainActor (String, String?) -> Void
     public var tabState: @MainActor () -> [String: Any]
+    /// Opens acpmux session `id` in a new split beside the chat's tab (New side chat).
+    public var openSide: @MainActor (String) -> Void
 
-    public init(run: @escaping @MainActor (String, String?) -> Void, tabState: @escaping @MainActor () -> [String: Any]) {
+    public init(run: @escaping @MainActor (String, String?) -> Void,
+                toggle: (@MainActor (String, String?) -> Void)? = nil,
+                tabState: @escaping @MainActor () -> [String: Any],
+                openSide: @escaping @MainActor (String) -> Void = { _ in }) {
         self.run = run
+        self.toggle = toggle ?? run
         self.tabState = tabState
+        self.openSide = openSide
     }
 }
 
@@ -25,12 +34,13 @@ extension AgentPaneModel {
     /// reads the tab's pin; `chat.archive` tags the pane's session and, archiving, closes its tab.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
-        case .paneAction(let id, let cwd):
+        case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
             // The Terminal split names the chat's folder; agent-home is the chat's only.
-            header.run(id, folderForOtherTabs(cwd))
+            let folder = folderForOtherTabs(cwd)
+            if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
             return AgentPaneReply.success()
         case .tabState:
             guard let header else {
@@ -39,6 +49,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success(header.tabState())
         case .archive(let archived):
             return await archive(archived)
+        case .sideChat(let fork):
+            return await openSideChat(fork)
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }
@@ -60,6 +72,24 @@ extension AgentPaneModel {
         return AgentPaneReply.success()
     }
 
+    /// New side chat: `fork` must be a session this pane made (its fork's reply put it in the
+    /// pane's scope), never the chat itself. It is tagged `side` with the chat's session, which
+    /// keeps it off the lists, then opened in a split beside the chat.
+    private func openSideChat(_ fork: String) async -> [String: Any] {
+        guard let sessionId, newTab == nil, fork != sessionId, transport.sessions.contains(fork), let header else {
+            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
+        }
+        do {
+            try await transport.tagSession(fork, [Self.sideTag: sessionId], [])
+        } catch {
+            return AgentPaneReply.failure(code: "failed", message: "\(error)")
+        }
+        header.openSide(fork)
+        return AgentPaneReply.success()
+    }
+
     /// The tag the pane's lists read (sessionList.ts `ARCHIVED_TAG`).
     static let archivedTag = "archived"
+    /// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
+    static let sideTag = "side"
 }

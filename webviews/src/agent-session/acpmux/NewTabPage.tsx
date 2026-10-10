@@ -14,7 +14,7 @@ import {
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
-import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { homePath, listed, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 
@@ -91,6 +91,8 @@ export type NewTabHost = {
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
+  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu); off until styled.
+  templateSwitcher?: boolean;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
@@ -151,6 +153,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
+    ...(object.templateSwitcher === true ? { templateSwitcher: true } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
@@ -184,7 +187,7 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
   const entries = sessions
     .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    .filter((entry) => !entry.archived);
+    .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
 }

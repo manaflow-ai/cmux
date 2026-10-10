@@ -806,7 +806,16 @@ impl Surface {
                         cell_height: snapshot.cell_pixels.1,
                     },
                 ),
-                kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
+                kitty_graphics_limits: Box::new(RankedMutex::new(
+                    LockRank::KittyLimits,
+                    "pty.kitty_graphics_limits",
+                    snapshot.kitty_state.limits,
+                )),
+                kitty_limits_request: RankedMutex::new(
+                    LockRank::KittyLimitsRequest,
+                    "pty.kitty_limits_request",
+                    (),
+                ),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]

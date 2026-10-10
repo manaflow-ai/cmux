@@ -75,12 +75,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
     /// ``AgentPaneModel/headerActions``) on this chat's tab, a split in `cwd`
-    /// when given.
-    case paneAction(String, cwd: String? = nil)
+    /// when given. `toggle` (a quick action's `mode: "toggle"`, acpmux
+    /// header/quickActions.ts) closes the split this tab's button opened
+    /// when it is still there, else opens one.
+    case paneAction(String, cwd: String? = nil, toggle: Bool = false)
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
     case archive(Bool)
+    /// New side chat: open the fork `sessionId` the page just made beside this chat.
+    case sideChat(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)

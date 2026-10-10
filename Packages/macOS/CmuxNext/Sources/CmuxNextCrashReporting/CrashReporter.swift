@@ -2,7 +2,7 @@ public import CmuxSentryReporting
 public import Darwin
 public import Foundation
 public import Sentry
-import Synchronization
+import CmuxNextCompat
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
@@ -93,6 +93,17 @@ public final class CrashReporter: Sendable {
     /// start after its report.
     public func reassertSignalHandlers() {
         sentryHandlers.withLock { $0 }?.restore()
+    }
+
+    /// Records a non-fatal product failure (a warning event tagged `failure`)
+    /// so a user action that silently did nothing shows up in the crash
+    /// telemetry. `message` must hold no user content: it is sent as is.
+    public func recordFailure(_ name: String, message: String) {
+        guard isStarted else { return }
+        SentrySDK.capture(message: "\(name): \(message)") { scope in
+            scope.setTag(value: name, key: "failure")
+            scope.setLevel(.warning)
+        }
     }
 
     /// Tags the current scope so a crash this process causes on purpose

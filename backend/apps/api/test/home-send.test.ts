@@ -7,6 +7,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 /** Stage C invite email sends from AddressDO: once, fail-closed switch, allow list, nothing printed but ids. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,6 +67,25 @@ describe("invite email sends (stage C)", { timeout: 60_000 }, () => {
     expect(r.left).toBe(0)
   })
 
+  it("sends nothing while the switch is not exactly on", async () => {
+    const { HOME_INVITES_SEND: _off, ...rest } = ON
+    const r = await invite("send-off", "erin@example.com", { ...rest, HOME_INVITES_SEND: "", HOME_INVITE_ALLOWLIST_EMAILS: "erin@example.com" })
+    expect(r.state).toBe("disabled")
+    expect(r.calls).toHaveLength(0)
+  })
+
+  it("outside production, sends nothing to an address off the allow list", async () => {
+    const r = await invite("send-off-list", "frank@example.com", { ...ON, HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com" })
+    expect(r.state).toBe("refused_env")
+    expect(r.calls).toHaveLength(0)
+  })
+
+  it("ENVIRONMENT=production on a Worker that is not cmux-api still uses the allow list", async () => {
+    const r = await invite("send-mislabeled", "gina@example.com", { ...ON, ENVIRONMENT: "production", WORKER_NAME: "cmux-api-staging", HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com" })
+    expect(r.state).toBe("refused_env")
+    expect(r.calls).toHaveLength(0)
+  })
+
   it("outside production, an inviter on HOME_INVITE_ALLOWED_INVITERS (verified email) reaches any address", async () => {
     const r = await invite("send-team-inviter", "hank@example.com", { ...ON, HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com", HOME_INVITE_ALLOWED_INVITERS: "send-team-inviter@example.com" })
     expect(r.state).toBe("sent")
@@ -73,4 +93,15 @@ describe("invite email sends (stage C)", { timeout: 60_000 }, () => {
     expect(r.left).toBe(0)
   })
 
+  it("an inviter on HOME_INVITE_ALLOWED_INVITERS by user id reaches any address", async () => {
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "send-team-inviter-id")
+    const r = await invite("send-team-inviter-id", "ivy@example.com", { ...ON, HOME_INVITE_ALLOWED_INVITERS: user })
+    expect(r.state).toBe("sent")
+  })
+
+  it("an inviter off HOME_INVITE_ALLOWED_INVITERS keeps the recipient allow list", async () => {
+    const r = await invite("send-not-team", "jack@example.com", { ...ON, HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com", HOME_INVITE_ALLOWED_INVITERS: "lead@example.com" })
+    expect(r.state).toBe("refused_env")
+    expect(r.calls).toHaveLength(0)
+  })
 })

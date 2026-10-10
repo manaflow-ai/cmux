@@ -286,9 +286,9 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
-            .mainActor("debug.sidebar_rows") { [weak services] _ in
+            .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(services: services))
+                return .value(DebugSidebarRows.report(call.params, services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -311,6 +311,12 @@ final class AppControl {
                 guard let services else { return .null }
                 return await DebugHoverSweep.run(call.params, services: services)
             }.withDeadline(.fixed(.seconds(15))),
+            // `debug.pointer_hover {point: [x, y] | null, window?}`: real tracking-area
+            // enter/move/exit at a window point (cx-tupd; a headless host cannot hover).
+            .mainActor("debug.pointer_hover") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPointerHover.run(call.params, services: services))
+            },
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },

@@ -119,6 +119,39 @@ describe("users.stop is reliable", () => {
     expect(revokeAt).toBeGreaterThan(stopAt)
   })
 
+  it("a closed restricted-scope gate stops the watch with the connection's own token, retrying until it succeeds", async () => {
+    let status = 500
+    const { conn, connections, calls } = await linkGmail("stop-gate-1", () => status)
+    let saved: unknown
+    await inDO(connections, async (instance, s) => {
+      saved = instance.env
+      instance.env = { ...instance.env, GOOGLE_RESTRICTED_SCOPES: undefined }
+      s.storage.sql.exec("UPDATE google_watches SET renew_at = ?", Date.now() - 1)
+      await runWatchWork(instance.watchHost(), instance.boundEngine.currentState.connections, Date.now())
+      const row = s.storage.sql.exec("SELECT stop_since, stop_failures FROM google_watches WHERE connection = ?", conn).one() as { stop_since: number | null; stop_failures: number }
+      expect(row.stop_since).not.toBeNull()
+      expect(row.stop_failures).toBe(1)
+      status = 204
+      await runWatchWork(instance.watchHost(), instance.boundEngine.currentState.connections, Date.now() + 3600_000)
+      expect(s.storage.sql.exec("SELECT * FROM google_watches").toArray()).toHaveLength(0)
+      expect(s.storage.sql.exec("SELECT * FROM watch_stop_failures").toArray()).toHaveLength(0)
+      instance.env = saved
+    })
+    expect(calls.filter((c) => c === `POST ${GMAIL}/stop`)).toHaveLength(2)
+  })
+
+  it("renewWatchSoon makes the alarm renew the watch at once", async () => {
+    const { team, conn, connections, calls } = await linkGmail("stop-renew-1", () => 204)
+    const watches = () => calls.filter((c) => c === `POST ${GMAIL}/watch`).length
+    expect(watches()).toBe(1)
+    await connections.watchSoon(team, conn, "renew")
+    for (const end = Date.now() + 5000; watches() < 2 && Date.now() < end; ) await new Promise((r) => setTimeout(r, 25))
+    expect(watches()).toBe(2)
+    await inDO(connections, async (_i, s) => {
+      const row = s.storage.sql.exec("SELECT renew_at FROM google_watches WHERE connection = ?", conn).one() as { renew_at: number }
+      expect(row.renew_at).toBeGreaterThan(Date.now())
+    })
+  })
 })
 
 describe("Pub/Sub delivery failures are isolated per link", () => {
@@ -207,6 +240,48 @@ describe("users.stop follow-ups", () => {
     expect((await failures(connections))[0]).toMatchObject({ connection: conn, reason: expect.stringMatching(/no stored credential/) })
   })
 
+  it("a connection that is gone records the failure; one without an account still stops; a 401 or 24 h records", async () => {
+    const gone = await linkGmail("stop-gone-1", () => 204)
+    await inDO(gone.connections, async (instance, s) => {
+      s.storage.sql.exec("UPDATE google_watches SET renew_at = ?", Date.now() - 1)
+      await runWatchWork(instance.watchHost(), {}, Date.now())
+    })
+    expect((await failures(gone.connections))[0]).toMatchObject({ connection: gone.conn, reason: expect.stringMatching(/connection is gone/) })
+
+    const noAccount = await linkGmail("stop-noacct-1", () => 204)
+    await inDO(noAccount.connections, async (instance, s) => {
+      const c = instance.boundEngine.currentState.connections[noAccount.conn]
+      await ensureGmailWatch(instance.watchHost(), { ...c, account: null }, Date.now())
+      expect(s.storage.sql.exec("SELECT * FROM google_watches").toArray()).toHaveLength(0)
+    })
+    expect(noAccount.calls.filter((c) => c === `POST ${GMAIL}/stop`)).toHaveLength(1)
+
+    const refused = await linkGmail("stop-gate401-1", () => 401)
+    await inDO(refused.connections, async (instance, s) => {
+      const saved = instance.env
+      instance.env = { ...saved, GOOGLE_RESTRICTED_SCOPES: undefined }
+      s.storage.sql.exec("UPDATE google_watches SET renew_at = ?", Date.now() - 1)
+      await runWatchWork(instance.watchHost(), instance.boundEngine.currentState.connections, Date.now())
+      instance.env = saved
+      expect(s.storage.sql.exec("SELECT * FROM google_watches").toArray()).toHaveLength(0)
+    })
+    expect((await failures(refused.connections))[0]?.connection).toBe(refused.conn)
+
+    const slow = await linkGmail("stop-24h-1", () => 500)
+    await inDO(slow.connections, async (instance, s) => {
+      const saved = instance.env
+      instance.env = { ...saved, GOOGLE_RESTRICTED_SCOPES: undefined }
+      const now = Date.now()
+      s.storage.sql.exec("UPDATE google_watches SET renew_at = ?", now - 1)
+      await runWatchWork(instance.watchHost(), instance.boundEngine.currentState.connections, now)
+      expect(s.storage.sql.exec("SELECT * FROM google_watches").toArray()).toHaveLength(1)
+      await runWatchWork(instance.watchHost(), instance.boundEngine.currentState.connections, now + 24 * 3600_000)
+      instance.env = saved
+      expect(s.storage.sql.exec("SELECT * FROM google_watches").toArray()).toHaveLength(0)
+    })
+    expect((await failures(slow.connections))[0]?.connection).toBe(slow.conn)
+  })
+
   it("two connections of one mailbox that disconnect together send one users.stop", async () => {
     const email = "shared-mailbox@example.com"
     const a = await linkGmail("stop-pair-a", () => 204, { email })
@@ -249,6 +324,18 @@ describe("users.stop follow-ups", () => {
         Object.getPrototypeOf(instance).googlePush = original
       })
     }
+  })
+
+  it("a failing catch-up read never spins the alarm: its time moves out", async () => {
+    const x = await linkGmail("stop-noloop-1", () => 204, { history: () => new Response("", { status: 503 }) })
+    await inDO(x.connections, async (instance, s) => {
+      const now = Date.now()
+      await instance.watchSoon(x.team, x.conn, "catch_up")
+      s.storage.sql.exec("UPDATE google_watches SET fallback_at = ?", now - 1)
+      await runWatchWork(instance.watchHost(), instance.boundEngine.currentState.connections, now)
+      const row = s.storage.sql.exec("SELECT fallback_at FROM google_watches").one() as { fallback_at: number }
+      expect(row.fallback_at).toBeGreaterThan(now)
+    })
   })
 
   it("rejects a Pub/Sub token older than 15 minutes (plus the 5 minute skew)", async () => {

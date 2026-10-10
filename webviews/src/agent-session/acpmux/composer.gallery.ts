@@ -188,6 +188,23 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
     },
+    "pdf-attached": {
+      note: "A pasted PDF shows a preview card, its file name, and the detected page count before sending.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
+        const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
+        await ctx.click({ selector: ".acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
@@ -262,7 +279,7 @@ export default agentPaneEntry({
       note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
       snapshot: chat(working, { isWorking: true, queue: waiting }),
       native: { "chat.queue.remove": { removed: true } },
-      then: {
+      afterCall: {
         // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
         "chat.cancel": chat(
           [
