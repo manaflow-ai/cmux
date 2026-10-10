@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c. */
+/* cmux-tui mux protocol 12, IR ab581181a269c997ffcd3d36e2c3f9ccd2a8ba800bcbcda0524e517549f257fb. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c" as const;
+export const SDK_IR_SHA256 = "ab581181a269c997ffcd3d36e2c3f9ccd2a8ba800bcbcda0524e517549f257fb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4760,7 +4760,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "type": {
-        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
+        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
         "nullable": false,
         "presence": "required",
         "type": {

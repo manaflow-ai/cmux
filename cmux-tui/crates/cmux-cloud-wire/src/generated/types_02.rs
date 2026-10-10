@@ -22,6 +22,21 @@ pub struct HomeInviteDelivery {
     pub at: Timestamp,
 }
 
+/// An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeLinkPreviewImage {
+    pub hash: HomeSha256,
+    pub mime_type: HomeLinkPreviewImageMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeLinkPreviewImageMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeMessage {
     pub id: MessageId,
@@ -46,6 +61,7 @@ pub enum HomePart {
     Text(HomePartText),
     Work(HomePartWork),
     Attachment(HomePartAttachment),
+    LinkPreview(HomePartLinkPreview),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -95,6 +111,18 @@ pub struct HomePartAttachment {
     pub poster: Option<HomeAttachmentPoster>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<HomeAttachmentPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartLinkPreview {
+    pub r#type: LitLinkPreview,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<HomeLinkPreviewImage>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -869,35 +897,5 @@ pub struct TeamPolicyValuesGithubRepoScope {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesGithubRequireOrgAdmin {
     pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesGithubRepoAllowListValue {
-    None(LitNone),
-    List(Vec<RepoPattern>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoAllowList {
-    pub value: TeamPolicyValuesGithubRepoAllowListValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesIntegrationsAllowedProvidersValue {
-    All(LitAll),
-    List(Vec<IntegrationProvider>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesIntegrationsAllowedProviders {
-    pub value: TeamPolicyValuesIntegrationsAllowedProvidersValue,
     pub mode: PolicyMode,
 }

@@ -509,6 +509,13 @@ export type HomeInvite = {
   readonly locale: string
 }
 
+/** An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}. */
+export type HomeLinkPreviewImage = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
 export type HomeMessage = {
   readonly id: MessageId
   readonly conversation: ConversationId
@@ -544,6 +551,12 @@ export type HomePart = {
   readonly duration_ms?: number
   readonly poster?: HomeAttachmentPoster
   readonly preview?: HomeAttachmentPreview
+} | {
+  readonly type: "link_preview"
+  readonly url: string
+  readonly title?: string
+  readonly site?: string
+  readonly image?: HomeLinkPreviewImage
 }
 
 export type HomeParticipant = {

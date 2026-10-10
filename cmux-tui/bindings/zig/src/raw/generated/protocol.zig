@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c";
+pub const ir_sha256 = "ab581181a269c997ffcd3d36e2c3f9ccd2a8ba800bcbcda0524e517549f257fb";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -396,7 +396,7 @@ pub const ConversationPart = struct {
     status: ?[]const u8 = null,
     /// type text.
     text: ?[]const u8 = null,
-    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.
+    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.
     type: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
