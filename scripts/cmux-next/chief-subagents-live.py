@@ -53,6 +53,17 @@ MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-subagents-{TAG}-")
+
+
+def fnv1a32(text):
+    """optchat-chief `paths::home_id`: FNV-1a 32 of the home's path, 8 lowercase hex digits."""
+    h = 0x811C9DC5
+    for b in text.encode():
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+HOME_ID = fnv1a32(MUX_HOME)
 WORK = os.path.join(SCRATCH, "work")
 FRAMES = os.path.join(opts.out, "frames")
 os.makedirs(FRAMES, exist_ok=True)
@@ -685,6 +696,36 @@ def subagent_link_opens_its_chat():
         f"(want {session}); task in pane={'link-probe' in pane_text(state)}",
         bool(session) and "](cmux://chief/" in reply and url.endswith("/session/" + session)
         and state.get("sessionId") == session and "link-probe" in pane_text(state))
+    show_home()
+
+
+@flow
+def subagent_mentions_are_links():
+    """Lawrence 2026-10-10: "it should be able to link to subagents in general too". A later Chief
+    reply that names its subagents, with no link written by the model, shows each one as a link;
+    a click on a2's opens a2's workspace and chat."""
+    answer = spawn(["Reply with only the word mention-one.", "Reply with only the word mention-two."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
+    print("chief:", reply[:300], flush=True)
+    second = ids[1] if len(ids) > 1 else None
+    session = (subs().get(second) or {}).get("session_id") if second else None
+    last = next((m["text"] for m in reversed(log_items()) if m["kind"] == "talk"), "")
+    show_home()
+    snapshot("mentions-home")
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": "cmux://chief/"} if not session else
+                  {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
+    print("mention click:", json.dumps(clicked)[:300], flush=True)
+    state = wait(lambda: (lambda st: st if session and st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("mentions-opened")
+    row("subagent mentions are links", "the reply names a2 as a link; a click opens a2's workspace and chat",
+        f"ids {ids}; model wrote a link={'](cmux://' in last}; clicked {(clicked.get('url') or '')[:90]!r}; "
+        f"pane session {state.get('sessionId')} (want {session})",
+        bool(session) and (clicked.get("url") or "").endswith(f"/session/{session}")
+        and state.get("sessionId") == session and "mention-two" in pane_text(state))
     show_home()
 
 
