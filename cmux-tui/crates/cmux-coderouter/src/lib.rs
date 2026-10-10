@@ -321,8 +321,9 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(LoopbackAddr::try_from(bind_address)?.address()).await?;
     let store = Arc::new(KeychainInstallSecretStore::new("default"));
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
+    let port = listener.local_addr()?.port();
     let data = data_server(listener, keys.clone());
-    tokio::select! { _ = data => (), result = admin_loop(admin, keys) => result? }
+    tokio::select! { _ = data => (), result = admin_loop(admin, keys, port) => result? }
     Ok(())
 }
 
@@ -355,12 +356,13 @@ pub async fn serve(_home: impl AsRef<Path>) -> anyhow::Result<()> {
 async fn admin_loop(
     listener: UnixListener,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    port: u16,
 ) -> anyhow::Result<()> {
     loop {
         let (stream, _) = listener.accept().await?;
         let keys = keys.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(stream, keys).await;
+            let _ = admin_connection(stream, keys, port).await;
         });
     }
 }
@@ -368,14 +370,22 @@ async fn admin_loop(
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum AdminRequest {
-    Mint { key_id: String, scope: KeyScope },
+    Mint {
+        key_id: String,
+        scope: KeyScope,
+    },
     List,
-    Revoke { key_id: String },
+    Revoke {
+        key_id: String,
+    },
+    /// The loopback data-plane port (acpmux `local-coderouter` routes read it).
+    Status,
 }
 #[cfg(unix)]
 async fn admin_connection(
     stream: UnixStream,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    port: u16,
 ) -> anyhow::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
@@ -391,6 +401,7 @@ async fn admin_connection(
             AdminRequest::Revoke { key_id } => {
                 serde_json::json!({"revoked": keys.write().await.revoke(&key_id)})
             }
+            AdminRequest::Status => serde_json::json!({"port": port}),
         };
         write.write_all(serde_json::to_string(&response)?.as_bytes()).await?;
         write.write_all(b"\n").await?;

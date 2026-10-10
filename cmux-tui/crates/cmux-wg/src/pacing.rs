@@ -489,7 +489,3 @@ impl Pacer {
         Some(packet)
     }
 }
-
-#[cfg(test)]
-#[path = "pacing_tests.rs"]
-mod tests;

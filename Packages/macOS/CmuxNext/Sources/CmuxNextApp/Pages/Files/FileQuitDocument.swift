@@ -16,6 +16,9 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// The last text a page reported, and the file hash it was edited from.
     private(set) var latestText: String?
     private(set) var baseHash: String?
+    /// `FileDocument.hash` of `latestText`, taken once per edit so a save does not hash it again;
+    /// nil when no edit compared it (an edit with no base hash).
+    private var latestHash: String?
     private var flushers: [UUID: () async -> Bool] = [:]
     private var work: [Task<Void, Never>] = []
     private let clock: any Clock<Duration>
@@ -44,12 +47,15 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     func edited(text: String, baseHash: String?) -> RecoveryDraftAcceptance {
         latestText = text
         self.baseHash = baseHash
-        guard FileDocument.hash(Data(text.utf8)) != baseHash else {
+        let contents = Data(text.utf8)
+        // Without a base hash the text never equals the file's: no hash needed.
+        latestHash = baseHash == nil ? nil : FileDocument.hash(contents)
+        guard baseHash == nil || latestHash != baseHash else {
             markClean()
             return .kept
         }
         // The base is the edit's: the launch check compares the file with what the page edited.
-        let accepted = drafts.update(id: quitParticipantID, title: quitTitle, contents: Data(text.utf8), filePath: url.path,
+        let accepted = drafts.update(id: quitParticipantID, title: quitTitle, contents: contents, filePath: url.path,
                                      base: baseHash.map { RecoveryDraftBase(contentHash: $0) })
         if accepted != .invalidID { hasUnsavedChanges = true }
         return accepted
@@ -58,7 +64,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// A normal save wrote `hash`: clean when it is the last reported text.
     func saved(hash: String) {
         baseHash = hash
-        if let latestText, FileDocument.hash(Data(latestText.utf8)) != hash { return }
+        if let latestText, (latestHash ?? FileDocument.hash(Data(latestText.utf8))) != hash { return }
         markClean()
     }
 
@@ -127,6 +133,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     func discardForQuit() async {
         hasUnsavedChanges = false
         latestText = nil
+        latestHash = nil
     }
 
     private func markClean() {
