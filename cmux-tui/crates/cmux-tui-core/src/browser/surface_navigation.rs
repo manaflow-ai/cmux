@@ -5,11 +5,11 @@ use super::*;
 
 impl BrowserSurface {
     pub fn back(&self) -> anyhow::Result<()> {
-        self.enqueue_control(BrowserCommand::Back)
+        self.enqueue_history(BrowserCommand::Back)
     }
 
     pub fn forward(&self) -> anyhow::Result<()> {
-        self.enqueue_control(BrowserCommand::Forward)
+        self.enqueue_history(BrowserCommand::Forward)
     }
 
     pub(super) fn back_blocking(&self) -> anyhow::Result<()> {
@@ -55,7 +55,7 @@ impl BrowserSurface {
     }
 
     pub fn reload(&self) -> anyhow::Result<()> {
-        self.enqueue_control(BrowserCommand::Reload)
+        self.enqueue_history(BrowserCommand::Reload)
     }
 
     pub(super) fn reload_blocking(&self) -> anyhow::Result<()> {

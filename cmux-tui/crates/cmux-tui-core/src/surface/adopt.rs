@@ -170,7 +170,7 @@ impl Surface {
         let title_changed = Arc::new(AtomicBool::new(false));
         let terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         let records = terminal_metadata.program_status();
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed, records);
+        let callbacks = hosted_terminal_callbacks(&PendingBells::default(), title_changed, records);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));

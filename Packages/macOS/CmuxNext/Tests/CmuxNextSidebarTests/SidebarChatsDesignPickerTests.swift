@@ -33,6 +33,8 @@ import Testing
         shown = try row(view)
         #expect(shown.icon.isHidden && !shown.meta.isHidden, "Age: no glyph, the age")
         #expect(shown.meta.stringValue == SidebarChatsDesign.age(from: now.addingTimeInterval(-120), to: now))
+        // nxdog84: the age drew as "2..." (its frame lacked the field's insets).
+        #expect(shown.meta.frame.width >= (shown.meta.cell?.cellSize.width ?? .infinity), "the age is not clipped")
 
         view.design = .project
         shown = try row(view)
