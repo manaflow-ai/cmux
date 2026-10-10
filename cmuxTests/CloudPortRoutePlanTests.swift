@@ -218,6 +218,9 @@ struct CloudPortRoutePlanTests {
 
     @Test("Cloud daemon browsers keep a public origin through the machine carrier")
     func cloudDaemonBrowserKeepsPublicOrigin() async throws {
+        let endpoint = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 46_907, username: "fixture", password: "secret"
+        )
         let model = CloudPortAccessModel(
             target: CloudPortForwardTarget(host: "example.com", port: 4312),
             coordinator: nil,
@@ -225,14 +228,64 @@ struct CloudPortRoutePlanTests {
             startForward: { _ in Issue.record("Daemon browser must not use a local forward"); return 46_906 },
             stopForward: {},
             route: .remoteBrowser,
+            startBrowserProxy: { endpoint },
             preservesRemoteHost: true
         )
         let remote = try #require(URL(string: "http://example.com:4312/health"))
         let state = CloudBrowserAccessState()
         state.configure(model: model, url: remote)
         model.connect()
-        #expect(await wait { model.isReady })
+        #expect(await wait { model.phase == .proxied(endpoint) })
         #expect(state.nextURL() == remote)
+        await model.retire()
+    }
+
+    @Test("An explicit direct route preserves the document origin")
+    func directRouteKeepsPublicOrigin() async throws {
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 443), coordinator: nil,
+            wake: {}, startForward: { _ in throw CancellationError() }, stopForward: {},
+            route: .direct
+        )
+        let remote = try #require(URL(string: "https://example.test/document?source=direct#section"))
+        model.connect()
+        #expect(await wait { model.isReady })
+        #expect(model.url(for: remote) == remote)
+        await model.retire()
+    }
+
+    @Test("A daemon browser saves guest localhost after navigating from a public page",
+          arguments: ["http", "https"])
+    func publicPageToLocalhostKeepsGuestOrigin(scheme: String) async throws {
+        let endpoint = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 46_908, username: "fixture", password: "secret"
+        )
+        let model = CloudPortAccessModel(
+            target: .init(host: "example.test", port: 443), coordinator: nil,
+            wake: {}, startForward: { _ in throw CancellationError() }, stopForward: {},
+            route: .remoteBrowser, startBrowserProxy: { endpoint }, preservesRemoteHost: true
+        )
+        let resource = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-navigate")
+        let state = CloudBrowserAccessState()
+        let initial = try #require(URL(string: "\(scheme)://example.test/start"))
+        state.configure(model: model, url: initial, resourceID: resource)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let first = try #require(state.nextURL())
+        state.didCommit(url: first)
+        state.didFinish(url: first)
+        let guest = try #require(URL(string: "http://localhost:3000/page?step=2#result"))
+        let wire = try #require(state.rewrittenLoopbackURL(guest))
+        #expect(wire.host == "cmux-loopback.localtest.me")
+        #expect(state.displayURL(wire) == guest)
+        state.didStart(url: wire)
+        state.didCommit(url: wire)
+        state.didFinish(url: wire)
+        #expect(state.remoteURL == guest)
+        #expect(state.sessionURL(currentURL: wire) == guest)
+        #expect(state.resourceID == resource)
+        #expect(state.showsPage)
+        state.leave()
         await model.retire()
     }
 
