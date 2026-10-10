@@ -107,9 +107,12 @@ nonisolated struct CloudCredentialRelay: Sendable {
             let message = reply?["message"]?.stringValue ?? "the cmux API answered HTTP \(status)"
             return failure(code, message, retryable: status == 503)
         }
-        guard let reply, let ok = reply["ok"]?.boolValue else {
-            return failure("owner.bad_reply", "the cmux API answered without ok", retryable: true)
+        guard let reply, case .object = reply else {
+            return failure("owner.bad_reply", "the cmux API answered no JSON object", retryable: true)
         }
+        // `/v1/ops` answers `{ok, value | error}`; `/v1/read` answers
+        // `{op, value, revision, stream}` with no `ok`, or `{error}`.
+        let ok = reply["ok"]?.boolValue ?? (reply["error"] == nil && reply["value"] != nil)
         guard ok else {
             guard case .object(var error)? = reply["error"], error["code"]?.stringValue != nil else {
                 return failure("owner.bad_reply", "the cmux API refused without an error code", retryable: true)

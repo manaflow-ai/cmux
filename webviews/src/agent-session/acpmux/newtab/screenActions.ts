@@ -1,5 +1,6 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
+import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -59,10 +60,11 @@ export function newTabScreenActions(deps: {
       deps.leave();
       deps.selectSession(sessionId);
     },
-    onOpenChat(key) {
-      deps.leave();
-      ignore(callNative("chats.open", { key }));
-    },
+    // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New
+    // Tab page instead of turning into an empty chat.
+    onOpenChat: (key) => ignore(callNative("chats.open", { key })),
+    onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
+    loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onRunAction: (id) => ignore(callNative("action.run", { id })),
     onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),
