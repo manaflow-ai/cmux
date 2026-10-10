@@ -39,15 +39,16 @@ jobs:
   render:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # Keep all three evidence stages, but give each its own runner and timeout. A broad gallery
-    # change can select hundreds of states; sequential stages otherwise consume the whole hour.
+    # Keep all three evidence stages, but shard each stage. A broad gallery change can select
+    # thousands of browser states; sequential rendering otherwise consumes the whole hour.
     # Isolated jobs also avoid competing for renderer memory or CPU while measuring play steps.
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 6
       matrix:
         stage: [base, head, repeat]
+        shard: [0, 1, 2, 3]
     outputs:
       touched: ${{ steps.touched.outputs.count }}
       base_sha: ${{ steps.base.outputs.sha }}
@@ -161,20 +162,20 @@ jobs:
           echo "$(jq length "$RUNNER_TEMP/cases.json") cases x $GALLERY_ENGINES"
           gallery="$RUNNER_TEMP/gallery-head"
           if [ "$STAGE" = base ]; then gallery="$RUNNER_TEMP/gallery-base"; fi
-          out="$RUNNER_TEMP/evidence/runs/$STAGE"
+          out="$RUNNER_TEMP/evidence/runs/$STAGE/shard-${{ matrix.shard }}"
           mkdir -p "$out"
           if [ -d "$gallery" ]; then
             # A stage that fails to mount makes the runner exit 1; compare.ts reports it. A
             # missing results.json is an infrastructure failure, never a silently empty stage.
             bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$gallery" --output-dir "$out" \
-              --engines "$GALLERY_ENGINES" || true
+              --engines "$GALLERY_ENGINES" --shard-count 4 --shard-index "${{ matrix.shard }}" || true
             test -f "$out/results.json"
           else
             test "$STAGE" = base
             echo '[]' > "$out/results.json"
           fi
           # Only one job supplies common inputs so artifact merging never overwrites a sibling.
-          if [ "$STAGE" = head ]; then
+          if [ "$STAGE" = head ] && [ "${{ matrix.shard }}" = 0 ]; then
             cp "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/touched.json" "$RUNNER_TEMP/evidence/"
             cp -r "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/evidence/gallery"
           fi
@@ -183,7 +184,7 @@ jobs:
         if: ${{ steps.touched.outputs.count != '0' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gallery-stage-${{ matrix.stage }}
+          name: gallery-stage-${{ matrix.stage }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/evidence
           retention-days: 14
 
@@ -211,6 +212,15 @@ jobs:
           pattern: gallery-stage-*
           merge-multiple: true
           path: ${{ runner.temp }}/evidence
+
+      - name: Merge sharded evidence
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/evidence"
+          for stage in base head repeat; do
+            mkdir -p "$evidence/runs/$stage"
+            jq -s 'add' "$evidence"/runs/$stage/shard-*/results.json > "$evidence/runs/$stage/results.json"
+          done
 
       - name: Compare
         working-directory: scripts/gallery-matrix
