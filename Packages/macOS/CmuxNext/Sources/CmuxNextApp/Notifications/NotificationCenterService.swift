@@ -17,6 +17,14 @@ import Observation
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences()
+    /// Highlights the user dismissed (Dismiss Highlight, cx-epgo): per
+    /// workspace id, the newest notification id whose attention ring is
+    /// hidden. A newer notification rings again. Presentation only: the
+    /// notifications stay unread in the daemon.
+    var dismissedHighlights: [String: UInt64] = [:]
+    /// The daemon session the dismissed ids belong to: ids restart with a
+    /// new session, so the dismissals apply only within this one.
+    var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
@@ -258,7 +266,7 @@ final class NotificationCenterService {
         }
     }
 
-    private func note(_ line: String) {
+    func note(_ line: String) {
         log.append(line)
         if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }

@@ -38,6 +38,9 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
 
     public func contains(_ session: String) -> Bool { state.withLock { $0.sessions.contains(session) } }
 
+    /// The pane has no session and is starting none: its chat has not begun (no prompt sent).
+    public var isUnstarted: Bool { state.withLock { $0.sessions.isEmpty && $0.awaiting.isEmpty } }
+
     /// The folder (cwd) the daemon reported for `session`, from ``observeFolder(_:replyTo:)``.
     public func folder(of session: String) -> String? { state.withLock { $0.folders[session] } }
 

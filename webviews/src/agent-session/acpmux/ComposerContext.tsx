@@ -214,8 +214,9 @@ function BranchIcon() {
   );
 }
 
+/// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else this Mac.
 function computerId(summary?: Summary): string {
-  return summary?.hostKind === "cloud" && (summary.peer || summary.host) ? (summary.peer ?? summary.host)! : "local";
+  return summary?.peer || (summary?.hostKind === "cloud" && summary.host) || "local";
 }
 
 function availableComputers(
@@ -239,8 +240,8 @@ function availableComputers(
     seen.add(peer);
     computers.push({ id: peer, label: session.host ?? peer, detail: t(CONTEXT_LABELS.cloud) });
   }
-  const summaryPeer = summary?.hostKind === "cloud" ? (summary.peer ?? summary.host) : undefined;
-  if (summaryPeer && !seen.has(summaryPeer)) {
+  const summaryPeer = computerId(summary);
+  if (summaryPeer !== "local" && !seen.has(summaryPeer)) {
     computers.push({
       id: summaryPeer,
       label: summary?.host ?? summaryPeer,
