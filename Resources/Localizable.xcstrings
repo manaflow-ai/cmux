@@ -549706,6 +549706,65 @@
         }
       }
     },
+    "ssh.tui.browserForward.httpsUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS services on an SSH host can't open in the browser yet. Use http:// instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن فتح خدمات HTTPS على مضيف SSH في المتصفح بعد. استخدم http:// بدلاً من ذلك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-Dienste auf einem SSH-Host können noch nicht im Browser geöffnet werden. Verwende stattdessen http://."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los servicios HTTPS de un host SSH aún no se pueden abrir en el navegador. Usa http:// en su lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les services HTTPS d’un hôte SSH ne peuvent pas encore s’ouvrir dans le navigateur. Utilisez http:// à la place."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホスト上の HTTPS サービスはまだブラウザで開けません。代わりに http:// を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 호스트의 HTTPS 서비스는 아직 브라우저에서 열 수 없습니다. 대신 http://를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 主机上的 HTTPS 服务暂时无法在浏览器中打开。请改用 http://。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 主機上的 HTTPS 服務暫時無法在瀏覽器中開啟。請改用 http://。"
+          }
+        }
+      }
+    },
     "ssh.tui.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {

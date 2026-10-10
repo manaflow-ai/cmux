@@ -151,26 +151,35 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
 
     /// The local listener port for one loopback port on the SSH host, started
     /// on first use and replaced when its `cmux-tui remote forward` child exits.
-    func loopbackForward(machineID: String, port: Int) async throws -> UInt16 {
+    /// `onExit` runs if the child exits after it was ready.
+    func loopbackForward(machineID: String, port: Int,
+                         onExit: @escaping @Sendable () -> Void = {}) async throws -> UInt16 {
         guard machineID == connection.id, (1...Int(UInt16.max)).contains(port) else { throw CancellationError() }
         _ = try await connected(machineID: machineID)
-        if let starting = loopbackForwardStarts[port] { return try await starting.value }
-        if let forward = loopbackForwards[port] {
-            if let ready = await forward.readyPort { return ready }
-            if loopbackForwards[port] === forward { loopbackForwards[port] = nil }
-            await forward.stop()
+        // Each await can interleave with another caller, so re-read the tables
+        // until this caller either joins a forward or owns a fresh start.
+        while true {
             if let starting = loopbackForwardStarts[port] { return try await starting.value }
+            guard let existing = loopbackForwards[port] else { break }
+            if let ready = await existing.readyPort, loopbackForwards[port] === existing { return ready }
+            guard loopbackForwards[port] === existing, loopbackForwardStarts[port] == nil else { continue }
+            loopbackForwards[port] = nil
+            await existing.stop()
         }
         let forward = LoopbackForwardProcess()
         loopbackForwards[port] = forward
         let client = clientURL
         let arguments = loopbackForwardArguments(port: port)
         let environment = connection.sshProcessEnvironment
-        let task = Task { try await forward.start(client: client, arguments: arguments, environment: environment) }
+        let task = Task {
+            try await forward.start(client: client, arguments: arguments, environment: environment, onExit: onExit)
+        }
         loopbackForwardStarts[port] = task
         defer { if loopbackForwardStarts[port] == task { loopbackForwardStarts[port] = nil } }
         do {
-            let ready = try await task.value
+            // A cancelled route (pane closed, model stopped) stops the child now,
+            // not after the start timeout.
+            let ready = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             guard loopbackForwards[port] === forward, isEnabled() else { throw CancellationError() }
             return ready
         } catch {
@@ -227,13 +236,16 @@ extension SSHTuiLinkManager {
         private var exit: CloudLinkFirstValue<Int32>?
         private var localPort: UInt16?
         private var stopped = false
+        private var onExit: (@Sendable () -> Void)?
 
         /// The listener port while the child is running.
         var readyPort: UInt16? { process?.isRunning == true && !stopped ? localPort : nil }
 
         /// Starts the child and waits for the loopback URL it prints once listening.
-        func start(client: URL, arguments: [String], environment: [String: String]?) async throws -> UInt16 {
+        func start(client: URL, arguments: [String], environment: [String: String]?,
+                   onExit: (@Sendable () -> Void)? = nil) async throws -> UInt16 {
             guard !stopped else { throw CancellationError() }
+            self.onExit = onExit
             let child = Process()
             let output = Pipe()
             let errors = Pipe()
@@ -263,6 +275,10 @@ extension SSHTuiLinkManager {
             // Drain stderr so a reconnecting SSH child cannot block on its pipe.
             let errorLines = CloudLinkPipe.lines(from: errors.fileHandleForReading)
             Task { for await _ in errorLines {} }
+            Task { [weak self] in
+                _ = await ended.result
+                await self?.didExit()
+            }
 
             do {
                 let port = try await withThrowingTaskGroup(of: UInt16?.self) { group in
@@ -289,10 +305,18 @@ extension SSHTuiLinkManager {
             }
         }
 
+        /// An exit after the listener was ready is reported once; a stop is not an exit.
+        private func didExit() {
+            guard !stopped, localPort != nil else { return }
+            localPort = nil
+            onExit?()
+        }
+
         func stop() async {
             guard !stopped else { return }
             stopped = true
             localPort = nil
+            onExit = nil
             if let process, let exit {
                 // Retain Process until its termination callback fires, even when the caller cancels.
                 let finished = Task.detached { await exit.result }

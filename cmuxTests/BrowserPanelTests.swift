@@ -775,22 +775,23 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
-    /// #18249: a managed SSH workspace has no workspace proxy, so public pages
-    /// load from this Mac instead of waiting forever for one.
-    func testSSHTuiWorkspaceLoadsPublicPagesWithoutRemoteProxy() throws {
+    /// #18249: in a managed SSH workspace only loopback URLs belong to the SSH
+    /// host. Public and private-network pages load from this Mac directly.
+    func testSSHTuiWorkspaceLoadsNonLoopbackPagesFromThisMac() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false, isRemoteWorkspace: true)
         for raw in ["https://example.com/", "http://10.0.0.5:8080/", "about:blank"] {
             let url = try XCTUnwrap(URL(string: raw))
-            XCTAssertTrue(BrowserPanel.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: true), raw)
-            XCTAssertFalse(BrowserPanel.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: false), raw)
+            XCTAssertNil(panel.sshLoopbackServiceURL(for: url), raw)
         }
     }
 
-    /// Loopback URLs in a managed SSH workspace must reach the SSH host, never a
-    /// same-port service on this Mac, so they keep waiting for the machine's route.
-    func testSSHTuiWorkspaceKeepsLoopbackOffThisMac() throws {
+    /// Loopback URLs in a managed SSH workspace name the SSH host's service, so
+    /// they are routed there and never load a same-port service on this Mac.
+    func testSSHTuiWorkspaceRoutesEveryLoopbackSpellingToTheSSHHost() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false, isRemoteWorkspace: true)
         for raw in ["http://localhost:3000/", "http://127.0.0.1:3000/", "http://[::1]:3000/", "http://0.0.0.0:3000/"] {
             let url = try XCTUnwrap(URL(string: raw))
-            XCTAssertFalse(BrowserPanel.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: true), raw)
+            XCTAssertEqual(panel.sshLoopbackServiceURL(for: url), url, raw)
         }
     }
 

@@ -5591,7 +5591,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let provider = privateAddressRouteProvider(for: url) {
-            provider.configureBrowser(self, url: url)
+            provider.configureBrowser(self, url: provider.sshServiceURL(forForwardListener: url) ?? url)
             return nil
         } else {
             leaveCloudRouteAfterValidation = retainsCloudResourceForDuplication
@@ -5672,20 +5672,25 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil,
-           !Self.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: owningWorkspaceRoutesThroughSSHTui) {
-            pendingRemoteNavigation?.onNavigationStarted?(nil)
-            pendingRemoteNavigation = PendingRemoteNavigation(
-                request: request,
-                recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
-                onNavigationStarted: onNavigationStarted
-            )
-            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-            navigationDelegate?.recordAttemptedRequest(request)
-            refreshBackgroundAppearance()
-            shouldRenderWebView = true
+        let routesThroughSSHTui = owningWorkspaceRoutesThroughSSHTui
+        if routesThroughSSHTui, let serviceURL = sshLoopbackServiceURL(for: url) {
+            // Every entry point (history, restore, heal, page links) lands here.
+            // A loopback URL belongs to the SSH host: hand it to that machine's
+            // forward, or wait for the machine, never this Mac's same-port service.
+            if let provider = privateAddressRouteProvider(for: serviceURL) {
+                onNavigationStarted?(nil)
+                provider.configureBrowser(self, url: serviceURL)
+            } else {
+                queueRemoteNavigation(URLRequest(url: serviceURL), recordTypedNavigation: recordTypedNavigation,
+                                      preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                                      onNavigationStarted: onNavigationStarted)
+            }
+            return nil
+        }
+        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil, !routesThroughSSHTui {
+            queueRemoteNavigation(request, recordTypedNavigation: recordTypedNavigation,
+                                  preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                                  onNavigationStarted: onNavigationStarted)
             return nil
         }
         return performNavigation(
@@ -5695,6 +5700,26 @@ final class BrowserPanel: Panel, ObservableObject {
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
         )
+    }
+
+    private func queueRemoteNavigation(
+        _ request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) {
+        pendingRemoteNavigation?.onNavigationStarted?(nil)
+        pendingRemoteNavigation = PendingRemoteNavigation(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
+        )
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        if let url = request.url { currentURL = Self.remoteProxyDisplayURL(for: url) ?? url }
+        navigationDelegate?.recordAttemptedRequest(request)
+        refreshBackgroundAppearance()
+        shouldRenderWebView = true
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {

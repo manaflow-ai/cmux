@@ -351,6 +351,17 @@ import WebKit
             return
         }
 
+        // A link, redirect or script navigation to loopback in a managed SSH
+        // workspace goes to the SSH host, never this Mac's same-port service.
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner, owner.owningWorkspaceRoutesThroughSSHTui,
+           owner.sshLoopbackServiceURL(for: url) != nil {
+            decisionHandler(.cancel)
+            requestNavigation?(navigationAction.request, .currentTab, nil)
+            return
+        }
+
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
