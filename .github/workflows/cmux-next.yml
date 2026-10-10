@@ -82,6 +82,8 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - scripts/cmux-next/swift-exports-cache.sh
+      - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -199,6 +201,8 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - scripts/cmux-next/swift-exports-cache.sh
+      - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -1924,6 +1928,48 @@ jobs:
         env:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
+
+  # Caches the Swift exports of a green feat-cmux-next push under their source
+  # key (scripts/cmux-next/swift-exports-key.py), so a job that only reads them
+  # (the web bundles read the settings schema) can restore them with
+  # swift-exports-cache.sh install instead of a Mac build (cx-vn5). A push runs
+  # every tier, so on success the committed exports are the ones the Swift
+  # tests checked.
+  swift-exports-cache:
+    needs: [checks, generated-files, swift-test, daemon-test]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && needs.generated-files.result == 'success' && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    name: cmux-next Swift exports cache
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Source key of the Swift exports
+        id: key
+        run: echo "key=$(python3 scripts/cmux-next/swift-exports-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the cache entry
+        id: lookup
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: swift-exports-out
+          key: cmux-next-swift-exports-v1-${{ steps.key.outputs.key }}
+          lookup-only: true
+
+      - name: Pack the Swift exports
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: scripts/cmux-next/swift-exports-cache.sh pack swift-exports-out
+
+      - name: Save the Swift exports under their source key
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: swift-exports-out
+          key: cmux-next-swift-exports-v1-${{ steps.key.outputs.key }}
 
   # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
   # promote this commit to the protected `nightly-next` branch. Main's promote
