@@ -450,6 +450,12 @@ def parallel_three():
     new = wait(lambda: [w for w in workspaces() if w.get("id") not in start and re.match(r"a\d+ · ", ws_name(w))]
                if len([w for w in workspaces() if re.match(r"a\d+ · ", ws_name(w))]) >= 3 else None, 120) or []
     tabs = [w for w in new if agent_tab(w.get("id"))]
+    # hq-6d 2026-10-09: subagent workspaces always live in the Chief's owner daemon (its machine
+    # row, server-host_chief<home id>), also when the app started the Chief, so they outlive the app.
+    rows = {w.get("id"): str(w.get("machine") or "") for w in ((rpc("snapshot.get") or {}).get("topology") or {}).get("workspaces", [])}
+    machines = [rows.get(w.get("id"), "") for w in new]
+    row("subagent workspaces in the Chief's owner daemon", "each subagent workspace is on the Chief row",
+        f"machines {machines}", len(machines) >= 3 and all(m.startswith("server-host_chief") for m in machines))
     # Each pane must show its subagent's own chat: the chat text the pane renders names its file.
     shown = []
     for w in new[:3]:
