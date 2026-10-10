@@ -299,11 +299,13 @@ final class ComputerUseHelperV2 {
     /// skipped), so a live check reads them from the unified log
     /// (scripts/cmux-next/cua-helper-v2-live.py). The lines carry no secret.
     nonisolated static func logControlLines(_ lines: AsyncStream<Data>, pid: pid_t) async {
+        // Its own Logger: the file-level one is main-actor isolated.
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
         for await line in lines {
             guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
                   let type = object["type"] as? String, type != "result" else { continue }
             let text = String(decoding: line.prefix(512), as: UTF8.self)
-            helperV2Logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
+            logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
         }
     }
 
