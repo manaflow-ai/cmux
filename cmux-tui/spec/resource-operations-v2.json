@@ -32,7 +32,8 @@
     "project",
     "palette_usage",
     "git_checkpoint",
-    "conversation"
+    "conversation",
+    "setting"
   ],
   "types": {
     "RequestOrigin": {
@@ -6610,6 +6611,23 @@
       },
       "extra": false
     },
+    "SettingsChange": {
+      "kind": "object",
+      "fields": {
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        }
+      },
+      "extra": false
+    },
     "WindowRecordSnapshot": {
       "kind": "object",
       "fields": {
@@ -10256,6 +10274,133 @@
             }
           },
           "actual_parent": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.agent_refused": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "privacy, network or destructive; absent for a path that is not a setting."
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.invalid": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The setting kind (toggle, choice, number, ...)."
+          },
+          "accepted": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{choices}, {range}, {shape} or {domain, values}."
+          },
+          "value": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.managed": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The managed key the write would change."
+          },
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "mdm",
+                "team"
+              ]
+            }
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.removed": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "reason": {
             "required": true,
             "type": {
               "kind": "primitive",
@@ -18753,6 +18898,481 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The key path, for keys that contain dots."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "key"
+            ],
+            "forbidden": [
+              "path"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ],
+            "forbidden": [
+              "key"
+            ]
+          }
+        ],
+        "constraints": [
+          "Answers {key, path, value, file_value, row, managed}: the effective value, the user's file value, the schema row (null for a path that is not a setting) and the managed key that covers the path."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "section": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "A section id (general, appearance, ...); every row when absent."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Each row is the schema row plus value (what applies), default, customized and managed {source, team, reason} or null."
+        ]
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The key path, for keys that contain dots."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "key"
+            ],
+            "forbidden": [
+              "path"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ],
+            "forbidden": [
+              "key"
+            ]
+          }
+        ],
+        "constraints": [
+          "Removes the key (its default applies) and every object the removal leaves empty."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
+    "settings.reset_all": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Removes every schema key and every shortcut override; custom actions, unknown keys, the theme and terminal font, and managed keys stay. Only origin user or app may reset everything; any other origin is settings.agent_refused."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
+    "settings.schema": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {version, schema_hash, sections, rows}: the settings schema the owner validates against (schemas/settings/settings-schema.json without its conformance samples)."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The key path, for keys that contain dots."
+          },
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "The new value; a schema key checks it against its kind."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "key"
+            ],
+            "forbidden": [
+              "path"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ],
+            "forbidden": [
+              "key"
+            ]
+          }
+        ],
+        "constraints": [
+          "Edits the settings file (cmux-next.json, seeded from classic cmux.json) in place (comments and unknown keys stay) and publishes it atomically. A managed key, or a path inside or above one, is settings.managed on every write. A user-only row (schema agent_settable false) changes only for origin user or app; origin mcp may change only agent-settable rows; a sandboxed app or remote peer is always origin mcp. Apps never get settings.set, settings.reset or settings.reset_all."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
+    "settings.snapshot": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {revision, schema_hash, effective, file, managed, policy, diagnostics, domains}; domains holds the published themes, font_families and sounds (each null: this daemon does not take published domains yet)."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

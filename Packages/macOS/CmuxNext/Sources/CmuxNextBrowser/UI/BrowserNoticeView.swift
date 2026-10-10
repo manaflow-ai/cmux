@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// A small glass pill at the bottom of the page with one line of text and a
 /// close button: a subtle, dismissible notice (the WebKit fallback when
@@ -31,7 +32,7 @@ final class BrowserNoticeView: NSView {
         label.lineBreakMode = .byTruncatingTail
         // The pill fits its text; only a narrow page truncates it (cx-whr7).
         label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let close = ChromeIconButton(symbol: "xmark", label: Strings.dismissNotice, action: #selector(close), target: self)
+        let close = ChromeIconButton(icon: .actionClose, label: Strings.dismissNotice, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [label, actionButton, close])
         stack.translatesAutoresizingMaskIntoConstraints = false

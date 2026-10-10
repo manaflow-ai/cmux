@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The "sad tab": the page's content process ended. Covers the content
 /// area (child-window pages get an occlusion hole there, so this view is
@@ -17,7 +18,6 @@ final class PageGoneView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         setAccessibilityIdentifier(BrowserChromeView.pageGoneIdentifier)
-        symbol.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
         messageLabel.alignment = .center
         codeLabel.isSelectable = true
         let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
@@ -37,7 +37,7 @@ final class PageGoneView: NSView {
             messageLabel.font = BrowserMetrics.bodyFont
             codeLabel.font = BrowserMetrics.captionFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
-            symbol.symbolConfiguration = .init(pointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6, weight: .regular)
+            symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
             stack.spacing = BrowserMetrics.overlayPadding
         }
         density.start()

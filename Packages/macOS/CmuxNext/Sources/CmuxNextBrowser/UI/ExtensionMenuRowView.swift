@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One Extensions menu row: icon and name (click runs the
 /// action), a pin toggle and a "more" button. Gray hover fill, no accent.
@@ -18,7 +19,7 @@ final class ExtensionMenuRowView: NSView {
         extensionID = info.id
         isPinned = info.isPinned
         pinButton = NSButton(image: NSImage(), target: nil, action: nil)
-        moreButton = NSButton(image: NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil) ?? NSImage(),
+        moreButton = NSButton(image: NSImage.icon(.actionMore, size: 14),
                               target: nil, action: nil)
         super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
         setAccessibilityIdentifier(ExtensionsMenu.rowIdentifier(info.id))
@@ -88,8 +89,7 @@ final class ExtensionMenuRowView: NSView {
     @objc func more() { onMore?() }
 
     private func updatePin() {
-        let symbol = isPinned ? "pin.fill" : "pin"
-        pinButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        pinButton.image = NSImage.icon(isPinned ? .statePinned : .actionPin, size: 14)
         pinButton.setAccessibilityLabel(isPinned ? Strings.extensionMenuTitle(.unpin) : Strings.extensionMenuTitle(.pin))
         pinButton.toolTip = pinButton.accessibilityLabel()
         pinButton.contentTintColor = isPinned ? .labelColor : .secondaryLabelColor
