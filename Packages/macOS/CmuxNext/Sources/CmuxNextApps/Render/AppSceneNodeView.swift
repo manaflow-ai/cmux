@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// One scene node, rendered natively. Containers recurse through
@@ -33,8 +34,8 @@ struct AppSceneNodeView: View {
                 .lineLimit(node.number("lineLimit").map { max(1, Int($0)) } ?? nil)
                 .truncationMode(AppSceneStyle.truncation(node))
         case .icon:
-            Image(systemName: node.string("symbol") ?? "circle")
-                .font(.system(size: node.number("size").map { CGFloat($0) } ?? Metrics.smallIconSize - Metrics.space1))
+            Icon(symbol: node.string("symbol") ?? "circle",
+                 size: node.number("size").map { CGFloat($0) } ?? Metrics.smallIconSize)
                 .foregroundStyle(colors.token(node.props["color"]) ?? colors.secondary)
         case .image:
             AppSceneBundleImage(path: node.string("src"))

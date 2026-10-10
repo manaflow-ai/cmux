@@ -36,6 +36,7 @@ extension IconName {
         .agentChatEmpty,
         .agentChatList,
         .agentChatNew,
+        .agentChief,
         .agentFork,
         .agentHandoff,
         .agentQuestion,
