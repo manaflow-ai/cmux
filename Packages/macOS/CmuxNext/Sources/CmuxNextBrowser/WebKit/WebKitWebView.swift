@@ -11,6 +11,8 @@ final class WebKitWebView: WKWebView {
     private(set) var lastUserInput: ContinuousClock.Instant?
 
     override func mouseDown(with event: NSEvent) {
+        // A Control-click opens a menu too: only automation's own press suppresses it.
+        suppressesNextMenu = false
         lastUserInput = .now
         owner?.automaticDownloads.userGesture()
         super.mouseDown(with: event)
@@ -19,15 +21,19 @@ final class WebKitWebView: WKWebView {
     override func rightMouseDown(with event: NSEvent) {
         lastUserInput = .now
         owner?.automaticDownloads.userGesture()
-        // An event the app is not dispatching was handed in by automation:
-        // its context menu would take the user's mouse and keyboard.
-        suppressesNextMenu = NSApplication.shared.currentEvent !== event
+        // Only the press automation marked (`agentRightMouseDown`) loses its
+        // menu, which would take the person's mouse and keyboard; any other
+        // press, the person's, keeps it.
+        suppressesNextMenu = event === agentMenuEvent
+        agentMenuEvent = nil
         super.rightMouseDown(with: event)
     }
 
     /// Whether the next context menu comes from an automation right-click
     /// (`willOpenMenu` empties it, so AppKit shows nothing).
     private var suppressesNextMenu = false
+    /// The right-button press automation is delivering now.
+    var agentMenuEvent: NSEvent?
 
     override func otherMouseDown(with event: NSEvent) {
         lastUserInput = .now
