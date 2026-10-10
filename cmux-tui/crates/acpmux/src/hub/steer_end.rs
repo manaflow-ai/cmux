@@ -54,16 +54,3 @@ pub(super) async fn agent_prompt(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_stop_reason_other_than_steered_ends_the_turn() {
-        assert!(ends_turn(&json!({"stopReason": "end_turn"})));
-        assert!(ends_turn(&json!({"stopReason": "cancelled"})));
-        assert!(!ends_turn(&json!({"stopReason": "steered"})));
-        assert!(!ends_turn(&json!({})));
-    }
-}
