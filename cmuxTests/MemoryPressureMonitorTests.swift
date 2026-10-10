@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -317,6 +318,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.aggregateBytes == 4_200)
         #expect(sample.processCount == 4)
         #expect(sample.missingProcessCount == 1)
+        #expect(sample.missingReason == .unreadableProcessRecord)
         #expect(!sample.isUsable)
         #expect(MemoryPressureAggregatePolicy.default.severity(for: sample) == .warning)
         #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
@@ -358,6 +360,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.coverage == .lowerBound)
         #expect(sample.aggregateBytes == 4_200)
         #expect(sample.missingProcessCount == 2)
+        #expect(sample.missingReason == .processExitRace)
         #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
     }
 
@@ -393,7 +396,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
             operatingSystemMajorVersion: 26
         ))
-        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+        #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
             operatingSystemMajorVersion: 27
         ))
         #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(

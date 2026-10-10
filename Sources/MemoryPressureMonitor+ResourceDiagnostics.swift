@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMemoryPressure
 
 extension MemoryPressureMonitor {
     /// Exposes the monitor's last applied sample without sampling or changing pressure.
@@ -14,6 +15,7 @@ extension MemoryPressureMonitor {
                 "process_count": snapshot.processCount,
                 "process_count_available": snapshot.source != .coalition,
                 "missing_process_count": snapshot.missingProcessCount,
+                "missing_reason": snapshot.missingReason?.rawValue as Any? ?? NSNull(),
                 "complete": snapshot.coverage == .complete,
                 "known_lower_bound": snapshot.coverage == .lowerBound,
                 "actionable": snapshot.isActionable,

@@ -1484,6 +1484,8 @@
 		D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */; };
 		D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */; };
 		7EB4C5BC5C8431C1908D8659 /* CmuxMainWindowKeyViewLoopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798B8F6B55F54D0D9EC703C0 /* CmuxMainWindowKeyViewLoopTests.swift */; };
+		D0F7A0000000000000000004 /* CmuxMemoryPressure in Frameworks */ = {isa = PBXBuildFile; productRef = D0F7A0000000000000000002 /* CmuxMemoryPressure */; };
+		D0F7A0000000000000000005 /* CmuxMemoryPressure in Frameworks */ = {isa = PBXBuildFile; productRef = D0F7A0000000000000000003 /* CmuxMemoryPressure */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		C4B1E0000000000000000003 /* CmuxMobileHost in Frameworks */ = {isa = PBXBuildFile; productRef = C4B1E0000000000000000002 /* CmuxMobileHost */; };
@@ -2536,6 +2538,7 @@
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
 		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
 		A42100010000000000000003 /* MemoryPressureAggregatePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */; };
+		A3D90D57F3307F93436E5048 /* MemoryPressureAggregateProcessSnapshotAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86802D90B714FD7E0AA823E4 /* MemoryPressureAggregateProcessSnapshotAdapter.swift */; };
 		A42100010000000000000005 /* MemoryPressureAggregateSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */; };
 		7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */; };
 		7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */; };
@@ -7023,6 +7026,7 @@
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
 		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
 		A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureAggregatePolicy.swift; sourceTree = "<group>"; };
+		86802D90B714FD7E0AA823E4 /* MemoryPressureAggregateProcessSnapshotAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureAggregateProcessSnapshotAdapter.swift; sourceTree = "<group>"; };
 		A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureAggregateSampler.swift; sourceTree = "<group>"; };
 		7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintSampling.swift; sourceTree = "<group>"; };
 		7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintThresholds.swift; sourceTree = "<group>"; };
@@ -9077,6 +9081,7 @@
 				800100000000000000000201 /* CmuxHive in Frameworks */,
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132113 /* CmuxIrxTransport in Frameworks */,
+				D0F7A0000000000000000004 /* CmuxMemoryPressure in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				C4B1E0000000000000000003 /* CmuxMobileHost in Frameworks */,
 				C1A072000000000000000004 /* CmuxMobileRPC in Frameworks */,
@@ -9196,6 +9201,7 @@
 				800100000000000000000203 /* CmuxHive in Frameworks */,
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */,
+				D0F7A0000000000000000005 /* CmuxMemoryPressure in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C4B1E0000000000000000004 /* CmuxMobileHost in Frameworks */,
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
@@ -12136,6 +12142,7 @@
 				60D0A4C8D2DC6A3C157A2F37 /* GlobalSearchSnippet.swift */,
 				75B0D57DB73CD3CF60D50654 /* AgentChatTranscriptService+GlobalSearch.swift */,
 				43F8CFB1AFABB4807FA907E3 /* GlobalSearchCoordinator+Debug.swift */,
+				86802D90B714FD7E0AA823E4 /* MemoryPressureAggregateProcessSnapshotAdapter.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13871,6 +13878,7 @@
 				CDFEED0200000000CDFEED02 /* CmuxUpdater */,
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
+				D0F7A0000000000000000002 /* CmuxMemoryPressure */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
@@ -14023,6 +14031,7 @@
 				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
+				D0F7A0000000000000000003 /* CmuxMemoryPressure */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -14145,6 +14154,7 @@
 				CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */,
 				CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
+				D0F7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMemoryPressure" */,
 				C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */,
 				D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */,
 				D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */,
@@ -15782,6 +15792,7 @@
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 					A50014F9 /* MarkdownWebSupport.swift in Sources */,
 				A42100010000000000000003 /* MemoryPressureAggregatePolicy.swift in Sources */,
+				A3D90D57F3307F93436E5048 /* MemoryPressureAggregateProcessSnapshotAdapter.swift in Sources */,
 				A42100010000000000000005 /* MemoryPressureAggregateSampler.swift in Sources */,
 				7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */,
 				7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */,
@@ -19635,6 +19646,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxFoundation;
 		};
+		D0F7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMemoryPressure" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxMemoryPressure;
+		};
 		C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSyntaxHighlighting;
@@ -20014,6 +20029,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
 			productName = CmuxFoundation;
+		};
+		D0F7A0000000000000000002 /* CmuxMemoryPressure */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0F7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMemoryPressure" */;
+			productName = CmuxMemoryPressure;
+		};
+		D0F7A0000000000000000003 /* CmuxMemoryPressure */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0F7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMemoryPressure" */;
+			productName = CmuxMemoryPressure;
 		};
 		C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */ = {
 			isa = XCSwiftPackageProductDependency;

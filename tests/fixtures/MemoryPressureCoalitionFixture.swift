@@ -13,7 +13,7 @@ struct FixtureProcess: Sendable {
     let memorySource: FixtureMemorySource
 }
 
-struct CmuxTopProcessSnapshot: Sendable {
+struct CmuxTopProcessSnapshot: MemoryPressureAggregateProcessSnapshot {
     let enumerationIsComplete: Bool
     let enumerationMissingProcessCount: Int
     private let rootPID: Int
@@ -45,14 +45,14 @@ struct CmuxTopProcessSnapshot: Sendable {
         enumerationMissingProcessCount = missingCount
     }
 
-    func expandedPIDs(rootPIDs: [Int]) -> Set<Int> {
+    func aggregateExpandedPIDs(rootPIDs: Set<Int>) -> Set<Int> {
         precondition(rootPIDs == [rootPID])
         var childrenByParent: [Int: [Int]] = [:]
         for process in processes {
             childrenByParent[process.parentPID, default: []].append(process.pid)
         }
         var result: Set<Int> = []
-        var stack = rootPIDs
+        var stack = Array(rootPIDs)
         while let pid = stack.popLast() {
             guard result.insert(pid).inserted else { continue }
             stack.append(contentsOf: childrenByParent[pid] ?? [])
@@ -60,8 +60,13 @@ struct CmuxTopProcessSnapshot: Sendable {
         return result
     }
 
-    func process(pid: Int) -> FixtureProcess? {
-        processes.first { $0.pid == pid }
+    func aggregateProcess(pid: Int) -> MemoryPressureAggregateProcessRecord? {
+        guard let process = processes.first(where: { $0.pid == pid }) else { return nil }
+        return MemoryPressureAggregateProcessRecord(
+            pid: process.pid,
+            memoryBytes: process.memoryBytes,
+            hasReadableMemory: process.memorySource == .physicalFootprint
+        )
     }
 
     static func captureCached(

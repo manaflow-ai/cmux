@@ -31,11 +31,12 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
             str(foundation), "-emit-module-path", str(directory / "CmuxFoundation.swiftmodule"),
             "-o", str(directory / "foundation.o"),
         ])
+        package_sources = sorted(
+            (ROOT / "Packages/macOS/CmuxMemoryPressure/Sources/CmuxMemoryPressure").glob("*.swift")
+        )
         cls.compile([
             *flags, "-I", str(directory),
-            str(ROOT / "Sources/App/MemoryPressureAggregateSampler.swift"),
-            str(ROOT / "Sources/App/MemoryPressureAggregatePolicy.swift"),
-            str(ROOT / "Sources/App/MemoryPressureSeverity.swift"),
+            *(str(source) for source in package_sources),
             str(ROOT / "tests/fixtures/MemoryPressureCoalitionFixture.swift"),
             str(directory / "foundation.o"), "-o", str(cls.binary),
         ])
@@ -55,12 +56,12 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
-    def test_macos27_is_supported_but_unknown_layouts_stay_disabled(self):
+    def test_unverified_macos27_and_unknown_layouts_stay_disabled(self):
         supported = self.probe("supported-os")
-        for version in (14, 15, 26, 27):
+        for version in (14, 15, 26):
             with self.subTest(version=version):
                 self.assertTrue(supported[str(version)])
-        for version in (13, 16, 25, 28, 99):
+        for version in (13, 16, 25, 27, 28, 99):
             with self.subTest(version=version):
                 self.assertFalse(supported[str(version)])
 
@@ -68,6 +69,8 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
         version = subprocess.check_output(["sw_vers", "-productVersion"], text=True)
         if int(version.split(".")[0]) != 27:
             self.skipTest("live coalition regression requires macOS 27")
+        if not self.probe("supported-os")["27"]:
+            self.skipTest("macOS 27 coalition ABI remains disabled pending kernel validation")
         sample = self.probe("live")
         self.assertEqual(sample["source"], "coalition")
         self.assertEqual(sample["coverage"], "complete")
@@ -80,6 +83,7 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
         self.assertEqual(sample["source"], "descendantProcessTree")
         self.assertEqual(sample["aggregate_bytes"], 4_200)
         self.assertEqual(sample["missing_process_count"], 1)
+        self.assertEqual(sample["missing_reason"], "unreadable_process_record")
         self.assertEqual(sample["severity"], "warning")
         self.assertFalse(sample["complete"])
         self.assertFalse(sample["actionable"])
@@ -95,6 +99,7 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
         sample = self.probe("exiting-child")
         self.assertEqual(sample["coverage"], "lower_bound")
         self.assertEqual(sample["missing_process_count"], 2)
+        self.assertEqual(sample["missing_reason"], "process_exit_race")
         self.assertFalse(sample["actionable"])
 
     def test_reused_pid_outside_tree_is_not_counted(self):

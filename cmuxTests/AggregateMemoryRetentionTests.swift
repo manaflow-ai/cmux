@@ -2,6 +2,7 @@ import CmuxFoundation
 import Foundation
 import Darwin
 import Testing
+import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
