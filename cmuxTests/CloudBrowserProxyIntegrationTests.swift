@@ -115,7 +115,7 @@ struct CloudBrowserProxyIntegrationTests {
         defer { panel.close() }
         let access = model(server: server, route: .remoteBrowser)
         let url = try await prepare(panel: panel, model: access, server: server)
-        #expect(panel.websiteDataStore.proxyConfigurations.first?.matchDomains == [])
+        #expect(panel.websiteDataStore.proxyConfigurations.first?.matchDomains.isEmpty == true)
         _ = panel.navigate(to: url)
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !panel.cloudAccess.showsPage && ContinuousClock.now < deadline {
