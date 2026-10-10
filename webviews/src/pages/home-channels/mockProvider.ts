@@ -163,6 +163,20 @@ export class MockHomeProvider implements PageClient {
         this.emit({ messages: [message] });
         return {} as R;
       }
+      case HomeOps.edit:
+      case HomeOps.retract: {
+        const list = this.data.messages.get(id) ?? [];
+        const index = list.findIndex((m) => m.id === params.message);
+        if (index < 0) throw pageError("cmux.home.not_found", String(params.message));
+        const old = list[index]!;
+        const updated: HomeMessage =
+          op === HomeOps.edit
+            ? { ...old, editedAt: Date.now(), parts: [{ type: "text", text: String(params.text ?? ""), mentions: [] }] }
+            : { ...old, retracted: true, parts: [] };
+        list[index] = updated;
+        this.emit({ messages: [updated] });
+        return {} as R;
+      }
       case HomeOps.react:
       case HomeOps.search:
         return { hits: [] } as R;

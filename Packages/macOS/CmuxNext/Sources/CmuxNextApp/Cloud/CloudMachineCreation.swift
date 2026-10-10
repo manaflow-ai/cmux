@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -201,13 +202,13 @@ struct CloudCreationFlow {
     /// Waits for the ready stage (a failure in between may recover: the
     /// daemon keeps retrying). False when cancelled.
     private static func ready(_ creation: CloudMachineCreation) async -> Bool {
-        for await stage in Observations({ creation.stage }) where stage == .ready { return true }
+        for await stage in ObservationStream({ creation.stage }) where stage == .ready { return true }
         return false
     }
 
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
         let store = session.daemon.store
-        for await known in Observations({ store.workspaces.contains { $0.id == id } }) where known { return true }
+        for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
         return false
     }
 }

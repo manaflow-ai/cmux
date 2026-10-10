@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -132,7 +133,7 @@ final class CloudService {
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
-                for await state in Observations({ machines.local.store.connectionState }) {
+                for await state in ObservationStream({ machines.local.store.connectionState }) {
                     guard case .connected = state, machines.cloud.contains(where: { $0.appLink != nil }) else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
@@ -141,7 +142,7 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            for await signedIn in Observations({ self.auth.isSignedIn }) {
+            for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
                 if signedIn {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
@@ -220,7 +221,7 @@ final class CloudService {
         }
         // task-owner: observers; cancelled in stop()
         observers.append(Task {
-            for await state in Observations({ local.store.connectionState }) {
+            for await state in ObservationStream({ local.store.connectionState }) {
                 guard case .connected = state, let connection = local.connection else { continue }
                 provider.stop()
                 let allowed = await connection.userOriginAllowed

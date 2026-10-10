@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextIcons
 import CmuxNextTabs
@@ -303,7 +304,7 @@ final class InternalPageTabStore {
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            for await live in Observations({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
+            for await live in ObservationStream({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTerminal
 
@@ -62,7 +63,7 @@ final class LaunchSettle {
         }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
-            for await unavailable in Observations({ daemon.startup.isUnavailable }) where unavailable {
+            for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
                 // No region will get its data: show everything as it is.
                 self?.reveal.markAllReady()
                 self?.settle()

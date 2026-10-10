@@ -11,6 +11,8 @@ export const HomeOps = {
   read: "cmux.home.read",
   react: "cmux.home.react",
   search: "cmux.home.search",
+  edit: "cmux.home.edit",
+  retract: "cmux.home.retract",
   events: "cmux.home.events",
 } as const;
 
@@ -61,8 +63,10 @@ export type HomePart =
 export interface HomeReaction {
   author: string;
   partIndex: number;
-  /** An emoji, or a tapback name (love, like, ...). */
+  /** The emoji shown (a tapback shows its emoji). */
   value: string;
+  /** The tapback name (love, like, ...) when the reaction is a tapback; sent back to take it back. */
+  tapback?: string;
 }
 
 export interface HomeMessage {
