@@ -481,3 +481,134 @@ fn identify_names_the_daemon_build_and_its_cli() {
     assert!(cli.is_absolute(), "{identity}");
     assert_eq!(cli.canonicalize().unwrap(), std::path::Path::new(bin()).canonicalize().unwrap());
 }
+
+/// A stand-in daemon of another build: every request gets an `identify`
+/// answer that lacks the session journal and names `cli_path` as its CLI.
+/// The test process is the socket's peer, so its pid is the daemon's.
+fn skew_daemon(dir: &std::path::Path, cli_path: &std::path::Path) -> PathBuf {
+    let socket = dir.join("skew.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let identity = json!({
+        "app": "cmux-tui", "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+        "capabilities": ["daemon-build-v1"], "build_id": "skew-test-other-build",
+        "cli_path": cli_path.to_str().unwrap(), "pid": std::process::id(),
+    });
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let identity = identity.clone();
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let Ok(request) = serde_json::from_str::<Value>(&line) else { return };
+                    let answer = json!({"id": request["id"], "ok": true, "data": identity});
+                    if writeln!(writer, "{answer}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    socket
+}
+
+/// This CLI copied into a tagged DEV bundle, so the skew checks run as they
+/// do for an installed app (an unbundled CLI never re-execs).
+fn bundled_cli(dir: &std::path::Path, name: &str) -> PathBuf {
+    let bin_dir = dir.join(format!("{name}.app/Contents/Resources/bin"));
+    fs::create_dir_all(&bin_dir).unwrap();
+    let cli = bin_dir.join("cmux");
+    fs::copy(bin(), &cli).unwrap();
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+    cli
+}
+
+/// The daemon's "CLI": a script that says it ran, at `path` with `mode`.
+fn fake_daemon_cli(path: &std::path::Path, mode: u32) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, "#!/bin/sh\necho \"REEXECED $CMUX_CLI_REEXEC $*\"\n").unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+fn journal_list(cli: &std::path::Path, socket: &std::path::Path, guard: Option<&str>) -> Output {
+    let mut command = Command::new(cli);
+    command
+        .arg("--socket")
+        .arg(socket)
+        .args(["session", "current", "journal", "producer", "list"])
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_CLI_REEXEC");
+    if let Some(guard) = guard {
+        command.env("CMUX_CLI_REEXEC", guard);
+    }
+    command.output().unwrap()
+}
+
+/// Version skew step 3 at the CLI boundary: at a dead end the CLI runs the
+/// daemon's own CLI only when every check passes, and otherwise refuses
+/// with the reason and the one exact fix command; a re-exec'd CLI never
+/// re-execs again.
+#[test]
+fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
+    let dir = unique_temp_dir("skew-reexec");
+    fs::create_dir_all(&dir).unwrap();
+    let cli = bundled_cli(&dir, "cmux DEV skewme");
+    let target = |name: &str| dir.join(format!("{name}/Contents/Resources/bin/cmux"));
+    let stderr = |o: &Output| String::from_utf8_lossy(&o.stderr).into_owned();
+
+    // Every check passes: one re-exec line, the daemon's CLI runs with the
+    // same arguments and the loop guard set to the daemon's build.
+    let good = target("cmux DEV skewother.app");
+    fake_daemon_cli(&good, 0o755);
+    let ok_dir = dir.join("ok");
+    fs::create_dir_all(&ok_dir).unwrap();
+    let output = journal_list(&cli, &skew_daemon(&ok_dir, &good), None);
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        out.contains("REEXECED skew-test-other-build --socket"),
+        "stdout {out} stderr {}",
+        stderr(&output)
+    );
+    assert_eq!(
+        stderr(&output).matches("running the daemon's CLI").count(),
+        1,
+        "{}",
+        stderr(&output)
+    );
+
+    // Each refusal: nothing runs, the reason and the fix command are named.
+    let writable = target("cmux DEV skewgw.app");
+    fake_daemon_cli(&writable, 0o775);
+    let outside = dir.join("loose/bin/cmux");
+    fake_daemon_cli(&outside, 0o755);
+    let release = target("cmux NIGHTLY.app");
+    fake_daemon_cli(&release, 0o755);
+    for (case, path, reason) in [
+        ("group-writable", &writable, "is writable by group or other"),
+        ("outside a cmux app", &outside, "is not inside a cmux app"),
+        ("another install family", &release, "belongs to another cmux install family"),
+    ] {
+        let case_dir = dir.join(case.replace(' ', "-"));
+        fs::create_dir_all(&case_dir).unwrap();
+        let output = journal_list(&cli, &skew_daemon(&case_dir, path), None);
+        let text = stderr(&output);
+        assert!(
+            !String::from_utf8_lossy(&output.stdout).contains("REEXECED"),
+            "{case} ran: {text}"
+        );
+        assert_ne!(output.status.code(), Some(0), "{case}: {text}");
+        assert!(text.contains(reason), "{case}: {text}");
+        assert_eq!(text.matches("fix: ").count(), 1, "{case}: {text}");
+        assert!(!text.contains("update the"), "{case}: {text}");
+    }
+
+    // The loop guard: a CLI started by a re-exec never re-execs again.
+    let guard_dir = dir.join("guard");
+    fs::create_dir_all(&guard_dir).unwrap();
+    let output = journal_list(&cli, &skew_daemon(&guard_dir, &good), Some("skew-test-other-build"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("REEXECED"), "{}", stderr(&output));
+    assert!(!stderr(&output).contains("running the daemon's CLI"), "{}", stderr(&output));
+    let _ = fs::remove_dir_all(&dir);
+}
