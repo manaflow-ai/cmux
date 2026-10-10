@@ -155,6 +155,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     func loopbackForward(machineID: String, port: Int,
                          onExit: @escaping @Sendable () -> Void = {}) async throws -> UInt16 {
         guard machineID == connection.id, (1...Int(UInt16.max)).contains(port) else { throw CancellationError() }
+        try Task.checkCancellation()
         // A pane owns this await, but the carrier is shared with terminals and
         // other browser panes. Race the shared connection wait against the
         // pane's cancellation so closing one route returns immediately without
@@ -200,6 +201,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// Waits for the shared carrier without allowing one canceled route to
     /// cancel the connection used by other projections.
     private func connectedCancellable(machineID: String) async throws -> CloudMachineLink.Connected {
+        try Task.checkCancellation()
         let result = CloudLinkFirstValue<Result<CloudMachineLink.Connected, any Error>>()
         let waiter = Task { [self] in
             do {
