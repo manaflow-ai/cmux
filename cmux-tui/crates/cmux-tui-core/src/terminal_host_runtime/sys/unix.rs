@@ -14,7 +14,7 @@ use super::super::{HOST_CONNECT_RETRY_INTERVAL, HOST_CONNECT_RETRY_WINDOW};
 use super::{HostStream, LeaseProbe, PrivateOpen};
 
 pub(crate) use super::super::unix::PtyCustody;
-pub(crate) use super::super::unix::launch_terminal_host_from;
+pub(crate) use super::super::unix::StandbyTerminalHost;
 pub(crate) use super::super::unix::remove_released as remove_released_pty_lock;
 pub(crate) use super::super::unix::serve_pty_custody;
 pub(crate) use super::super::unix::{HostChild, adopt_launch, host_signals};
@@ -60,6 +60,12 @@ pub(crate) fn is_private_file(metadata: &fs::Metadata, owner: FileOwner) -> bool
 
 pub(crate) fn has_single_link(metadata: &fs::Metadata) -> bool {
     metadata.nlink() == 1
+}
+
+/// The shared directory that holds `owner`'s host sockets. macOS limits
+/// sockaddr_un paths to about one hundred bytes, so it stays short.
+pub(crate) fn endpoint_dir(owner: FileOwner) -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-th-{owner}"))
 }
 
 /// The only endpoint a record of `owner`'s host may name.
