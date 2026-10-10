@@ -8,6 +8,9 @@ nonisolated extension ActionSurfaceCatalog {
         // The menus offer New Tab Page, whose field is this action's GUI form.
         .duplicateOfDefault: [
             "newTab.submit",
+            // A tab's menu offers New <Kind> Tab (newTab.ofKind) and the New submenu's kinds; Cmd-T's
+            // setting-driven New Tab stays in the File menu and the palette.
+            "newTab.default",
         ],
         .secondaryEngine: [
             "openBrowser.webkit",
