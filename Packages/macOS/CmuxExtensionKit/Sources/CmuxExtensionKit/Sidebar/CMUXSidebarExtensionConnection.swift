@@ -53,7 +53,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         connection.exportedObject = CMUXSidebarExtensionXPCReceiver(
             manifest: manifest,
             receiveSnapshot: { [weak self] payload, receiverGeneration in
-                self?.receive(snapshot: Data(referencing: payload), ifCurrentGeneration: receiverGeneration)
+                self?.receive(snapshot: Data(referencing: payload), ifCurrentGeneration: receiverGeneration, acknowledge: true)
             },
             generation: generation
         )
@@ -168,21 +168,25 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         report(.waitingForHost, ifCurrentGeneration: generation)
     }
 
-    private func receive(snapshot payload: Data, ifCurrentGeneration generation: UInt64) {
+    private func receive(snapshot payload: Data, ifCurrentGeneration generation: UInt64, acknowledge: Bool = false) {
         guard isCurrent(generation) else { return }
         do {
             let snapshot = try CmuxSidebarXPCCodec.decodeSnapshot(payload as NSData)
-            deliver(snapshot, ifCurrentGeneration: generation)
+            deliver(snapshot, ifCurrentGeneration: generation, acknowledge: acknowledge)
         } catch {
             report(.error(error.localizedDescription), ifCurrentGeneration: generation)
         }
     }
 
-    private func deliver(_ snapshot: CmuxSidebarSnapshot, ifCurrentGeneration generation: UInt64) {
+    private func deliver(_ snapshot: CmuxSidebarSnapshot, ifCurrentGeneration generation: UInt64, acknowledge: Bool) {
         Task { @MainActor [weak self] in
             guard let self, self.isCurrent(generation) else { return }
             onSnapshot(snapshot)
             onStatus(.connected)
+            let host = self.withState { state in
+                state.generation == generation ? state.host : nil
+            }
+            if snapshot.shouldAcknowledgeDelivery(isPush: acknowledge) { host?.sidebarSnapshotApplied?(snapshot.sequence) }
         }
     }
 
@@ -362,7 +366,9 @@ private final class CMUXSidebarExtensionXPCReceiver: NSObject, CMUXSidebarExtens
 
     func requestExtensionManifest(reply: @escaping (NSData?, NSString?) -> Void) {
         do {
-            reply(try CmuxSidebarXPCCodec.encodeManifest(manifest), nil)
+            var transportManifest = manifest
+            transportManifest.supportsSnapshotAcknowledgement = true
+            reply(try CmuxSidebarXPCCodec.encodeManifest(transportManifest), nil)
         } catch {
             reply(nil, error.localizedDescription as NSString)
         }
