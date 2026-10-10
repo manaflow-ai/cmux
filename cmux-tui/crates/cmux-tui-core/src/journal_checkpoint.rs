@@ -1273,12 +1273,7 @@ mod tests {
         assert!(seal.through_sequence < checkpoint.checkpoint.source_sequence);
         assert!(seal.segments.iter().all(|segment| segment.record_count <= 1_024));
         assert!(!seal.segments.is_empty());
-        let stored_segments = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .journal_segments()
-            .unwrap();
+        let stored_segments = mux.workspace_registry.lock().unwrap().journal_segments().unwrap();
         assert_eq!(stored_segments.len(), seal.segments.len());
         assert!(stored_segments.iter().all(|segment| segment.record_count <= 1_024));
         let second_seal = mux

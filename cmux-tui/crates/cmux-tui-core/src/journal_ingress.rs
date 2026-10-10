@@ -1015,7 +1015,8 @@ impl JournalIngressSender {
                             }
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                                 Err(anyhow::Error::new(JournalCommitIndeterminate::after(
-                                    journal_durable_wait().saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
+                                    journal_durable_wait()
+                                        .saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
                                 )))
                             }
                         }

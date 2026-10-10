@@ -2463,9 +2463,8 @@ impl JournalMaintenance {
         });
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
-        let thread = std::thread::Builder::new()
-            .name("cmux-journal-maintenance".into())
-            .spawn(move || loop {
+        let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
+            move || loop {
                 let mut stopped = worker_control.stopped.lock().unwrap();
                 if *stopped {
                     return;
@@ -2484,7 +2483,8 @@ impl JournalMaintenance {
                 drop(stopped);
                 let Some(mux) = weak_mux.upgrade() else { return };
                 mux.run_journal_maintenance();
-            })?;
+            },
+        )?;
         Ok(Self { control, thread: Some(thread) })
     }
 
@@ -3129,13 +3129,7 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
-        if mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_database_path()
-            .is_some()
-        {
+        if mux.workspace_registry.lock().unwrap().session_journal_database_path().is_some() {
             let maintenance = JournalMaintenance::start(&mux)?;
             *mux.journal_maintenance.lock().unwrap() = Some(maintenance);
         }
@@ -7033,13 +7027,8 @@ impl Mux {
     fn run_journal_maintenance(&self) {
         let result = (|| -> anyhow::Result<()> {
             let head = self.workspace_registry.lock().unwrap().session_journal_head()?;
-            let latest = self
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .journal_checkpoints()?
-                .into_iter()
-                .next();
+            let latest =
+                self.workspace_registry.lock().unwrap().journal_checkpoints()?.into_iter().next();
             let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
             if head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS {
                 return Ok(());
@@ -7066,10 +7055,7 @@ impl Mux {
                 }
                 sealed_through = commit.through_sequence;
             }
-            self.workspace_registry
-                .lock()
-                .unwrap()
-                .incremental_journal_vacuum()?;
+            self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
             Ok(())
         })();
         if let Err(error) = result {
