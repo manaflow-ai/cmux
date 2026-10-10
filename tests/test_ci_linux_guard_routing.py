@@ -254,6 +254,10 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             frozenset({"release-ios"}),
         )
         self.assertEqual(step_owners(extended)["Validate a brand-new guard"], "release-ios")
+        self.assertEqual(
+            groups_for_path("agent-chat/test/claude-environment.test.ts"),
+            ("preflight-agent-chat",),
+        )
 
     def test_route_inputs_come_from_the_guard_workflow(self):
         # WORKFLOW_TEST_INPUTS, CLI_INPUTS, and HISTORY_INPUTS used to be three
@@ -554,6 +558,33 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     result = run_guard_status(results={job: outcome})
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(f"{job}: {outcome} (route {route_name}=true)", result.stderr)
+
+        # The direct CI fast-guards job owns the only `ci` matrix group on a
+        # pull request. The reusable call therefore has no surviving matrix
+        # leg for that route, and its skipped aggregate is valid only when
+        # the input proves that `ci` was the sole requested group.
+        ci_only = dict.fromkeys(REUSABLE_GUARDS, "true")
+        ci_only["linux_guard_test_groups"] = json.dumps(["ci"])
+        self.assertEqual(
+            run_guard_status(
+                inputs=ci_only,
+                results={"workflow-guard-tests": "skipped"},
+            ).returncode,
+            0,
+        )
+        mixed = dict(ci_only)
+        mixed["linux_guard_test_groups"] = json.dumps(["ci", "quality-determinism"])
+        mixed_result = run_guard_status(
+            inputs=mixed,
+            results={"workflow-guard-tests": "skipped"},
+        )
+        self.assertNotEqual(mixed_result.returncode, 0)
+        self.assertIn("workflow-guard-tests: skipped (route linux_guard_tests=true)", mixed_result.stderr)
+        malformed = dict(ci_only)
+        malformed["linux_guard_test_groups"] = "not-json"
+        malformed_result = run_guard_status(inputs=malformed)
+        self.assertNotEqual(malformed_result.returncode, 0)
+        self.assertIn("invalid linux_guard_test_groups", malformed_result.stderr)
 
         for outcome in ("skipped", "failure", "cancelled"):
             with self.subTest(job="ghosttykit-release-check", outcome=outcome):

@@ -11,7 +11,7 @@ import {
 
 import { randomBytes } from "node:crypto";
 import type { NetworkRulePlan } from "../networkPolicy";
-import { inlineEgressFirewallRules, inlineEgressTlsRules, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
+import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgressTlsRules, isFreestyleTlsRuleLimit, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
@@ -22,6 +22,7 @@ import {
   ProviderError,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
+  ProviderTlsRuleLimitError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -1163,6 +1164,17 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.tls_deleted": result.tlsDeleted,
           });
         } catch (err) {
+          if (isFreestyleTlsRuleLimit(err)) {
+            span.setAttribute("cmux.vm.network.tls_rule_limit", true);
+            if (err instanceof FreestyleTlsRuleLimitRestoreError) {
+              span.setAttribute("cmux.vm.network.tls_restored", err.restored);
+              span.setAttribute("cmux.vm.network.tls_unrestored", err.unrestored.length);
+              if (err.unrestored.length > 0) {
+                console.error("[freestyle] TLS rule limit: retired rules not restored", JSON.stringify({ vmId, unrestored: err.unrestored }));
+              }
+            }
+            throw new ProviderTlsRuleLimitError("freestyle", `applyNetworkPolicy(${vmId}): account TLS rule limit reached`, err);
+          }
           throw new ProviderError("freestyle", `applyNetworkPolicy(${vmId})`, err);
         }
       },

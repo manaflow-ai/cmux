@@ -357,7 +357,7 @@ struct AgentFeedRow: View, Equatable {
     /// the user's own words, secondary gray for the agent's.
     private func bubbleQuote(_ message: String, lineLimit: Int, sender: BubbleSender) -> some View {
         let tint: Color = sender == .user ? .accentColor : .secondary
-        let bubble = bubbleContentPadding(
+        let content = bubbleContentPadding(
             AgentFeedMarkdownText(
                 markdown: message,
                 font: .footnote,
@@ -368,7 +368,7 @@ struct AgentFeedRow: View, Equatable {
             sender: sender,
             vertical: 7
         )
-        .overlay(
+        let compactContent = content.overlay(
             AgentFeedBubbleShape(tailEdge: sender.tailEdge)
                 .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
         )
@@ -377,17 +377,25 @@ struct AgentFeedRow: View, Equatable {
             if message.contains("\n") {
                 // Multiline quotes use the entire text column.
                 bubbleSide(
-                    bubble,
+                    content,
                     sender: sender,
                     fullWidth: true
                 )
+                .overlay(
+                    AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                        .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+                )
             } else {
                 ViewThatFits(in: .horizontal) {
-                    bubbleSide(bubble, sender: sender, fullWidth: false)
+                    bubbleSide(compactContent, sender: sender, fullWidth: false)
                     bubbleSide(
-                        bubble,
+                        content,
                         sender: sender,
                         fullWidth: true
+                    )
+                    .overlay(
+                        AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                            .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
                     )
                 }
             }
@@ -522,13 +530,13 @@ struct AgentFeedRow: View, Equatable {
     /// a filled accent bubble, sized like the quoted-prompt bubbles. Bubbles
     /// belong to user text alone.
     private func bubbleReplyMarker(reply: String, reference: String?) -> some View {
-        let bubble = bubbleContentPadding(
+        let content = bubbleContentPadding(
             AgentFeedMarkdownText(markdown: reply, font: .footnote, color: .white)
                 .fixedSize(horizontal: false, vertical: true),
             sender: .user,
             vertical: 7
         )
-        .background(
+        let compactContent = content.background(
             AgentFeedBubbleShape(tailEdge: .trailing)
                 .fill(Color.accentColor)
         )
@@ -536,11 +544,19 @@ struct AgentFeedRow: View, Equatable {
         return VStack(alignment: .leading, spacing: 6) {
             Group {
                 if reply.contains("\n") {
-                    bubbleSide(bubble, sender: .user, fullWidth: true)
+                    bubbleSide(content, sender: .user, fullWidth: true)
+                        .background(
+                            AgentFeedBubbleShape(tailEdge: .trailing)
+                                .fill(Color.accentColor)
+                        )
                 } else {
                     ViewThatFits(in: .horizontal) {
-                        bubbleSide(bubble, sender: .user, fullWidth: false)
-                        bubbleSide(bubble, sender: .user, fullWidth: true)
+                        bubbleSide(compactContent, sender: .user, fullWidth: false)
+                        bubbleSide(content, sender: .user, fullWidth: true)
+                            .background(
+                                AgentFeedBubbleShape(tailEdge: .trailing)
+                                    .fill(Color.accentColor)
+                            )
                     }
                 }
             }

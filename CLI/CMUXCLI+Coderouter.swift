@@ -254,6 +254,9 @@ extension CMUXCLI {
         let (teamOpt, rem0) = parseOption(rest, name: "--team")
         let (labelOpt, rem1) = parseOption(rem0, name: "--label")
         var params: [String: Any] = teamParams(teamOpt)
+        // cmux-owned Claude accounts back Cloud machine routing and must be
+        // shared with the selected team rather than using the API's private default.
+        params["visibility"] = "team"
         if let label = Self.nonEmpty(labelOpt) {
             params["label"] = label
         }
