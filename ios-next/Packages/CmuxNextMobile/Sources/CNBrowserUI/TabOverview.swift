@@ -12,10 +12,16 @@ struct OverviewLayout {
     var count: Int
 
     private var m: BrowserMetrics { BrowserStyle.shared.metrics }
-    var cardWidth: CGFloat { (size.width * m.cardWidthRatio).rounded(.toNearestOrEven) }
+    /// Two columns with 16 pt insets and gutter: 177 pt on a 402 pt
+    /// screen, 196 pt on 440 (measured on an iPhone 17 Pro Max).
+    var cardWidth: CGFloat { ((size.width - 3 * m.gridInset) / 2).rounded(.down) }
     var cardHeight: CGFloat { cardWidth * m.cardAspect }
+    /// Card corner radius: 18 pt at 177 pt wide, scaled with the card.
+    var cardRadius: CGFloat { m.cardRadius * cardWidth / 177 }
     var pitch: CGFloat { cardHeight + m.titleRow + m.rowGap }
-    var top: CGFloat { safeTop + 52 }
+    /// First row: 60 pt below the safe area (card top at 122 on a 62 pt
+    /// safe area, device recording).
+    var top: CGFloat { safeTop + 60 }
     /// Bottom bar: 48 pt controls whose bottom sits 38 pt above the screen bottom.
     var barRect: CGRect {
         let bottom = size.height - max(safeBottom, 20) - 4
@@ -47,9 +53,14 @@ struct OverviewLayout {
 struct TabCard: View {
     var tab: BrowserTab
     var image: UIImage?
+    var topColor: Color
     var startPage: Bool
+    var tabs: [BrowserTab]
+    var pageSize: CGSize
+    var safeTop: CGFloat
     var width: CGFloat
     var height: CGFloat
+    var radius: CGFloat
     var showsClose: Bool
     var detailsOpacity: Double
     var onClose: () -> Void
@@ -58,16 +69,19 @@ struct TabCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            CardSnapshot(image: image, startPage: startPage)
+            ScaledPage(image: image, topColor: topColor, startPage: startPage, tabs: tabs, pageSize: pageSize,
+                       safeTop: safeTop, strip: 0)
                 .frame(width: width, height: height)
-                .clipShape(.rect(cornerRadius: style.metrics.cardRadius, style: .continuous))
+                .clipShape(.rect(cornerRadius: radius, style: .continuous))
                 .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
                 .overlay(alignment: .topTrailing) {
                     if showsClose {
                         Button(action: onClose) {
+                            // Measured: 22 pt circle, 4 pt from the card's top and
+                            // right edges, a light 9.5 pt cross.
                             Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(style.colors.secondaryLabel)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(style.colors.cardCloseGlyph)
                                 .frame(width: style.metrics.cardClose, height: style.metrics.cardClose)
                                 .background(style.colors.cardCloseFill, in: .circle)
                                 .padding(4)
@@ -97,30 +111,47 @@ struct TabCard: View {
     }
 }
 
-/// The top of a page drawn into a card: image fitted to the width, top aligned.
-struct CardSnapshot: View {
+/// A tab's page as a window: the page (status strip + frame image, or the
+/// start page) is laid out at full screen size and scaled to this view's
+/// width, top aligned and clipped. Cards, the zooming tab and the live page
+/// all show the same content, so a zoom is one rect over one layout.
+struct ScaledPage: View {
     var image: UIImage?
+    var topColor: Color
     var startPage: Bool
-    private let style = BrowserStyle.shared
+    var tabs: [BrowserTab]
+    /// Full page (screen) size the content is laid out at.
+    var pageSize: CGSize
+    var safeTop: CGFloat
+    /// Status strip above the page in full-page points (safeTop for the
+    /// full page, 0 for a card).
+    var strip: CGFloat
 
     var body: some View {
         GeometryReader { geo in
-            ZStack(alignment: .top) {
-                (startPage ? style.colors.startBackground : Color.white)
-                if let image, !startPage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .interpolation(.medium)
-                        .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
-                } else {
-                    Image(systemName: "safari")
-                        .font(.system(size: geo.size.width * 0.25, weight: .thin))
-                        .foregroundStyle(style.colors.glyphDisabled)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            let scale = pageSize.width > 0 ? geo.size.width / pageSize.width : 1
+            content
+                .frame(width: pageSize.width, height: pageSize.height, alignment: .top)
+                .scaleEffect(scale, anchor: .topLeading)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .clipped()
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder private var content: some View {
+        if startPage {
+            StartPageView(tabs: tabs, safeTop: strip, onOpen: { _ in })
+        } else {
+            VStack(spacing: 0) {
+                topColor.frame(height: strip)
+                if let image {
+                    Image(uiImage: image).resizable().interpolation(.medium)
+                        .frame(width: pageSize.width, height: pageSize.width * image.size.height / max(1, image.size.width))
                 }
+                Spacer(minLength: 0)
             }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-            .clipped()
+            .background(image == nil ? Color.white : topColor)
         }
     }
 }
@@ -156,8 +187,9 @@ struct TabOverview: View {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
                     ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
-                        TabCard(tab: tab, image: images[tab.id], startPage: model.showsStartPage(tab.id),
-                                width: r.width, height: r.height, showsClose: true,
+                        TabCard(tab: tab, image: images[tab.id], topColor: Color(uiColor: model.frames[tab.id]?.topColor ?? .white),
+                                startPage: model.showsStartPage(tab.id), tabs: model.tabs, pageSize: layout.size,
+                                safeTop: layout.safeTop, width: r.width, height: r.height, radius: layout.cardRadius, showsClose: true,
                                 detailsOpacity: detailsOpacity, onClose: { onClose(tab.id) })
                             .opacity(tab.id == hiddenTabId ? 0 : 1)
                             .contentShape(.rect)

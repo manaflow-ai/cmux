@@ -78,7 +78,6 @@ struct BrowserScreen: View {
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
-    @State private var newTabZoom: CGFloat?
     @State private var creatingTab = false
     /// Card images, captured when the overview opens so the hidden grid does
     /// not re-render on every live frame.
@@ -119,25 +118,18 @@ struct BrowserScreen: View {
                             onDone: { closeOverview(selecting: model.activeTabId) },
                             onCloseAll: closeAll)
                     .opacity(chrome.overview ? 1 : 0)
-                    .allowsHitTesting(chrome.overview && zoom == nil && newTabZoom == nil)
+                    .allowsHitTesting(chrome.overview && zoom == nil && !creatingTab)
                     .accessibilityHidden(!chrome.overview)
             }
 
             if let zoom {
-                PageSnapshot(image: zoom.image, topColor: zoom.topColor, strip: zoom.strip, startPage: zoom.startPage,
-                             tabs: model.tabs, safeTop: safeTop)
+                // The tab's page laid out at full size, scaled and clipped
+                // to the moving rect (the rect is the tab's window).
+                ScaledPage(image: zoom.image, topColor: zoom.topColor, startPage: zoom.startPage, tabs: model.tabs,
+                           pageSize: size, safeTop: safeTop, strip: zoom.strip)
                     .frame(width: zoom.rect.width, height: zoom.rect.height)
                     .clipShape(.rect(cornerRadius: zoom.radius, style: .continuous))
                     .offset(x: zoom.rect.minX, y: zoom.rect.minY)
-                    .allowsHitTesting(false)
-            }
-
-            if let scale = newTabZoom {
-                StartPageView(tabs: model.tabs, safeTop: safeTop, onOpen: { _ in })
-                    .frame(width: size.width, height: size.height)
-                    .clipShape(.rect(cornerRadius: 40 + (style.metrics.screenRadius - 40) * (scale - 0.45) / 0.55, style: .continuous))
-                    .blur(radius: 12 * (1 - scale) / 0.55)
-                    .scaleEffect(scale)
                     .allowsHitTesting(false)
             }
 
@@ -242,16 +234,16 @@ struct BrowserScreen: View {
         ZStack(alignment: .topLeading) {
             style.colors.startBackground
             if let neighbor {
-                PageSnapshot(image: neighbor.image, topColor: neighbor.topColor, strip: safeTop, startPage: neighbor.startPage,
-                             tabs: model.tabs, safeTop: safeTop)
+                ScaledPage(image: neighbor.image, topColor: neighbor.topColor, startPage: neighbor.startPage, tabs: model.tabs,
+                           pageSize: size, safeTop: safeTop, strip: safeTop)
                     .frame(width: size.width, height: size.height)
                     .clipShape(.rect(cornerRadius: style.metrics.screenRadius, style: .continuous))
                     .scaleEffect(0.93 + 0.07 * progress)
                     .blur(radius: 6 * (1 - progress))
                     .offset(x: offset + (offset < 0 ? pitch : -pitch))
             }
-            PageSnapshot(image: current?.uiImage, topColor: topColor, strip: safeTop, startPage: showsStartPage,
-                         tabs: model.tabs, safeTop: safeTop)
+            ScaledPage(image: current?.uiImage, topColor: topColor, startPage: showsStartPage, tabs: model.tabs,
+                       pageSize: size, safeTop: safeTop, strip: safeTop)
                 .frame(width: size.width, height: size.height)
                 .clipShape(.rect(cornerRadius: style.metrics.screenRadius, style: .continuous))
                 .offset(x: offset)
@@ -413,7 +405,7 @@ struct BrowserScreen: View {
         let card = layout.card(index).offsetBy(dx: 0, dy: -offset)
         withAnimation(motion.resolve(motion.overviewOpen)) {
             zoom?.rect = card
-            zoom?.radius = style.metrics.cardRadius
+            zoom?.radius = layout.cardRadius
             zoom?.strip = 0
             overviewShown = 1
         } completion: {
@@ -437,8 +429,10 @@ struct BrowserScreen: View {
         if tabId != model.activeTabId { model.select(tabId) }
         let card = overviewLayout.card(index).offsetBy(dx: 0, dy: -overviewScroll)
         let frame = model.frames[tabId]
-        zoom = ZoomOverlay(tabId: tabId, image: model.cardImage(tabId), topColor: Color(uiColor: frame?.topColor ?? .white),
-                           startPage: model.showsStartPage(tabId), rect: card, radius: style.metrics.cardRadius, strip: 0)
+        // The same image the card shows, so the zoom starts exactly as the card.
+        zoom = ZoomOverlay(tabId: tabId, image: overviewImages[tabId] ?? model.cardImage(tabId),
+                           topColor: Color(uiColor: frame?.topColor ?? .white),
+                           startPage: model.showsStartPage(tabId), rect: card, radius: overviewLayout.cardRadius, strip: 0)
         withAnimation(.easeOut(duration: 0.1)) { overviewDetails = 0 }
         withAnimation(motion.resolve(motion.overviewClose)) {
             zoom?.rect = fullRect
@@ -452,16 +446,30 @@ struct BrowserScreen: View {
         }
     }
 
+    /// (+): the new tab's start page grows from the grid slot its card will
+    /// take (index = tab count). The grid first scrolls so that slot is on
+    /// screen, as the overview does for the active card.
     private func newTabFromOverview() {
         creatingTab = true
-        newTabZoom = 0.45
+        let next = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: model.tabs.count + 1)
+        let index = model.tabs.count
+        let offset = next.offset(revealing: index)
+        if abs(offset - overviewScroll) > 0.5 {
+            overviewPosition = ScrollPosition(y: offset)
+            overviewScroll = offset
+        }
+        let slot = next.card(index).offsetBy(dx: 0, dy: -offset)
+        zoom = ZoomOverlay(tabId: "", image: nil, topColor: style.colors.startBackground, startPage: true,
+                           rect: slot, radius: next.cardRadius, strip: 0)
         withAnimation(.easeOut(duration: 0.1)) { overviewDetails = 0 }
-        withAnimation(motion.resolve(motion.newTab)) {
-            newTabZoom = 1
+        withAnimation(motion.resolve(motion.overviewClose)) {
+            zoom?.rect = fullRect
+            zoom?.radius = style.metrics.screenRadius
+            zoom?.strip = safeTop
             overviewShown = 0
         } completion: {
             chrome.overview = false
-            newTabZoom = nil
+            zoom = nil
         }
         Task {
             await model.newTab()
@@ -559,34 +567,4 @@ struct DisplacedOverlay: View {
     }
 }
 
-/// A full page or card drawn from a frame image: page-colored status strip
-/// above the page, image fitted to the width and top aligned.
-struct PageSnapshot: View {
-    var image: UIImage?
-    var topColor: Color
-    var strip: CGFloat
-    var startPage: Bool
-    var tabs: [BrowserTab]
-    var safeTop: CGFloat
-
-    var body: some View {
-        if startPage {
-            StartPageView(tabs: tabs, safeTop: safeTop, onOpen: { _ in })
-        } else {
-            GeometryReader { geo in
-                VStack(spacing: 0) {
-                    topColor.frame(height: strip)
-                    if let image {
-                        Image(uiImage: image).resizable().interpolation(.medium)
-                            .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
-                    }
-                    Spacer(minLength: 0)
-                }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                .background(topColor)
-                .clipped()
-            }
-        }
-    }
-}
 #endif

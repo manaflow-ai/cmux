@@ -71,7 +71,10 @@ struct BrowserColors: Sendable {
     let favoriteTile = BrowserColors.pair(0xCCCDD4, 0x3A3A3C)
     let overviewTop = BrowserColors.pair(0xECDFD3, 0x1A1918)
     let overviewBottom = BrowserColors.pair(0xD2D3DB, 0x0B0B0D)
-    let cardCloseFill = BrowserColors.pair(0xEBEBEB, 0x3A3A3C, lightAlpha: 0.85, darkAlpha: 0.85)
+    /// Card close circle: #F2F2F7 over a white card, white 8% over a dark
+    /// one (#232325 measured on #111); the cross is mid gray.
+    let cardCloseFill = BrowserColors.pair(0xF2F2F7, 0xFFFFFF, lightAlpha: 0.94, darkAlpha: 0.08)
+    let cardCloseGlyph = BrowserColors.pair(0x7E7E83, 0x9A9A9F)
     let separator = BrowserColors.pair(0x3C3C43, 0x545458, lightAlpha: 0.18, darkAlpha: 0.5)
     /// cmux-next has one hue (`highlight`); Safari's #0088FF progress line and
     /// Done button use it.
@@ -96,8 +99,11 @@ struct BrowserMotion: Sendable {
     /// Page menu glass morph.
     let menu = Animation.spring(response: 0.40, dampingFraction: 0.78)
     /// Tab overview open (page to card) and close (card to page).
-    let overviewOpen = Animation.spring(response: 0.22, dampingFraction: 1)
-    let overviewClose = Animation.spring(response: 0.45, dampingFraction: 0.81)
+    /// Fitted to the device recording (tab-zoom-device.mp4, card width per
+    /// frame): open 0.33 / 0.91 (settles in 16 frames), close 0.335 / 1.0
+    /// (23 frames, no overshoot).
+    let overviewOpen = Animation.spring(response: 0.33, dampingFraction: 0.91)
+    let overviewClose = Animation.spring(response: 0.335, dampingFraction: 1)
     /// Card reflow after closing a tab.
     let reflow = Animation.spring(response: 0.38, dampingFraction: 0.85)
     /// New tab growing from the grid center.
