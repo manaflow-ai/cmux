@@ -83,6 +83,8 @@ public final class ConversationViewController: UIViewController {
     /// The typer's avatar (frame in the transcript, initials) leaving with the indicator.
     var typingAvatarHandoff: (frame: CGRect, initials: String)?
     private(set) var hasPositionedInitially = false
+    /// Rows already prefetched (see +Prefetch); reset when rows change.
+    var prefetchedRange: Range<Int> = 0..<0
     /// The catch-up arrow (see +CatchUp).
     let catchUpButton = UIButton(type: .custom)
     /// Between viewDidAppear and viewWillDisappear.
@@ -288,6 +290,7 @@ public final class ConversationViewController: UIViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         isOnScreen = true
+        ReplySwipeIndicator.prewarm(traits: traitCollection)
         updateViewing()
         focusComposerIfEmpty()
     }
@@ -322,6 +325,9 @@ public final class ConversationViewController: UIViewController {
             layoutCache.invalidateAll()
             invalidateRowMetrics()
             collectionView.reloadData()
+        }
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            ReplySwipeIndicator.prewarm(traits: traitCollection)
         }
         if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
             || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
@@ -533,6 +539,11 @@ public final class ConversationViewController: UIViewController {
             return
         case .draft:
             return
+        case .older where store.older != .exhausted && store.hasLoadedNewest && rows.first == .loadingOlder:
+            // A page request starting, retrying or failing changes no row
+            // (the spinner row shows for any state short of exhausted), and
+            // it starts inside a scroll frame: skip the full rebuild.
+            return
         default:
             rebuild(change: change)
         }
@@ -544,6 +555,7 @@ public final class ConversationViewController: UIViewController {
             initialSpinner.isHidden = true
         }
         let newRows = ConversationRowBuilder.rows(store: store)
+        if change == .prepended, measureAhead(newRows) { return }
         apply(newRows, change: change)
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
@@ -558,6 +570,46 @@ public final class ConversationViewController: UIViewController {
         maybeLoadOlder()
         focusComposerIfEmpty()
     }
+
+    /// A landed page's rows are measured off the main thread before they
+    /// are applied, so the frame that shows them only places them. Returns
+    /// whether the rows wait for that (the measured rows rebuild again).
+    private func measureAhead(_ newRows: [ConversationRow]) -> Bool {
+        let width = collectionView.bounds.width
+        let margin = layoutMargin
+        guard hasPositionedInitially, width > 0 else { return false }
+        var fresh: [MessageRowModel] = []
+        for row in newRows {
+            if case let .message(model) = row, rowIndex[model.rowID] == nil { fresh.append(model) }
+        }
+        let pending = layoutCache.unmeasured(fresh, width: width, margin: margin)
+        guard pending.count >= Self.measureAheadMinimum else { return false }
+        measureGeneration += 1
+        let generation = measureGeneration
+        let traits = collectionView.traitCollection
+        let work = MeasureWork(models: pending)
+        Task { [weak self] in
+            let measured = await Task.detached(priority: .userInitiated) {
+                var result: [MessageLayoutCache.Measured] = []
+                result.reserveCapacity(work.models.count)
+                traits.performAsCurrent {
+                    for model in work.models {
+                        result.append(MessageLayoutCache.measure(model, width: width, margin: margin))
+                    }
+                }
+                return MeasuredBatch(items: result)
+            }.value
+            guard let self else { return }
+            self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            guard generation == self.measureGeneration else { return }
+            self.rebuild(change: .prepended)
+        }
+        return true
+    }
+
+    /// Fewer new rows than this measure in place (a page is 50).
+    static let measureAheadMinimum = 8
+    private var measureGeneration = 0
 
     private var hasConfiguredHeader = false
     private var configuredHeaderTitle: String?
@@ -608,6 +660,7 @@ public final class ConversationViewController: UIViewController {
     private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange) {
         let oldIDs = rowIDs
         let newIDs = newRows.map(\.id)
+        prefetchedRange = 0..<0
         let oldIndex = rowIndex
         var newIndex: [String: Int] = [:]
         newIndex.reserveCapacity(newIDs.count)
@@ -775,8 +828,12 @@ public final class ConversationViewController: UIViewController {
             UIView.performWithoutAnimation {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
-                self.collectionView.layoutIfNeeded()
+                // The batch already prepared the new layout, so the anchor is
+                // restored first: laying out at the stale offset would build
+                // a screenful of cells (a page landing above shifts every
+                // row) only to throw them away.
                 self.restore(anchor)
+                self.collectionView.layoutIfNeeded()
             }
             glideRegrouped(from: screenBefore)
         }
@@ -1155,6 +1212,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         maybeLoadOlder()
         for case let cell as MessageCell in collectionView.visibleCells { cell.updateScreenGradients() }
+        prefetchAroundVisibleRows()
         // Reading follows viewing (see +CatchUp), not scroll position:
         // Messages reads the whole conversation on open.
         updateCatchUp()
@@ -1273,6 +1331,67 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance {
         appearances[rows[index].id] ?? .none
     }
+}
+
+// MARK: - Prefetch
+
+/// Rows about to scroll on screen get their expensive pieces ready off the
+/// main thread: photos fetched and decoded at display size, and send-effect
+/// text glyphs rendered into the shared cache. The cell then finds both
+/// ready instead of doing that work in the frame it appears. Driven from
+/// scrolling (a screen above and below the visible rows), so it runs for
+/// drags, flings and programmatic scrolls alike.
+extension ConversationViewController {
+    func prefetchAroundVisibleRows() {
+        let bounds = collectionView.bounds
+        guard bounds.width > 0, bounds.height > 0, !rows.isEmpty else { return }
+        let range = layout.itemRange(in: bounds.insetBy(dx: 0, dy: -bounds.height))
+        guard range != prefetchedRange else { return }
+        let previous = prefetchedRange
+        prefetchedRange = range
+        for index in range where !previous.contains(index) {
+            prefetch(index: index)
+        }
+    }
+
+    private func prefetch(index: Int) {
+        guard index < rows.count, case let .message(model) = rows[index] else { return }
+        let width = collectionView.bounds.width
+        let scale = view.window?.screen.scale ?? traitCollection.displayScale
+        let cellLayout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
+        for (index, frame) in cellLayout.imageFrames.enumerated() where index < model.message.imageAttachments.count {
+            let attachment = model.message.imageAttachments[index]
+            let pixelWidth = frame.width * scale
+            guard ConversationImageLoader.shared.cachedImage(for: attachment, pixelWidth: pixelWidth) == nil else { continue }
+            Task { _ = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth) }
+        }
+        guard !model.message.isScheduled, let size = cellLayout.textFrame?.size else { return }
+        let text = layoutCache.attributedText(for: model)
+        guard ConversationRichTextStyler.hasEffects(text) else { return }
+        let resolved = PrefetchText(text.resolvingDynamicColors(with: collectionView.traitCollection))
+        let seed = ConversationTextEffectMotion.seed(model.rowID)
+        Task.detached(priority: .userInitiated) {
+            ConversationTextEffectLayer.prepare(
+                text: resolved.value, textSize: size, scale: max(1, scale),
+                cacheToken: ConversationEffectLabel.resolvedCacheToken, warmingSeed: seed
+            )
+        }
+    }
+}
+
+/// Rows handed to a measuring task (immutable value models).
+private struct MeasureWork: @unchecked Sendable {
+    let models: [MessageRowModel]
+}
+
+private struct MeasuredBatch: @unchecked Sendable {
+    let items: [MessageLayoutCache.Measured]
+}
+
+/// An immutable attributed string handed to a prefetch task.
+private struct PrefetchText: @unchecked Sendable {
+    let value: NSAttributedString
+    init(_ value: NSAttributedString) { self.value = value }
 }
 
 /// The transcript reports the composer band (and keyboard) as its bottom

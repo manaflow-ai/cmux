@@ -16,7 +16,14 @@ final class MessageCell: UICollectionViewCell {
     let bubble = BubbleBackgroundView()
     let textLabel = ConversationEffectLabel()
     let emojiLabel = UILabel()
-    let linkCard = ConversationLinkPreviewView()
+    /// Rich link card, created for the first link row this cell shows: most
+    /// rows have none, and every view in a cell costs on each reuse.
+    private(set) lazy var linkCard: ConversationLinkPreviewView = {
+        let card = ConversationLinkPreviewView()
+        shiftable.insertSubview(card, belowSubview: reactionBadge)
+        return card
+    }()
+    private var hasLinkCard = false
     let avatar = ConversationAvatarView()
     let reactionBadge = ReactionBadgeView()
     let footerLabel = UILabel()
@@ -29,7 +36,8 @@ final class MessageCell: UICollectionViewCell {
     let replyIndicator = ReplySwipeIndicator()
     private(set) var imageViews: [UIImageView] = []
     /// Send-effect state (see MessageCell+Effects).
-    let replayButton = UIButton(type: .system)
+    /// "Replay" under an effect message (see MessageCell+Effects), created on first use.
+    var replayButtonIfLoaded: UIButton?
     var effectStage: MessageBubbleStage?
     var inkView: InvisibleInkView?
     /// Poll card pieces, added on first use (ConversationPolls.swift).
@@ -48,6 +56,7 @@ final class MessageCell: UICollectionViewCell {
     private var imageRowID: String?
     private(set) var cellLayout: MessageCellLayout?
     private var imageTasks: [Task<Void, Never>] = []
+    private var timeLabelSizedFor: (text: String?, font: UIFont?)?
 
     /// Swipe-left timestamp reveal, 0...1 of the reveal distance (applied by the controller).
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
@@ -88,14 +97,12 @@ final class MessageCell: UICollectionViewCell {
         for view in [senderLabel, quoteBubble, quoteLabel, bubble, textLabel, emojiLabel, avatar, reactionBadge, editedLabel, repliesLabel, translationLabel] {
             shiftable.addSubview(view)
         }
-        shiftable.insertSubview(linkCard, belowSubview: reactionBadge)
         shiftable.bringSubviewToFront(reactionBadge)
         for view in [footerLabel, failedBadge, timeLabel] {
             contentView.addSubview(view)
         }
         // Behind the bubble: the bubble slides off it.
         contentView.insertSubview(replyIndicator, at: 0)
-        installEffectViews()
     }
 
     @available(*, unavailable)
@@ -196,12 +203,13 @@ final class MessageCell: UICollectionViewCell {
         }
 
         if let frame = layout.linkCardFrame, let card = layout.linkCard, let preview = message.linkPreview {
+            hasLinkCard = true
             linkCard.isHidden = false
             linkCard.frame = model.showsTail && layout.linkCardIsLast
                 ? CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + ConversationTheme.tailDrop)
                 : frame
             linkCard.configure(preview: preview, layout: card, side: model.isOutgoing ? .trailing : .leading, tail: model.showsTail && layout.linkCardIsLast)
-        } else {
+        } else if hasLinkCard {
             linkCard.isHidden = true
         }
 
@@ -345,7 +353,12 @@ final class MessageCell: UICollectionViewCell {
         placeShiftable()
         guard let cellLayout else { return }
         // The time waits just past the trailing edge until a swipe reveals it.
-        timeLabel.sizeToFit()
+        // Measured only when its text or font changes (layout runs on every
+        // reuse and scroll-in).
+        if timeLabelSizedFor?.text != timeLabel.text || timeLabelSizedFor?.font != timeLabel.font {
+            timeLabel.bounds.size = Self.timeLabelSize(timeLabel)
+            timeLabelSizedFor = (timeLabel.text, timeLabel.font)
+        }
         let anchor = cellLayout.contentFrame
         timeLabel.setUntransformedFrame(CGRect(x: TimestampDrawerLabelGeometry.minX(width: contentView.bounds.width, labelWidth: timeLabel.bounds.width, fraction: 0), y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height))
         replyIndicator.place(at: replyIndicatorCenter)
@@ -514,6 +527,19 @@ final class MessageCell: UICollectionViewCell {
             ]))
         }
         return text
+    }
+
+    /// Swipe-time label sizes by text and font: a transcript shows the same
+    /// few times over and over.
+    private static var timeLabelSizes: [String: CGSize] = [:]
+
+    private static func timeLabelSize(_ label: UILabel) -> CGSize {
+        let key = "\(label.font.fontName)|\(label.font.pointSize)|\(label.text ?? "")"
+        if let size = timeLabelSizes[key] { return size }
+        if timeLabelSizes.count > 512 { timeLabelSizes.removeAll() }
+        let size = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+        timeLabelSizes[key] = size
+        return size
     }
 
     /// iOS 27 Messages fades swipe times in as the square of the reveal.

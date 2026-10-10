@@ -38,8 +38,10 @@ final class ReplySwipeIndicator: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) || blurred.image == nil {
-            blurred.image = Self.blurredArrow(traits: traitCollection)
+        // Every cell entering the transcript passes through here; the blur is
+        // only drawn once a swipe uncovers the arrow (`update`), from a cache.
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            blurred.image = nil
         }
     }
 
@@ -115,10 +117,44 @@ final class ReplySwipeIndicator: UIView {
         CGAffineTransform(scaleX: scale, y: scale).translatedBy(x: drift, y: 0)
     }
 
-    private static func blurredArrow(traits: UITraitCollection) -> UIImage? {
-        guard let symbol = UIImage(systemName: "arrowshape.turn.up.backward.fill")?
-            .withTintColor(UIColor.systemGray2.resolvedColor(with: traits), renderingMode: .alwaysOriginal) else { return nil }
+    /// Rendered blurs by color and scale: Core Image is far too slow to run
+    /// per cell, and every arrow in one appearance is the same image.
+    private static var blurCache: [String: UIImage] = [:]
+
+    private static var blurWarming: Set<String> = []
+
+    private static func blurKey(traits: UITraitCollection) -> (key: String, color: UIColor, scale: CGFloat) {
+        let color = UIColor.systemGray2.resolvedColor(with: traits)
         let scale = traits.displayScale > 0 ? traits.displayScale : 3
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return ("\(red),\(green),\(blue),\(alpha)@\(scale)", color, scale)
+    }
+
+    private static func blurredArrow(traits: UITraitCollection) -> UIImage? {
+        let (key, color, scale) = blurKey(traits: traits)
+        if let cached = blurCache[key] { return cached }
+        let image = renderBlurredArrow(color: color, scale: scale)
+        if let image { blurCache[key] = image }
+        return image
+    }
+
+    /// Renders the blur for `traits` off the main thread ahead of the first
+    /// swipe, so uncovering the arrow never waits on Core Image.
+    static func prewarm(traits: UITraitCollection) {
+        let (key, color, scale) = blurKey(traits: traits)
+        guard blurCache[key] == nil, !blurWarming.contains(key) else { return }
+        blurWarming.insert(key)
+        Task {
+            let image = await Task.detached(priority: .utility) { renderBlurredArrow(color: color, scale: scale) }.value
+            blurWarming.remove(key)
+            if let image, blurCache[key] == nil { blurCache[key] = image }
+        }
+    }
+
+    nonisolated private static func renderBlurredArrow(color: UIColor, scale: CGFloat) -> UIImage? {
+        guard let symbol = UIImage(systemName: "arrowshape.turn.up.backward.fill")?
+            .withTintColor(color, renderingMode: .alwaysOriginal) else { return nil }
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         let box = CGRect(x: 0, y: 0, width: size, height: size)
@@ -132,7 +168,7 @@ final class ReplySwipeIndicator: UIView {
         return UIImage(cgImage: cg, scale: scale, orientation: .up)
     }
 
-    private static func fittedRect(_ size: CGSize, in box: CGRect) -> CGRect {
+    nonisolated private static func fittedRect(_ size: CGSize, in box: CGRect) -> CGRect {
         guard size.width > 0, size.height > 0 else { return box }
         let s = min(box.width / size.width, box.height / size.height)
         let fitted = CGSize(width: size.width * s, height: size.height * s)

@@ -35,15 +35,23 @@ enum BubbleShape {
 
 /// A filled bubble outline that redraws whenever its bounds change.
 final class BubbleBackgroundView: UIView {
-    var side: BubbleShape.Side = .trailing { didSet { setNeedsLayout() } }
-    var hasTail = true { didSet { setNeedsLayout() } }
-    var fillColor: UIColor = ConversationTheme.outgoingBubble { didSet { updateColors() } }
-    var strokeColor: UIColor? { didSet { updateColors() } }
+    // Cells set every property on each configure; only real changes redraw.
+    var side: BubbleShape.Side = .trailing { didSet { if side != oldValue { setNeedsLayout() } } }
+    var hasTail = true { didSet { if hasTail != oldValue { setNeedsLayout() } } }
+    var fillColor: UIColor = ConversationTheme.outgoingBubble { didSet { if fillColor != oldValue { updateColors() } } }
+    var strokeColor: UIColor? { didSet { if strokeColor != oldValue { updateColors() } } }
     /// Fill with Messages' screen-anchored gradient instead of `fillColor`:
     /// the shade depends on where the bubble sits in the window, so call
     /// `updateScreenGradient()` when it moves without relayout (scrolling).
-    var screenGradient: ConversationTheme.ScreenGradient? { didSet { updateColors() } }
-    private var gradientLayer: CAGradientLayer?
+    var screenGradient: ConversationTheme.ScreenGradient? { didSet { if screenGradient != oldValue { updateColors() } } }
+    /// The bubble-shaped host of the gradient (masked by the outline).
+    private var gradientLayer: CALayer?
+    /// The whole screen's gradient, three windows tall with the window in
+    /// the middle third, so the bubble shows the slice it sits over. Its
+    /// colors never change while scrolling; only its position follows the
+    /// bubble's place in the window (see `updateScreenGradient`).
+    private let gradientFill = CAGradientLayer()
+    private var gradientFillKey: (height: CGFloat, width: CGFloat, dark: Bool, contrast: Bool)?
     /// Over a conversation background, this bubble (an incoming one) turns
     /// into a translucent material, as ChatKit's `forcesMaterialBackground`
     /// balloons do; Reduce Transparency keeps the opaque fill.
@@ -165,19 +173,30 @@ final class BubbleBackgroundView: UIView {
         updateScreenGradient()
     }
 
-    /// Re-samples the gradient for the bubble's current place in the window.
+    /// Keeps the screen gradient fixed to the window as the bubble moves:
+    /// one position change per call; the colors are set only when the
+    /// window size or appearance changes.
     func updateScreenGradient() {
-        guard let gradientLayer, let screenGradient, let window, window.bounds.height > 0 else { return }
-        let frame = convert(gradientBounds, to: window)
-        // Messages' gradient ends at the resting composer, not the window's bottom.
-        let span = ConversationTranscriptMetrics.gradientSpan(windowHeight: window.bounds.height, bottomSafeInset: window.safeAreaInsets.bottom)
-        let top = frame.minY / span
-        let bottom = frame.maxY / span
-        let sample = screenGradient.samples(from: top, to: bottom, traits: traitCollection)
+        guard gradientLayer != nil, let screenGradient, let window, window.bounds.height > 0 else { return }
+        // Messages' gradient ends at the resting composer, not the window's
+        // bottom, so the fill's middle third spans that height instead.
+        let height = ConversationTranscriptMetrics.gradientSpan(windowHeight: window.bounds.height, bottomSafeInset: window.safeAreaInsets.bottom)
+        let width = max(window.bounds.width, bounds.width)
+        let traits = traitCollection
+        let key = (height: height, width: width, dark: traits.userInterfaceStyle == .dark, contrast: traits.accessibilityContrast == .high)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        gradientLayer.colors = sample.colors
-        gradientLayer.locations = sample.locations.map { NSNumber(value: Double($0)) }
+        if gradientFillKey.map({ $0 != key }) ?? true {
+            gradientFillKey = key
+            let sample = screenGradient.windowSamples(traits: traits)
+            gradientFill.colors = sample.colors
+            gradientFill.locations = sample.locations.map { NSNumber(value: Double($0)) }
+            gradientFill.anchorPoint = .zero
+            gradientFill.bounds = CGRect(x: 0, y: 0, width: width, height: 3 * height)
+        }
+        let top = convert(CGPoint.zero, to: window).y
+        let position = CGPoint(x: 0, y: -top - height)
+        if gradientFill.position != position { gradientFill.position = position }
         CATransaction.commit()
     }
 
@@ -205,7 +224,9 @@ final class BubbleBackgroundView: UIView {
         shapeLayer.fillColor = screenGradient == nil && !material ? fillColor.resolvedColor(with: traitCollection).cgColor : UIColor.clear.cgColor
         shapeLayer.strokeColor = strokeColor?.resolvedColor(with: traitCollection).cgColor
         if screenGradient != nil, gradientLayer == nil {
-            let gradient = CAGradientLayer()
+            let gradient = CALayer()
+            gradient.masksToBounds = true
+            gradient.addSublayer(gradientFill)
             let mask = CAShapeLayer()
             gradient.mask = mask
             gradient.anchorPoint = .zero
@@ -216,6 +237,7 @@ final class BubbleBackgroundView: UIView {
             gradientLayer = gradient
         }
         gradientLayer?.isHidden = screenGradient == nil
+        gradientFillKey = nil
         updateScreenGradient()
     }
 }

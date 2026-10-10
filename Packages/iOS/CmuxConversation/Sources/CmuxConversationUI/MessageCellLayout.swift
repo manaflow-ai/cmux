@@ -89,13 +89,7 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        // Audio bubbles show the transcript; a link card takes its URL out of
-        // the text bubble, so mentions and formatting (ranges over the whole
-        // `text`) are re-based onto what the bubble shows.
-        let isAudio = model.message.audioAttachment != nil
-        let body = isAudio ? model.message.bodyText : model.bodyText
-        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
-        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
+        let (body, mentions, runs) = Self.attributedInputs(model)
         if let (text, cachedMentions, cachedRuns, value) = attributed[cacheKey], text == body,
            cachedMentions == mentions, cachedRuns == runs {
             return value
@@ -103,6 +97,64 @@ final class MessageLayoutCache {
         let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
         attributed[cacheKey] = (body, mentions, runs, value)
         return value
+    }
+
+    /// What a bubble's attributed text is built from. Audio bubbles show the
+    /// transcript; a link card takes its URL out of the text bubble, so
+    /// mentions and formatting (ranges over the whole `text`) are re-based
+    /// onto what the bubble shows.
+    nonisolated static func attributedInputs(_ model: MessageRowModel) -> (String, [ConversationMention], [ConversationTextRun]) {
+        let isAudio = model.message.audioAttachment != nil
+        let body = isAudio ? model.message.bodyText : model.bodyText
+        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
+        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
+        return (body, mentions, runs)
+    }
+
+    // MARK: Measuring ahead
+
+    /// A row measured away from the main thread.
+    struct Measured: @unchecked Sendable {
+        var model: MessageRowModel
+        var layout: MessageCellLayout
+        var text: NSAttributedString
+    }
+
+    /// Of `models`, those this cache has no layout for at `width` and
+    /// `margin` and that can be measured off the main thread (plain text,
+    /// emoji and photo rows; link cards, polls and audio measure here).
+    func unmeasured(_ models: [MessageRowModel], width: CGFloat, margin: CGFloat) -> [MessageRowModel] {
+        models.filter { model in
+            guard Self.measuresOffMain(model) else { return false }
+            if let (key, _) = cache[model.rowID], key == Key(model: model, width: width, margin: margin) { return false }
+            return true
+        }
+    }
+
+    nonisolated static func measuresOffMain(_ model: MessageRowModel) -> Bool {
+        model.poll == nil && model.linkSplit == nil && model.message.linkPreview == nil && model.message.audioAttachment == nil
+    }
+
+    /// Text and layout for `model`, exactly as `layout(for:)` builds them,
+    /// for any thread. Run it inside the transcript's traits
+    /// (`performAsCurrent`) so text styles resolve to the same fonts.
+    nonisolated static func measure(_ model: MessageRowModel, width: CGFloat, margin: CGFloat) -> Measured {
+        let (body, mentions, runs) = attributedInputs(model)
+        let text = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+        let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text)
+        return Measured(model: model, layout: layout, text: text)
+    }
+
+    /// Adopts rows measured ahead, unless the cache moved on meanwhile.
+    func adopt(_ measured: [Measured], width: CGFloat, margin: CGFloat) {
+        for item in measured {
+            let model = item.model
+            let key = Key(model: model, width: width, margin: margin)
+            if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
+            cache[model.rowID] = (key, item.layout)
+            let (body, mentions, runs) = Self.attributedInputs(model)
+            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, item.text)
+        }
     }
 
     /// Drops entries for rows that left the transcript (a trimmed or rebased

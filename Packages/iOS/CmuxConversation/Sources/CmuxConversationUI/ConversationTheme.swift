@@ -22,9 +22,57 @@ enum ConversationTheme {
     /// already returns the heavier face (.SFUI-Semibold for regular) when it
     /// is on, so bumping the weight again would double it.
     static func font(_ size: CGFloat, _ weight: UIFont.Weight = .regular, style: UIFont.TextStyle = .body, maximum: CGFloat? = nil) -> UIFont {
-        var pointSize = scaled(size, style)
-        if let maximum { pointSize = min(pointSize, maximum) }
-        return .systemFont(ofSize: pointSize, weight: weight)
+        cachedFont(FontRequest(name: style.rawValue, size: size, weight: weight.rawValue, maximum: maximum ?? 0)) {
+            var pointSize = scaled(size, style)
+            if let maximum { pointSize = min(pointSize, maximum) }
+            return .systemFont(ofSize: pointSize, weight: weight)
+        }
+    }
+
+    // MARK: Font cache
+    //
+    // Cells read these fonts (and metrics derived from them) many times per
+    // configure and layout pass; building a font from a text style is a
+    // descriptor lookup each time. Fonts are cached on the main thread per
+    // Dynamic Type size, Bold Text and legibility weight, so a change to
+    // any of them produces fresh fonts exactly as before.
+
+    private struct FontRequest: Hashable {
+        var name: String
+        var size: CGFloat = 0
+        var weight: CGFloat = 0
+        var maximum: CGFloat = 0
+    }
+
+    private struct FontEnvironment: Equatable {
+        var appCategory: UIContentSizeCategory
+        var currentCategory: UIContentSizeCategory
+        var legibility: UILegibilityWeight
+        var boldText: Bool
+    }
+
+    nonisolated(unsafe) private static var fontCache: [FontRequest: UIFont] = [:]
+    nonisolated(unsafe) private static var fontCacheEnvironment: FontEnvironment?
+
+    private static func cachedFont(_ request: FontRequest, make: () -> UIFont) -> UIFont {
+        guard Thread.isMainThread else { return make() }
+        let environment = MainActor.assumeIsolated {
+            let current = UITraitCollection.current
+            return FontEnvironment(
+                appCategory: UIApplication.shared.preferredContentSizeCategory,
+                currentCategory: current.preferredContentSizeCategory,
+                legibility: current.legibilityWeight,
+                boldText: UIAccessibility.isBoldTextEnabled
+            )
+        }
+        if environment != fontCacheEnvironment {
+            fontCacheEnvironment = environment
+            fontCache.removeAll()
+        }
+        if let font = fontCache[request] { return font }
+        let font = make()
+        fontCache[request] = font
+        return font
     }
 
     /// Composer text: the bubble font, so a sent draft's glyphs fly into
@@ -45,8 +93,10 @@ enum ConversationTheme {
     /// Bubble text: the body style with tight leading ("ShortBody"), 17 pt at
     /// the default size.
     static var bubbleFont: UIFont {
-        let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
-        return UIFont(descriptor: descriptor.withSymbolicTraits(.traitTightLeading) ?? descriptor, size: 0)
+        cachedFont(FontRequest(name: "bubble")) {
+            let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+            return UIFont(descriptor: descriptor.withSymbolicTraits(.traitTightLeading) ?? descriptor, size: 0)
+        }
     }
 
     /// The accessibility text sizes start where body text reaches 28 pt.
@@ -110,7 +160,7 @@ enum ConversationTheme {
 
     /// Group sender names: caption 2 (11 pt at the default size), 14 pt in
     /// from the bubble's leading edge.
-    static var senderNameFont: UIFont { .preferredFont(forTextStyle: .caption2) }
+    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { .preferredFont(forTextStyle: .caption2) } }
     static let senderNameInset: CGFloat = 14
     /// "Delivered"/"Read": caption 2 semibold (11 pt, 13.33 pt tall at Large;
     /// Messages scales it: 20.3 pt tall at XXXL, 48 at AX5), 6 pt under the
@@ -122,7 +172,7 @@ enum ConversationTheme {
     static let footerInset: CGFloat = 20
     static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
-    static var quoteFont: UIFont { .preferredFont(forTextStyle: .subheadline) }
+    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { .preferredFont(forTextStyle: .subheadline) } }
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
     /// ChatKit's `transcriptBoldFont`: "Today" in separators, names in
@@ -132,7 +182,7 @@ enum ConversationTheme {
     /// Swipe-left send times: the timestamp size with tabular digits, as
     /// ChatKit's `transcriptDrawerFont` (monospaced digits, iOS 26 and 27).
     static var timestampDrawerFont: UIFont {
-        .monospacedDigitSystemFont(ofSize: timestampFont.pointSize, weight: .regular)
+        cachedFont(FontRequest(name: "drawer")) { .monospacedDigitSystemFont(ofSize: timestampFont.pointSize, weight: .regular) }
     }
     /// Separator, swipe-time and status gray: Messages draws these in the
     /// system secondary label color (138,138,142 on white).
@@ -188,9 +238,28 @@ enum ConversationTheme {
     /// composer down (`ConversationTranscriptMetrics.gradientSpan`). Stops
     /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB) and
     /// re-fitted against Messages on iOS 27.0, light and dark, within 1-3 levels.
-    struct ScreenGradient: Sendable {
+    struct ScreenGradient: Sendable, Equatable {
         var light: [(CGFloat, CGFloat, CGFloat)]
         var dark: [(CGFloat, CGFloat, CGFloat)]
+
+        static func == (a: ScreenGradient, b: ScreenGradient) -> Bool {
+            func same(_ x: [(CGFloat, CGFloat, CGFloat)], _ y: [(CGFloat, CGFloat, CGFloat)]) -> Bool {
+                x.count == y.count && zip(x, y).allSatisfy { $0 == $1 }
+            }
+            return same(a.light, b.light) && same(a.dark, b.dark)
+        }
+
+        /// The gradient over three window heights, the window in the middle
+        /// third: the same colors `samples` gives for any slice of the
+        /// window, clamped to the end colors above and below it.
+        func windowSamples(traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
+            let window = samples(from: 0, to: 1, traits: traits)
+            guard let first = window.colors.first, let last = window.colors.last else { return window }
+            return (
+                [first] + window.colors + [last],
+                [0] + window.locations.map { (1 + $0) / 3 } + [1]
+            )
+        }
 
         /// Colors and locations covering window fractions `top...bottom`.
         func samples(from top: CGFloat, to bottom: CGFloat, traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
