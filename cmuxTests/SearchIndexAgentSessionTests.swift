@@ -208,7 +208,7 @@ struct SearchIndexAgentSessionTests {
         try Data().write(to: day.appendingPathComponent("rollout-2026-10-10T09-00-00-abc-1234.jsonl"))
         let record = AgentChatSessionRecord(sessionID: "abc-123", agentKind: .codex, state: .idle, lastActivityAt: now)
 
-        let found = AgentChatTranscriptService.liveCodexRolloutPath(for: record, now: now, codexHome: home)
+        let found = CodexRolloutLookup(record: record, codexHome: home).livePath(now: now)
 
         #expect(found == rollout.path)
     }

@@ -162,7 +162,63 @@ struct AgentSessionSearchTranscriptTests {
         #expect(pruned == nil)
     }
 
+    @Test
+    func aFoundCodexRolloutIsReadAgainWithoutLookingItUp() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let today = calendar.dateComponents([.year, .month, .day], from: Date())
+        let year = try #require(today.year)
+        let month = try #require(today.month)
+        let day = try #require(today.day)
+        // Today's directory stays in the lookup's window (as yesterday's) if
+        // midnight passes mid-test.
+        let directory = home.appendingPathComponent(
+            String(format: "sessions/%04d/%02d/%02d", year, month, day),
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let rollout = directory.appendingPathComponent("rollout-2026-10-10T09-00-00-abc-123.jsonl")
+        try (Self.codexReplyLine("checking the persimmon ledger") + "\n")
+            .write(to: rollout, atomically: true, encoding: .utf8)
+        let transcripts = AgentSessionSearchTranscripts()
+
+        let firstRevision = await transcripts.refreshedRevision(for: Self.codexSource(codexHome: home))
+        let first = try #require(firstRevision)
+
+        // A lookup that finds nothing now (the date window moved on, say)
+        // still reads the rollout it found before.
+        let lost = Self.codexSource(codexHome: home.appendingPathComponent("elsewhere", isDirectory: true))
+        try Self.append(Data((Self.codexReplyLine("and the quince ledger") + "\n").utf8), to: rollout)
+        let grownRevision = await transcripts.refreshedRevision(for: lost)
+        let grown = try #require(grownRevision)
+        #expect(grown != first)
+        let text = await transcripts.text(forSessionID: "abc-123")
+        #expect(text?.contains("quince ledger") == true)
+
+        try FileManager.default.removeItem(at: rollout)
+        let goneRevision = await transcripts.refreshedRevision(for: lost)
+        #expect(goneRevision == nil)
+    }
+
     // MARK: - Fixtures
+
+    private static func codexSource(codexHome: URL) -> AgentSessionSearchSource {
+        AgentSessionSearchSource(
+            sessionID: "abc-123",
+            agentKind: .codex,
+            transcript: .codexRollout(CodexRolloutLookup(sessionIDs: ["abc-123"], pid: nil, codexHome: codexHome))
+        )
+    }
+
+    static func codexReplyLine(_ text: String) -> String {
+        json([
+            "timestamp": "2026-10-10T09:00:00.000Z", "type": "response_item",
+            "payload": ["type": "message", "role": "assistant", "content": [["type": "output_text", "text": text]]],
+        ])
+    }
 
     private func withTranscript(_ lines: [String], _ body: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
