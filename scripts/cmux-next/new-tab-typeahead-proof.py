@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Cmd-T typeahead on a tagged cmux-next DEBUG app (cx-9fl), through the real key path.
+
+Usage: new-tab-typeahead-proof.py TAG RUNS [TEXT]   (run on the GUI host; the app must run
+with its control socket at /tmp/cmux-debug-TAG.sock; launch it fresh so run 0 is the first
+Cmd-T after launch, the cold path)
+
+Each run sends Cmd-T through `debug.key`, then TEXT (default `hello`) one key at a time as
+separate socket calls, with no wait for the page; then reads the New Tab field
+(`debug.new_tab {"action": "field"}`) once it settles, and closes the tab with Cmd-W. A run is
+ok when the field holds TEXT exactly. Exit 1 when any run lost or reordered a key.
+"""
+import json, socket, sys, time
+
+TAG, RUNS = sys.argv[1], int(sys.argv[2])
+TEXT = sys.argv[3] if len(sys.argv) > 3 else "hello"
+CTL = f"/tmp/cmux-debug-{TAG}.sock"
+
+
+def rpc(method, params=None, timeout=30):
+    c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(CTL)
+    c.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = c.recv(1 << 22)
+        if not chunk: break
+        buf += chunk
+    c.close()
+    return json.loads(buf).get("result")
+
+
+window = rpc("snapshot.get")["topology"]["windows"][0]["key"]
+rows = []
+for run in range(RUNS):
+    t0 = time.perf_counter()
+    rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window})
+    for ch in TEXT:
+        rpc("debug.key", {"key": ch, "window": window})
+    typed_ms = (time.perf_counter() - t0) * 1000
+    field, settled = None, None
+    deadline = time.perf_counter() + 5
+    while time.perf_counter() < deadline:
+        field = rpc("debug.new_tab", {"action": "field"})
+        text = (field or {}).get("text")
+        if text == settled and text is not None:
+            break
+        settled = text
+        time.sleep(0.25)
+    row = {"run": run, "typed_ms": round(typed_ms, 1), "field": field, "ok": (field or {}).get("text") == TEXT}
+    rows.append(row)
+    print(json.dumps(row), flush=True)
+    rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+    time.sleep(0.8)
+print(json.dumps({"summary": {"runs": len(rows), "ok": sum(r["ok"] for r in rows),
+                              "lost": [r["run"] for r in rows if not r["ok"]]}}))
+sys.exit(0 if all(r["ok"] for r in rows) else 1)
