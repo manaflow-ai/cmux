@@ -499,12 +499,13 @@ final class CloudBrowserAccessState {
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
               let address = remoteURL.host else { return nil }
         let allowsLoopback = model?.allowsLoopback == true
-        let explicitSSHLoopback = allowsLoopback
-            ? url.host.flatMap {
-                guard RemoteLoopbackProxyAlias.isLoopbackHost($0) else { return nil }
-                return $0.lowercased() == "0.0.0.0" ? "127.0.0.1" : $0
-            }
-            : nil
+        let explicitSSHLoopback: String?
+        if allowsLoopback, let host = url.host,
+           RemoteLoopbackProxyAlias.isLoopbackHost(host) {
+            explicitSSHLoopback = host.lowercased() == "0.0.0.0" ? "127.0.0.1" : host
+        } else {
+            explicitSSHLoopback = nil
+        }
         return CloudPortRoutePolicy().privateURL(
             url.absoluteString,
             address: explicitSSHLoopback ?? address,
