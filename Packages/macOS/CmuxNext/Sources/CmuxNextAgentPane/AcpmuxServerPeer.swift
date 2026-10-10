@@ -14,6 +14,12 @@ import CmuxNextCompat
 ///   token (`LOCAL_PEERTOKEN`, not its pid), is Apple-anchored and signed by the same team.
 ///
 /// Anything else is refused and logged once per path; the app then never sends the key there.
+///
+/// Residual (DEV, an ad-hoc signed build): the check is the executable path only, so a same-uid
+/// process that runs that very binary (the bundled acpmux, started by an agent with its own
+/// home) passes it. Such a daemon holds no key of this app (one key per daemon instance, given
+/// only to a daemon this app started or enrolled), and a proof names its transport, so it learns
+/// nothing it can use against the app's own daemon.
 nonisolated enum AcpmuxServerPeer {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
@@ -73,11 +79,32 @@ nonisolated enum AcpmuxServerPeer {
     /// each one as ``check(descriptor:executable:)`` checks a unix peer. No listener, or any
     /// other one, refuses (logged once per port).
     @concurrent static func verifyListener(port: Int, executable: URL) async -> Bool {
-        let owners = listeners(port: port)
+        let owners = tcpSockets().filter { $0.listening && $0.localPort == port }.map(\.pid)
+        return judge(owners, executable: executable, what: "listener on port \(port)")
+    }
+
+    /// After the pane connected (cx-fcaq): the process that holds the accepted end of each of
+    /// this process's connections to `port` (local port `port`, remote port = ours) is the
+    /// acpmux this app runs, so the scan before connecting and the connect are not separated.
+    @concurrent static func verifyAccepted(port: Int, executable: URL) async -> Bool {
+        let all = tcpSockets()
+        let me = getpid()
+        let ours = all.filter { $0.pid == me && $0.established && $0.remotePort == port }.map(\.localPort)
+        var owners: [pid_t] = []
+        for local in ours {
+            let peers = all.filter { $0.pid != me && $0.established && $0.localPort == port && $0.remotePort == local }
+            if peers.isEmpty { return judge([], executable: executable, what: "accepted end on port \(port)") }
+            owners += peers.map(\.pid)
+        }
+        return judge(ours.isEmpty ? [] : owners, executable: executable, what: "accepted end on port \(port)")
+    }
+
+    /// Every owner passes the executable (and, Team-signed, the signature) rule; none refuses.
+    private static func judge(_ owners: [pid_t], executable: URL, what: String) -> Bool {
         let wanted = executable.resolvingSymlinksInPath().path
         var refusal: Refusal?
         if owners.isEmpty { refusal = .noPeer }
-        for pid in owners where refusal == nil {
+        for pid in Set(owners) where refusal == nil {
             var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
             let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
@@ -85,14 +112,22 @@ nonisolated enum AcpmuxServerPeer {
             if let team = ownTeam, !teamSigned(pid: pid, team: team) { refusal = .notTeamSigned }
         }
         guard let refusal else { return true }
-        if refusedPaths.withLock({ $0.insert("tcp:\(port)").inserted }) {
-            logger.error("acpmux WebSocket listener refused on port \(port, privacy: .public): \(refusal.description, privacy: .public); the pane does not connect")
+        if refusedPaths.withLock({ $0.insert(what).inserted }) {
+            logger.error("acpmux WebSocket \(what, privacy: .public) refused: \(refusal.description, privacy: .public); the pane does not connect")
         }
         return false
     }
 
-    /// The pids of this user's processes with a TCP socket listening on `port`.
-    static func listeners(port: Int) -> [pid_t] {
+    struct TCPSocket {
+        var pid: pid_t
+        var localPort: Int
+        var remotePort: Int
+        var listening: Bool
+        var established: Bool
+    }
+
+    /// This user's processes' TCP sockets (libproc).
+    static func tcpSockets() -> [TCPSocket] {
         let uid = getuid()
         let needed = proc_listpids(UInt32(PROC_UID_ONLY), uid, nil, 0)
         guard needed > 0 else { return [] }
@@ -100,32 +135,36 @@ nonisolated enum AcpmuxServerPeer {
         let filled = pids.withUnsafeMutableBytes { bytes in
             proc_listpids(UInt32(PROC_UID_ONLY), uid, bytes.baseAddress, Int32(bytes.count))
         }
-        var owners: [pid_t] = []
+        var out: [TCPSocket] = []
         for pid in pids.prefix(Int(filled) / MemoryLayout<pid_t>.size) where pid > 0 {
-            if listens(pid: pid, port: port) { owners.append(pid) }
+            out += tcpSockets(of: pid)
         }
-        return owners
+        return out
     }
 
-    private static func listens(pid: pid_t, port: Int) -> Bool {
+    private static func tcpSockets(of pid: pid_t) -> [TCPSocket] {
         let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard bytes > 0 else { return false }
+        guard bytes > 0 else { return [] }
         let stride = MemoryLayout<proc_fdinfo>.stride
         var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 8)
         let filled = fds.withUnsafeMutableBytes { buffer in
             proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
         }
+        var out: [TCPSocket] = []
         for fd in fds.prefix(Int(filled) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
             var info = socket_fdinfo()
             let size = Int32(MemoryLayout<socket_fdinfo>.size)
             guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size,
                   info.psi.soi_kind == Int32(SOCKINFO_TCP) else { continue }
             let tcp = info.psi.soi_proto.pri_tcp
-            // insi_lport holds the port in network byte order in its low 16 bits.
-            let local = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)))
-            if tcp.tcpsi_state == Int32(TSI_S_LISTEN), local == port { return true }
+            // The ports are in network byte order in the low 16 bits.
+            let port = { (raw: Int32) in Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: raw))) }
+            out.append(TCPSocket(pid: pid, localPort: port(tcp.tcpsi_ini.insi_lport),
+                                 remotePort: port(tcp.tcpsi_ini.insi_fport),
+                                 listening: tcp.tcpsi_state == Int32(TSI_S_LISTEN),
+                                 established: tcp.tcpsi_state == Int32(TSI_S_ESTABLISHED)))
         }
-        return false
+        return out
     }
 
     private static func teamSigned(pid: pid_t, team: String) -> Bool {

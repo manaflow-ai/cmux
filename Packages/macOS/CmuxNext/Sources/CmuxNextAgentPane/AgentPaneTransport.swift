@@ -158,6 +158,12 @@ import CmuxNextCompat
             throw .connectFailed
         }
         guard self.socket === socket else { throw .staleConnection }
+        // cx-fcaq: the accepted end of this connection is the acpmux this app runs too.
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
+           !(await AcpmuxServerPeer.verifyAccepted(port: port, executable: executable)) {
+            close(connection: id)
+            throw .connectFailed
+        }
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
