@@ -6,6 +6,8 @@ import CmuxNextSettings
 import Foundation
 import Observation
 
+private typealias TransferJSONValue = CmuxNextSettings.JSONValue
+
 /// A live tab that another local cmux build can hand to this App.
 struct SessionTransferItem: Sendable, Equatable, Identifiable {
     let sourceSurface: String
@@ -23,7 +25,7 @@ struct SessionTransferItem: Sendable, Equatable, Identifiable {
     enum Kind: String, Sendable { case terminal, agent }
     var id: String { sourceSurface }
 
-    var json: JSONValue {
+    var json: TransferJSONValue {
         [
             "surface": .string(sourceSurface),
             "workspace": .string(workspace),
@@ -37,7 +39,7 @@ struct SessionTransferItem: Sendable, Equatable, Identifiable {
         ]
     }
 
-    init?(json: JSONValue, defaultWorkspace: String = "") {
+    init?(json: TransferJSONValue, defaultWorkspace: String = "") {
         guard let object = json.objectValue,
               let sourceSurface = object["surface"]?.stringValue ?? object["id"]?.stringValue,
               let kind = object["kind"]?.stringValue.flatMap(Kind.init(rawValue:)) else { return nil }
@@ -122,7 +124,9 @@ final class SessionTransferService {
 
     func complete(surfaces: [String]) async throws {
         guard let services, let connection = services.daemon.connection else { throw Failure.unavailable }
-        try await connection.closeTabs(surfaces.map(SurfaceID.init(rawValue:)), endTerminals: true)
+        let ids = surfaces.compactMap { UInt64($0).map(SurfaceID.init(rawValue:)) }
+        guard ids.count == surfaces.count else { throw Failure.invalidSurfaces }
+        try await connection.closeTabs(ids, endTerminals: true)
     }
 
     /// Builds the list used by the launch notice and by `session.transfer.list`.
@@ -140,7 +144,7 @@ final class SessionTransferService {
             let items: [SessionTransferItem]
             if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list"),
                let records = list["sessions"]?.arrayValue {
-                items = records.compactMap(SessionTransferItem.init(json:))
+                items = records.compactMap { SessionTransferItem(json: $0) }
             } else {
                 items = await Self.discoverClassicItems(path: path)
             }
@@ -208,23 +212,26 @@ final class SessionTransferService {
         return items
     }
 
-    private static func classicItem(_ value: JSONValue, workspace: String, fallbackCWD: String?) -> SessionTransferItem? {
+    private static func classicItem(_ value: TransferJSONValue, workspace: String, fallbackCWD: String?) -> SessionTransferItem? {
         guard let object = value.objectValue,
               let sourceSurface = object["id"]?.stringValue ?? object["ref"]?.stringValue else { return nil }
         let type = object["type"]?.stringValue ?? ""
         guard type == "terminal" || type == "pty" else { return nil }
         let binding = object["resume_binding"]?.objectValue
-        let harness = object["agent"]?.stringValue ?? binding?["harness"]?.stringValue ?? binding?["kind"]?.stringValue
-        let session = object["agent_session"]?.stringValue
-            ?? binding?["session_id"]?.stringValue
-            ?? binding?["checkpoint_id"]?.stringValue
+        let bindingHarness = binding?["harness"]?.stringValue
+        let bindingKind = binding?["kind"]?.stringValue
+        let harness = object["agent"]?.stringValue ?? bindingHarness ?? bindingKind
+        let directSession = object["agent_session"]?.stringValue
+        let bindingSession = binding?["session_id"]?.stringValue
+        let bindingCheckpoint = binding?["checkpoint_id"]?.stringValue
+        let session = directSession ?? bindingSession ?? bindingCheckpoint
         let isAgent = harness != nil && session != nil
         let command = object["initial_command"]?.stringValue ?? binding?["command"]?.stringValue
         let cwd = object["requested_working_directory"]?.stringValue ?? binding?["cwd"]?.stringValue ?? fallbackCWD
         let sshTarget = object["ssh_target"]?.stringValue ?? Self.sshTarget(from: command)
         let title = object["title"]?.stringValue ?? ""
         return SessionTransferItem(sourceSurface: sourceSurface, workspace: workspace,
-                                   kind: isAgent ? .agent : .terminal, title: title, cwd: cwd,
+                                   kind: isAgent ? SessionTransferItem.Kind.agent : SessionTransferItem.Kind.terminal, title: title, cwd: cwd,
                                    sshTarget: sshTarget, command: isAgent ? nil : command,
                                    agentHarness: isAgent ? harness : nil,
                                    agentSessionID: isAgent ? session : nil)
@@ -259,13 +266,14 @@ final class SessionTransferService {
         case Failure.noSessions: "No sessions are available to move from another cmux build."
         case Failure.missingAgentID: "The selected agent has no resumable session id."
         case Failure.unavailable: "Session transfer is unavailable while cmux is starting."
+        case Failure.invalidSurfaces: "The source build returned invalid session identifiers."
         default: "Could not move sessions from the other cmux build."
         }
     }
 
-    enum Failure: Error { case noSessions, missingAgentID, unavailable }
+    enum Failure: Error { case noSessions, missingAgentID, unavailable, invalidSurfaces }
 }
 
-private extension JSONValue {
-    static func optional(_ value: String?) -> JSONValue { value.map(JSONValue.string) ?? .null }
+private extension CmuxNextSettings.JSONValue {
+    static func optional(_ value: String?) -> CmuxNextSettings.JSONValue { value.map(CmuxNextSettings.JSONValue.string) ?? .null }
 }

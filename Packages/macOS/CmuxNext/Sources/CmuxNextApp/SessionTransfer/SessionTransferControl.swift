@@ -34,13 +34,11 @@ enum SessionTransferControl {
                     "sessions": .array(sessions),
                 ]
             },
-            .async("session.transfer.complete") { call in
+            .async("session.transfer.complete") { [transfer = services.sessionTransfer] call in
                 let surfaces = call.params["surfaces"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 guard !surfaces.isEmpty else { throw ControlError.invalidParams("surfaces is required") }
-                return try await MainActor.run {
-                    try await services.sessionTransfer.complete(surfaces: surfaces)
-                    return ["closed": JSONValue(surfaces.count)]
-                }
+                try await transfer.complete(surfaces: surfaces)
+                return ["closed": JSONValue(surfaces.count)]
             }.withDeadline(.fixed(.seconds(30))),
         ]
     }
