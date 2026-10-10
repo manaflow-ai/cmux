@@ -111,7 +111,7 @@ final class PaletteScopeListProvider: PaletteProvider {
 enum PaletteItemActionsPage {
     @MainActor
     static func make(for item: PaletteItem, model: PaletteModel) -> PalettePageSpec {
-        let rows = (item.allCommands + model.usageCommands(for: item)).map { command in
+        let rows = (item.allCommands + PaletteRowControls.commands(for: item, model: model)).map { command in
             PaletteItem(id: "action:\(command.id)", title: command.title, symbol: command.symbol, primary: command, frecencyKey: nil)
         }
         return PalettePageSpec(

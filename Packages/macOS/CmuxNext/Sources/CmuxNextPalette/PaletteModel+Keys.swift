@@ -160,7 +160,7 @@ extension PaletteModel {
 
     func openActionsMenu() -> Bool {
         guard let item = selectedItem, item.isEnabled else { return false }
-        actionsMenu = PaletteActionsMenuState(itemID: item.id, itemTitle: item.title, commands: item.allCommands + usageCommands(for: item))
+        actionsMenu = PaletteActionsMenuState(itemID: item.id, itemTitle: item.title, commands: item.allCommands + PaletteRowControls.commands(for: item, model: self))
         return true
     }
 
