@@ -14,20 +14,36 @@ struct HeaderSplitOrderTests {
         let registry = ActionRegistry()
         private(set) var panes: [(pane: PaneID, surface: SurfaceID, kind: TabKind)] = [(1, 1, .other("agentChat"))]
         private var next: UInt64 = 2
+        /// The page each page tab shows (the diff viewer's `diff`), by surface.
+        private(set) var pages: [SurfaceID: String] = [:]
+        /// The last invocation of each action the row handles.
+        private(set) var invocations: [String: ActionInvocation] = [:]
+        /// The chat's folder.
+        let cwd = "/repo"
 
         static func id(_ surface: SurfaceID) -> String { "surface:\(surface.rawValue)" }
         var chat: String { Self.id(1) }
         /// The row's tabs left to right, by kind.
         var order: [String] {
-            panes.map { switch $0.kind { case .pty: "terminal"; case .browser: "browser"; default: "chat" } }
+            panes.map {
+                if pages[$0.surface] == "diff" { return "changes" }
+                switch $0.kind { case .pty: return "terminal"; case .browser: return "browser"; default: return "chat" }
+            }
         }
 
         init() {
             for (id, kind) in [("splitRight", TabKind.pty), ("splitBrowserRight", .browser)] {
                 registry.register(Action(id: ActionID(rawValue: id), title: id, invoke: { [unowned self] invocation in
+                    invocations[id] = invocation
                     split(invocation.target?.id, kind: kind)
                 }, handler: {}))
             }
+            // The diff viewer's page tab, placed right of the tab it names (AgentBesidePlacement).
+            registry.register(Action(id: "openDiffViewer", title: "openDiffViewer", invoke: { [unowned self] invocation in
+                invocations["openDiffViewer"] = invocation
+                if let surface = split(invocation.target?.id, kind: .conversation) { pages[surface] = "diff" }
+                publish()
+            }, handler: {}))
             registry.register(Action(id: "closeTab", title: "closeTab", invoke: { [unowned self] invocation in
                 panes.removeAll { Self.id($0.surface) == invocation.target?.id }
                 publish()
@@ -36,25 +52,32 @@ struct HeaderSplitOrderTests {
         }
 
         /// Split Right on the targeted tab's pane: the new pane lands just right of it.
-        private func split(_ tab: String?, kind: TabKind) {
-            guard let index = panes.firstIndex(where: { Self.id($0.surface) == tab }) else { return }
-            panes.insert((PaneID(rawValue: next), SurfaceID(rawValue: next), kind), at: index + 1)
+        @discardableResult
+        private func split(_ tab: String?, kind: TabKind) -> SurfaceID? {
+            guard let index = panes.firstIndex(where: { Self.id($0.surface) == tab }) else { return nil }
+            let surface = SurfaceID(rawValue: next)
+            panes.insert((PaneID(rawValue: next), surface, kind), at: index + 1)
             next += 1
             publish()
+            return surface
         }
 
         private func publish() {
             let layout = panes.dropFirst().reduce(LayoutNode.leaf(panes[0].pane)) { left, pane in
                 .split(id: nil, direction: .right, ratio: 0.5, a: left, b: .leaf(pane.pane))
             }
-            let snapshots = panes.map { PaneSnapshot(id: $0.pane, tabs: [TabSnapshot(surface: $0.surface, kind: $0.kind)]) }
+            let snapshots = panes.map { pane in
+                var tab = TabSnapshot(surface: pane.surface, kind: pane.kind, cwd: pane.surface == 1 ? cwd : nil)
+                if let page = pages[pane.surface] { tab.conversation = ConversationTabRef(page: page) }
+                return PaneSnapshot(id: pane.pane, tabs: [tab])
+            }
             let screen = ScreenSnapshot(id: 1, layout: layout, panes: snapshots)
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         }
 
         func click(_ id: String, toggles: AgentChatSplitToggles) {
             let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry })
-            toggles.toggle(id, cwd: nil, chat: chat, store: store, actions: actions)
+            toggles.toggle(id, cwd: id == "splitRight" ? nil : cwd, chat: chat, store: store, actions: actions)
         }
     }
 
