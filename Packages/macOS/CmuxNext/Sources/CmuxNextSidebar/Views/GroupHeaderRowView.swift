@@ -6,12 +6,13 @@ import QuartzCore
 /// Group header as the Chrome tab group header bar (cx-rcby, Lawrence
 /// 2026-10-08: "make sure for groups we pixel match this", "but with our
 /// smaller height"): one full-width rounded bar filled with the group's
-/// color (light gray for none) with the name in dark regular type, a more
-/// (⋮) button on hover and the collapse chevron at the right edge. Radius,
-/// padding, type and glyphs scale with the row height (the sidebar density
-/// setting). No member count: a collapsed group shows its members' activity
-/// and unread total in the bar. The name, the more button and a right-click
-/// open the group editor; the chevron and the rest of the bar collapse.
+/// color (the theme's palette color, cx-q5jw) with the name in black or
+/// white type, a + and a more (…) button on hover and the collapse chevron
+/// at the right edge. Radius, padding, type and glyphs scale with the row
+/// height (the sidebar density setting). No member count: a collapsed group
+/// shows its members' activity and unread total in the bar. The name opens
+/// the group editor; the more button and a right-click show the group's
+/// full menu (cx-a9h6); the chevron and the rest of the bar collapse.
 final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
@@ -21,7 +22,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
-    /// The more button (⋮): the group editor. Shows on hover and while the editor is open.
+    /// The more button (…): the group's full menu, as a right-click (cx-a9h6). Shows on hover and while the editor is open.
     let moreButton = SidebarIconButton(symbol: "ellipsis", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
@@ -43,6 +44,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group editor is open for this group: the chip stays in its hover look.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
     var onMore: (() -> Void)?
+    /// Opens the group editor (name and color); VoiceOver's Edit action.
+    var onEdit: (() -> Void)?
     var onAdd: (() -> Void)?
 
     override var interactiveSubviews: [NSView] { [addButton, moreButton] }
@@ -52,14 +55,12 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.addSublayer(pill)
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         glyph.drawsUncoloredSymbolAsText = true
-        // The more glyph stands upright (⋮), like the Chrome chip's.
-        moreButton.image = Self.verticalEllipsis()
         [glyph, name, pin, chevron, activity, badge, addButton, moreButton].forEach(addSubview)
         moreButton.onPress = { [weak self] in self?.onMore?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
         setAccessibilityCustomActions([NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { [weak self] in
-            self?.onMore?()
-            return self?.onMore != nil
+            self?.onEdit?()
+            return self?.onEdit != nil
         }])
     }
 
@@ -70,6 +71,7 @@ final class GroupHeaderRowView: SidebarRowView {
         isEditing = false
         collapsed = false
         onMore = nil
+        onEdit = nil
         onAdd = nil
     }
 
@@ -92,7 +94,6 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
         chevron.image = Self.chevronImage(collapsed: collapsed)
-        moreButton.image = Self.verticalEllipsis()
         activity.configure(collapsed ? group.aggregateActivity : .idle)
         let unread = group.unreadTotal
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
@@ -103,20 +104,6 @@ final class GroupHeaderRowView: SidebarRowView {
         setAccessibilityExpanded(!collapsed)
         needsLayout = true
         needsDisplay = true
-    }
-
-    /// Three dots stacked, the Chrome chip's more glyph, as a template image.
-    private static func verticalEllipsis() -> NSImage {
-        let side = Metrics.smallIconSize, dot = max(2, side / 6)
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            for i in 0..<3 {
-                let y = rect.midY + CGFloat(i - 1) * dot * 2.2 - dot / 2
-                NSBezierPath(ovalIn: NSRect(x: rect.midX - dot / 2, y: y, width: dot, height: dot)).fill()
-            }
-            return true
-        }
-        image.isTemplate = true
-        return image
     }
 
     private static func chevronImage(collapsed: Bool) -> NSImage? {
