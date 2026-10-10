@@ -67,8 +67,7 @@ enum AgentPaneTheme {
     static func pageColor(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane,
                           backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
         if backgrounds.fill(for: surface, tokens: tokens) != nil { return tokens.surfaceBackground.withAlpha(0) }
-        // The New Tab page is transparent: its pane paints the background, or the previous
-        // content blurred and dimmed under it (PaneContentView+NewTabBackdrop).
+        // The New Tab page is transparent: its pane paints the window's background under it (cx-tcju).
         if surface == .newTabPage { return tokens.surfaceBackground.withAlpha(0) }
         return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
     }
@@ -97,8 +96,7 @@ enum AgentPaneTheme {
 
     /// The shared web theme of `surface`. The New Tab page is transparent (the page background
     /// rule paints nothing) unless `appearance.surfaces.newTabPage` gives it a background: its
-    /// pane backs it, with the previous content blurred and dimmed (the app's
-    /// PaneContentView+NewTabBackdrop).
+    /// pane backs it with the window's own background, as it backs a terminal (cx-tcju).
     @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind,
                                     backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         var backgrounds = backgrounds

@@ -18,11 +18,6 @@ final class PaneContentView: NSView, PaneContentChrome {
     private let stripScope = ThemeScope(level: .terminal)
     let contentHost = NSView()
     private(set) weak var content: NSView?
-    /// The content shown before a New Tab page, left in place under it, blurred and dimmed
-    /// (PaneContentView+NewTabBackdrop).
-    weak var underlay: NSView?
-    /// The blur and dim between ``underlay`` and the New Tab page.
-    var frost: NewTabFrostView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
@@ -191,10 +186,9 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     /// Swaps the hosted content view. Returns the previous one. Focus is
     /// not handled here: the window's `FocusCoordinator` re-targets the
-    /// keyboard when the pane reports the new content. `overBackdrop`: `view`
-    /// is a New Tab page, shown over the previous content blurred and dimmed.
+    /// keyboard when the pane reports the new content.
     @discardableResult
-    func show(_ view: NSView?, overBackdrop: Bool = false) -> NSView? {
+    func show(_ view: NSView?) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent) else { return previous }
         tabSwitchMark("show")
@@ -206,10 +200,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         // stays until then (`beginPaintHold`), not an empty pane. Not a
         // browser whose header band the strip leaves now (its header would
         // jump while it stays). While an earlier switch waits, what shows is
-        // the content it keeps (a New Tab page over a backdrop ends it instead).
-        let kept = overBackdrop ? nil : paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
+        // the content it keeps.
+        let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
         let shown = kept ?? hosted
-        var holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
+        let holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
         if holds, kept != nil {
@@ -219,14 +213,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             // An earlier switch still waiting on a first frame ends now.
             endPaintHold()
         }
-        var leaving: NSView?
-        if overBackdrop, let hosted, hosted !== view, keepsBackdrop(hosted) {
-            // Left in place as the New Tab page's backdrop: it stays, so no hold.
-            holds = false
-        } else if hosted !== view, !holds {
-            leaving = hosted
-        }
-        if !overBackdrop { dropBackdrop(keeping: view) }
+        let leaving = hosted !== view && !holds ? hosted : nil
         if let view { install(view, replacing: leaving) }
         if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
@@ -259,7 +246,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
         endPaintHold()
-        dropBackdrop(keeping: nil)
         if hostsContent {
             (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             content?.removeFromSuperview()
