@@ -660,15 +660,32 @@ async fn a_person_proof_replayed_on_another_connection_is_refused() {
     app.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
 }
 
-/// cx-fcaq: a daemon whose WebSocket port is already taken (an agent that
-/// shut the daemon down and bound the port first) exits with a clear error
-/// and never serves its unix socket: no keyed daemon runs while a squatter
-/// holds its port, so the squatter has nothing to relay the pane to.
-#[test]
-fn a_taken_websocket_port_makes_the_daemon_exit() {
-    let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = squatter.local_addr().unwrap().port();
-    let dir = std::env::temp_dir().join(format!("amp-port-{}", std::process::id()));
+/// Starts the real daemon with `args` in `dir` (with its config.json): its
+/// ready line, or None when it exited first, with its exit status and stderr.
+fn run_until_ready(dir: &Path, args: &[&str]) -> (Option<Value>, std::process::Child) {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .args(args)
+        .env("ACPMUX_HOME", dir)
+        .env("ACPMUX_SOCKET", dir.join("s.sock"))
+        .env_remove("ACPMUX_LOGIN_ENV")
+        .env_remove("XPC_SERVICE_NAME")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Its ready line, or the end of its output when it exits.
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .find(|v| v["ready"] == true);
+    (ready, child)
+}
+
+fn port_dir(tag: &str, port: u16) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("amp-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let dir = std::fs::canonicalize(&dir).unwrap();
@@ -682,34 +699,54 @@ fn a_taken_websocket_port_makes_the_daemon_exit() {
         .to_string(),
     )
     .unwrap();
-    let socket = dir.join("s.sock");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
-        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
-        .env("ACPMUX_HOME", &dir)
-        .env("ACPMUX_SOCKET", &socket)
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    // Its ready line, or the end of its output when it exits.
-    let ready = BufReader::new(child.stdout.take().unwrap())
-        .lines()
-        .map_while(Result::ok)
-        .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
-    if ready {
+    dir
+}
+
+/// cx-fcaq, availability: an unrelated program on the configured
+/// WebSocket port does not stop acpmux. The daemon listens on a new free
+/// loopback port, reports it, and saves it (the app reads the port from
+/// status, then checks that port's listener before it connects).
+#[test]
+fn a_taken_configured_websocket_port_moves_the_daemon_to_a_free_port() {
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken = other.local_addr().unwrap().port();
+    let dir = port_dir("moved", taken);
+    let (ready, mut child) = run_until_ready(&dir, &[]);
+    let ready = ready.expect("the daemon runs with its configured port taken");
+    let web = ready["webUrl"].as_str().expect("a web listener").to_owned();
+    assert!(!web.contains(&format!(":{taken}/")), "{web}");
+    let saved: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+    let listen = saved["websocket"]["listen"].as_str().unwrap().to_owned();
+    assert_ne!(listen, format!("127.0.0.1:{taken}"));
+    assert!(web.contains(&listen), "saved {listen}, reported {web}");
+    // SAFETY: the pid of the child this test spawned and still owns.
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let _ = child.wait();
+    drop(other);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cx-fcaq: an explicit `--listen` that is taken stops the daemon with a
+/// clear error, and its unix socket never answers.
+#[test]
+fn a_taken_explicit_listen_port_makes_the_daemon_exit() {
+    let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = squatter.local_addr().unwrap().port();
+    let dir = port_dir("listen", port);
+    let listen = format!("127.0.0.1:{port}");
+    let (ready, mut child) = run_until_ready(&dir, &["--listen", &listen]);
+    if ready.is_some() {
         let _ = child.kill();
         let _ = child.wait();
-        panic!("the daemon got ready with its WebSocket port taken");
+        panic!("the daemon got ready with its --listen port taken");
     }
     let out = child.wait_with_output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "the daemon ran with a taken port: {stderr}");
     assert!(stderr.contains("is taken"), "{stderr}");
     assert!(
-        std::os::unix::net::UnixStream::connect(&socket).is_err(),
+        std::os::unix::net::UnixStream::connect(dir.join("s.sock")).is_err(),
         "the unix socket still answers"
     );
     drop(squatter);
