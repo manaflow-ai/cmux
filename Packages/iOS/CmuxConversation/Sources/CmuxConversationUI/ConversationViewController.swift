@@ -1300,7 +1300,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let width = collectionView.bounds.width
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
-        let gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
+        // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
+        if previousLayout.endsWithCaption { gap = max(gap, ConversationTheme.footerGap) }
         // A tapback badge that clears the bubble above sideways rises beside it.
         let layout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
         if !model.reactionKinds.isEmpty, let anchor = layout.reactionAnchor {

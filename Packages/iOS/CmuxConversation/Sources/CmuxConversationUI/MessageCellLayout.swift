@@ -66,6 +66,13 @@ struct MessageCellLayout {
     var translationFrame: CGRect? = nil
     /// Document balloons (tail area excluded, like `bubbleFrame`), one per file.
     var fileFrames: [CGRect] = []
+
+    /// The row ends in a caption line ("Replay", "Edited", "Delivered", ...)
+    /// rather than a bubble.
+    var endsWithCaption: Bool {
+        guard let last = [footerFrame, repliesFrame, editedFrame, translationFrame, replayFrame, audioExpiryFrame].compactMap({ $0 }).map(\.maxY).max() else { return false }
+        return last >= height - 0.5
+    }
 }
 
 @MainActor
@@ -446,8 +453,9 @@ extension MessageCellLayout {
         }
         var replayFrame: CGRect?
         if message.effect?.isReplayable == true, bubbleFrame != nil || emojiFrame != nil {
-            replayFrame = footerRect(y + 4)
-            y += 4 + footerHeight
+            // A status line like "Delivered": `smallTranscriptSpace` under the body.
+            replayFrame = footerRect(y + t.footerGap)
+            y += t.footerGap + footerHeight
         }
         var translationFrame: CGRect?
         if model.translation != nil {
