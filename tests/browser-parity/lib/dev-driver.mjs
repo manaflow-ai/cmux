@@ -26,7 +26,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 export const runtimeDir = path.join(repoRoot, "cmux-tui/crates/cmux-browser-host/js");
 
 const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
-const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
+const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "framePosition", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
 const JSON_KEY = "__cmuxJson__";
