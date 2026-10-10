@@ -192,16 +192,27 @@ extension HomeStore {
     }
 
     /// The op with each attachment part's mime type, byte count and poster
-    /// taken from the owner's stored ref for its hash.
+    /// (and each link preview picture's mime type and byte count) taken from
+    /// the owner's stored ref for its hash.
     static func adopting(_ stored: [String: AttachmentRef], in op: HomeOp) -> HomeOp {
         guard case .sendMessage(let conversation, let parts) = op else { return op }
         let adopted = parts.map { part -> MessagePart in
-            guard case .attachment(var ref) = part, let record = stored[ref.hash] else { return part }
-            ref.mimeType = record.mimeType
-            ref.byteCount = record.byteCount
-            ref.poster = record.poster
-            ref.preview = record.preview
-            return .attachment(ref)
+            switch part {
+            case .attachment(var ref):
+                guard let record = stored[ref.hash] else { return part }
+                ref.mimeType = record.mimeType
+                ref.byteCount = record.byteCount
+                ref.poster = record.poster
+                ref.preview = record.preview
+                return .attachment(ref)
+            case .linkPreview(var link):
+                // A link preview's picture is checked against its record the same way.
+                guard let image = link.image, let record = stored[image.hash] else { return part }
+                link.image = AttachmentDerivedImage(hash: image.hash, mimeType: record.mimeType, byteCount: record.byteCount)
+                return .linkPreview(link)
+            default:
+                return part
+            }
         }
         return .sendMessage(conversation: conversation, parts: adopted)
     }

@@ -12,7 +12,10 @@ import Observation
 ///
 /// A send: the draft goes to `HomeStore.perform(.sendMessage)` with a fresh
 /// key, and `.send` is dispatched on the projection in the same turn, so the
-/// morph flies at the press as in MessagesLab. The local message keeps its
+/// morph flies at the press as in MessagesLab. A draft with URL-only lines
+/// goes once their previews answered (`HomeLinkSend`: `link_preview` parts
+/// with the pictures uploaded as records), as iMessage sends after its
+/// loading card. The local message keeps its
 /// reducer id (`aliases[key]`); HomeStore's pending item and committed echo
 /// carry the key, so they only change its status. A send the owner refuses
 /// before logging it leaves the projection (rebuild) and its text returns to
@@ -252,10 +255,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
             drafts[a.ref.hash] = nil
         }
         let homeStore = self.homeStore, conversation = self.conversation
+        // Messages' link rule: URL-only lines are cards whose previews this Mac attaches.
+        let shown = TextParts.parts(for: text)
+        let links = HomeLinkSend.hasLinks(shown) ? HomeLinkSend(previews: linkPreviews, store: homeStore) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
             do {
-                if attachments.isEmpty {
+                if let links {
+                    // The local message already flies with the grey card; the parts go once the previews answered.
+                    let (parts, pictures) = await links.parts(shown)
+                    try await homeStore.send(conversation: conversation, parts: attachments.map { .attachment($0.ref) } + parts,
+                                             uploads: attachments + pictures, key: key)
+                } else if attachments.isEmpty {
                     _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)]), key: key)
                 } else {
                     try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key)

@@ -12,14 +12,24 @@ import Foundation
 /// addresses only, redirects re-checked, an ephemeral session, size caps).
 /// Main thread only, as LinkPreviews.
 final class HomeLinkPreviews: LinkPreviewFetching {
+    /// Fetches one URL's preview; `done` once, on the main thread.
+    typealias Fetch = (String, @escaping (LinkMetadata?) -> Void) -> Void
+
     let previews: LinkPreviews
+    private let load: Fetch
     private var allowed: Set<String> = []
-    /// URLs passed to LinkPreviews (tests).
+    /// Answers from `load` (the same as `previews`' cache unless a test supplies `load`).
+    private var answers: [String: LinkMetadata] = [:]
+    /// URLs passed to LinkPreviews, once each (tests).
     private(set) var requested: [String] = []
 
-    init(_ previews: LinkPreviews = .shared) { self.previews = previews }
+    /// - Parameter fetch: answers in place of `previews` (tests: metadata without the network).
+    init(_ previews: LinkPreviews = .shared, fetch: Fetch? = nil) {
+        self.previews = previews
+        load = fetch ?? { [previews] url, done in previews.fetch(url, done: done) }
+    }
 
-    func cached(_ url: String) -> LinkMetadata? { previews.cached(url) }
+    func cached(_ url: String) -> LinkMetadata? { answers[url] ?? previews.cached(url) }
 
     /// The cards a send of this draft text makes (MessagesLab's send uses the same rule).
     func allowSend(_ text: String) {
@@ -32,7 +42,20 @@ final class HomeLinkPreviews: LinkPreviewFetching {
     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
         // Not allowed: a pending card becomes the domain card (Store.apply), nothing is requested.
         guard allowed.contains(url) else { done(nil); return }
-        requested.append(url)
-        previews.fetch(url, done: done)
+        if !requested.contains(url) { requested.append(url) }
+        load(url) { [weak self] meta in
+            if let meta { self?.answers[url] = meta }
+            done(meta)
+        }
+    }
+
+    /// The preview a send attaches (an allowed URL): LinkPreviews' answer,
+    /// shared with the fetch the local card started, after at most its
+    /// timeout; nil when it failed.
+    @MainActor
+    func preview(_ url: String) async -> LinkMetadata? {
+        await withCheckedContinuation { continuation in
+            fetch(url) { continuation.resume(returning: $0) }
+        }
     }
 }

@@ -37,6 +37,23 @@ extension HomeStore {
         return prepared
     }
 
+    /// A link preview's picture (LinkPreviews' downloaded file) as an image
+    /// record to upload with the send that names it: a JPEG at most
+    /// `previewMaxPixel` and `previewMaxBytes` in the blob cache. Throws
+    /// when the file is not an image or cannot fit.
+    public func prepareLinkPreviewImage(fileURL: URL) async throws -> LocalAttachment {
+        await beginPrepare()
+        defer { preparing -= 1 }
+        let prepared = try await Self.makeLinkPreviewImage(fileURL, root: blobCacheDirectory)
+        localFiles[prepared.ref.hash] = prepared.files
+        return prepared
+    }
+
+    @concurrent
+    private nonisolated static func makeLinkPreviewImage(_ fileURL: URL, root: URL) async throws -> LocalAttachment {
+        try AttachmentMedia.prepareLinkPreviewImage(fileURL: fileURL, root: root)
+    }
+
     /// Waits for a running prune pass, then counts this prepare until its
     /// files are registered in `localFiles` (the prune's keep set).
     private func beginPrepare() async {
@@ -61,15 +78,32 @@ extension HomeStore {
     /// refuse.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make()) async throws {
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key)
+    }
+
+    /// Sends `parts` as one message, uploading `uploads` first exactly as
+    /// `send(conversation:text:attachments:key:)` does (one pending row at
+    /// once, progress, the same queue, retry, resume and cancel rules).
+    /// `uploads` holds every blob the parts name that the owner may not have
+    /// yet: each attachment part's bytes, and a link preview's picture,
+    /// which has no attachment part of its own (an image record the sender
+    /// uploads, `prepareLinkPreviewImage`). Attachment parts and link
+    /// preview pictures take the owner's stored mime type and byte count.
+    public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
+                     key: IdempotencyKey = .make()) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
         // The owner's spelling and ranges, also for refs built outside prepare.
-        let attachments = attachments.map { attachment -> LocalAttachment in
+        let attachments = uploads.map { attachment -> LocalAttachment in
             var attachment = attachment
             attachment.ref = HomeAttachmentPolicy.normalized(attachment.ref)
             return attachment
         }
-        var parts = attachments.map { MessagePart.attachment($0.ref) }
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        let parts = parts.map { part -> MessagePart in
+            guard case .attachment(let ref) = part else { return part }
+            return .attachment(HomeAttachmentPolicy.normalized(ref))
+        }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
         guard parts.count <= HomeAttachmentPolicy.maxParts else {
             throw HomeAttachmentError.tooManyParts(limit: HomeAttachmentPolicy.maxParts)
@@ -91,7 +125,7 @@ extension HomeStore {
             unique.append(attachment)
             localFiles[attachment.ref.hash] = attachment.files
         }
-        uploads[key] = UploadJob(conversation: conversation, attachments: unique)
+        self.uploads[key] = UploadJob(conversation: conversation, attachments: unique)
         enqueueSend(key, in: conversation)
         afterLogChange(op)
         guard isOnline else { try queueUploadWhileOffline(key) }
