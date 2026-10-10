@@ -338,8 +338,8 @@ impl Supervisor {
         let user = origin == Origin::User;
         let package = inner.catalog.packages.get(app);
         let Some((family, entry)) = package.and_then(|p| p.catalog_op(op)).or_else(|| {
-            // A backend op the app consumes: the backend catalog's policy (super::consumes).
-            package.and_then(|p| p.consumed_op(op)).map(|policy| {
+            // A backend op the app serves: the backend catalog's policy (super::serves).
+            package.and_then(|p| p.served_op(op)).map(|policy| {
                 let family = op.split('.').next().unwrap_or(op).to_string();
                 let mut entry = policy.entry;
                 if policy.person_only {
@@ -369,12 +369,12 @@ impl Supervisor {
     }
 
     /// True when `app` declares a server and `op` is one of its catalog ops,
-    /// or a backend op it consumes that a server may run (`consumes`).
+    /// or a backend op it serves that a server may run (`serves`).
     pub(super) fn server_op_locked(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.manifest.get("server").is_some()
                 && (package.catalog_ops().iter().any(|(name, _)| name == op)
-                    || package.consumed_op(op).is_some())
+                    || package.served_op(op).is_some())
         })
     }
 

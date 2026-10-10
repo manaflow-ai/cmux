@@ -52,7 +52,7 @@
       "options": { "kinds": ["cloud-vm"], "openOps": ["cloud.machine.connect"] }
     }
   },
-  "consumes": {
+  "serves": {
     "ops": [
       "cloud.billing.checkout",
       "cloud.machine.connect_info",

@@ -24,7 +24,7 @@ mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
-mod consumes;
+mod serves;
 #[cfg(unix)]
 mod egress;
 #[cfg(unix)]

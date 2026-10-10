@@ -1,5 +1,6 @@
-//! Backend ops a first-party app server consumes (`consumes.ops` in its
-//! manifest; cloud-client-contract.md 2.1, D-ROUTE). The backend catalog
+//! Backend ops a first-party app server serves (`serves.ops` in its
+//! manifest; cloud-client-contract.md 2.1, D-ROUTE). `consumes.ops` is a
+//! different list (the ops an app calls) and is never routed here. The backend catalog
 //! (`backend/catalog/cloud-operations.json`, generated from the protocol
 //! package) is the one owner of their policy: an app never declares a
 //! weaker one. The supervisor routes a consumed op to the app's server only
@@ -26,7 +27,7 @@ const CATALOG: &str = include_str!("../../../../../backend/catalog/cloud-operati
 /// Ops no app server may run, whatever its manifest says.
 const NEVER_ROUTED: &[&str] = &["cloud.machine.link_token"];
 
-/// How the supervisor admits one consumed op.
+/// How the supervisor admits one served op.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Policy {
     /// The catalog row, for `servers::op_scope` (`risk`, `class`).
@@ -47,7 +48,7 @@ fn rows() -> &'static BTreeMap<String, Value> {
     })
 }
 
-/// The policy of consumed op `op`, or `None` when no server may run it.
+/// The policy of served op `op`, or `None` when no server may run it.
 pub(super) fn policy(op: &str) -> Option<Policy> {
     if NEVER_ROUTED.contains(&op) {
         return None;

@@ -85,19 +85,20 @@ impl Package {
         Some((family, entry))
     }
 
-    /// The backend op `op` this first-party server app consumes
-    /// (`consumes.ops`), with the backend catalog's policy; `None` when the
-    /// app does not consume it, is not a first-party app with a server, or
-    /// no server may run it (`super::consumes`).
-    pub(super) fn consumed_op(&self, op: &str) -> Option<super::consumes::Policy> {
+    /// The backend op `op` this first-party server app serves
+    /// (`serves.ops`), with the backend catalog's policy; `None` when the
+    /// app does not serve it, is not a first-party app with a server, or no
+    /// server may run it (`super::serves`). `consumes.ops` (ops an app
+    /// calls) is never routed to the app's server.
+    pub(super) fn served_op(&self, op: &str) -> Option<super::serves::Policy> {
         if self.tier != Tier::FirstParty || self.manifest.get("server").is_none() {
             return None;
         }
-        let consumed = self.manifest.pointer("/consumes/ops")?.as_array()?;
-        if !consumed.iter().any(|name| name.as_str() == Some(op)) {
+        let served = self.manifest.pointer("/serves/ops")?.as_array()?;
+        if !served.iter().any(|name| name.as_str() == Some(op)) {
             return None;
         }
-        super::consumes::policy(op)
+        super::serves::policy(op)
     }
 
     /// The catalog ops whose user runs get an open token: `options.openOps`
