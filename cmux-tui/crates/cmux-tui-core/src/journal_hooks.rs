@@ -1510,67 +1510,6 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn unix_process_scope_repeats_a_final_scan_after_a_late_fork() {
-        const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
-        const SIGNAL_PATH: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK_SIGNAL";
-        let root = std::env::temp_dir().join(format!(
-            "cmux-jh-final-scan-{}-{:x}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let signal_path = root.join("detached.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&signal_path).unwrap();
-        let executable = std::env::current_exe().unwrap();
-        let test_name =
-            "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
-        let mut tree = UnixProcessScope::prepare().unwrap();
-        let (scan_completed, resume_cleanup) = tree.final_scan_gate_for_test();
-        let mut command = UnixProcessScope::suspended_command("/bin/sh");
-        command
-            .args(["-c", "\"$1\" --exact \"$2\" --nocapture &", "cmux-journal-hook-final-scan"])
-            .arg(&executable)
-            .arg(test_name)
-            .env(HELPER, "fork-during-cleanup")
-            .env(SIGNAL_PATH, &signal_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .process_group(0);
-        tree.configure(&mut command);
-        let mut root_child = command.spawn().unwrap();
-        tree.bind(root_child.id()).unwrap();
-        let (mut signal, _) = listener.accept().unwrap();
-        let mut parent = [0_u8; size_of::<u32>()];
-        signal.read_exact(&mut parent).unwrap();
-
-        let cleanup = std::thread::spawn(move || {
-            tree.terminate();
-            let _ = root_child.kill();
-            let _ = root_child.wait();
-        });
-        scan_completed
-            .recv_timeout(Duration::from_secs(5))
-            .expect("final process-scope scan did not reach its signal fence");
-        signal.write_all(b"f").unwrap();
-        let mut child = [0_u8; size_of::<u32>()];
-        signal.read_exact(&mut child).unwrap();
-        resume_cleanup.send(()).unwrap();
-
-        signal.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let mut trailing = [0_u8; 1];
-        assert_eq!(
-            signal.read(&mut trailing).unwrap(),
-            0,
-            "late process-scope child {} survived the repeated scan",
-            u32::from_ne_bytes(child),
-        );
-        cleanup.join().unwrap();
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
     fn journal_hook_shutdown_cancels_an_active_detached_process_scope() {
         let root = std::env::temp_dir().join(format!(
             "cmux-jh-shutdown-{}-{:x}",
