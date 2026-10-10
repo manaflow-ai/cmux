@@ -100,6 +100,24 @@ extension PinCommands {
     }
 
     /// Sends one layout change and, for the user, registers its inverse.
+    /// Several layout ops as one undo step (Add Group to Section): undo
+    /// sends their inverses in reverse order.
+    func sendLayout(_ ops: [SidebarLayoutOp], title: String, origin: ActionOrigin) throws {
+        guard ops.count != 1 else { return try sendLayout(ops[0], title: title, origin: origin) }
+        var inverses: [SidebarLayoutOp] = []
+        for op in ops {
+            let inverse = layout.document.inverse(of: op)
+            try layout.send(op)
+            if let inverse { inverses.insert(inverse, at: 0) }
+        }
+        guard origin == .user, !inverses.isEmpty else { return }
+        registerUndo(title: title) { commands in
+            do { try commands.sendLayout(inverses, title: title, origin: .user) } catch {
+                commands.context.services.registry.refuse(RefusalStrings.describe(error))
+            }
+        }
+    }
+
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {
         let inverse = layout.document.inverse(of: op)
         try layout.send(op)
