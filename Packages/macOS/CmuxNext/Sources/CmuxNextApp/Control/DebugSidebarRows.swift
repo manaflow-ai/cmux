@@ -42,6 +42,7 @@ enum DebugSidebarRows {
                         "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed), "selected": .bool(row.selected),
                         "muted": .bool(row.muted), "activity": row.activity.map(JSONValue.string) ?? .null,
                         "icon": row.icon.map(JSONValue.string) ?? .null,
+                        "shown_frame": row.shownFrame.map(rect) ?? .null, "clips": .bool(row.clips),
                     ])
                 }),
             ])
