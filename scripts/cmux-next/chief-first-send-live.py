@@ -15,7 +15,7 @@ which ends the app, the Chief host, its acpmux and the owner daemon.
 
 Prints one row per round and a total; exits 0 only when every round passed.
 
-Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--out DIR]
+Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--keep-cache] [--out DIR]
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 
@@ -29,6 +29,10 @@ parser.add_argument("--mode", choices=("immediate", "settled", "both"), default=
                     help="immediate: send as soon as the composer exists; settled: send as chief-subagents-live.py's"
                          " first ask does (the Chief conversation listed, the host connected, its tools socket up,"
                          " 10 s, window snapshots each second); both: alternate, odd rounds immediate")
+parser.add_argument("--keep-cache", action="store_true",
+                    help="keep the app's Home cache (~/Library/Caches/cmux-home/<owner>) between rounds, as a user's"
+                         " Mac does when the Chief home is made again at the same path (cx-ebm.55); from round 2 on"
+                         " the cache names the previous round's Chief conversation")
 opts = parser.parse_args()
 
 TAG = opts.tag
@@ -149,7 +153,7 @@ def end_round(app, cache):
             pass
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    if cache:
+    if cache and not opts.keep_cache:
         shutil.rmtree(os.path.dirname(cache), ignore_errors=True)
 
 
