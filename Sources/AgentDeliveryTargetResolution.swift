@@ -41,6 +41,8 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
 /// Darwin-backed process inspector kept behind the package's pure handoff
 /// protocol. It reads only kernel/process state and never AppKit ownership.
 private struct LiveAgentDeliveryProcessInspector: AgentDeliveryProcessInspector {
+    /// Reads the process identity twice around scope extraction to bind all
+    /// returned facts to one birth-time key.
     nonisolated func inspect(
         pid: Int32,
         resolution: AgentProcessBindingResolution

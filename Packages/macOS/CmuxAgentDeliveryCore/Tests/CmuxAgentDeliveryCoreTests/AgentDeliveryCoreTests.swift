@@ -64,6 +64,7 @@ struct AgentDeliveryCoreTests {
 }
 
 private struct FixtureInspector: AgentDeliveryProcessInspector {
+    /// Supplies deterministic process evidence without touching Darwin state.
     nonisolated func inspect(
         pid: Int32,
         resolution: AgentProcessBindingResolution
