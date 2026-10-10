@@ -189,11 +189,33 @@ extension BrowserPanel {
         let catalog = SurfaceCatalog.shared
         let addresses = catalog.machines.compactMapValues(\.privateAddress)
         let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
-            forHost: url.host,
+            forHost: Self.privateAddressRouteHost(url.host),
             owner: privateAddressRouteOwner,
             addresses: addresses
         )
         return machine.flatMap { catalog.provider(for: $0) as? CmuxTuiSurfaceProvider }
+    }
+
+    /// SSH machines advertise `127.0.0.1`, so every loopback spelling
+    /// (`localhost`, `::1`, `0.0.0.0`) names that same private address.
+    static func privateAddressRouteHost(_ host: String?) -> String? {
+        guard let host, PrivateNetworkHostPolicy().isLoopback(host: host) else { return host }
+        return "127.0.0.1"
+    }
+
+    /// Managed SSH workspaces have no workspace-wide browser proxy.
+    var owningWorkspaceRoutesThroughSSHTui: Bool {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?
+            .usesSSHTui ?? false
+    }
+
+    /// Whether `url` loads from this Mac while a remote workspace has no proxy.
+    /// Managed SSH loads public and private-network pages locally. Its loopback
+    /// URLs wait for the owning machine's forward, so they never reach a
+    /// same-port service on this Mac.
+    static func loadsWithoutRemoteWorkspaceProxy(_ url: URL, routesThroughSSHTui: Bool) -> Bool {
+        routesThroughSSHTui && !PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "")
     }
 
     /// The machine this browser belongs to: its current cloud route, or the
