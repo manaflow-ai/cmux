@@ -100,10 +100,14 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+#[cfg(unix)]
+mod browser_runtime;
 #[path = "server/image_paste.rs"]
 mod image_paste;
 #[cfg(unix)]
 mod scripts;
+#[cfg(unix)]
+pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 #[path = "server/window_title.rs"]
 mod window_title;
 use window_title::sanitize_window_title;
@@ -2512,6 +2516,10 @@ fn handle_connection_frame(
         return origin_gate::handle_resource_line(mux, client, message, request, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = browser_runtime::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]

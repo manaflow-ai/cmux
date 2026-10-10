@@ -7463,6 +7463,59 @@ finished or refused connections (`client`, `stream`, `host`, `port`,
 `outcome`, byte counts, duration). The daemon also writes one log line per
 record.
 
+## Browser runtimes
+
+`browser-runtime-v1` lets a trusted local (Unix) client run a browser on the
+daemon's own machine: the daemon starts the remote browser host
+(`cmux-remote-browser-host`), and the client reaches the host's loopback port
+through `loopback-forward-v1` on the same link, so a cmux app on another
+machine shows a page that runs here (an SSH machine's browser tab). No
+listening socket leaves the machine. It is off for a connection until that
+client sends `set-client-info` with `capabilities:["browser-runtime-v1"]`;
+otherwise every command answers `browser-runtime.not-enabled`. WebSocket
+clients and the remote relay are refused. These commands bypass the ordered
+surface queue.
+
+The host comes only from the install directory: `<data dir>/cmux-tui/browser-host`
+(macOS `~/Library/Application Support`, else `$XDG_DATA_HOME` or
+`~/.local/share`), or `CMUX_TUI_BROWSER_HOST_DIR`. `current` names the
+installed version's directory; its executable is
+`host.app/Contents/MacOS/cmux-remote-browser-host` on macOS and
+`cmux-remote-browser-host` elsewhere. No command takes a path or a host
+argument. A runtime belongs to its connection: the end of the connection stops
+its runtimes. Limits: 4 runtimes per connection, 16 per daemon
+(`browser-runtime.limit`).
+
+### browser-runtime-status
+
+`{id, cmd:"browser-runtime-status"}` returns `{installed, platform,
+runtimes}`: `installed` is the installed version (the name of the directory
+that `current` names) or null, `platform` is `<os>-<arch>` of the daemon
+(for example `macos-aarch64`), and `runtimes` lists this connection's runtimes
+as `{runtime, port}`.
+
+### browser-runtime-start
+
+`{id, cmd:"browser-runtime-start", url?}` starts the host with
+`--serve --listen 127.0.0.1:0 --lifeline [--url URL]`. `url` is the first
+page (http or https, at most 8 KiB; else `browser-runtime.bad-url`). The
+daemon writes a new 32-byte secret (64 hex characters) as the first line of
+the host's stdin and keeps the pipe open as its lifeline; the secret is never
+in argv, the environment, a log or an event. The reply comes when the host
+prints `{"listening":"127.0.0.1:PORT"}`:
+`{runtime, port, secret, installed}`. The client sends `secret` as the
+`cmux.rd/1` hello token through a `loopback-open` stream to `port`. Errors:
+`browser-runtime.not-installed`, `browser-runtime.start-failed` (the host
+exited or did not listen within 45 s; the message ends with the end of the
+host's log).
+
+### browser-runtime-stop
+
+`{id, cmd:"browser-runtime-stop", runtime}` closes the host's lifeline and
+answers `{stopped:true}`; a host still running 5 s later is killed with its
+process group. A runtime of another connection, or one already stopped, is
+`browser-runtime.unknown`.
+
 ## Agent session attach
 
 `agent-session-attach-v1` lets a trusted local (Unix) client show and drive an
