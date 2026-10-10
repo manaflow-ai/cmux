@@ -26,3 +26,38 @@ struct StatusGlyph: View {
         }
     }
 }
+
+/// Priority as signal bars (urgent is a filled square with "!").
+struct PriorityGlyph: View {
+    let priority: TaskPriority
+    @Environment(\.tasksColors) private var colors
+
+    var body: some View {
+        Group {
+            switch priority {
+            case .none:
+                Color.clear
+            case .urgent:
+                RoundedRectangle(cornerRadius: 2.5).fill(colors.attention)
+                    .overlay(Text("!").font(.system(size: 9, weight: .heavy)).foregroundStyle(colors.background))
+            case .high, .medium, .low:
+                HStack(alignment: .bottom, spacing: 1.5) {
+                    ForEach(0..<3, id: \.self) { bar in
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(bar < filled ? colors.secondary : colors.tertiary.opacity(0.35))
+                            .frame(width: 2.5, height: CGFloat(4 + bar * 3))
+                    }
+                }
+            }
+        }
+        .frame(width: 12, height: 12)
+    }
+
+    private var filled: Int {
+        switch priority {
+        case .high: 3
+        case .medium: 2
+        default: 1
+        }
+    }
+}
