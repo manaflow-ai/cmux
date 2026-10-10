@@ -1135,6 +1135,96 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(state.snapshot().isEmpty, "rejected remote paths must not reach the machine")
     }
 
+    func testVMPushRejectsTildeArchiveMembersAcrossEntryPoints() throws {
+        let cliPath = try bundledCLIPath()
+        for member in ["~", "nested/~", "line\nbreak/~", "~/́child"] {
+            for entryPoint in ["push", "watch", "agent"] {
+                let socketPath = makeSocketPath("archive-tilde")
+                let listenerFD = try bindUnixSocket(at: socketPath)
+                let state = MockSocketServerState()
+                defer {
+                    Darwin.close(listenerFD)
+                    unlink(socketPath)
+                }
+                let home = try vmTransferTempDir("archive-home")
+                defer { try? FileManager.default.removeItem(at: home) }
+                let source = home.appendingPathComponent("source")
+                try FileManager.default.createDirectory(
+                    at: source.appendingPathComponent(member), withIntermediateDirectories: true
+                )
+                startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+                    if line.hasPrefix("auth ") { return "OK" }
+                    return self.v2Response(
+                        id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                        error: ["code": "unexpected", "message": "transfer should have been rejected locally"]
+                    )
+                }
+                let arguments: [String]
+                if entryPoint == "agent" {
+                    arguments = ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt",
+                                 "--no-open", "--sync", "--cwd", source.path, "--", "check the cwd"]
+                } else {
+                    arguments = ["vm", "push", "vivid-newt", source.path, "work/safe"]
+                        + (entryPoint == "watch" ? ["--watch"] : [])
+                }
+                let result = runProcess(
+                    executablePath: cliPath, arguments: arguments,
+                    environment: vmTransferEnvironment(socketPath: socketPath, home: home), timeout: 30
+                )
+                XCTAssertFalse(result.timedOut, "\(entryPoint) \(member): \(result.stderr)")
+                XCTAssertNotEqual(result.status, 0, result.stdout)
+                XCTAssertTrue(result.stderr.contains("unexpanded '~'"), "\(entryPoint) \(member): \(result.stderr)")
+                XCTAssertFalse(result.stderr.contains("rm -rf"), "rejection must not suggest destructive cleanup")
+                let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+                XCTAssertFalse(methods.contains("vm.scp_info"), "invalid archive requested upload access: \(methods)")
+                XCTAssertFalse(methods.contains("surface.new_terminal"), "invalid sync launched an agent")
+            }
+        }
+    }
+
+    func testVMPushTildeArchiveValidationRespectsExcludesAndOrdinaryNames() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(String, [String], Bool)] = [
+            (".git/~", [], false),
+            ("ignored/~", ["--exclude", "ignored"], false),
+            ("nested/~", ["--exclude", "~"], false),
+            (".git/~", ["--no-default-excludes"], true),
+            ("~alice/file", [], false),
+            ("prefix~/file", [], false),
+            ("line\n~/file", [], false),
+        ]
+        for (member, options, rejected) in cases {
+            let socketPath = makeSocketPath("archive-exclude")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let source = try vmTransferTempDir("archive-exclude")
+            defer { try? FileManager.default.removeItem(at: source) }
+            try FileManager.default.createDirectory(
+                at: source.appendingPathComponent(member), withIntermediateDirectories: true
+            )
+            startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+                if line.hasPrefix("auth ") { return "OK" }
+                return self.v2Response(
+                    id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                    error: ["code": "test-stop", "message": "stopped at upload grant"]
+                )
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "push", "vivid-newt", source.path, "work/safe"] + options,
+                environment: vmTransferEnvironment(socketPath: socketPath), timeout: 30
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+            XCTAssertEqual(methods.contains("vm.scp_info"), !rejected, "\(member) \(options): \(result.stderr)")
+            XCTAssertEqual(result.stderr.contains("unexpanded '~'"), rejected, result.stderr)
+        }
+    }
+
     func testVMAgentExpandsTildeCwdBeforeSavingRouteBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-agent-tilde")

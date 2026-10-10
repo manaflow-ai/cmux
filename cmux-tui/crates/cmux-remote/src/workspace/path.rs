@@ -916,6 +916,47 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn rejects_tilde_symlink_before_creating_workspace_parents() {
+        use std::os::unix::fs::symlink;
+
+        for target in ["~", "new/~", "new/~/../safe"] {
+            let directory = tempdir().unwrap();
+            symlink(target, directory.path().join("alias")).unwrap();
+            let root = WorkspaceRoot::open(
+                WorkspaceId("tilde-symlink".into()),
+                directory.path().to_str().unwrap(),
+            )
+            .await
+            .unwrap();
+
+            let error = root.unix_root().resolve_target("alias/file", true).unwrap_err();
+            assert_eq!(error.code, "invalid-path", "target: {target}");
+            assert!(!error.message.contains("rm -rf"));
+            assert!(!directory.path().join("~").exists());
+            assert!(!directory.path().join("new").exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn allows_tilde_within_symlink_component_names() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        symlink("~alice/project~", directory.path().join("alias")).unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("tilde-name".into()),
+            directory.path().to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        root.unix_root().resolve_target("alias/file", true).unwrap();
+        assert!(directory.path().join("~alice/project~").is_dir());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn rejects_symlink_escape() {
         use std::os::unix::fs::symlink;
 
