@@ -540,8 +540,15 @@ final class CloudBrowserAccessState {
     }
 
     private static func sameService(_ a: URL, _ b: URL) -> Bool {
-        a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+        a.scheme?.lowercased() == b.scheme?.lowercased() && serviceHost(a) == serviceHost(b)
             && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
+    }
+
+    /// Treat the loopback spellings accepted by SSH routing as one service
+    /// identity, so a localhost redirect reuses the ready listener.
+    private static func serviceHost(_ url: URL) -> String? {
+        guard let host = url.host?.lowercased() else { return nil }
+        return PrivateNetworkHostPolicy().isLoopback(host: host) ? "127.0.0.1" : host
     }
 
     private static func resourcePort(for resource: SurfaceResourceID) -> Int? {
