@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// One All chats row in the picked design (``SidebarChatsDesign``): the shared item row (press,
-/// hover fill, menu) with the glyph only in Quiet and a faint trailing text in Age and Project.
+/// hover fill, menu) led by its harness mark in every design (Leo 2026-10-10, cx-tr0w), with a
+/// faint trailing text in Age and Project.
 final class SidebarChatRowView: SidebarItemRowView {
     let meta = NSTextField(labelWithString: "")
     private(set) var design = SidebarChatsDesign.age
@@ -30,11 +31,8 @@ final class SidebarChatRowView: SidebarItemRowView {
 
     override func layout() {
         super.layout()
-        icon.isHidden = design != .quiet
-        let textX = design == .quiet ? title.frame.minX : icon.frame.minX
+        icon.isHidden = false
         var titleFrame = title.frame
-        titleFrame.size.width = max(0, titleFrame.maxX - textX)
-        titleFrame.origin.x = textX
         guard !meta.isHidden else { title.frame = titleFrame; return }
         let size = meta.intrinsicContentSize
         // The cell's size includes the field's insets: the text's width alone clips it ("2...").
