@@ -119,7 +119,9 @@ struct CloudWorkspaceOptimisticShortcutTests {
                 && !$0.cloudPendingCreations.isEmpty
         })
         let reservation = try #require(pending.cloudPendingCreations.values.first)
-        let shouldSelect = navigation == "stay" || navigation == "afterAdmission"
+        // Admission selects the loading workspace before provider lookup, so a
+        // provider delay alone has not changed the user's navigation.
+        let shouldSelect = navigation == "stay" || navigation == "providerDelay" || navigation == "afterAdmission"
         let previous = navigation == "beforeResolution" || navigation == "beforeProvider" ? other.id : original.id
         #expect(fixture.provider.createdWorkspaces.isEmpty, "The remote response is still held open")
         #expect(manager.selectedTabId == (shouldSelect ? pending.id : previous))
