@@ -471,24 +471,31 @@ fn usable_record(
 
 /// The owner's check of a part list for `actor` (the cloud `checkAttachments`):
 /// each attachment's hash is usable by the author, and its type, size and
-/// claimed poster or preview equal the record's.
+/// claimed poster or preview equal the record's. A link preview's image is
+/// an ordinary record of its own and is checked the same way (type and size).
 pub(crate) fn check_parts(
     transaction: &Transaction<'_>,
     conversation: &str,
     actor: &str,
     parts: &[Part],
 ) -> anyhow::Result<()> {
+    let derived_matches = |claimed: &Option<DerivedImage>, kept: &Option<DerivedImage>| {
+        claimed.as_ref().is_none_or(|claimed| kept.as_ref() == Some(claimed))
+    };
     for part in parts {
-        let Part::Attachment { hash, mime_type, byte_count, poster, preview, .. } = part else {
-            continue;
+        let (hash, mime_type, byte_count, poster, preview) = match part {
+            Part::Attachment { hash, mime_type, byte_count, poster, preview, .. } => {
+                (hash, mime_type, *byte_count, poster, preview)
+            }
+            Part::LinkPreview { image: Some(image), .. } => {
+                (&image.hash, &image.mime_type, image.byte_count, &None, &None)
+            }
+            _ => continue,
         };
         let record = usable_record(transaction, conversation, hash, actor)?
             .ok_or_else(|| rejected(Reject::UnknownAttachment))?;
-        let derived_matches = |claimed: &Option<DerivedImage>, kept: &Option<DerivedImage>| {
-            claimed.as_ref().is_none_or(|claimed| kept.as_ref() == Some(claimed))
-        };
         if &record.mime_type != mime_type
-            || record.byte_count != *byte_count
+            || record.byte_count != byte_count
             || !derived_matches(poster, &record.poster)
             || !derived_matches(preview, &record.preview)
         {
@@ -496,6 +503,16 @@ pub(crate) fn check_parts(
         }
     }
     Ok(())
+}
+
+/// The record hash a part references: an attachment's bytes or a link
+/// preview's image (a poster or preview belongs to its attachment's record).
+fn referenced_hash(part: &Part) -> Option<&str> {
+    match part {
+        Part::Attachment { hash, .. } => Some(hash),
+        Part::LinkPreview { image: Some(image), .. } => Some(&image.hash),
+        _ => None,
+    }
 }
 
 /// Reference rows for a committed message (send, edit) of `parts`, in the
@@ -510,14 +527,12 @@ pub(crate) fn write_refs(
         "DELETE FROM attachment_ref WHERE conversation = ?1 AND message_id = ?2",
         params![conversation, message_id],
     )?;
-    for part in parts {
-        if let Part::Attachment { hash, .. } = part {
-            transaction.execute(
-                "INSERT OR IGNORE INTO attachment_ref(conversation, hash, message_id)
-                 VALUES(?1, ?2, ?3)",
-                params![conversation, hash, message_id],
-            )?;
-        }
+    for hash in parts.iter().filter_map(referenced_hash) {
+        transaction.execute(
+            "INSERT OR IGNORE INTO attachment_ref(conversation, hash, message_id)
+             VALUES(?1, ?2, ?3)",
+            params![conversation, hash, message_id],
+        )?;
     }
     Ok(())
 }

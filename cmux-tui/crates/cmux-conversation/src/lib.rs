@@ -10,6 +10,7 @@
 mod attachments;
 mod budget;
 mod id;
+mod link_preview;
 mod question;
 mod reducer;
 mod search;
@@ -26,6 +27,10 @@ pub use budget::{
     parse_rfc3339_millis,
 };
 pub use id::{encode_id, format_rfc3339_millis};
+pub use link_preview::{
+    MAX_LINK_SITE_CHARS, MAX_LINK_TITLE_CHARS, MAX_LINK_URL_BYTES, valid_link_preview_part,
+    valid_link_url,
+};
 pub use question::{
     MAX_QUESTION_ITEMS, MAX_QUESTION_LABEL_BYTES, MAX_QUESTION_OPTIONS, MAX_QUESTION_PREVIEW_BYTES,
     MAX_QUESTION_TEXT_BYTES, PreviewFormat, Question, QuestionAnswer, QuestionHarness,

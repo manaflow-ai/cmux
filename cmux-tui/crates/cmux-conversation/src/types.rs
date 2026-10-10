@@ -117,6 +117,20 @@ pub enum Part {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<DerivedImage>,
     },
+    /// A link with the preview its sender fetched (link_preview.rs).
+    /// Receivers render only from this part and never fetch the URL.
+    /// `image` names an ordinary attachment record (JPEG or WebP, at most
+    /// `MAX_PREVIEW_IMAGE_BYTES`) the sender uploaded to this conversation;
+    /// the owner checks it like an `attachment` part's hash.
+    LinkPreview {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        site: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<DerivedImage>,
+    },
     /// A question an agent asks a person (question.rs). Only agents post
     /// it; only `question.answer` moves it out of pending, except the
     /// author's edit that cancels it.
@@ -126,7 +140,7 @@ pub enum Part {
 impl Part {
     /// Whether a message with this part is a counted turn for the loop guard
     /// (budget.rs): text, or a question (an agent asking is a turn). Work
-    /// cards and attachments neither count nor reset the count.
+    /// cards, attachments and link previews neither count nor reset the count.
     pub fn counts_as_turn(&self) -> bool {
         matches!(self, Self::Text { .. } | Self::Question(_))
     }

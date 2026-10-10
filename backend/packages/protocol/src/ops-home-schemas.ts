@@ -93,7 +93,14 @@ export const Part = Schema.Union([
     duration_ms: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
     poster: Schema.optionalKey(derivedImage("HomeAttachmentPoster", 2_000_000, "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}.")),
     preview: Schema.optionalKey(derivedImage("HomeAttachmentPreview", 512_000, "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."))
-  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." })
+  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." }),
+  Schema.Struct({
+    type: Schema.Literal("link_preview"),
+    url: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048)),
+    title: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(300))),
+    site: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(253))),
+    image: Schema.optionalKey(derivedImage("HomeLinkPreviewImage", 512_000, "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."))
+  }).annotate({ description: "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters." })
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))
 

@@ -5493,7 +5493,7 @@ command is accepted on trusted local (Unix-classified) connections only.
 Participant = object{id:string, kind:"human"|"agent", display_name:string, agent_class?:"mux"|"agent", acp_session?:string}
 PartRef = object{message_id:string, part_index:uint32}
 TextRun = object{start:uint32, length:uint32, mention?:string, link?:string}
-Part = object{type:"text", text:string, runs?:[TextRun]} | object{type:"work", session:string, host?:string, status:"running"|"done"|"failed"|"waiting", preview?:string} | object{type:"attachment", hash:string, name:string, mime_type:string, byte_count:uint64, width?:uint32, height?:uint32, duration_ms?:uint64, poster?:DerivedImage, preview?:DerivedImage} | Question
+Part = object{type:"text", text:string, runs?:[TextRun]} | object{type:"work", session:string, host?:string, status:"running"|"done"|"failed"|"waiting", preview?:string} | object{type:"attachment", hash:string, name:string, mime_type:string, byte_count:uint64, width?:uint32, height?:uint32, duration_ms?:uint64, poster?:DerivedImage, preview?:DerivedImage} | Question | object{type:"link_preview", url:string, title?:string, site?:string, image?:DerivedImage}
 Question = object{type:"question", harness:"claude"|"codex"|"acp"|"chief", session:string, permission?:string, agent?:string, items:[QuestionItem], state:QuestionState}
 QuestionItem = object{id:string, header?:string, prompt:string, options:[object{id:string, label:string, detail?:string, preview?:object{text:string, format:"monospace"|"markdown"}}], multi_select:bool, allows_other:bool}
 QuestionState = object{kind:"pending"} | object{kind:"cancelled"} | object{kind:"answered", answer:QuestionAnswer}
@@ -5794,6 +5794,18 @@ when the conversation holds a record of the hash that the author uploaded or
 that a message already references, with the same `mime_type`, `byte_count`
 and claimed poster or preview; otherwise it is rejected with
 `unknown_attachment` or `attachment_mismatch`.
+
+A `link_preview` part is a link with the preview its sender fetched;
+receivers render it from the part and never fetch the URL. `url` is an
+`http://` or `https://` URL (scheme case-insensitive) of 1-2048 bytes with a
+non-empty host, no user info, and no whitespace, control characters or
+backslashes; `title` has 1-300 characters and `site` 1-253, neither with
+control characters; otherwise the op is rejected with `invalid_parts`. Its
+`image`, when present, is an ordinary attachment the sender uploaded with
+`conversation-attachment-upload` (`image/jpeg` or `image/webp`, at most
+512000 bytes): it commits under the same record rule as an `attachment`
+part's hash (same `mime_type` and `byte_count`), counts as referenced by the
+message, and is read with `conversation-attachment-read` by `image.hash`.
 
 ### conversation-attachment-read
 

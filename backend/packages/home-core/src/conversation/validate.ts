@@ -1,4 +1,5 @@
 import { cleanAttachmentPart } from "./attachments.ts"
+import { cleanLinkPreviewPart } from "./link-preview.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
 import { validateQuestion } from "./question.ts"
 import { fail } from "./reject.ts"
@@ -171,6 +172,11 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       })
     } else if (part.type === "question") {
       out.push(validateQuestion(part))
+    } else if (part.type === "link_preview") {
+      // Local and cloud heads alike (the Rust crate takes it); a cloud owner also checks the image's record.
+      const clean = cleanLinkPreviewPart(part)
+      if (!clean) return fail("invalid_parts")
+      out.push(clean)
     } else if (part.type === "attachment" && allowAttachments) {
       // Cloud heads only: a local head (the Rust crate) has no attachment parts.
       const clean = cleanAttachmentPart(part)

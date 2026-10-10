@@ -561,6 +561,11 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     return Err(Reject::InvalidParts);
                 }
             }
+            Part::LinkPreview { .. } => {
+                if !crate::link_preview::valid_link_preview_part(part) {
+                    return Err(Reject::InvalidParts);
+                }
+            }
             Part::Question(question) => crate::question::validate(question)?,
         }
     }
