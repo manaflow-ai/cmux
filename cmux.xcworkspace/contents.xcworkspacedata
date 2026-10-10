@@ -187,6 +187,9 @@
          location = "group:CmuxCloudMachines">
       </FileRef>
       <FileRef
+         location = "group:CmuxCloudResizeCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCloudTui">
       </FileRef>
       <FileRef

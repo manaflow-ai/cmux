@@ -13,6 +13,12 @@ hook's refusal), a cancelled or timed-out job, and a failure with no test or
 error line to compare are never excused. One base red then no longer freezes
 every pull request into that base (2026-10-07: four base reds, and the PRs
 fixing them deadlocked on each other's reds).
+
+A test helper that dies on a signal names different in-flight tests and
+crashed-thread frames each run, so its crash lines are not compared: the
+base's job must have died on the same signal, which makes the crash the
+base's (2026-10-09: a base SIGTRAP refused every feat-cmux-next PR). Failed
+steps and any test red before the crash are still compared.
 """
 from __future__ import annotations
 
@@ -44,6 +50,10 @@ WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # Summaries carry counts, and a test's own lines already name it.
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+# SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
+CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
+CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
+                        r"no \"Test run with\" summary line")
 
 
 def lines_of(log: str) -> list[str]:
@@ -65,9 +75,14 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
         for pattern in TESTS:
             if match := pattern.search(text):
                 tests.add(match.group(1))
-        if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text):
+        if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
             errors.add(re.sub(r"\d+", "#", text.replace("##[error]", "").strip()))
     return steps, tests, errors
+
+
+def crash_signals(log: str) -> set[str]:
+    """The signals a test helper died on, from SwiftPM's or the hang sampler's lines."""
+    return {first or second for first, second in CRASH.findall(log)}
 
 
 def refused_at_setup(job: dict, log: str | None = None) -> bool:
@@ -148,16 +163,22 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
-        if not head_tests and not head_errors:
+        head_crash = crash_signals(head_log)
+        if not head_tests and not head_errors and not head_crash:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
-        base_steps, base_tests, base_errors = signature(base_job, github.log(repo, base_job))
+        base_log = github.log(repo, base_job)
+        base_steps, base_tests, base_errors = signature(base_job, base_log)
+        if missing := sorted(head_crash - crash_signals(base_log)):
+            raise Refused(f"'{name}': the test helper died on signal {', '.join(missing)}, "
+                          f"and {base} run {base_run['id']} did not")
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
+        crash = [f"the test helper died on signal {signal}" for signal in sorted(head_crash)]
+        what = "; ".join(crash + sorted(head_tests)) or "; ".join(sorted(head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit

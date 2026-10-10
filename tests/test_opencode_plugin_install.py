@@ -11,6 +11,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -19,6 +20,16 @@ from claude_teams_test_utils import resolve_cmux_cli
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def wait_for_log(path: Path, needle: str, timeout: float = 5.0) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if needle in text:
+            return text
+        time.sleep(0.01)
+    return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
 def main() -> int:
@@ -80,13 +91,18 @@ def main() -> int:
         if "cmux-feed-plugin-marker" not in feed_plugin_path.read_text(encoding="utf-8"):
             print(f"FAIL: expected cmux feed marker in {feed_plugin_path}")
             return 1
+        tui_directory = config_dir / "plugins" / "cmux"
+        ownership_marker = tui_directory / ".cmux-owned"
+        if not ownership_marker.exists() or "cmux-opencode-tui-plugin-ownership-marker" not in ownership_marker.read_text(encoding="utf-8"):
+            print(f"FAIL: expected cmux TUI ownership marker at {ownership_marker}")
+            return 1
 
         try:
             config = json.loads(config_json.read_text(encoding="utf-8"))
         except Exception as exc:
             print(f"FAIL: invalid opencode.json after install: {exc}")
             return 1
-        plugins = config.get("plugins")
+        plugins = config.get("plugin")
         if not isinstance(plugins, list):
             print(f"FAIL: expected plugin list in opencode.json, got {plugins!r}")
             return 1
@@ -99,7 +115,7 @@ def main() -> int:
         if stale:
             print(f"FAIL: expected stale cmux plugin registrations removed, got {plugins!r}")
             return 1
-        if "./plugins" not in plugins:
+        if "./plugins/cmux" not in plugins:
             print(f"FAIL: expected local cmux session plugin registration, got {plugins!r}")
             return 1
         if "oh-my-opencode" not in plugins or ["existing-plugin", {"enabled": True}] not in plugins:
@@ -122,12 +138,12 @@ def main() -> int:
                 print(f"exit={debug.returncode}")
                 print(debug_output[-4000:])
                 return 1
-            if "path=cmux-session loading plugin" in debug_output:
-                print("FAIL: opencode tried to resolve cmux-session as a package")
+            if "failed to load plugin" in debug_output.lower() or "must default export" in debug_output.lower():
+                print("FAIL: opencode rejected an installed cmux plugin entrypoint")
                 print(debug_output[-4000:])
                 return 1
-            if f"file://{plugin_path}" not in debug_output:
-                print("FAIL: opencode did not auto-load cmux session plugin file")
+            if "path=cmux-session loading plugin" in debug_output:
+                print("FAIL: opencode tried to resolve cmux-session as a package")
                 print(debug_output[-4000:])
                 return 1
 
@@ -160,6 +176,14 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
+        check_env["CMUX_OPENCODE_HOOKS_DISABLED"] = ""
+        for launch_key in (
+            "CMUX_AGENT_LAUNCH_KIND",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+        ):
+            check_env.pop(launch_key, None)
         check_source = """
 const pluginPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_PATH;
 const pluginCopyPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH;
@@ -168,8 +192,8 @@ const duplicateMod = await import(pluginCopyPath);
 if (typeof mod.CMUXSessionRestore !== "function") {
   throw new Error("missing CMUXSessionRestore export");
 }
-if (!mod.default || typeof mod.default.setup !== "function") {
-  throw new Error("missing V2 default setup export");
+if (!mod.default || (typeof mod.default.server !== "function" && typeof mod.default.setup !== "function")) {
+  throw new Error("missing V2 default server/setup export");
 }
 const idleContext = {
   directory: "/tmp/opencode-project",
@@ -243,13 +267,13 @@ await v1Hooks.event({
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
-        stdin_log = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
-        env_log = fake_env_log.read_text(encoding="utf-8") if fake_env_log.exists() else ""
-        if "hooks opencode session-start" not in args_log:
+        args_log = wait_for_log(fake_args_log, "hooks enqueue opencode session-start")
+        stdin_log = wait_for_log(fake_stdin_log, '"session_id":"opencode-session-test"')
+        env_log = wait_for_log(fake_env_log, "kind=opencode")
+        if "hooks enqueue opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode session-start") != 1:
+        if args_log.count("hooks enqueue opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
@@ -279,6 +303,224 @@ await v1Hooks.event({
                 "FAIL: plugin captured wrong OpenCode launch argv; "
                 f"expected {expected_argv!r}, got {decoded_argv!r}"
             )
+            return 1
+
+        # A package installed before the ownership marker was introduced must
+        # leave a marker behind when unrelated files prevent full removal.
+        # That marker lets a later install reclaim only cmux's files.
+        extra_file = tui_directory / "user-extra.txt"
+        extra_file.write_text("preserve me", encoding="utf-8")
+        ownership_marker.unlink()
+        uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if uninstall.returncode != 0:
+            print("FAIL: legacy OpenCode plugin uninstall failed")
+            print(f"exit={uninstall.returncode}")
+            print(f"stdout={uninstall.stdout.strip()}")
+            print(f"stderr={uninstall.stderr.strip()}")
+            return 1
+        if not extra_file.exists() or not ownership_marker.exists():
+            print("FAIL: legacy uninstall did not preserve unrelated files and ownership marker")
+            return 1
+        reinstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if reinstall.returncode != 0 or not extra_file.exists():
+            print("FAIL: reinstall after legacy migration did not succeed")
+            print(f"exit={reinstall.returncode}")
+            print(f"stdout={reinstall.stdout.strip()}")
+            print(f"stderr={reinstall.stderr.strip()}")
+            return 1
+
+        # Project-local removal must only touch the selected .opencode tree;
+        # a user's global Feed and TUI bridge remain installed.
+        project_dir = root / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        project_env = env.copy()
+        project_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--project", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if project_install.returncode != 0:
+            print("FAIL: project-local OpenCode plugin install failed")
+            print(f"exit={project_install.returncode}")
+            print(f"stdout={project_install.stdout.strip()}")
+            print(f"stderr={project_install.stderr.strip()}")
+            return 1
+        project_plugin_dir = project_dir / ".opencode" / "plugins"
+        project_feed = project_plugin_dir / "cmux-feed.js"
+        project_tui = project_plugin_dir / "cmux"
+        if not project_feed.exists() or not project_tui.exists():
+            print("FAIL: project-local install did not create the Feed and TUI bridge")
+            return 1
+
+        project_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--project"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if project_uninstall.returncode != 0:
+            print("FAIL: project-local OpenCode plugin uninstall failed")
+            print(f"exit={project_uninstall.returncode}")
+            print(f"stdout={project_uninstall.stdout.strip()}")
+            print(f"stderr={project_uninstall.stderr.strip()}")
+            return 1
+        if project_feed.exists() or project_tui.exists():
+            print("FAIL: project-local uninstall left cmux plugin files behind")
+            return 1
+        if not feed_plugin_path.exists() or not tui_directory.exists():
+            print("FAIL: project-local uninstall removed the global OpenCode bridge")
+            return 1
+
+        # Project-local uninstall must preserve a user-owned Feed file while
+        # still removing the cmux-owned TUI package and registration.
+        project_foreign_dir = root / "project-foreign"
+        project_foreign_dir.mkdir(parents=True, exist_ok=True)
+        project_foreign_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--project", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_foreign_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if project_foreign_install.returncode != 0:
+            print("FAIL: project-local foreign-file install failed")
+            return 1
+        project_foreign_plugins = project_foreign_dir / ".opencode" / "plugins"
+        project_foreign_feed = project_foreign_plugins / "cmux-feed.js"
+        project_foreign_tui = project_foreign_plugins / "cmux"
+        project_foreign_feed.write_text("// user-owned project plugin\n", encoding="utf-8")
+        project_foreign_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--project"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_foreign_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if (
+            project_foreign_uninstall.returncode != 0
+            or project_foreign_feed.read_text(encoding="utf-8") != "// user-owned project plugin\n"
+            or project_foreign_tui.exists()
+        ):
+            print("FAIL: project-local uninstall removed or retained the wrong files for an unmarked Feed plugin")
+            return 1
+
+        # Removing the legacy session file must not strand an owned TUI package.
+        orphan_root = root / "orphan-config"
+        orphan_root.mkdir(parents=True, exist_ok=True)
+        orphan_env = env.copy()
+        orphan_env["OPENCODE_CONFIG_DIR"] = str(orphan_root)
+        orphan_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=orphan_env,
+            timeout=20,
+        )
+        if orphan_install.returncode != 0:
+            print("FAIL: orphan-case OpenCode plugin install failed")
+            return 1
+        orphan_session = orphan_root / "plugins" / "cmux-session.js"
+        orphan_tui = orphan_root / "plugins" / "cmux"
+        orphan_session.unlink()
+        orphan_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=orphan_env,
+            timeout=20,
+        )
+        if orphan_uninstall.returncode != 0 or orphan_tui.exists():
+            print("FAIL: uninstall stranded an owned TUI package after legacy removal")
+            print(f"exit={orphan_uninstall.returncode}")
+            print(f"stdout={orphan_uninstall.stdout.strip()}")
+            print(f"stderr={orphan_uninstall.stderr.strip()}")
+            return 1
+
+        # An unrelated legacy file must remain untouched while the marked
+        # TUI package and its registration are still removed.
+        foreign_root = root / "foreign-config"
+        foreign_root.mkdir(parents=True, exist_ok=True)
+        foreign_env = env.copy()
+        foreign_env["OPENCODE_CONFIG_DIR"] = str(foreign_root)
+        foreign_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=foreign_env,
+            timeout=20,
+        )
+        if foreign_install.returncode != 0:
+            print("FAIL: foreign-file OpenCode plugin install failed")
+            return 1
+        foreign_session = foreign_root / "plugins" / "cmux-session.js"
+        foreign_tui = foreign_root / "plugins" / "cmux"
+        foreign_session.write_text("// user-owned plugin\n", encoding="utf-8")
+        foreign_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=foreign_env,
+            timeout=20,
+        )
+        foreign_config = json.loads((foreign_root / "opencode.json").read_text(encoding="utf-8"))
+        if (
+            foreign_uninstall.returncode != 0
+            or foreign_session.read_text(encoding="utf-8") != "// user-owned plugin\n"
+            or foreign_tui.exists()
+            or "./plugins/cmux" in foreign_config.get("plugin", [])
+        ):
+            print("FAIL: uninstall removed or retained the wrong files for an unmarked legacy plugin")
+            return 1
+
+        # Never follow a user symlink while validating or overwriting the
+        # shared TUI package directory.
+        symlink_root = root / "symlink-config"
+        symlink_directory = symlink_root / "plugins" / "cmux"
+        symlink_directory.mkdir(parents=True)
+        symlink_target = root / "symlink-target.js"
+        symlink_target.write_text("// cmux-opencode-tui-plugin-server-marker v2\n", encoding="utf-8")
+        (symlink_directory / "index.js").symlink_to(symlink_target)
+        symlink_env = env.copy()
+        symlink_env["OPENCODE_CONFIG_DIR"] = str(symlink_root)
+        symlink_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=symlink_env,
+            timeout=20,
+        )
+        if symlink_install.returncode == 0:
+            print("FAIL: installer followed a symlinked OpenCode TUI package file")
             return 1
 
     print("PASS: generated OpenCode plugin installs and imports as ESM")

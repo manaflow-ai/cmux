@@ -16,7 +16,10 @@ import {
   type ProMetadataJson,
 } from "../../../services/billing/pro";
 import { captureAscError } from "../../../services/errors";
-import { withAccountDeletionUserMutation } from "../../../services/account/deletionLock";
+import {
+  AccountDeletionUserMutationInProgressError,
+  withAccountDeletionUserMutation,
+} from "../../../services/account/deletionLock";
 import { browserMutationOriginAllowed } from "../../../services/vms/routeHelpers";
 
 
@@ -25,6 +28,13 @@ type TestflightAction = "join" | "leave";
 export async function POST(request: NextRequest) {
   let stackUserId: string | undefined;
   let action: TestflightAction | null = null;
+  // Set once App Store Connect has accepted a tester mutation in this request.
+  // After that, a lost lease leaves partial external state and must be reported.
+  let ascMutated = false;
+  const markAscMutated = () => {
+    ascMutated = true;
+  };
+  const trackedRemoveTester = trackAscMutation(removeTester, markAscMutated);
 
   if (!browserMutationOriginAllowed(request)) {
     return testflightRedirect(request, "error");
@@ -82,6 +92,7 @@ export async function POST(request: NextRequest) {
           const name = splitDisplayName(freshUser.displayName);
           await mutationLease.refresh();
           await enrollTester(freshEmail, name.firstName, name.lastName);
+          markAscMutated();
           if (!(await isTestflightEligible(freshUser))) {
             // Protect against a non-cooperating eligibility writer. The shared
             // lock handles cmux billing updates; this compensation closes any
@@ -91,7 +102,7 @@ export async function POST(request: NextRequest) {
               freshEmail,
               compensationUser?.clientReadOnlyMetadata ??
                 freshUser.clientReadOnlyMetadata,
-              removeTester,
+              trackedRemoveTester,
               compensationUser
                 ? {
                     beforeExternalMutation: mutationLease.refresh,
@@ -113,7 +124,7 @@ export async function POST(request: NextRequest) {
         await removeProTesterAccess(
           normalizedEmail(freshUser.primaryEmail),
           freshUser.clientReadOnlyMetadata,
-          removeTester,
+          trackedRemoveTester,
           {
             beforeExternalMutation: mutationLease.refresh,
             updateMetadata: (clientReadOnlyMetadata) => freshUser.update({
@@ -126,6 +137,12 @@ export async function POST(request: NextRequest) {
     );
     return testflightRedirect(request, result);
   } catch (error) {
+    // Another account mutation (a double submit or a billing webhook) holds
+    // this user's lease. Before any App Store Connect write that is a
+    // transient, retryable condition, so it is not reported.
+    if (!ascMutated && isAccountMutationInProgressError(error)) {
+      return testflightRedirect(request, "busy");
+    }
     captureAscError(error, {
       route: "/api/testflight",
       stackUserId,
@@ -133,6 +150,25 @@ export async function POST(request: NextRequest) {
     });
     return testflightRedirect(request, "error");
   }
+}
+
+function trackAscMutation(
+  remover: typeof removeTester,
+  onMutated: () => void,
+): typeof removeTester {
+  return async (...args) => {
+    const result = await remover(...args);
+    onMutated();
+    return result;
+  };
+}
+
+function isAccountMutationInProgressError(error: unknown): boolean {
+  for (let current = error, depth = 0; current && depth < 5; depth += 1) {
+    if (current instanceof AccountDeletionUserMutationInProgressError) return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
 }
 
 function testflightAction(formData: FormData): TestflightAction | null {
@@ -166,7 +202,8 @@ function testflightRedirect(
     | "error"
     | "ineligible"
     | "needs_email"
-    | "unavailable",
+    | "unavailable"
+    | "busy",
 ) {
   const url = new URL(localizedTestflightPath(request), request.url);
   url.searchParams.set("testflight", testflight);
