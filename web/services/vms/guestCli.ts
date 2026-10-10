@@ -778,28 +778,53 @@ guest_coderouter_agent() {
   # already the wait and its output is already the output: --wait and --output
   # are accepted for parity with \`cmux vm agent <machine> …\`; --timeout caps it.
   cmux_ag_timeout=""
+  cmux_ag_permission_mode="prompt"
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --wait|--output) shift ;;
+      --permission-mode) [ "\$#" -ge 2 ] || die_message 2 permissionModeNeedsValue; cmux_ag_permission_mode="\$2"; shift 2 ;;
+      --permission-mode=*) cmux_ag_permission_mode="\${1#--permission-mode=}"; shift ;;
       --timeout) [ "\$#" -ge 2 ] || die "agent: --timeout needs seconds" 2; cmux_ag_timeout="\$2"; shift 2 ;;
       --timeout=*) cmux_ag_timeout="\${1#--timeout=}"; shift ;;
       *) break ;;
     esac
   done
+  case "\$cmux_ag_permission_mode" in
+    prompt) ;;
+    full-access)
+      case "\$cmux_agent" in
+        claude|codex) ;;
+        *) die_message 2 permissionModeProviderUnsupported "\$cmux_agent" ;;
+      esac
+      ;;
+    *) die_message 2 permissionModeUnsupported "\$cmux_ag_permission_mode" ;;
+  esac
   [ -z "\$cmux_ag_timeout" ] || timeout_ms "\$cmux_ag_timeout" "agent" >/dev/null
   load_agent_config
   # Match the host vm-agent contract: a bare sentence becomes the provider's
   # one-shot form, while flags/subcommands are passed through byte-for-byte.
   if [ "\$#" -eq 0 ]; then
-    agent_exec "\$cmux_agent"
+    if [ "\$cmux_ag_permission_mode" = "full-access" ]; then
+      case "\$cmux_agent" in
+        claude) agent_exec claude --dangerously-skip-permissions ;;
+        codex) agent_exec codex --dangerously-bypass-approvals-and-sandbox ;;
+      esac
+    else
+      agent_exec "\$cmux_agent"
+    fi
+    return 0
   fi
   if [ "\$1" = "--" ]; then
     shift
     [ "\$#" -gt 0 ] || die_message 2 agentUsage
     cmux_prompt="\$*"
     case "\$cmux_agent" in
-      claude) set -- claude -p "\$cmux_prompt" ;;
-      codex) set -- codex exec "\$cmux_prompt" ;;
+      claude)
+        if [ "\$cmux_ag_permission_mode" = "full-access" ]; then set -- claude -p --dangerously-skip-permissions "\$cmux_prompt"; else set -- claude -p "\$cmux_prompt"; fi
+        ;;
+      codex)
+        if [ "\$cmux_ag_permission_mode" = "full-access" ]; then set -- codex exec --dangerously-bypass-approvals-and-sandbox "\$cmux_prompt"; else set -- codex exec "\$cmux_prompt"; fi
+        ;;
       opencode) set -- opencode run "\$cmux_prompt" ;;
       pi) set -- pi -p "\$cmux_prompt" ;;
     esac
@@ -808,13 +833,20 @@ guest_coderouter_agent() {
   cmux_first="\$1"
   case "\$cmux_first" in
     -*|mcp|config|doctor|update|install|auth|setup-token|plugin|agents|exec|e|login|logout|apply|resume|completion|debug|sandbox|cloud|app-server|features|run|serve|web|models|upgrade|agent|session|export|import|github|acp|list)
+      if [ "\$cmux_ag_permission_mode" = "full-access" ]; then
+        die_message 2 permissionModePassThroughUnsupported
+      fi
       agent_exec "\$cmux_agent" "\$@"
       ;;
     *)
       cmux_prompt="\$*"
       case "\$cmux_agent" in
-        claude) set -- claude -p "\$cmux_prompt" ;;
-        codex) set -- codex exec "\$cmux_prompt" ;;
+        claude)
+          if [ "\$cmux_ag_permission_mode" = "full-access" ]; then set -- claude -p --dangerously-skip-permissions "\$cmux_prompt"; else set -- claude -p "\$cmux_prompt"; fi
+          ;;
+        codex)
+          if [ "\$cmux_ag_permission_mode" = "full-access" ]; then set -- codex exec --dangerously-bypass-approvals-and-sandbox "\$cmux_prompt"; else set -- codex exec "\$cmux_prompt"; fi
+          ;;
         opencode) set -- opencode run "\$cmux_prompt" ;;
         pi) set -- pi -p "\$cmux_prompt" ;;
       esac
@@ -2195,7 +2227,7 @@ agent_wait_terminal() {
   esac
 }
 
-# \`cmux vm agent <peer> --agent <a> [--name n] [--cwd d] [--workspace ws] [--wait [--output] [--timeout s]] -- <args>\`:
+# \`cmux vm agent <peer> --agent <a> [--permission-mode prompt|full-access] [--name n] [--cwd d] [--workspace ws] [--wait [--output] [--timeout s]] -- <args>\`:
 # a durable terminal on the peer running the peer's own \`cmux agent\`, so the
 # peer's CodeRouter config and machine env apply and the prompt rules match.
 # --wait blocks until that terminal's process exits (exit code = the agent's);
@@ -2210,7 +2242,9 @@ peer_agent() {
   cmux_pa_wait=0
   cmux_pa_output=0
   cmux_pa_timeout=""
+  cmux_pa_permission_mode="prompt"
   cmux_pa_json=0
+  cmux_pa_had_delimiter=0
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --agent) [ "\$#" -ge 2 ] || die "vm agent: --agent needs claude, codex, opencode, or pi" 2; cmux_pa_agent="\$2"; shift 2 ;;
@@ -2221,27 +2255,52 @@ peer_agent() {
       --cwd=*) cmux_pa_cwd="\${1#--cwd=}"; shift ;;
       --workspace) [ "\$#" -ge 2 ] || die "vm agent: --workspace needs a value" 2; cmux_pa_ws="\$2"; shift 2 ;;
       --workspace=*) cmux_pa_ws="\${1#--workspace=}"; shift ;;
+      --permission-mode) [ "\$#" -ge 2 ] || die_message 2 peerPermissionModeNeedsValue; cmux_pa_permission_mode="\$2"; shift 2 ;;
+      --permission-mode=*) cmux_pa_permission_mode="\${1#--permission-mode=}"; shift ;;
       --wait) cmux_pa_wait=1; shift ;;
       --output) cmux_pa_output=1; cmux_pa_wait=1; shift ;;
       --timeout) [ "\$#" -ge 2 ] || die "vm agent: --timeout needs seconds" 2; cmux_pa_timeout="\$2"; cmux_pa_wait=1; shift 2 ;;
       --timeout=*) cmux_pa_timeout="\${1#--timeout=}"; cmux_pa_wait=1; shift ;;
       --json) cmux_pa_json=1; shift ;;
-      --) shift; break ;;
+      --) cmux_pa_had_delimiter=1; shift; break ;;
       claude|codex|opencode|pi) if [ -z "\$cmux_pa_agent" ]; then cmux_pa_agent="\$1"; shift; else break; fi ;;
       *) break ;;
     esac
   done
-  [ -n "\$cmux_pa_agent" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>" 2
+  [ -n "\$cmux_pa_agent" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--permission-mode prompt|full-access] [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>" 2
   case "\$cmux_pa_agent" in
     claude|codex|opencode|pi) ;;
     *) die "vm agent: unsupported agent '\$cmux_pa_agent' (choose claude, codex, opencode, or pi)" 2 ;;
   esac
+  case "\$cmux_pa_permission_mode" in
+    prompt) ;;
+    full-access)
+      case "\$cmux_pa_agent" in
+        claude|codex) ;;
+        *) die_message 2 peerPermissionModeProviderUnsupported "\$cmux_pa_agent" ;;
+      esac
+      ;;
+    *) die_message 2 peerPermissionModeUnsupported "\$cmux_pa_permission_mode" ;;
+  esac
+  if [ "\$cmux_pa_permission_mode" = "full-access" ] && [ "\$cmux_pa_had_delimiter" -eq 0 ] && [ "\$#" -gt 0 ]; then
+    case "\$1" in
+      -*|mcp|config|doctor|update|install|auth|setup-token|plugin|agents|exec|e|login|logout|apply|resume|completion|debug|sandbox|cloud|app-server|features|run|serve|web|models|upgrade|agent|session|export|import|github|acp|list)
+        die_message 2 peerPermissionModePassThroughUnsupported
+        ;;
+    esac
+  fi
   [ -z "\$cmux_pa_timeout" ] || timeout_ms "\$cmux_pa_timeout" "vm agent" >/dev/null
   use_peer "\$cmux_pa_peer"
   [ -n "\$cmux_pa_ws" ] || cmux_pa_ws="\$(target_workspace)"
   [ -n "\$cmux_pa_name" ] || cmux_pa_name="\$cmux_pa_agent"
   if [ -n "\$cmux_pa_cwd" ]; then
-    set -- workspace "\$cmux_pa_ws" run --on-exit keep --name "\$cmux_pa_name" --cwd "\$cmux_pa_cwd" -- cmux agent "\$cmux_pa_agent" "\$@"
+    if [ "\$cmux_pa_permission_mode" = "full-access" ]; then
+      set -- workspace "\$cmux_pa_ws" run --on-exit keep --name "\$cmux_pa_name" --cwd "\$cmux_pa_cwd" -- cmux agent "\$cmux_pa_agent" --permission-mode full-access "\$@"
+    else
+      set -- workspace "\$cmux_pa_ws" run --on-exit keep --name "\$cmux_pa_name" --cwd "\$cmux_pa_cwd" -- cmux agent "\$cmux_pa_agent" "\$@"
+    fi
+  elif [ "\$cmux_pa_permission_mode" = "full-access" ]; then
+    set -- workspace "\$cmux_pa_ws" run --on-exit keep --name "\$cmux_pa_name" -- cmux agent "\$cmux_pa_agent" --permission-mode full-access "\$@"
   else
     set -- workspace "\$cmux_pa_ws" run --on-exit keep --name "\$cmux_pa_name" -- cmux agent "\$cmux_pa_agent" "\$@"
   fi
@@ -2674,9 +2733,9 @@ case "\${1:-}" in
         esac
         ;;
       agent)
-        peer="\${1:-}"; [ -n "\$peer" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi> -- <prompt or args…>" 2
+        peer="\${1:-}"; [ -n "\$peer" ] || die "usage: cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--permission-mode prompt|full-access] -- <prompt or args…>" 2
         case "\${2:-}" in
-          --agent|--agent=*|claude|codex|opencode|pi|--wait|--output|--timeout|--timeout=*|--name|--name=*|--cwd|--cwd=*|--workspace|--workspace=*) peer_agent "\$@" ;;
+          --agent|--agent=*|claude|codex|opencode|pi|--permission-mode|--permission-mode=*|--wait|--output|--timeout|--timeout=*|--name|--name=*|--cwd|--cwd=*|--workspace|--workspace=*) peer_agent "\$@" ;;
           *)
             shift
             use_peer "\$peer"
