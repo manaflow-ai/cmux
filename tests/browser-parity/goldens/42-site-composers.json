@@ -1,0 +1,17 @@
+{
+  "oracle": {},
+  "cmux": {
+    "x-post": [
+      "posted",
+      "compose_mismatch: differs"
+    ],
+    "linkedin-post": [
+      "posted",
+      "compose_mismatch: differs"
+    ],
+    "gmail-send": [
+      "sent",
+      "compose_mismatch: differs"
+    ]
+  }
+}
