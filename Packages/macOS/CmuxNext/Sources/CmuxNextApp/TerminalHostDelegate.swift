@@ -56,6 +56,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// default engine (`browser.defaultEngine`, Chromium). Other schemes, or
     /// no window, go to the system.
     func openLink(_ url: URL) -> Bool {
+        // A Chief subagent's link (`cmux chief` prints it as an OSC 8 hyperlink): this app's
+        // link.open shows its workspace and tab, never another cmux build through the system.
+        if let services, ChiefSubagentLinks.open(url, services: services) { return true }
         guard url.scheme == "http" || url.scheme == "https" else { return NSWorkspace.shared.open(url) }
         guard let pane = services?.windows.active?.focusedPane else {
             // No window: never hand a web link to the system, which may be
