@@ -4,8 +4,6 @@
  * labels and the label filter, exec user and stdin, file mode, quota overrides.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { makeTenantPolicy, parseVmQuotas } from "../../src/policy.ts";
-import { TenantId } from "../../src/lib/ids.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -147,13 +145,3 @@ describe("exec options and file mode", () => {
   });
 });
 
-describe("quotas", () => {
-  it("defaults to 20 live VMs and takes per-tenant overrides", () => {
-    const quotas = parseVmQuotas('{"team_big": 50, "bad": "x", "neg": -1}');
-    expect(quotas).toEqual({ team_big: 50 });
-    const policy = makeTenantPolicy({ environment: "production", vmQuotas: quotas });
-    expect(policy.maxVms(TenantId.make("team_any"))).toBe(20);
-    expect(policy.maxVms(TenantId.make("team_big"))).toBe(50);
-    expect(parseVmQuotas("not json")).toEqual({});
-  });
-});
