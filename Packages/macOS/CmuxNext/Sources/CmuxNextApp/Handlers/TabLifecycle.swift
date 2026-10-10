@@ -102,6 +102,18 @@ enum TabLifecycle {
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
         let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
+        // The user's Cmd-T follows the focus (cx-xt5k): a pane with a tab strip gets a tab; an
+        // agent chat or a pane without a strip gets a new workspace in the current group (New
+        // Workspace, on the New Tab page). The strip's + names its pane and always adds a tab;
+        // with `tabs.swapCmdTAndCmdN` on, this action is Cmd-N and always adds a tab.
+        if user, followsSetting, !named, !(ctx.services.settings?.snapshot.swapCmdTAndCmdN ?? false), let controller,
+           controller.view.hidesStrip
+            || (onAgentTab && !(selectedID.map(ctx.services.agentTabs.isNewTabPage) ?? false)) {
+            var workspace = ActionInvocation(origin: .user)
+            workspace.keyContext = invocation.keyContext
+            _ = ctx.registry.perform("newTab", invocation: workspace)
+            return
+        }
         var sameKind = NewTabKind.resolve(
             selectedKind: tab?.kind, engine: tab?.browserEngine,
             isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab

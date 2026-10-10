@@ -5,7 +5,7 @@
 //! clear is undoable: the cookies it deletes go to an encrypted backup
 //! first (crate::cookie_backups) and `cookies.restore` puts them back.
 
-use super::driver::{INTERNAL_TIMEOUT, Inner};
+use super::driver::{INTERNAL_TIMEOUT, Inner, cookie_matches, playwright_cookie};
 use crate::protocol::DriverError;
 use serde_json::{Value, json};
 
@@ -40,6 +40,71 @@ impl Inner {
         }
     }
 
+    /// The cookies of `store`. A relayed CEF tab (an app tab) has no
+    /// browser target, so `Storage.*` is not there: its page session's
+    /// `Network.getAllCookies` reads the tab's own browser context.
+    pub(super) fn store_cookies(&self, store: &Value) -> Result<Vec<Value>, DriverError> {
+        let reply = match self.conn.root_alias() {
+            Some(alias) => {
+                self.conn.call(Some(alias), "Network.getAllCookies", json!({}), INTERNAL_TIMEOUT)?
+            }
+            None => self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?,
+        };
+        Ok(reply["cookies"].as_array().cloned().unwrap_or_default())
+    }
+
+    /// Sets `cookies` (`Storage.setCookies` params) in `store`; on a relayed
+    /// tab through its page session (`Network.setCookies`).
+    pub(super) fn put_cookies(
+        &self,
+        store: &Value,
+        cookies: Vec<Value>,
+    ) -> Result<(), DriverError> {
+        if cookies.is_empty() {
+            return Ok(());
+        }
+        match self.conn.root_alias() {
+            Some(alias) => self.conn.call(
+                Some(alias),
+                "Network.setCookies",
+                json!({"cookies": cookies}),
+                INTERNAL_TIMEOUT,
+            )?,
+            None => {
+                let mut call = store.clone();
+                call["cookies"] = Value::Array(cookies);
+                self.conn.call(None, "Storage.setCookies", call, INTERNAL_TIMEOUT)?
+            }
+        };
+        Ok(())
+    }
+
+    pub(super) fn cookies_get(&self, params: &Value) -> Result<Value, DriverError> {
+        let all = self.store_cookies(&self.cookie_store(params))?;
+        let urls: Vec<url::Url> = params
+            .get("urls")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|u| url::Url::parse(u).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let matching = all
+            .iter()
+            .filter(|cookie| urls.is_empty() || urls.iter().any(|url| cookie_matches(cookie, url)))
+            .map(playwright_cookie)
+            .collect();
+        Ok(Value::Array(matching))
+    }
+
+    pub(super) fn cookies_set(&self, params: &Value) -> Result<Value, DriverError> {
+        let cookies = params.get("cookies").and_then(Value::as_array).cloned().unwrap_or_default();
+        self.put_cookies(&self.cookie_store(params), cookies)?;
+        Ok(Value::Null)
+    }
+
     pub(super) fn cookies_clear(&self, params: &Value) -> Result<Value, DriverError> {
         if params.get("all").and_then(Value::as_bool) == Some(true) {
             return Err(DriverError::invalid(
@@ -62,12 +127,9 @@ impl Inner {
         let text = |name: &str| params.get(name).and_then(Value::as_str).filter(|s| !s.is_empty());
         let (name, domain, path) = (text("name"), text("domain"), text("path"));
         let store = self.cookie_store(params);
-        let cookies =
-            self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?;
-        let matched: Vec<Value> = cookies["cookies"]
-            .as_array()
+        let matched: Vec<Value> = self
+            .store_cookies(&store)?
             .into_iter()
-            .flatten()
             .filter(|cookie| {
                 let field = |key: &str| cookie[key].as_str().unwrap_or("");
                 on_site(field("domain"), &site)
@@ -75,7 +137,6 @@ impl Inner {
                     && domain.is_none_or(|d| d == field("domain"))
                     && path.is_none_or(|p| p == field("path"))
             })
-            .cloned()
             .collect();
         if matched.is_empty() {
             return Ok(json!({"cleared": 0, "restoreId": null, "site": site}));
@@ -83,12 +144,17 @@ impl Inner {
         // Undoable (private data P2): the backup is made before any cookie
         // is deleted; no backup, no clear. A full store refuses the clear
         // (never drops an older backup).
-        let record = json!({
+        let mut record = json!({
             "site": site,
             "store": store.get("browserContextId"),
             "createdAt": (crate::cookie_backups::now_secs() * 1000.0).round(),
             "cookies": matched,
         });
+        // A relayed app tab's store has no id here: the restore goes back
+        // through that tab (its CDP target id), never another profile's.
+        if self.conn.root_alias().is_some() {
+            record["relayTarget"] = json!(session.target_id);
+        }
         let full = |message: String| {
             DriverError::new(
                 crate::protocol::ErrorCode::Forbidden,
@@ -167,13 +233,11 @@ impl Inner {
     /// expired nor set again since the clear; answers the restore summary.
     fn put_back(&self, record: &Value, store: Value) -> Result<Value, DriverError> {
         let now = crate::cookie_backups::now_secs();
-        let current =
-            self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?;
+        let current = self.store_cookies(&store)?;
         let key = |cookie: &Value| {
             ["name", "domain", "path"].map(|k| cookie[k].as_str().unwrap_or("").to_owned())
         };
-        let existing: std::collections::HashSet<[String; 3]> =
-            current["cookies"].as_array().into_iter().flatten().map(key).collect();
+        let existing: std::collections::HashSet<[String; 3]> = current.iter().map(key).collect();
         let (mut kept, mut expired) = (0, 0);
         let mut restore = Vec::new();
         for cookie in record["cookies"].as_array().into_iter().flatten() {
@@ -185,13 +249,10 @@ impl Inner {
                 restore.push(cookie_param(cookie));
             }
         }
-        if !restore.is_empty() {
-            let mut call = store;
-            call["cookies"] = Value::Array(restore.clone());
-            self.conn.call(None, "Storage.setCookies", call, INTERNAL_TIMEOUT)?;
-        }
+        let restored = restore.len();
+        self.put_cookies(&store, restore)?;
         Ok(json!({
-            "restored": restore.len(),
+            "restored": restored,
             "kept": kept,
             "expired": expired,
             "site": record["site"],

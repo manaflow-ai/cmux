@@ -18,13 +18,15 @@ public actor LoopbackForwardClient {
     public static let capability = DaemonCapabilities.shared.loopbackForward
 
     private let endpoint: EndpointProvider
-    private let requestTimeout: Duration
+    let requestTimeout: Duration
     private let openTimeout: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "loopback")
     private var transport: LineTransport?
     private var table = LoopbackStreamTable()
     private var connecting: Task<LineTransport, any Error>?
     private var nextStream: UInt64 = 1
+    /// The connected daemon has `browser-runtime-v1` and this connection opted in.
+    var runtimeEnabled = false
 
     public init(requestTimeout: Duration = .seconds(2), openTimeout: Duration = .seconds(5),
                 endpoint: @escaping EndpointProvider) {
@@ -70,7 +72,7 @@ public actor LoopbackForwardClient {
 
     // MARK: Private
 
-    private func liveTransport() async throws -> LineTransport {
+    func liveTransport() async throws -> LineTransport {
         if let transport, !transport.isClosed { return transport }
         transport = nil
         if let connecting { return try await connecting.value }
@@ -121,9 +123,13 @@ public actor LoopbackForwardClient {
                 transport.close()
                 throw LoopbackForwardError.unsupported
             }
+            // Browser runtimes share this connection: they end with it, like its streams.
+            let runtime = identity.supports(BrowserRuntimeRequest.capability)
             _ = try await DaemonConnection.perform(
-                SetClientInfoRequest(name: "cmux-next loopback", kind: "loopback-forward", capabilities: [Self.capability]),
+                SetClientInfoRequest(name: "cmux-next loopback", kind: "loopback-forward",
+                                     capabilities: [Self.capability] + (runtime ? [BrowserRuntimeRequest.capability] : [])),
                 on: transport, timeout: requestTimeout)
+            runtimeEnabled = runtime
         } catch let error as LoopbackForwardError {
             throw error
         } catch let error as DaemonError {

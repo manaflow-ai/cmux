@@ -4,7 +4,7 @@ import CmuxNextSidebar
 
 /// `workspaces.newPlacement` for one new workspace whose entry point names
 /// no place (Cmd-N, the palette, the sidebar's +, `cmux workspace new`, a
-/// tab moved to a new workspace). Resolved once the daemon reports the
+/// tab moved to a new workspace, a link or an agent opening one). Resolved once the daemon reports the
 /// workspace, against the sidebar of the window that lists it, and written
 /// by the row-drag path (`SidebarBridge.place`): personal order in the home
 /// session, else the owning daemon's order. Either survives a relaunch and
@@ -18,7 +18,9 @@ import CmuxNextSidebar
 /// it. `afterCurrent` is right after the workspace the window showed
 /// when the new one was asked for, inside its group when it has one; `top`
 /// when that workspace is not in the section (pinned, Home, another machine,
-/// none). `bottom` leaves the daemon's place, the end of the loose rows.
+/// none). `bottom` is the last slot of the current workspace's group; outside a
+/// group it leaves the daemon's place, the end of the loose rows. So a new
+/// workspace opened from inside a group stays in it under every value (cx-caoh).
 struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     var placement: NewWorkspacePlacement
     /// The workspace the window showed when the new one was asked for.
@@ -29,6 +31,10 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
         switch placement {
         case .bottom:
+            if let current, current != id, current != home,
+               WorkspaceSlot.bottom(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
+                return .bottom(anchor: current)
+            }
             return nil
         case .afterCurrent:
             if let current, current != id, current != home,

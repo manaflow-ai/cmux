@@ -8,6 +8,9 @@ import CmuxNextBrowser
 ///
 /// | button | action |
 /// | --- | --- |
+/// | zoom | `browserZoomReset` |
+/// | Favorites | `bookmark.manager` |
+/// | Downloads | `browser.downloads.show`, the downloads menu (`BrowserDownloadsMenu`) |
 /// | design mode | `toggleBrowserDesignMode` |
 /// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
 /// | theme | a menu of `browserTheme` system, light, dark |
@@ -18,6 +21,9 @@ enum BrowserToolbarHandlers {
     /// its menu, one item per scheme.
     static func actionID(for button: BrowserToolbarButton) -> ActionID {
         switch button {
+        case .zoom: "browserZoomReset"
+        case .favorites: "bookmark.manager"
+        case .downloads: "browser.downloads.show"
         case .designMode: "toggleBrowserDesignMode"
         case .profile: "browser.profile.choose"
         case .theme: "browserTheme"
@@ -37,6 +43,11 @@ enum BrowserToolbarHandlers {
             let entry = try context.page(invocation)
             entry.chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
         })
+        registry.bind("browser.downloads.show", run: { invocation in
+            let entry = try context.page(invocation)
+            let menu = BrowserDownloadsMenu.menu(context.services.cache.pageRequests.downloads, target: tabTarget(entry), registry: registry)
+            entry.chrome.toolbarButtons.present(menu, from: .downloads)
+        })
         registry.bind("browser.overflow.menu", run: { invocation in
             let entry = try context.page(invocation)
             entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry), from: .overflow)
@@ -52,10 +63,11 @@ enum BrowserToolbarHandlers {
             press(button, entry: entry, registry: services.registry)
         }
         buttons.shortcutHint = { [weak services] button in
-            guard button == .designMode || button == .devTools else { return nil }
+            guard [.zoom, .favorites, .downloads, .designMode, .devTools].contains(button) else { return nil }
             return services?.registry.shortcutDisplay(for: actionID(for: button))
         }
         buttons.profileName = profileName(forTab: key, services: services)
+        buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
     }
 
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
@@ -122,8 +134,13 @@ enum BrowserToolbarHandlers {
         }
     }
 
-    /// The classic browser pane's More menu: the collapsed buttons' actions
-    /// first, then focus mode, screenshots, open elsewhere and import.
+    /// The More menu, Edge's three-dot menu (cx-6qwm): the collapsed
+    /// buttons' actions first, then new tab and windows, zoom and full
+    /// screen, the browser's own pages (bookmarks, history, tab groups,
+    /// the Downloads menu, extensions, passwords, clearing data), page tools (split,
+    /// screenshot, find), more tools, then Settings and Help. Every row is a
+    /// catalog action; one the tab cannot run drops out. No print row: no
+    /// engine exposes printing yet.
     static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry) -> NSMenu {
         var entries: [ContextMenuEntry] = []
         for button in entry.chrome.toolbarButtons.collapsedButtons {
@@ -132,15 +149,24 @@ enum BrowserToolbarHandlers {
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
             case .profile: entries.append(.action("browser.profile.choose"))
             case .theme: entries.append(.choices("browserTheme"))
-            case .overflow: break
+            // Zoom, Bookmark Manager and Downloads are rows of their own below.
+            case .zoom, .favorites, .downloads, .overflow: break
             }
         }
         if !entries.isEmpty { entries.append(.separator) }
         entries += [
-            .action("toggleBrowserFocusMode"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .separator,
-            .action("palette.browserOpenDefault"),
-            .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"), .separator,
-            .action("importFromBrowser"),
+            .action("newTab.default"), .action("newWindow"), .action("newIncognitoWindow"), .separator,
+            .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
+            .action("bookmark.manager"), .action("browserShowHistory"),
+            .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
+            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"),
+            .action("history.clear"), .separator,
+            .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,
+            .folder(.tools, [
+                .action("toggleBrowserFocusMode"), .action("palette.browserOpenDefault"),
+                .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"), .action("importFromBrowser"),
+            ]), .separator,
+            .action("openSettings"), .action("help.documentation"),
         ]
         return registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
     }

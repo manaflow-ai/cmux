@@ -10,7 +10,10 @@ import WebKit
 /// `dragleave` and `dragover` along the path, `drop` where the last
 /// `dragover` was accepted, then `dragend` (untrusted events). A drag on
 /// anything else is the plain mouse: press, moves, release.
-extension WebKitDriver {
+@MainActor
+struct WebKitDrag {
+    let driver: WebKitDriver
+
     private static let startsHTMLDrag = """
     const el = document.elementFromPoint(x, y);
     const source = el && el.closest('[draggable="true"], a[href], img');
@@ -43,7 +46,7 @@ extension WebKitDriver {
     """
 
     func inputDrag(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let (tab, _) = try target(params)
+        let (tab, _) = try driver.target(params)
         var points: [[String: Double]] = []
         for point in try params.array("path") {
             guard case .object(let fields) = point, case .number(let x)? = fields["x"], case .number(let y)? = fields["y"] else {
@@ -53,14 +56,14 @@ extension WebKitDriver {
         }
         guard let start = points.first else { throw DriverError(.invalid, "path: expected [{ x, y }, ...] with one point or more") }
         let modifiers = try params.strings("modifiers")
-        let html = try await run(Self.startsHTMLDrag, ["x": start["x"] ?? 0, "y": start["y"] ?? 0], nil, AgentWorld.hostWorld, tab)
+        let html = try await driver.run(Self.startsHTMLDrag, ["x": start["x"] ?? 0, "y": start["y"] ?? 0], nil, AgentWorld.hostWorld, tab)
         if html == .bool(true) {
-            _ = try await run(Self.playHTMLDrag, ["points": points, "mods": modifiers], nil, AgentWorld.hostWorld, tab)
+            _ = try await driver.run(Self.playHTMLDrag, ["points": points, "mods": modifiers], nil, AgentWorld.hostWorld, tab)
             return .null
         }
         let button = try params.optionalString("button") ?? "left"
         func mouse(_ type: String, _ point: [String: Double]) async throws(DriverError) {
-            _ = try await inputMouse(DriverParams(method: "input.mouse", json: .object([
+            _ = try await driver.inputMouse(DriverParams(method: "input.mouse", json: .object([
                 "targetId": .string(tab.id.rawValue), "type": .string(type), "button": .string(button),
                 "x": .number(point["x"] ?? 0), "y": .number(point["y"] ?? 0),
                 "modifiers": .array(modifiers.map(DriverJSON.string)),

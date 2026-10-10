@@ -78,6 +78,46 @@ final class AgentChatSplitToggles {
         return mine == region(chatPane.handle)
     }
 
+    /// [+] New tab, which becomes Hide tabs in the same spot (cx-qom0, ChatGPT's right column). On a
+    /// chat alone, `openColumn` opens a New Tab page right of it. With panes beside the chat, the
+    /// click hides them by zooming the chat, which closes nothing; on a zoomed chat it shows them
+    /// again. Returns whether the panes beside the chat show after the click; nil when the store
+    /// does not list the chat.
+    /// `openColumn` returns whether it started the page; until the page's split shows (the page is
+    /// made, then moved), a second click opens no second page.
+    func sideTabs(chat: String, store: DaemonStore?, actions: AgentChatTabActions, openColumn: () -> Bool,
+                  now: ContinuousClock.Instant = .now) -> Bool? {
+        guard let store, let state = Self.sideTabs(of: chat, in: store) else { return nil }
+        switch state {
+        case .alone:
+            if let opening, now - opening < Self.openingWait { return true }
+            guard openColumn() else { return false }
+            opening = now
+            return true
+        case .shown, .hidden:
+            opening = nil
+            actions.run("toggleSplitZoom", cwd: nil)
+            return state == .hidden
+        }
+    }
+
+    /// When [+] last started a New Tab page column.
+    private var opening: ContinuousClock.Instant?
+    /// How long a started column may take to show before a click opens another.
+    private static let openingWait: Duration = .seconds(3)
+
+    enum SideTabs { case alone, shown, hidden }
+
+    /// Whether chat tab `chat` is alone on its screen, has panes showing beside it, or hides them
+    /// (its pane zoomed).
+    static func sideTabs(of chat: String, in store: DaemonStore) -> SideTabs? {
+        guard let pane = store.tab(id: chat).flatMap({ store.pane(containing: $0.surface) }),
+              let screen = store.workspace(containing: pane.handle)?.screens.first(where: { $0.panes.contains { $0 === pane } })
+        else { return nil }
+        if screen.zoomedPane == pane.handle { return .hidden }
+        return screen.panes.count > 1 ? .shown : .alone
+    }
+
     /// Every tab of the workspace that shows chat tab `chat`; nil when the store does not list it.
     private static func workspaceTabs(of chat: String, in store: DaemonStore) -> [TabModel]? {
         guard let surface = store.tab(id: chat)?.surface,
