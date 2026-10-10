@@ -208,6 +208,11 @@ class Bench:
                 kinds[pid] = kind
                 before[pid] = (0, 0, 0)
         after = {pid: usage(pid) for pid in kinds}
+        # A process that exited inside the window has no end sample: count it
+        # from neither side (closePane ends hosts during churn).
+        for pid in [pid for pid, sample in after.items() if sample is None]:
+            before.pop(pid, None)
+            after.pop(pid, None)
         g0, g1 = self.group(kinds, before), self.group(kinds, after)
         rows = {}
         for kind, end in g1.items():
@@ -259,8 +264,12 @@ class Bench:
                 latencies.append(rtt)
             return latencies
 
+        busy = {"s": None}
+        busy_start = time.monotonic()
+
         def settled_body():
             latencies = body()
+            busy["s"] = time.monotonic() - busy_start
             # Observation work for the last ops runs after their replies.
             self.topology()
             time.sleep(1.0)  # test script: let trailing async apply work finish inside the window
@@ -273,6 +282,8 @@ class Bench:
         passes = (self.debug("debug.layers") or {}).get("layout_passes")
         measured.update({
             "ops": len(ops),
+            # wall_s includes a 1 s settle after the last op; busy_s ends at the last op.
+            "busy_s": round(busy["s"], 2) if busy["s"] is not None else None,
             "latency_ms": {"p50": pct(latencies, 0.5), "p99": pct(latencies, 0.99),
                            "max": round(max(latencies), 2) if latencies else None,
                            "mean": round(statistics.fmean(latencies), 2) if latencies else None},
