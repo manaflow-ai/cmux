@@ -116,7 +116,7 @@ final class OmniboxSuggestionPanel {
 }
 
 /// Transparent panel content holding the card layer and its shadow.
-private final class SuggestionCardListView: NSView {
+final class SuggestionCardListView: NSView {
     private var accessibilityRows: [SuggestionRowView] = []
 
     func setAccessibilityRows(_ rows: [SuggestionRowView]) {
