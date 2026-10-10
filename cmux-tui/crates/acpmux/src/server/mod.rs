@@ -80,7 +80,11 @@ impl Conn {
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
-            if proof.is_some_and(|p| hub.person.proves(&self.nonce, &self.id, p)) {
+            let transport = match self.origin {
+                Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
+                _ => crate::hub::person::TRANSPORT_UNIX,
+            };
+            if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
                 self.person.store(true, Ordering::SeqCst);
             }
         }

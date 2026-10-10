@@ -24,7 +24,8 @@
 //!   be `initialize`, whose result carries `_meta.acpmux.personChallenge`
 //!   `{nonce, connection}`. Its SECOND request may be
 //!   `_acpmux/person_prove {proof}` with `proof` = lowercase hex
-//!   HMAC-SHA256(key, "acpmux-person-v1" 0 nonce 0 connection id)
+//!   HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection
+//!   id), where transport is `unix` or `app` as the client knows it
 //!   ([`person_proof`]), compared in constant time. A match makes the
 //!   connection the person for its whole life. The proof is bound to the
 //!   nonce and the connection id, so a proof captured anywhere else (a
@@ -153,9 +154,9 @@ impl PersonGate {
 
     /// Whether `proof` answers the challenge (`nonce`, `connection`) with
     /// the current key (constant time).
-    pub fn proves(&self, nonce: &str, connection: &str, proof: &str) -> bool {
+    pub fn proves(&self, transport: &str, nonce: &str, connection: &str, proof: &str) -> bool {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-        key.and_then(|k| person_proof(&k, nonce, connection))
+        key.and_then(|k| person_proof(&k, transport, nonce, connection))
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
     }
 
@@ -191,22 +192,32 @@ impl PersonGate {
     }
 }
 
+/// The transport a unix socket connection proves on (`transport` of [`person_proof`]).
+pub const TRANSPORT_UNIX: &str = "unix";
+/// The transport a proven LocalApp WebSocket connection proves on.
+pub const TRANSPORT_APP: &str = "app";
+
 /// The bytes a person proof covers.
-fn proof_message(nonce: &str, connection: &str) -> Vec<u8> {
+fn proof_message(transport: &str, nonce: &str, connection: &str) -> Vec<u8> {
     let mut message = b"acpmux-person-v1\0".to_vec();
-    message.extend_from_slice(nonce.as_bytes());
-    message.push(0);
-    message.extend_from_slice(connection.as_bytes());
+    for part in [transport, nonce, connection] {
+        message.extend_from_slice(part.as_bytes());
+        message.push(0);
+    }
+    message.pop();
     message
 }
 
 /// The proof for one connection's challenge, as lowercase hex; None when
-/// `key` is not a person key.
-pub fn person_proof(key: &str, nonce: &str, connection: &str) -> Option<String> {
+/// `key` is not a person key. `transport` is the one the CLIENT knows it
+/// uses ([`TRANSPORT_UNIX`] or [`TRANSPORT_APP`]), never a value from the
+/// challenge: a relay that hands a unix connection's challenge to the app's
+/// WebSocket gets a proof for the other transport.
+pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -> Option<String> {
     let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
     Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
         &key,
-        &proof_message(nonce, connection),
+        &proof_message(transport, nonce, connection),
     )))
 }
 

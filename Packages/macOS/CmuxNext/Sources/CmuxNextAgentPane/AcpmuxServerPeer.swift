@@ -67,6 +67,79 @@ nonisolated enum AcpmuxServerPeer {
         }
     }
 
+    /// Whether every same-uid process that listens on TCP `port` is the acpmux this app runs
+    /// (cx-fcaq): the pane's WebSocket has no peer credential, so before it connects the app
+    /// finds the port's listeners (a libproc scan of this user's processes' sockets) and checks
+    /// each one as ``check(descriptor:executable:)`` checks a unix peer. No listener, or any
+    /// other one, refuses (logged once per port).
+    @concurrent static func verifyListener(port: Int, executable: URL) async -> Bool {
+        let owners = listeners(port: port)
+        let wanted = executable.resolvingSymlinksInPath().path
+        var refusal: Refusal?
+        if owners.isEmpty { refusal = .noPeer }
+        for pid in owners where refusal == nil {
+            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
+            let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+            if path != wanted { refusal = .otherExecutable(path); break }
+            if let team = ownTeam, !teamSigned(pid: pid, team: team) { refusal = .notTeamSigned }
+        }
+        guard let refusal else { return true }
+        if refusedPaths.withLock({ $0.insert("tcp:\(port)").inserted }) {
+            logger.error("acpmux WebSocket listener refused on port \(port, privacy: .public): \(refusal.description, privacy: .public); the pane does not connect")
+        }
+        return false
+    }
+
+    /// The pids of this user's processes with a TCP socket listening on `port`.
+    static func listeners(port: Int) -> [pid_t] {
+        let uid = getuid()
+        let needed = proc_listpids(UInt32(PROC_UID_ONLY), uid, nil, 0)
+        guard needed > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.size + 32)
+        let filled = pids.withUnsafeMutableBytes { bytes in
+            proc_listpids(UInt32(PROC_UID_ONLY), uid, bytes.baseAddress, Int32(bytes.count))
+        }
+        var owners: [pid_t] = []
+        for pid in pids.prefix(Int(filled) / MemoryLayout<pid_t>.size) where pid > 0 {
+            if listens(pid: pid, port: port) { owners.append(pid) }
+        }
+        return owners
+    }
+
+    private static func listens(pid: pid_t, port: Int) -> Bool {
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bytes > 0 else { return false }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 8)
+        let filled = fds.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+        }
+        for fd in fds.prefix(Int(filled) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            var info = socket_fdinfo()
+            let size = Int32(MemoryLayout<socket_fdinfo>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size,
+                  info.psi.soi_kind == Int32(SOCKINFO_TCP) else { continue }
+            let tcp = info.psi.soi_proto.pri_tcp
+            // insi_lport holds the port in network byte order in its low 16 bits.
+            let local = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)))
+            if tcp.tcpsi_state == Int32(TSI_S_LISTEN), local == port { return true }
+        }
+        return false
+    }
+
+    private static func teamSigned(pid: pid_t, team: String) -> Bool {
+        var code: SecCode?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid: pid] as CFDictionary, [], &code)
+                == errSecSuccess, let code else { return false }
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
+            return false
+        }
+        return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+    }
+
     /// The check on a connected unix socket.
     static func check(descriptor: Int32, executable: URL) -> Result<Void, Refusal> {
         var pid: pid_t = 0

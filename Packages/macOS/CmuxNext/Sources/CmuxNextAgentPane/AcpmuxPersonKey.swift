@@ -63,17 +63,24 @@ nonisolated enum AcpmuxPersonKey {
         }
     }
 
+    /// The transport a proof names: the one this app knows it uses, never a value from the
+    /// challenge (a relay that hands a unix connection's challenge to the pane's WebSocket gets
+    /// a proof for the other transport).
+    enum Transport: String { case unix, app }
+
     /// `_acpmux/person_prove`'s proof for one connection's challenge: lowercase hex
-    /// HMAC-SHA256(key, "acpmux-person-v1" 0 nonce 0 connection). Nil without a key for
-    /// `socketPath` (this app neither started nor enrolled that daemon).
-    static func proof(socketPath: String, nonce: String, connection: String) -> String? {
+    /// HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection). Nil without a key
+    /// for `socketPath` (this app neither started nor enrolled that daemon).
+    static func proof(socketPath: String, transport: Transport, nonce: String, connection: String) -> String? {
         guard let key = keys.withLock({ $0[socketPath]?.key }) else { return nil }
-        return proof(key: key, nonce: nonce, connection: connection)
+        return proof(key: key, transport: transport, nonce: nonce, connection: connection)
     }
 
-    static func proof(key: String, nonce: String, connection: String) -> String? {
+    static func proof(key: String, transport: Transport, nonce: String, connection: String) -> String? {
         guard let keyBytes = hexBytes(key), keyBytes.count == 32 else { return nil }
         var message = Data("acpmux-person-v1".utf8)
+        message.append(0)
+        message.append(Data(transport.rawValue.utf8))
         message.append(0)
         message.append(Data(nonce.utf8))
         message.append(0)

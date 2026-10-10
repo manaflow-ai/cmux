@@ -21,12 +21,13 @@ const REASON: &str = "permission.person_required";
 const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
 
 /// The app's proof for one connection's challenge, as `hub/person.rs`
-/// defines it: lowercase hex HMAC-SHA256(key, "acpmux-person-v1" 0 nonce 0
-/// connection). Written out here so the test states the wire contract.
+/// defines it: lowercase hex HMAC-SHA256(key, "acpmux-person-v1" 0 "unix" 0
+/// nonce 0 connection). Written out here so the test states the wire contract.
 fn person_proof(key: &str, nonce: &str, connection: &str) -> Option<String> {
     use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
     let key = unhex::<32>(key)?;
-    let mut message = b"acpmux-person-v1\0".to_vec();
+    // These connections are the unix socket.
+    let mut message = b"acpmux-person-v1\0unix\0".to_vec();
     message.extend_from_slice(nonce.as_bytes());
     message.push(0);
     message.extend_from_slice(connection.as_bytes());
@@ -623,6 +624,20 @@ async fn a_person_proof_replayed_on_another_connection_is_refused() {
     let theirs = other.initialize().await;
     assert_ne!(theirs["nonce"], challenge["nonce"]);
     let r = other.call("_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(reason(&r), "person.proof_refused", "{r}");
+
+    // A relay that hands this unix connection's challenge to the app's
+    // WebSocket gets a proof for the `app` transport: refused here.
+    let mut relayed = Rpc::connect(&d.socket).await;
+    let unix_challenge = relayed.initialize().await;
+    let for_app = acpmux::hub::person::person_proof(
+        KEY,
+        acpmux::hub::person::TRANSPORT_APP,
+        unix_challenge["nonce"].as_str().unwrap(),
+        unix_challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let r = relayed.call("_acpmux/person_prove", json!({"proof": for_app})).await;
     assert_eq!(reason(&r), "person.proof_refused", "{r}");
 
     // The right proof, but not as the second request: refused.

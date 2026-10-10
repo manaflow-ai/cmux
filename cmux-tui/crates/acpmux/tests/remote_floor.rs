@@ -72,7 +72,12 @@ impl Client {
         if let (Some(nonce), Some(conn)) =
             (challenge["nonce"].as_str(), challenge["connection"].as_str())
         {
-            let proof = acpmux::hub::person::person_proof(KEY, nonce, conn).unwrap();
+            let transport = if origin == Origin::LocalApp {
+                acpmux::hub::person::TRANSPORT_APP
+            } else {
+                acpmux::hub::person::TRANSPORT_UNIX
+            };
+            let proof = acpmux::hub::person::person_proof(KEY, transport, nonce, conn).unwrap();
             let r = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
             assert!(r.get("error").is_none(), "{r}");
         }

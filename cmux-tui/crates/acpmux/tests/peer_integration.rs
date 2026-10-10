@@ -99,6 +99,7 @@ async fn client(h: Arc<Hub>) -> C {
     let challenge = &init["_meta"]["acpmux"]["personChallenge"];
     let proof = acpmux::hub::person::person_proof(
         PERSON_KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
         challenge["nonce"].as_str().unwrap(),
         challenge["connection"].as_str().unwrap(),
     )

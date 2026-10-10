@@ -144,6 +144,12 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
+           !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
+            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            throw .connectFailed
+        }
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {

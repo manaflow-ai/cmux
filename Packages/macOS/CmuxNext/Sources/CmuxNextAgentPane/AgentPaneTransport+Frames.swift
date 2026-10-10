@@ -176,7 +176,7 @@ extension AgentPaneTransport {
         guard let socketPath else { return }
         guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }
-        guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, nonce: challenge.nonce,
+        guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,
                                                 connection: challenge.connection) else {
             Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
             return

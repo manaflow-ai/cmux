@@ -143,17 +143,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
     let ws_listener = match &ws {
+        // Fail closed (cx-fcaq): a configured listener that cannot bind may be
+        // held by a squatter (an agent that shut the daemon down and took the
+        // port), which could relay the app's pane to this daemon. A daemon
+        // with a squatted port never runs, so it is never keyed.
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
-            Err(e) if !explicit_listen => {
-                tracing::warn!("dashboard disabled: {e:#}");
-                // Report no web listener; the saved address stays in the file.
-                config.web_unbound = true;
-                None
-            }
             Err(e) => {
                 let _ = std::fs::remove_file(socket_path());
-                return Err(e);
+                let source = if explicit_listen { "--listen" } else { "websocket.listen" };
+                return Err(e.context(format!(
+                    "the WebSocket listener {listen} ({source}) is taken; acpmux does not run without it, so nothing else can stand in for it (free the port or change {source})"
+                )));
             }
         },
         None => None,
