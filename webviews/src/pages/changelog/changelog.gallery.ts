@@ -35,6 +35,16 @@ export default changelogPageEntry({
       note: "Eighteen release builds for a long, scrolling history.",
       notes: manyNotes,
     },
+    "update-span": {
+      note: "Opened after an update from 1.0.3 to 1.0.7: those four releases are marked, the newest is shown.",
+      notes: manyNotes,
+      route: "#/?from=1.0.3-nightly&to=1.0.7-nightly",
+    },
+    "updated-no-notes": {
+      note: "Opened after an update whose versions have no notes: the page says which version it is now.",
+      notes: manyNotes,
+      route: "#/?from=1.0.18-nightly&to=1.0.19-nightly",
+    },
     empty: {
       note: "No verified release notes yet.",
       notes: [],
