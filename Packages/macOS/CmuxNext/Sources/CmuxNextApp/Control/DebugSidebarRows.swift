@@ -7,8 +7,19 @@ import CmuxNextSidebar
 /// views (frame, alpha, in the list), the selection and the dragged keys,
 /// so a live drag can be checked row by row (R77, nxdog30), and the layout
 /// items (Home, App Store, Settings) with their frames, so a proof clicks them.
+/// `menu_x`, `menu_y` (window points from the top-left, as `debug.mouse`) add
+/// the first window's `menu`: the titles a right-click there opens, built by
+/// the list's own `menu(for:)` without showing it.
 enum DebugSidebarRows {
-    static func report(services: AppServices) -> JSONValue {
+    static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
+        guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
+        let menu = services.windows.controllers.first.flatMap {
+            SidebarDebugMenu.menu(in: $0.sidebar.container, windowPoint: CGPoint(x: x, y: y))
+        }
+        return .object(["menu": menu.map { .array($0.items.map { .string($0.isSeparatorItem ? "-" : $0.title) }) } ?? .null])
+    }
+
+    private static func rows(services: AppServices) -> JSONValue {
         .object(["windows": .array(services.windows.controllers.map { controller in
             let sidebar = controller.sidebar.container.sidebarView
             let (rows, selection, dragging) = sidebar.debugRows()
