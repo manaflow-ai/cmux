@@ -24,7 +24,7 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
         let action = KeyboardShortcutSettings.Action.jumpToUnread
         let title = action.label
         return SidebarJumpToUnreadButtonPresentation(
-            label: String(localized: "sidebar.jumpToUnread.button", defaultValue: "Jump to Unread"),
+            label: String(localized: "sidebar.jumpToUnread.button", defaultValue: "Jump to unread"),
             helpText: shortcut.isUnbound ? title : action.tooltip(title, shortcut: shortcut),
             countText: unreadCount > 0
                 ? (unreadCount > maxShownCount ? "\(maxShownCount)+" : "\(unreadCount)")
@@ -43,7 +43,7 @@ extension View {
     }
 }
 
-/// Floating "Jump to Unread" glass button above the sidebar footer, at its
+/// Floating "Jump to unread" glass button above the sidebar footer, at its
 /// leading edge: the on-screen ⇧⌘U. It runs `AppDelegate.jumpToLatestUnread()`, the same path as the
 /// Notifications menu item, the command palette and the configured shortcut,
 /// and only exists while something is unread.

@@ -400982,7 +400982,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jump to Unread"
+            "value": "Jump to unread"
           }
         },
         "es": {
@@ -401030,7 +401030,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir para Não Lidas"
+            "value": "Ir para não lidas"
           }
         },
         "ru": {
@@ -401048,7 +401048,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Okunmamışa Atla"
+            "value": "Okunmamışa atla"
           }
         },
         "uk": {
