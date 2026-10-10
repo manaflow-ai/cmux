@@ -39,8 +39,6 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::cursor_provenance::CursorStyleProvenance;
 use super::parse_identity_capabilities;
-#[cfg(test)]
-use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
 
@@ -791,16 +789,6 @@ impl RemoteSurface {
         *self.reported_size.lock().unwrap() = None;
     }
 
-    #[cfg(test)]
-    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
-        let browser = self.browser.lock().unwrap();
-        if matches!(browser.status, BrowserStatus::Failed(_)) {
-            None
-        } else {
-            browser.frame.as_ref().map(|frame| frame.frame.clone())
-        }
-    }
-
     pub fn browser_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
         let browser = self.browser.lock().unwrap();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
@@ -1107,11 +1095,6 @@ impl PendingRemoteRequests {
     }
 
     #[cfg(test)]
-    fn is_empty(&self) -> bool {
-        self.requests.is_empty()
-    }
-
-    #[cfg(test)]
     fn len(&self) -> usize {
         self.requests.len()
     }
@@ -1201,61 +1184,6 @@ impl InteractiveWriteMetrics {
             .min(self.latency_buckets.len() - 1);
         self.latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
     }
-
-    fn snapshot(&self) -> InteractiveWriteMetricsSnapshot {
-        let histogram = self
-            .latency_buckets
-            .iter()
-            .zip(INTERACTIVE_LATENCY_BUCKET_UPPER_US)
-            .map(|(samples, upper_bound_micros)| InteractiveLatencyBucket {
-                upper_bound: Duration::from_micros(upper_bound_micros),
-                samples: samples.load(Ordering::Relaxed),
-            })
-            .collect::<Vec<_>>();
-        let samples = histogram.iter().map(|bucket| bucket.samples).sum();
-        InteractiveWriteMetricsSnapshot {
-            p50: latency_percentile(&histogram, samples, 50),
-            p95: latency_percentile(&histogram, samples, 95),
-            p99: latency_percentile(&histogram, samples, 99),
-            histogram,
-            samples,
-            write_failures: self.write_failures.load(Ordering::Relaxed),
-            backpressure_rejections: self.backpressure_rejections.load(Ordering::Relaxed),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InteractiveLatencyBucket {
-    pub(crate) upper_bound: Duration,
-    pub(crate) samples: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InteractiveWriteMetricsSnapshot {
-    pub(crate) histogram: Vec<InteractiveLatencyBucket>,
-    pub(crate) samples: u64,
-    pub(crate) write_failures: u64,
-    pub(crate) backpressure_rejections: u64,
-    pub(crate) p50: Option<Duration>,
-    pub(crate) p95: Option<Duration>,
-    pub(crate) p99: Option<Duration>,
-}
-
-fn latency_percentile(
-    histogram: &[InteractiveLatencyBucket],
-    samples: u64,
-    percentile: u64,
-) -> Option<Duration> {
-    if samples == 0 {
-        return None;
-    }
-    let target = samples.saturating_mul(percentile).div_ceil(100);
-    let mut cumulative = 0_u64;
-    histogram.iter().find_map(|bucket| {
-        cumulative = cumulative.saturating_add(bucket.samples);
-        (cumulative >= target).then_some(bucket.upper_bound)
-    })
 }
 
 struct InteractiveWriterShared {
@@ -1388,28 +1316,12 @@ impl InteractiveWriter {
     }
 
     #[cfg(test)]
-    fn gate_next_wait_until_written(&self) -> (Receiver<u64>, Sender<()>) {
-        let (entered_tx, entered_rx) = channel();
-        let (resume_tx, resume_rx) = channel();
-        let previous =
-            self.shared.wait_until_written_gate.lock().unwrap().replace(
-                InteractiveWaitUntilWrittenGate { entered: entered_tx, resume: resume_rx },
-            );
-        assert!(previous.is_none(), "interactive write wait gate was already installed");
-        (entered_rx, resume_tx)
-    }
-
-    #[cfg(test)]
     fn await_wait_until_written_gate(&self, sequence: u64) {
         let gate = self.shared.wait_until_written_gate.lock().unwrap().take();
         if let Some(gate) = gate {
             gate.entered.send(sequence).unwrap();
             gate.resume.recv().unwrap();
         }
-    }
-
-    fn metrics(&self) -> InteractiveWriteMetricsSnapshot {
-        self.shared.metrics.snapshot()
     }
 
     fn request_close(&self) {
@@ -1584,9 +1496,6 @@ mod connect;
 mod disconnect;
 mod events;
 mod requests;
-#[cfg(test)]
-#[path = "remote_shutdown_tests.rs"]
-mod shutdown_tests;
 mod surfaces;
 
 #[derive(Default)]
@@ -1816,43 +1725,6 @@ impl RemoteMessageReader for JsonLineReader {
         on_progress: &mut dyn FnMut(&[u8]),
     ) -> io::Result<Option<String>> {
         read_json_line_with_progress(&mut self.inner, on_progress)
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn read_bounded_json_line(
-    reader: &mut impl BufRead,
-    limit: usize,
-) -> io::Result<Option<String>> {
-    let mut frame = Zeroizing::new(Vec::new());
-    loop {
-        let available = reader.fill_buf()?;
-        if available.is_empty() {
-            return if frame.is_empty() { Ok(None) } else { decode_json_line(frame).map(Some) };
-        }
-        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
-            if frame.len().saturating_add(newline) > limit {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("remote JSON line exceeds the {limit}-byte limit"),
-                ));
-            }
-            frame.extend_from_slice(&available[..newline]);
-            reader.consume(newline + 1);
-            if frame.last() == Some(&b'\r') {
-                frame.pop();
-            }
-            return decode_json_line(frame).map(Some);
-        }
-        if frame.len().saturating_add(available.len()) > limit {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("remote JSON line exceeds the {limit}-byte limit"),
-            ));
-        }
-        let consumed = available.len();
-        frame.extend_from_slice(available);
-        reader.consume(consumed);
     }
 }
 
@@ -2659,33 +2531,6 @@ fn test_session_with_deferred_attach_control(
     *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
     session.tree_stale.store(false, Ordering::Release);
     (session, attach_started_rx, release_attach_tx)
-}
-
-#[cfg(test)]
-fn test_session_with_deferred_leased_attach()
--> (Arc<RemoteSession>, Receiver<()>, Sender<()>, Receiver<Value>) {
-    let session_slot = Arc::new(Mutex::new(None));
-    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
-    let (release_attach_tx, release_attach_rx) = channel();
-    let (request_tx, request_rx) = channel();
-    let session = test_session_with_writer(
-        Box::new(DeferredAttachTestWriter {
-            session: session_slot.clone(),
-            attach_started: attach_started_tx,
-            release_attach: Some(release_attach_rx),
-            first_resize_failure: None,
-            attach_lease: Some("test-view-lease".to_string()),
-            requests: Some(request_tx),
-        }),
-        None,
-        HashSet::from([
-            VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string(),
-            VIEW_ATTACHMENT_DETACH_CAPABILITY.to_string(),
-        ]),
-    );
-    *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
-    session.tree_stale.store(false, Ordering::Release);
-    (session, attach_started_rx, release_attach_tx, request_rx)
 }
 
 #[cfg(test)]

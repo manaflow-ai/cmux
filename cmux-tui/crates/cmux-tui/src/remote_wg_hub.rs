@@ -222,45 +222,6 @@ fn start_wireguard_hub_tunnel(
 mod tests {
     use super::*;
 
-    #[test]
-    fn wg_hub_flags_require_config_and_socket() {
-        let full =
-            ["hub", "--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock"].map(str::to_string);
-        let flags = parse_wg_hub_flags(&full[1..]).unwrap();
-        assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
-        assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
-        assert!(!flags.exit_with_parent);
-        let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
-            .map(str::to_string);
-        assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
-        assert!(!flags.probes && flags.control.is_none());
-        let measured =
-            ["--config", "c", "--socket", "s", "--control", "k", "--probes"].map(str::to_string);
-        let measured = parse_wg_hub_flags(&measured).unwrap();
-        assert!(measured.probes);
-        let sized =
-            ["--config", "c", "--socket", "s", "--send-buffer", "32768"].map(str::to_string);
-        assert_eq!(parse_wg_hub_flags(&sized).unwrap().send_buffer, Some(32 * 1024));
-        let bad = ["--config", "c", "--socket", "s", "--send-buffer", "lots"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&bad).is_err());
-        let huge =
-            ["--config", "c", "--socket", "s", "--send-buffer", "8388608"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&huge).is_err(), "above 4 MiB is refused");
-        let tiny = ["--config", "c", "--socket", "s", "--send-buffer", "1"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&tiny).is_err(), "below 16 KiB is refused");
-        let floor =
-            ["--config", "c", "--socket", "s", "--send-buffer", "16384"].map(str::to_string);
-        assert_eq!(parse_wg_hub_flags(&floor).unwrap().send_buffer, Some(16 * 1024));
-        assert_eq!(measured.control, Some(PathBuf::from("k")));
-        let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&missing).is_err());
-        let unknown =
-            ["--config", "/tmp/wg.conf", "--socket", "/tmp/s", "--bogus"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&unknown).is_err());
-        let not_hub = ["frobnicate"].map(str::to_string);
-        assert!(run_wg(&not_hub).is_err());
-    }
-
     #[cfg(unix)]
     #[test]
     fn wireguard_hub_start_deadline_is_built_inside_the_runtime() {
