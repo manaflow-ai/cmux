@@ -167,26 +167,19 @@ struct SidebarJumpToUnreadButton: View {
                     } else {
                         let arrow = SidebarJumpToUnreadButtonPresentation.systemName
                         CmuxSystemSymbolImage(systemName: arrow, pointSize: 11, weight: .semibold, tint: cmuxAccent.color)
-                        if style != .sCompact {
-                            title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Last unread"))
-                        } else if isHovered {
-                            title(String(localized: "sidebar.jumpToUnread.compactTitle", defaultValue: "Jump to Unread"))
-                                .transition(.opacity.animation(.easeOut(duration: 0.12).delay(0.08)))
-                        }
-                        // Hovering swaps the count for the key that does the same thing.
-                        if isHovered, let shortcutText = resolved.shortcutText {
-                            Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
-                                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        } else if let countText = resolved.countText {
-                            Text(countText).cmuxFont(size: 9, weight: .semibold).monospacedDigit().foregroundStyle(.white)
-                                .padding(.horizontal, 4)
-                                .frame(minWidth: 16, minHeight: 16)
-                                .background(Capsule().fill(cmuxAccent.color))
-                            // Compact keeps the key on screen at rest too: "↳ (3) ⇧⌘U".
-                            if style == .sCompact, let shortcutText = resolved.shortcutText {
-                                Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
-                                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        if style == .sCompact {
+                            // "↳ (3) ⇧⌘U" at rest, "↳ Jump to Unread ⇧⌘U" on hover: the label
+                            // and the count are clipped to their animating width, so they
+                            // appear and leave with the capsule's width, never ahead of it.
+                            reveal(isHovered) {
+                                title(String(localized: "sidebar.jumpToUnread.compactTitle", defaultValue: "Jump to Unread"))
                             }
+                            reveal(!isHovered) { countBadge(resolved) }
+                            shortcutLabel(resolved)
+                        } else {
+                            title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Last unread"))
+                            // Hovering swaps the count for the key that does the same thing.
+                            if isHovered { shortcutLabel(resolved) } else { countBadge(resolved) }
                         }
                     }
                 }
@@ -216,6 +209,35 @@ struct SidebarJumpToUnreadButton: View {
         }
         .animation(.easeOut(duration: 0.15), value: isHovered)
         .animation(.easeOut(duration: 0.15), value: isConfirmingHide)
+    }
+
+    /// Shown or collapsed to zero width, clipped, so it enters and leaves
+    /// with the surrounding width animation (the -6 cancels the stack gap).
+    private func reveal(_ shown: Bool, @ViewBuilder _ content: () -> some View) -> some View {
+        content()
+            .fixedSize()
+            .frame(width: shown ? nil : 0, alignment: .leading)
+            .clipped()
+            .opacity(shown ? 1 : 0)
+            .padding(.trailing, shown ? 0 : -6)
+    }
+
+    @ViewBuilder
+    private func countBadge(_ resolved: SidebarJumpToUnreadButtonPresentation) -> some View {
+        if let countText = resolved.countText {
+            Text(countText).cmuxFont(size: 9, weight: .semibold).monospacedDigit().foregroundStyle(.white)
+                .padding(.horizontal, 4)
+                .frame(minWidth: 16, minHeight: 16)
+                .background(Capsule().fill(cmuxAccent.color))
+        }
+    }
+
+    @ViewBuilder
+    private func shortcutLabel(_ resolved: SidebarJumpToUnreadButtonPresentation) -> some View {
+        if let shortcutText = resolved.shortcutText {
+            Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        }
     }
 
     private func title(_ text: String) -> some View {
