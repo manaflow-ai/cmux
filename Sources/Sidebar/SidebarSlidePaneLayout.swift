@@ -80,7 +80,7 @@ struct SidebarSlidePaneLayout {
     /// itself holding a further split.
     private static func isLeaf(_ view: NSView) -> Bool {
         let inSlot = view.superview.map(SidebarSlideTabRowCapture.isSplitSlot) == true
-        guard inSlot || NSStringFromClass(type(of: view)).contains("PaneContainerView") else { return false }
+        guard inSlot || SidebarSlideTabRowCapture.className(of: view, contains: "PaneContainerView") else { return false }
         func holdsSplit(_ view: NSView) -> Bool {
             view.subviews.contains { splitView($0) != nil || holdsSplit($0) }
         }

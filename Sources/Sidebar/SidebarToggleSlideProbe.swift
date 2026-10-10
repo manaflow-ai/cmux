@@ -24,6 +24,10 @@ final class SidebarToggleSlideProbe: NSObject {
     private var link: CADisplayLink?
     private var last: (wall: CFTimeInterval, cpu: Double)?
     private var firstFrameMs: Double?
+    /// Keypress to the slide's Core Animation commit, and to the display
+    /// time of the first frame after it.
+    private var commitMs: Double?
+    private var firstTargetMs: Double?
     private var blankRows: Int?
     private var intervals: [Double] = []
     private var cpu: [Double] = []
@@ -97,6 +101,11 @@ final class SidebarToggleSlideProbe: NSObject {
         return probe
     }
 
+    /// The slide's spring began (its transaction committed) at `begin`.
+    func slideDidCommit(at begin: CFTimeInterval) {
+        if commitMs == nil { commitMs = (begin - startWall) * 1000 }
+    }
+
     func keypressDidFinish() {
         keypressCPU = Self.threadCPU() - startCPU
     }
@@ -115,6 +124,7 @@ final class SidebarToggleSlideProbe: NSObject {
         let now = (wall: CACurrentMediaTime(), cpu: Self.threadCPU())
         if firstFrameMs == nil {
             firstFrameMs = (now.wall - startWall) * 1000
+            firstTargetMs = (link.targetTimestamp - startWall) * 1000
             if visible { blankRows = countBlankSidebarRows() }
         } else if let last {
             intervals.append((now.wall - last.wall) * 1000)
@@ -175,6 +185,7 @@ final class SidebarToggleSlideProbe: NSObject {
         SidebarNavigationTimings.record(
             "nav.frames interaction=\(name) frames=\(intervals.count + 1) " +
             "keypressCpu=\(f(keypressCPU)) firstFrameMs=\(f(firstFrameMs ?? -1)) " +
+            "commitMs=\(f(commitMs ?? -1)) firstTargetMs=\(f(firstTargetMs ?? -1)) " +
             "landingCpu=\(f(landingCPU ?? -1)) landed=\(landingCPU == nil ? 0 : 1) " +
             "intervalAvg=\(f(average)) intervalMax=\(f(intervals.max() ?? 0)) dropped=\(dropped) period=\(f(period)) " +
             "movingCpuAvg=\(f(cpuAverage)) movingCpuMax=\(f(moving.max() ?? 0)) " +

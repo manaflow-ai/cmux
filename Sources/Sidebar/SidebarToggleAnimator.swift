@@ -247,10 +247,24 @@ final class SidebarToggleAnimator: ObservableObject {
         // A visibility commit during the atomic commit's run loop pass can
         // drop the slide this was for; a session built for it would never land.
         guard machine.slide?.generation == slide.generation else { return }
+#if DEBUG
+        var laps: [(String, CFTimeInterval)] = [("start", CACurrentMediaTime())]
+        defer {
+            laps.append(("hold", CACurrentMediaTime()))
+            let parts = zip(laps, laps.dropFirst()).map { "\($1.0)=\(String(format: "%.1f", ($1.1 - $0.1) * 1000))" }
+            SidebarNavigationTimings.record("slide.build " + parts.joined(separator: " "))
+        }
+#endif
         if session == nil, let views = Self.slidingViews(in: window), let layout {
             let start = captureStart(in: window, docked: pendingDocked)
             pendingDocked = nil
+#if DEBUG
+            laps.append(("capture", CACurrentMediaTime()))
+#endif
             let panes = SidebarSlideStart.isRigid ? nil : paneLayouts(for: start, reference: views[0], width: layout.width, window: window)
+#if DEBUG
+            laps.append(("layouts", CACurrentMediaTime()))
+#endif
             session = SidebarToggleSlideSession(
                 views: views,
                 trailingStillWidth: trailingStillWidth(),
@@ -261,6 +275,9 @@ final class SidebarToggleAnimator: ObservableObject {
                 panes: panes
             )
             watchLayout(in: window)
+#if DEBUG
+            laps.append(("session", CACurrentMediaTime()))
+#endif
         }
         guard let session, !session.movingLayers.isEmpty else {
             // Nothing to move: land now, so the press still takes effect.
@@ -321,7 +338,11 @@ final class SidebarToggleAnimator: ObservableObject {
     private func animationBegin() -> CFTimeInterval {
         guard let layer = session?.movingLayers.first, let animation = layer.animation(forKey: Self.animationKey),
               animation.beginTime > 0 else { return CACurrentMediaTime() }
-        return layer.convertTime(animation.beginTime, to: nil)
+        let begin = layer.convertTime(animation.beginTime, to: nil)
+#if DEBUG
+        SidebarToggleSlideProbe.current?.slideDidCommit(at: begin)
+#endif
+        return begin
     }
 
     private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double, keyPath: String = "transform.translation.x") -> CASpringAnimation {

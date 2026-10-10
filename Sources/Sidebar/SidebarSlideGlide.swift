@@ -183,13 +183,26 @@ struct SidebarSlideTabRowCapture {
     /// One tab's hit region (the tab bar's background view shares the
     /// protocol but spans the whole pane).
     static func isTabItemRegion(_ view: NSView) -> Bool {
-        view is BonsplitTabItemHitRegionProviding && NSStringFromClass(type(of: view)).contains("TabItemHitRegionView")
+        view is BonsplitTabItemHitRegionProviding && className(of: view, contains: "TabItemHitRegionView")
     }
 
     /// One side of a Bonsplit split.
     static func isSplitSlot(_ view: NSView) -> Bool {
-        NSStringFromClass(type(of: view)).contains("SplitArrangedContainerView")
+        className(of: view, contains: "SplitArrangedContainerView")
     }
+
+    /// Whether the view's class name contains `fragment`. A slide asks this
+    /// of every view in the window at the press, so the answer is kept per
+    /// class instead of building the name each time.
+    static func className(of view: NSView, contains fragment: String) -> Bool {
+        let type = ObjectIdentifier(Swift.type(of: view))
+        if let known = classNameMatches[fragment]?[type] { return known }
+        let matches = NSStringFromClass(Swift.type(of: view)).contains(fragment)
+        classNameMatches[fragment, default: [:]][type] = matches
+        return matches
+    }
+
+    private static var classNameMatches: [String: [ObjectIdentifier: Bool]] = [:]
 
     static func paneHost(of view: NSView) -> NSView? {
         var current = view.superview
@@ -197,7 +210,7 @@ struct SidebarSlideTabRowCapture {
             // A split's leaf (the hosting view in a split slot), or a lone
             // pane's own hosting view.
             if candidate.superview.map(isSplitSlot) == true
-                || NSStringFromClass(type(of: candidate)).contains("PaneContainerView") {
+                || className(of: candidate, contains: "PaneContainerView") {
                 return candidate
             }
             current = candidate.superview
@@ -208,7 +221,7 @@ struct SidebarSlideTabRowCapture {
     private static func splitButtonsMinX(in pane: NSView, reference: NSView) -> CGFloat? {
         var xs: [CGFloat] = []
         func walk(_ view: NSView) {
-            if NSStringFromClass(type(of: view)).contains("SplitActionMouseDown"), !view.isHiddenOrHasHiddenAncestor {
+            if className(of: view, contains: "SplitActionMouseDown"), !view.isHiddenOrHasHiddenAncestor {
                 xs.append(reference.convert(view.bounds, from: view).minX)
             }
             view.subviews.forEach(walk)

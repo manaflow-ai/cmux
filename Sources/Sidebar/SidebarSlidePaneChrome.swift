@@ -115,6 +115,21 @@ struct SidebarSlidePaneChrome {
             }
         }
         for (rows, panes) in strips {
+            func isTabBar(_ id: ObjectIdentifier) -> Bool {
+                tabRows[id].map { abs($0.lowerBound - rows.lowerBound) < 1 && abs($0.upperBound - rows.upperBound) < 1 } ?? false
+            }
+            // The tabs hold still (SidebarSlidePaneGlide.holdTabBars) with
+            // Bonsplit's own lane hidden; the lane, whose width Bonsplit
+            // reports, rides the trailing edge as a picture of the lane
+            // alone. A tab bar strip needs no picture of its own.
+            let barPanes = panes.filter { isTabBar($0.id) }
+            for (id, _) in barPanes {
+                if let view = layout.view(id), let band = lanePicture(of: view, lane: lanes[id] ?? 0, reference: reference) {
+                    bands[id, default: []].append(band)
+                }
+            }
+            let panes = panes.filter { !isTabBar($0.id) }
+            guard !panes.isEmpty else { continue }
             let minX = panes.map(\.pane.minX).min() ?? 0, maxX = panes.map(\.pane.maxX).max() ?? 0
             let rect = NSRect(x: minX, y: rows.lowerBound, width: maxX - minX, height: rows.upperBound - rows.lowerBound)
             guard let rep = reference.bitmapImageRepForCachingDisplay(in: rect) else { continue }
@@ -132,17 +147,6 @@ struct SidebarSlidePaneChrome {
                     SidebarNavigationTimings.record("slide.strip \(name) px=\(paneRep.pixelsWide)x\(paneRep.pixelsHigh) bpp=\(paneRep.bitsPerPixel) seams=\(seams(in: paneRep).map { "\($0.rows):\($0.seam.map(String.init) ?? "-")" })")
                 }
 #endif
-                let isTabBar = tabRows[id].map { abs($0.lowerBound - rows.lowerBound) < 1 && abs($0.upperBound - rows.upperBound) < 1 } ?? false
-                // The tabs hold still (SidebarSlidePaneGlide.holdTabBars)
-                // with Bonsplit's own lane hidden; the lane, whose width
-                // Bonsplit reports, rides the trailing edge as a picture of
-                // the lane alone.
-                if isTabBar {
-                    if let view = layout.view(id), let band = lanePicture(of: view, lane: lanes[id] ?? 0, reference: reference) {
-                        bands[id, default: []].append(band)
-                    }
-                    continue
-                }
                 // A trailing part wider than half the pane is content that
                 // happens to have a gap (text lines, a page), not a bar's
                 // trailing items: it rides with the pane.
@@ -178,7 +182,7 @@ struct SidebarSlidePaneChrome {
             SidebarSlideTabRowCapture.isTabItemRegion(view) || view.subviews.contains(where: holdsTab)
         }
         func visit(_ view: NSView) {
-            if NSStringFromClass(type(of: view)).contains("TabBarSelectionChromeView") {
+            if SidebarSlideTabRowCapture.className(of: view, contains: "TabBarSelectionChromeView") {
                 selectionChromes.append(view)
             } else if view is NSScrollView {
                 if holdsTab(view) { scrollViews.append(view) } else { otherScrollViews.append(view) }
