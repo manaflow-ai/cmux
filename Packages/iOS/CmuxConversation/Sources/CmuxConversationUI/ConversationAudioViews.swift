@@ -367,7 +367,7 @@ extension MessageCell {
         views.message.configure(message: model.message, isOutgoing: model.isOutgoing, player: audioDelegate?.audioPlayer)
         if let expiryFrame = layout.audioExpiryFrame {
             views.expiry.isHidden = false
-            views.expiry.frame = expiryFrame
+            views.expiry.setUntransformedFrame(expiryFrame)
             views.expiry.configure(audio: audio, isOutgoing: model.isOutgoing)
             let messageID = model.message.id
             views.expiry.onKeep = { [weak self] in self?.audioDelegate?.keepAudio(messageID: messageID) }

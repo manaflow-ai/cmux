@@ -168,3 +168,19 @@ public enum TimestampDrawerLabelGeometry {
         return fadesIn ? fraction * fraction : 1
     }
 }
+
+/// Which transcript rows the send-time drawer slides, and how far.
+///
+/// Measured in the iOS 26.5 and 27.0 simulators' Messages with incoming rows
+/// fed in through a display-only `isFromMe` hook: in a one-to-one chat the
+/// outgoing rows slide the full drawer and incoming rows stay put. In a group
+/// transcript, whose incoming rows carry the avatar column, every row slides
+/// together: avatars, sender names, quotes, reactions, attachments and the
+/// typing bubble (the user's report from a real iPhone; ChatKit only gives
+/// label rows the drawer layout when they use the contact-image layout).
+/// Centered rows (dates, notices, system events) never move.
+public enum TimestampDrawerRows {
+    public static func travel(isOutgoing: Bool, inAvatarTranscript: Bool, reveal: CGFloat) -> CGFloat {
+        isOutgoing || inAvatarTranscript ? reveal : 0
+    }
+}
