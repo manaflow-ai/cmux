@@ -128,6 +128,11 @@ async function main(): Promise<void> {
   if (values.layout || values.focus) {
     const { layout } = await client.request("layout.get");
     report.layout = layout;
+    client.peer.on("event", (t, p) => {
+      if (t !== "layout.changed") return;
+      const active = p.layout.workspaces.flatMap((w: any) => w.panes.filter((x: any) => x.active).map((x: any) => `${w.id}/${x.id}:${x.focusedTabId}`));
+      log(`layout.changed: active ${active.join(",") || "none"}`);
+    });
     log(`layout: ${JSON.stringify(layout, null, 1)}`);
     if (values.focus) {
       // --focus <paneId>:<tabId>
