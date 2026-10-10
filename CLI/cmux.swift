@@ -1583,6 +1583,7 @@ final class ClaudeHookSessionStore {
             for supersededSessionId in supersededSessionIDs {
                 if var superseded = state.sessions[supersededSessionId] {
                     let supersededWorkspaceId = superseded.workspaceId
+                    let ownsTargetSurface = superseded.surfaceId == normalizedSurfaceId
                     superseded.agentLifecycle = .idle
                     superseded.lastSubtitle = nil
                     superseded.lastBody = nil
@@ -1591,7 +1592,8 @@ final class ClaudeHookSessionStore {
                     superseded.hadPendingBackgroundWorkAtStop = nil
                     superseded.updatedAt = now
                     state.sessions[supersededSessionId] = superseded
-                    if state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
+                    if ownsTargetSurface,
+                       state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
                         state.activeSessionsByWorkspace.removeValue(forKey: supersededWorkspaceId)
                     }
                 }
