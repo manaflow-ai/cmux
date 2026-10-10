@@ -38,20 +38,17 @@ extension CmuxTuiSurfaceProvider {
                   let created = CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: object) else {
                 throw ProviderError.browserNotCreated
             }
-            guard self.isRegisteredInCatalog() else {
-                // The daemon mutation is committed even if the local provider was
-                // retired while waiting. Close its tab before discarding the receipt
-                // so a reconnect cannot strand an unowned browser.
-                _ = try? await link.run(arguments: CloudTuiRequests.closeTabArguments(
-                    socketPath: connected.socketPath,
-                    tabID: created.tabID
-                ))
-                throw CancellationError()
+            // The daemon mutation is committed even if this provider was replaced
+            // while the request was in flight. Adopt the receipt into the provider
+            // currently registered for the machine so the browser remains owned and
+            // discoverable after reconnect. If access ended entirely, surface an
+            // explicit state failure instead of cancelling after creating a blank
+            // local pane (or silently compensating the remote tab away).
+            guard let activeProvider = self.catalog.provider(for: self.machine) as? CmuxTuiSurfaceProvider,
+                  activeProvider.isRegisteredInCatalog() else {
+                throw ProviderError.stateUnavailable(self.machineID)
             }
-            // A reconnect can advance the generation while keeping this provider
-            // registered. The active provider adopts the committed receipt so the
-            // browser remains discoverable after reconnect.
-            return self.recordCreatedBrowser(
+            return activeProvider.recordCreatedBrowser(
                 created,
                 workspaceID: created.workspaceID,
                 url: url,

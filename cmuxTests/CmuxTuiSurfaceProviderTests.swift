@@ -120,6 +120,15 @@ import Testing
             "title": "Cloud health",
             "status": "ready",
         ]]
+        // The tab's content identity is the browser row's daemon id. Keep the
+        // fixture's foreign-key edge consistent so the parser exercises the
+        // placement join rather than rejecting a malformed snapshot.
+        snapshot["tabs"] = (snapshot["tabs"] as? [[String: Any]] ?? []).map { tab in
+            guard tab["id"] as? String == "tab_3" else { return tab }
+            var corrected = tab
+            corrected["content_id"] = "browser_cloud"
+            return corrected
+        }
         let browser = try #require(
             CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
                 .first(where: { $0.id == SurfaceResourceID(machine: Self.machine, kind: .browser, key: "browser_cloud") })

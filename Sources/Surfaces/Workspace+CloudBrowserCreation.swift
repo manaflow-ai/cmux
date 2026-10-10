@@ -30,13 +30,22 @@ extension Workspace {
                   let projection = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID),
                   projection.resource.machine == machine,
                   let resource = SurfaceCatalog.shared.resources[projection.resource] else { return nil }
+            let views = resource.remoteViews ?? []
             if let tabID = projection.remoteTabID {
-                return resource.remoteViews?.first(where: { $0.tabID == tabID })
+                // A local projection can outlive a workspace binding change. Do not
+                // carry its old screen/pane across the newly selected remote
+                // workspace; those IDs are only meaningful within that workspace.
+                if let boundRemoteWorkspaceID {
+                    return views.first {
+                        $0.tabID == tabID && $0.workspace.id == boundRemoteWorkspaceID
+                    }
+                }
+                return views.first(where: { $0.tabID == tabID })
             }
             if let boundRemoteWorkspaceID {
-                return resource.remoteViews?.first(where: { $0.workspace.id == boundRemoteWorkspaceID })
+                return views.first(where: { $0.workspace.id == boundRemoteWorkspaceID })
             }
-            return resource.remoteViews?.first
+            return views.first
         }()
         let remoteWorkspaceID = boundRemoteWorkspaceID
             ?? sourceView?.workspace.id
@@ -59,15 +68,17 @@ extension Workspace {
         guard let provider = catalog.provider(for: route.machine) as? CmuxTuiSurfaceProvider else { return }
         let mutation = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: route.machine)
         pendingCloudBrowserPanelIDs.insert(panel.id)
+        let panelID = panel.id
         let requestID = UUID().uuidString.lowercased()
         let task = Task { @MainActor [weak self, weak panel, weak provider] in
-            guard let self, let panel, let provider else { return }
             defer {
-                self.cloudBrowserCreationTasks.removeValue(forKey: panel.id)
-                self.pendingCloudBrowserPanelIDs.remove(panel.id)
                 catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(mutation, on: route.machine, catalog: catalog)
+                guard let self else { return }
+                self.cloudBrowserCreationTasks.removeValue(forKey: panelID)
+                self.pendingCloudBrowserPanelIDs.remove(panelID)
                 self.cloudLayoutDidChange()
             }
+            guard let self, let panel, let provider else { return }
             do {
                 guard !Task.isCancelled, self.panels[panel.id] === panel else { throw CancellationError() }
                 let created = try await provider.createBrowser(
@@ -81,8 +92,12 @@ extension Workspace {
                 )
                 guard !Task.isCancelled, self.panels[panel.id] === panel,
                       let remoteView = created.remoteViews?.first else { throw CancellationError() }
+                guard let activeProvider = catalog.provider(for: route.machine) as? CmuxTuiSurfaceProvider,
+                      activeProvider.isRegisteredInCatalog() else {
+                    throw CmuxTuiSurfaceProvider.ProviderError.stateUnavailable(route.machine.rawValue)
+                }
                 if ["http", "https"].contains(route.url.scheme?.lowercased() ?? "") {
-                    guard provider.configureBrowser(panel, url: route.url, resourceID: created.id) else {
+                    guard activeProvider.configureBrowser(panel, url: route.url, resourceID: created.id) else {
                         throw CmuxTuiSurfaceProvider.ProviderError.localForwardURLUnavailable
                     }
                 } else if route.url.scheme?.lowercased() == "about" {
