@@ -139,7 +139,15 @@ struct CloudPortRoutePlanTests {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         state.configure(model: model, url: remote, request: request)
         var navigations: [URLRequest] = []
-        state.automaticallyNavigateRequest { navigations.append($0) }
+        state.automaticallyNavigateRequest { request in
+            navigations.append(request)
+            // BrowserPanel records even the readiness callback's request
+            // before WebKit starts, commits, and finishes the navigation.
+            state.rememberNavigationRequest(request)
+            state.didStart(url: request.url)
+            state.didCommit(url: request.url)
+            state.didFinish(url: request.url)
+        }
 
         model.connect()
         #expect(await wait { navigations.count == 1 })
@@ -149,6 +157,9 @@ struct CloudPortRoutePlanTests {
         #expect(forwarded.httpMethod == "POST")
         #expect(forwarded.httpBody == Data("name=cmux".utf8))
         #expect(forwarded.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+        #expect(state.showsPage)
+        #expect(state.sessionURL(currentURL: forwarded.url) == remote)
+        #expect(state.nextRequest() == nil)
 
         // A dead SSH child is replaced on a new listener. The route must
         // replay the same request template instead of silently downgrading it
@@ -164,16 +175,25 @@ struct CloudPortRoutePlanTests {
 
         // A later user navigation replaces the replay template, so recovery
         // cannot resurrect the earlier form submission.
-        let followUp = URLRequest(url: URL(string: "http://10.0.0.7:3000/other")!)
+        let followUp = URLRequest(url: URL(string: "http://127.0.0.1:46904/other?q=next#section")!)
         state.rememberNavigationRequest(followUp)
+        state.didStart(url: followUp.url)
+        state.didCommit(url: followUp.url)
+        state.didFinish(url: followUp.url)
+        #expect(state.showsPage)
+        #expect(state.sessionURL(currentURL: followUp.url)?.absoluteString == "http://10.0.0.7:3000/other?q=next#section")
+        #expect(state.nextRequest() == nil)
         listenerPort = 46_905
         model.retry()
         #expect(await wait { navigations.count == 3 })
         let latest = try #require(navigations.last)
         #expect(latest.url?.port == 46_905)
         #expect(latest.url?.path == "/other")
+        #expect(latest.url?.query == "q=next")
+        #expect(latest.url?.fragment == "section")
         #expect(latest.httpMethod == "GET")
         #expect(latest.httpBody == nil)
+        #expect(state.showsPage)
         await model.retire()
     }
 
