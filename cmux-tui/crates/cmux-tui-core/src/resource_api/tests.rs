@@ -303,6 +303,29 @@ fn program_status_osc7501_reaches_snapshot_and_event_feed() {
             mux.wait_for_resource_event(epoch, remaining);
         }
     };
+    let wait_for_status_hook = |event: &str| -> Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut cursor = 0;
+        loop {
+            let page = mux.session_journal_after(cursor, 1024).unwrap();
+            let head_sequence = page.head_sequence;
+            for record in page.records {
+                cursor = record.sequence;
+                if record.kind == "terminal.program_status"
+                    && record.payload["result"]["program_status_change"]["event"] == event
+                {
+                    return record.payload;
+                }
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "a {event} must be visible to journal hooks");
+            if cursor < head_sequence {
+                continue;
+            }
+            let epoch = mux.journal_event_epoch();
+            mux.wait_for_journal_event(epoch, remaining);
+        }
+    };
     let working = wait_for_status(
         &|status| status[0]["state"] == "working",
         "the working report never reached the public graph",
@@ -318,6 +341,9 @@ fn program_status_osc7501_reaches_snapshot_and_event_feed() {
                 && change["value"]["extra"]["program_status"][0]["state"] == "working"
         })
     }));
+    let working_hook_event = wait_for_status_hook("report");
+    assert_eq!(working_hook_event["result"]["program_status_change"]["record"]["state"], "working");
+    assert_eq!(working_hook_event["result"]["program_status_change"]["record"]["id"], "");
 
     surface.write_bytes(b"\n").unwrap();
     let done = wait_for_status(
@@ -331,6 +357,8 @@ fn program_status_osc7501_reaches_snapshot_and_event_feed() {
 
     surface.write_bytes(b"\n").unwrap();
     wait_for_status(&|status| status.is_null(), "the clear report never removed the record");
+    let clear_hook_event = wait_for_status_hook("clear");
+    assert_eq!(clear_hook_event["result"]["program_status_change"]["id"], "");
     mux.shutdown();
 }
 
