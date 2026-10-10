@@ -87,13 +87,16 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, complete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
+                // Only the new bytes can hold a newline: the rest was scanned already.
+                var scan = buffer.endIndex
                 buffer.append(data)
                 // One pass and one removal per chunk: removing each line from the front
                 // moved the rest of the buffer once per line (quadratic in a large chunk).
                 var start = buffer.startIndex
-                while let newline = buffer[start...].firstIndex(of: 0x0A) {
+                while let newline = buffer[scan...].firstIndex(of: 0x0A) {
                     if newline > start { onLine?(Data(buffer[start..<newline])) }
                     start = buffer.index(after: newline)
+                    scan = start
                 }
                 if start > buffer.startIndex { buffer.removeSubrange(buffer.startIndex..<start) }
                 if buffer.count > Self.maxLine { buffer.removeAll(); connection.cancel(); return }
