@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Live check that opening Home keeps the app running (cx-t7hu) on a running tagged cmux-next build.
+"""Live check that opening Home and Search Tabs keeps the app running (cx-t7hu) on a running tagged
+cmux-next build.
 
 Home is a top page: showing it takes the workspace's layout view out of the window, which
 detaches that view's display-link client. That release used to trap the app (SIGTRAP in the
 client's isolated deinit). The script seeds the showcase workspaces, then goes from a workspace
 to Home and back a few times through `home.show` and `workspace.selectFirst`, as the palette and
 the CLI run them, and checks after each step that the app still answers and shows what was
-asked for.
+asked for. Then it opens Search Tabs (`tab.search`) several times in a row: each run resets the
+palette, which releases the previous page inside the action (that release trapped too, though
+not every time), and Escape closes it.
 
 It attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
 build) through its debug socket. It never launches or quits the app.
 
-Usage: home-show-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--rounds 3]
+Usage: home-show-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--rounds 3] [--search-rounds 8]
 Exit status 0 when every check passes.
 """
 import argparse, json, socket, sys, time
@@ -19,6 +22,7 @@ import argparse, json, socket, sys, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--rounds", type=int, default=3)
+parser.add_argument("--search-rounds", type=int, default=8)
 opts = parser.parse_args()
 ROWS = []
 
@@ -78,21 +82,30 @@ def main():
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("debug.showcase.seed")
     wait(lambda: selected() and not selected()[0].startswith("itm_"), 15)
-    for round in range(1, opts.rounds + 1):
+    for step in range(1, opts.rounds + 1):
         reply = rpc("action.run", {"action": "home.show"})
         shown = wait(lambda: selected() == ("itm_home",), 15)
         up = alive()
-        row(f"round {round}: home.show", "the app answers and shows Home",
+        row(f"round {step}: home.show", "the app answers and shows Home",
             f"alive={up} selection={selected() if up else '-'} reply={json.dumps(reply)[:160]}", up and bool(shown))
         if not up:
             return
         rpc("action.run", {"action": "workspace.selectFirst"})
         back = wait(lambda: selected() and not selected()[0].startswith("itm_"), 15)
         up = alive()
-        row(f"round {round}: back to a workspace", "the app answers and shows the workspace",
+        row(f"round {step}: back to a workspace", "the app answers and shows the workspace",
             f"alive={up} selection={selected() if up else '-'}", up and bool(back))
         if not up:
             return
+    for step in range(1, opts.search_rounds + 1):
+        reply = rpc("action.run", {"action": "tab.search", "focus": True})  # it opens only when focus is requested
+        time.sleep(1)  # test harness: let the palette page settle
+        up = alive()
+        row(f"search {step}: tab.search", "the palette opens and the app answers",
+            f"alive={up} reply={json.dumps(reply)[:160]}", up and "error" not in (reply or {}))
+        if not up:
+            return
+    rpc("debug.key", {"key": "escape"})
 
 
 main()
