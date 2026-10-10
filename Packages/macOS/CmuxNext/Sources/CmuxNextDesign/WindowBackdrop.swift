@@ -46,6 +46,9 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// 0 for every other material, which clears an earlier frost (glass
     /// blurs in its own view; see-through and opaque have none).
     public let windowBlurRadius: Int
+    /// The frost radius Ghostty.app uses for the glass styles where Liquid
+    /// Glass is missing.
+    public static let glassFallbackBlurRadius = 20
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -55,8 +58,13 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     ///   `macos-glass-clear`.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting; on, the window is opaque whatever the config says.
-    public init(backgroundOpacity: Double, backgroundBlur: Int, reduceTransparency: Bool = false) {
+    /// - Parameter liquidGlass: Whether this Mac draws Liquid Glass. Without
+    ///   it (before macOS 26) the glass styles frost the window at
+    ///   ``glassFallbackBlurRadius``, as Ghostty.app does.
+    public init(backgroundOpacity: Double, backgroundBlur: Int, reduceTransparency: Bool = false,
+                liquidGlass: Bool = Glass.isLiquidGlassAvailable) {
         let opacity = min(max(backgroundOpacity, 0), 1)
+        let backgroundBlur = backgroundBlur < 0 && !liquidGlass ? Self.glassFallbackBlurRadius : backgroundBlur
         let material: WindowMaterial
         if reduceTransparency {
             material = .opaque
