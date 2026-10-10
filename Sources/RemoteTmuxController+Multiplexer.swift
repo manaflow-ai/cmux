@@ -644,6 +644,14 @@ extension RemoteTmuxController {
             .filter { $0.value.host.connectionHash == host.connectionHash && isMultiplexed($0.value) }
             .map(\.key)
         for key in keys { teardownMultiplexedMirror(key: key) }
+        let pendingPrefix = "\(host.connectionHash)\u{1}"
+        let pendingSessionNames = pendingMultiplexNewSessionCompletions.keys.compactMap { key -> String? in
+            guard key.hasPrefix(pendingPrefix) else { return nil }
+            return String(key.dropFirst(pendingPrefix.count))
+        }
+        for sessionName in pendingSessionNames {
+            multiplexedViewsByHost[host.connectionHash]?.killWorkspaceSession(named: sessionName)
+        }
         multiplexedViewsByHost[host.connectionHash]?.stop()
         multiplexedViewsByHost[host.connectionHash] = nil
         multiplexIntentsByHost[host.connectionHash] = nil
