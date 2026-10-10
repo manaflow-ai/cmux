@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import Observation
@@ -79,7 +80,7 @@ final class CloseUndoToasts {
         seenDaemonItems = Set(Self.daemonItemIDs(machines.daemons))
         // task-owner: the service (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self] in
-            for await ids in Observations({ Self.daemonItemIDs(machines.daemons) }) {
+            for await ids in ObservationStream({ Self.daemonItemIDs(machines.daemons) }) {
                 self?.daemonItemsChanged(ids)
             }
         }

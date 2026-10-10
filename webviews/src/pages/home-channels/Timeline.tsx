@@ -19,6 +19,8 @@ export interface TimelineProps {
   onLoadOlder(): void;
   onOpenThread?(root: string): void;
   onReact(message: HomeMessage, value: string): void;
+  onEdit?(message: HomeMessage, text: string): Promise<boolean>;
+  onRetract?(message: HomeMessage): void;
   className?: string;
 }
 
@@ -32,6 +34,8 @@ export function Timeline({
   onLoadOlder,
   onOpenThread,
   onReact,
+  onEdit,
+  onRetract,
   className,
 }: TimelineProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -88,6 +92,8 @@ export function Timeline({
                     timeFormat={timeFormat}
                     onOpenThread={onOpenThread}
                     onReact={onReact}
+                    onEdit={onEdit}
+                    onRetract={onRetract}
                   />
                 )}
               </div>

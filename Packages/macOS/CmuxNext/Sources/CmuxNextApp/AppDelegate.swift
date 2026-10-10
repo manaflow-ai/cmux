@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
@@ -241,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [weak services, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await github in Observations({ settings.snapshot.feedGitHub }) {
+            for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
                 services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhost
 import CmuxNextSettings
@@ -40,7 +41,7 @@ final class RemoteLocalhostService {
     func follow(_ settings: SettingsController) {
         observation?.cancel()
         observation = Task { [weak self] in
-            for await value in Observations({ settings.snapshot.remoteLocalhost }) {
+            for await value in ObservationStream({ settings.snapshot.remoteLocalhost }) {
                 self?.setting = value
             }
         }

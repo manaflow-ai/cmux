@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -159,7 +160,7 @@ final class WindowManager {
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
-            for await loaded in Observations({ store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
                 await self?.restore()
                 return
             }

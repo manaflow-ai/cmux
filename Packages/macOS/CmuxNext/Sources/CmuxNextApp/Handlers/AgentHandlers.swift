@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -228,7 +229,7 @@ enum AgentHandlers {
         func mounted() -> PaneController? {
             workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
         }
-        for await isMounted in Observations({ () -> Bool in
+        for await isMounted in ObservationStream({ () -> Bool in
             _ = services.paneMounts.generation
             return mounted() != nil
         }) where isMounted {

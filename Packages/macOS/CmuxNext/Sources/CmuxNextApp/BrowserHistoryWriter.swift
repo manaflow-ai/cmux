@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -31,7 +32,7 @@ final class BrowserHistoryWriter {
         self.sleep = sleep
         self.send = send
         observation = Task { [weak self, page] in
-            for await state in Observations({ HistoryKey(page.state) }) {
+            for await state in ObservationStream({ HistoryKey(page.state) }) {
                 self?.pageDidChange(state)
             }
         }

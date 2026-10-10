@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CmuxNextDesign
 import CmuxNextSettings
@@ -59,7 +60,7 @@ final class TerminalThemeSetting {
     func follow(_ settings: SettingsController) {
         take(settings.snapshot)
         observation = Task { [weak self] in
-            for await snapshot in Observations({ settings.snapshot }) { self?.take(snapshot) }
+            for await snapshot in ObservationStream({ settings.snapshot }) { self?.take(snapshot) }
         }
     }
 

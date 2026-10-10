@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -115,7 +116,7 @@ final class CloudMachineProgressView: NSView {
         guard window != nil else { return }
         let creation = creation
         observation = Task { [weak self] in
-            for await _ in Observations({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
+            for await _ in ObservationStream({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
                 self?.render()
             }
         }

@@ -510,3 +510,11 @@ body,
   padding: 10px;
   color: var(--page-text-3);
 }
+
+/* ---------- Edit and delete ---------- */
+.hc-msg-actions button.danger {
+  color: var(--hc-danger);
+}
+.hc-composer.hc-edit {
+  margin: 4px 0;
+}

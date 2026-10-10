@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import Observation
@@ -113,7 +114,7 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _, _) in Observations({
+            for await (all, archived, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
             }) {
                 guard let self else { return }
@@ -126,7 +127,7 @@ final class TopHomePageView: NSView {
         // on a paired server (G6) replaces the local chief while the page shows the local one.
         chiefObservation = Task { [weak self] in
             var previous = Self.chief(home)
-            for await chief in Observations({ Self.chief(home) }) {
+            for await chief in ObservationStream({ Self.chief(home) }) {
                 guard let self, let chief, chief != previous else { continue }
                 if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
                 previous = chief
@@ -135,11 +136,11 @@ final class TopHomePageView: NSView {
         let auth = home.services.cloud.auth
         // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
         accountObservation = Task {
-            for await _ in Observations({ auth.user?.id }) { sidebar.reloadPins() }
+            for await _ in ObservationStream({ auth.user?.id }) { sidebar.reloadPins() }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
-            for await pending in Observations({ (home.pendingSelection, store.rows.map(\.id)) }) {
+            for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
                 guard let self, let id = pending.0, pending.1.contains(id) else { continue }
                 home.pendingSelection = nil
                 show(id)
