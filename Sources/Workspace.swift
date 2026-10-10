@@ -13180,6 +13180,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         surfaceList.surfaceIdsToCloseOthers(of: anchorTabId.uuid, inPaneId: paneId.id).map { TabID(uuid: $0) }
     }
 
+    private func browserTabIds(inPane paneId: PaneID) -> [TabID] {
+        bonsplitController.tabs(inPane: paneId)
+            .filter { $0.kind == SurfaceKind.browser.rawValue }
+            .map(\.id)
+    }
+
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
         let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
         guard let newPanel = newTerminalSurface(
@@ -15331,6 +15337,9 @@ extension Workspace: BonsplitDelegate {
         case .closeOthers:
             guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
+        case .closeBrowserTabs:
+            guard controller.configuration.allowCloseTabs else { return }
+            closeTabs(browserTabIds(inPane: pane))
         case .move:
             if let destination = bonsplitTabMoveDestinations(for: tab.id).first {
                 _ = moveBonsplitTab(tab.id, toMoveDestination: destination.id)
