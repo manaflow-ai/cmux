@@ -223,6 +223,15 @@ struct CoderouterSidebarSectionTests {
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
     }
 
+    @Test("New Account launches a dedicated focused terminal")
+    func focusedAgentUsesDedicatedTerminal() {
+        let launch = CoderouterAccountTerminalLaunch(provider: .codex)
+
+        #expect(launch.command == ["sh", "-lc", "cmux cr add codex"])
+        #expect(launch.name == "CodeRouter")
+        #expect(launch.focus)
+    }
+
     @Test("An unlabeled key account reads as its type and key suffix")
     func unlabeledAccountTitle() {
         let claude = CloudTreeNode.CoderouterAccount(
