@@ -3,12 +3,19 @@ import CmuxConversationCore
 import UIKit
 
 /// Messages' catch-up arrow: opening a conversation with unread messages
-/// lands on the newest one and offers a glass up-arrow in the top-right
+/// lands on the newest one and offers a glass up-chevron in the top-right
 /// corner that jumps to the first unread message. It leaves once that
 /// message has been on screen. The conversation counts as viewed (and every
 /// arrival is read) while it is on screen in the foreground.
 extension ConversationViewController {
-    static let catchUpButtonSize: CGFloat = 36
+    /// ChatKit's `CKCatchUpButton` (SwiftUI): a 41 pt glass circle centered
+    /// in a 47 x 41 host that sits `catchUpButtonPadding` (14 pt) from the
+    /// transcript's trailing edge and below the navigation bar; the glyph is
+    /// a gray headline-weight, small-scale `chevron.up` (15 x 9 pt ink).
+    static let catchUpButtonSize: CGFloat = 41
+    static let catchUpButtonPadding: CGFloat = 14
+    /// The 41 pt circle is inset 3 pt on each side of its 47 pt host.
+    static let catchUpHostInset: CGFloat = 3
 
     func installCatchUp() {
         let button = catchUpButton
@@ -21,8 +28,8 @@ extension ConversationViewController {
         glass.isUserInteractionEnabled = false
         glass.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(glass)
-        let arrow = UIImageView(image: UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)))
-        arrow.tintColor = .systemBlue
+        let arrow = UIImageView(image: UIImage(systemName: "chevron.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold, scale: .small)))
+        arrow.tintColor = .secondaryLabel
         arrow.translatesAutoresizingMaskIntoConstraints = false
         glass.contentView.addSubview(arrow)
         button.addTarget(self, action: #selector(catchUpTapped), for: .touchUpInside)
@@ -30,8 +37,8 @@ extension ConversationViewController {
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: Self.catchUpButtonSize),
             button.heightAnchor.constraint(equalToConstant: Self.catchUpButtonSize),
-            button.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
-            button.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+            button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -(Self.catchUpButtonPadding + Self.catchUpHostInset)),
+            button.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Self.catchUpButtonPadding),
             glass.leadingAnchor.constraint(equalTo: button.leadingAnchor),
             glass.trailingAnchor.constraint(equalTo: button.trailingAnchor),
             glass.topAnchor.constraint(equalTo: button.topAnchor),

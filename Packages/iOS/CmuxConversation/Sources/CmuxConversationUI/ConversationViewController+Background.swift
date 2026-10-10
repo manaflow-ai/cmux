@@ -16,6 +16,13 @@ extension ConversationViewController {
         return false
     }
 
+    /// iOS 27 Messages blurs the transcript under the header (UIKit's soft
+    /// edge effect) instead of iOS 26's flat color wash.
+    static var blursTopEdge: Bool {
+        if #available(iOS 27.0, *) { return true }
+        return false
+    }
+
     func installBackground() {
         backdropView.frame = view.bounds
         backdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -42,9 +49,9 @@ extension ConversationViewController {
         // conversation background Messages uses the system pocket (ChatKit
         // sets its color to nil); where that pocket falls short of the
         // header's bottom the transcript is masked with the same ramp too.
-        topEdgeFade.isHidden = background != nil
+        topEdgeFade.isHidden = background != nil || Self.blursTopEdge
         if #available(iOS 26.0, *) {
-            collectionView.topEdgeEffect.isHidden = background == nil
+            collectionView.topEdgeEffect.isHidden = background == nil && !Self.blursTopEdge
         }
         collectionView.topFadeHeaderBottom = background == nil || Self.usesSystemTopPocket
             ? nil : header.frame.maxY - collectionView.frame.minY
