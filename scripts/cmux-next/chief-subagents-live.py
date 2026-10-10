@@ -726,6 +726,24 @@ def cli_osc8_link_opens_the_subagent():
     before = {p.get("pane") for p in terminals()}
     made = rpc("action.run", {"action": "newTab"})  # New Workspace: one terminal pane
     print("new workspace:", json.dumps(made)[:200], flush=True)
+    # The new workspace may not be the shown one (Home is): show its terminal tab (`tab.focus`).
+    ws_id = ((made or {}).get("created") or [None])[0]
+    def terminal_tab():
+        found = []
+        def walk(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("id"), str) and "surface" in node and node.get("kind") in ("terminal", "pty"):
+                    found.append(node["id"])
+                for v in node.values():
+                    walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+        text = app_ws(ws_id) if ws_id else ""
+        walk(json.loads(text) if text else {})
+        return found[0] if found else None
+    tab = wait(terminal_tab, 30)
+    print("terminal tab:", tab, json.dumps(rpc("tab.focus", {"tab": tab}) if tab else {})[:160], flush=True)
     term = wait(lambda: next((p for p in terminals() if p.get("pane") not in before), None), 60)
     if not term:
         row("terminal OSC 8 link opens the subagent", "a new workspace's terminal", f"made {json.dumps(made)[:120]}; terminals {len(terminals())}", False)
