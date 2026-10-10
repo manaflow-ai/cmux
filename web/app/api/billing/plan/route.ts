@@ -10,7 +10,6 @@ import {
 import {
   billingSeatsFromMetadata,
   resolveBillingTeam,
-  type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 import {
@@ -21,7 +20,6 @@ import {
 } from "../../../../services/billing/teamBillingAccess";
 import {
   teamPlanStatusForTeam,
-  type TeamPlanStatus,
 } from "../../../../services/billing/teamPlanStatus";
 
 
@@ -85,7 +83,13 @@ export async function GET(request: NextRequest) {
   if (requestedTeamId) return explicitTeamPlanResponse(user, requestedTeamId, billingAvailable);
 
   const status = await resolveProPlanStatus(user);
-  const teamStatus = await resolveTeamPlanStatus(user);
+  const implicitTeam = await resolveBillingTeam(user);
+  const teamStatus = implicitTeam
+    ? await teamPlanStatusForTeam(implicitTeam)
+    : { planId: FREE_PLAN_ID, billingManagement: "none" as const, granted: false };
+  const implicitTeamAccess = implicitTeam
+    ? await resolveTeamBillingAccess(user, implicitTeam.id, { requireAdmin: false })
+    : null;
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
@@ -102,6 +106,7 @@ export async function GET(request: NextRequest) {
     manageUrl: status.manageUrl,
     teamPlanId: teamStatus.planId,
     teamBillingManagement: teamStatus.billingManagement,
+    canManageBilling: implicitTeamAccess?.ok === true && implicitTeamAccess.canManageBilling,
     metadataChanged: status.metadataChanged,
     hasManualVmPlanOverride: status.hasManualVmPlanOverride,
     user: {
@@ -136,12 +141,4 @@ async function explicitTeamPlanResponse(
     role: access.role,
     canManageBilling: access.canManageBilling,
   });
-}
-
-async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
-  const team = await resolveBillingTeam(user);
-  if (!team?.id) {
-    return { planId: FREE_PLAN_ID, billingManagement: "none", granted: false };
-  }
-  return teamPlanStatusForTeam(team);
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCore
 import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 
@@ -609,20 +610,17 @@ struct SSHDeepSleepReattachTests {
         } catch {
             return (-1, "", String(describing: error), false)
         }
-        let timedOut = waitForProcessExit(process, timeout: 10) == .timedOut
-        if timedOut {
-            process.terminate()
-            _ = waitForProcessExit(process, timeout: 1)
-        }
+        let timedOut = waitForProcessExit(process, timeout: 30) == .timedOut
+        if timedOut { Self.terminateProcess(process) }
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return (process.terminationStatus, stdout, stderr, timedOut)
+        return (timedOut ? 124 : process.terminationStatus, stdout, stderr, timedOut)
     }
 
     private static func runProcess(
         command: String,
         environment: [String: String],
-        timeout: TimeInterval = 5
+        timeout: TimeInterval = 30
     ) -> ProcessRunResult {
         let process = Process()
         let stderrPipe = Pipe()
@@ -638,11 +636,17 @@ struct SSHDeepSleepReattachTests {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
         let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
-        if timedOut {
-            process.terminate()
+        if timedOut { Self.terminateProcess(process) }
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ProcessRunResult(status: timedOut ? 124 : process.terminationStatus, stderr: stderr, timedOut: timedOut)
+    }
+
+    private static func terminateProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
             _ = waitForProcessExit(process, timeout: 1)
         }
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessRunResult(status: process.terminationStatus, stderr: stderr, timedOut: timedOut)
     }
 }

@@ -131,7 +131,7 @@ extension HostAccountFlow {
                 directory: FileManager.default.temporaryDirectory
                     .appendingPathComponent("HostAccountFlowTeamChangeTests-\(UUID())", isDirectory: true)
             ),
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
+            sessionFactory: HeldBrowserAuthSessionFactory(),
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { _ in signInURL },
             callbackScheme: { "cmux-test" },
@@ -141,4 +141,24 @@ extension HostAccountFlow {
         try #require(flow.confirmedTeamID == "team-a")
         return flow
     }
+}
+
+/// Keeps a test sign-in attempt open without launching a real browser session.
+/// The flow can then be observed while auth is in progress and cancelled by
+/// the normal sign-out path.
+@MainActor
+private final class HeldBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
+    func makeSession(
+        signInURL: URL,
+        callbackScheme: String,
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
+    ) -> any HostBrowserAuthSession {
+        HeldBrowserAuthSession()
+    }
+}
+
+@MainActor
+private final class HeldBrowserAuthSession: HostBrowserAuthSession {
+    func start() -> Bool { true }
+    func cancel() {}
 }

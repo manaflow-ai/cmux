@@ -26,6 +26,7 @@ extension HostAccountFlow {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.teamObservationRevision &+= 1
+                self.invalidateBillingPlanIfScopeChanged()
                 self.syncReceivedInvitationsPolling()
                 self.observeCoordinator()
             }
@@ -45,6 +46,7 @@ extension HostAccountFlow {
         }
         do {
             try await coordinator.selectTeam(id: id)
+            invalidateBillingPlanIfScopeChanged()
         } catch {
             // Re-emit even for a synchronous rejection so a Settings picker
             // returns from its requested value to this flow's projection.
@@ -79,6 +81,7 @@ extension HostAccountFlow {
             }
         }
         let team = try await coordinator.createTeam(displayName: displayName)
+        invalidateBillingPlanIfScopeChanged()
         return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
     }
 

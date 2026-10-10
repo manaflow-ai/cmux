@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -16,6 +17,140 @@ import Testing
 @MainActor
 @Suite("Host account flow team changes")
 struct HostAccountFlowTeamChangeTests {
+    @Test
+    func upgradeStatusIsUnknownWhileSignInIsInProgress() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+
+        flow.startSignIn()
+
+        #expect(flow.isWorkingOnAuth)
+        #expect(!flow.isProStatusKnownForUpgrade)
+
+        await flow.signOut()
+    }
+
+    @Test
+    func upgradeStatusIsKnownForMatchingAccountAndConfirmedTeam() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        _ = try await loadConfirmedFreePlan(flow)
+
+        #expect(flow.billingPlanIdentityID == flow.currentIdentity?.id)
+        #expect(flow.billingPlanTeamID == flow.confirmedTeamID)
+        #expect(flow.isProStatusKnownForUpgrade)
+    }
+
+    @Test
+    func pendingTeamSelectionUsesConfirmedScopeUntilRefresh() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.holdNextSelect()
+        let selection = Task { try await flow.selectTeam(id: "team-b") }
+        try await waitUntil { await client.isHoldingSelect }
+
+        #expect(flow.pendingTeamSelection?.teamID == "team-b")
+        #expect(flow.confirmedTeamID == "team-a")
+        #expect(flow.billingPlanTeamID == nil)
+        #expect(!flow.isProStatusKnownForUpgrade)
+
+        await client.releaseSelect()
+        try await selection.value
+        #expect(flow.confirmedTeamID == "team-b")
+        #expect(!flow.isProStatusKnownForUpgrade)
+
+        _ = try await loadConfirmedFreePlan(flow)
+        #expect(flow.billingPlanTeamID == "team-b")
+        #expect(flow.isProStatusKnownForUpgrade)
+    }
+
+    @Test
+    func confirmedFreePlanSurvivesTokenFailure() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        let confirmed = try await loadConfirmedFreePlan(flow)
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { () -> (accessToken: String, refreshToken: String) in
+                throw BillingPlanTestError.token
+            },
+            planFetcher: { _, _, _ in
+                throw BillingPlanTestError.fetch
+            }
+        )
+
+        #expect(!refreshed)
+        #expect(flow.billingPlanState == confirmed)
+    }
+
+    @Test
+    func confirmedFreePlanSurvivesNetworkFailure() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        let confirmed = try await loadConfirmedFreePlan(flow)
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { _, _, _ in throw URLError(.notConnectedToInternet) }
+        )
+
+        #expect(!refreshed)
+        #expect(flow.billingPlanState == confirmed)
+    }
+
+    @Test
+    func confirmedFreePlanSurvivesNonSuccessHTTPResponse() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        let confirmed = try await loadConfirmedFreePlan(flow)
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { _, _, _ in throw URLError(.badServerResponse) }
+        )
+
+        #expect(!refreshed)
+        #expect(flow.billingPlanState == confirmed)
+    }
+
+    @Test
+    func unauthenticatedBillingResponseClearsConfirmedPlan() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        _ = try await loadConfirmedFreePlan(flow)
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { _, _, _ in throw BillingPlanClientError.unauthenticated }
+        )
+
+        #expect(!refreshed)
+        #expect(flow.billingPlanState == .unknown)
+        #expect(!flow.hasLoadedBillingPlan)
+    }
+
+    @Test
+    func confirmedFreePlanIsInvalidatedWhenTeamScopeChanges() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        _ = try await loadConfirmedFreePlan(flow)
+
+        try await flow.selectTeam(id: "team-b")
+
+        #expect(flow.billingPlanState == .unknown)
+        #expect(!flow.hasLoadedBillingPlan)
+        #expect(!flow.isProStatusKnownForUpgrade)
+    }
+
+    @Test
+    func billingPlanRequestIncludesConfirmedTeamScope() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { url, _, _ in
+                let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+                #expect(components.queryItems?.first(where: { $0.name == "teamId" })?.value == "team-a")
+                return BillingPlanDetails(isPro: false, canManageBilling: false)
+            }
+        )
+
+        #expect(refreshed)
+    }
+
     @Test func switchDuringPendingCreateIsRefusedAndTheCreateCompletes() async throws {
         let client = TeamChangeAuthClient()
         let flow = try await makeFlow(client: client)
@@ -184,6 +319,18 @@ struct HostAccountFlowTeamChangeTests {
         try await HostAccountFlow.makeForTeamChangeTests(client: client)
     }
 
+    private func loadConfirmedFreePlan(_ flow: HostAccountFlow) async throws -> BillingPlanState {
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { _, _, _ in
+                BillingPlanDetails(isPro: false, canManageBilling: false)
+            }
+        )
+        #expect(refreshed)
+        #expect(flow.hasLoadedBillingPlan)
+        return flow.billingPlanState
+    }
+
     private func waitUntil(_ condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
         while !(await condition()), ContinuousClock.now < deadline {
@@ -191,4 +338,9 @@ struct HostAccountFlowTeamChangeTests {
         }
         try #require(await condition(), "The fake client never held the request.")
     }
+}
+
+private enum BillingPlanTestError: Error {
+    case token
+    case fetch
 }

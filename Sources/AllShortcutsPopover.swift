@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Scrollable, grouped list of every settings-visible keyboard shortcut and its
 /// current effective binding (user override else default), shown from the
-/// sidebar's Command-hold shortcut-discovery button.
+/// sidebar Help menu (Help > Keyboard Shortcuts).
 ///
 /// The list is driven off the same runtime accessors the rest of the app uses:
 /// `KeyboardShortcutSettings.settingsVisibleActions` for the ordered action set,
@@ -50,12 +50,29 @@ struct AllShortcutsPopover: View {
     }
 
     private var header: some View {
-        Text(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
-            .cmuxFont(size: 13, weight: .semibold)
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+                .cmuxFont(size: 13, weight: .semibold)
+            Spacer(minLength: 0)
+            // The cheat sheet reads; Settings edits. One click from one to the other.
+            Button(String(localized: "shortcutDiscovery.customize", defaultValue: "Customize…")) {
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.openPreferencesWindow(
+                        debugSource: "shortcutCheatSheet.customize",
+                        navigationTarget: .keyboardShortcuts
+                    )
+                } else {
+                    AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+                }
+            }
+            .buttonStyle(.link)
+            .cmuxFont(size: 12)
+            .accessibilityIdentifier("AllShortcutsPopoverCustomizeButton")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Value snapshots
