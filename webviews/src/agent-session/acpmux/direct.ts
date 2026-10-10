@@ -53,6 +53,7 @@ export type AcpmuxAdopt = { harness: string; agentSessionId: string; ifLive?: "f
 export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
+  noProject = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -62,7 +63,12 @@ export function newSessionParams(
   return {
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
-    _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+    _meta: {
+      acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) },
+      // Do not work in a project: the host starts the chat in its agent-home folder, not the
+      // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
+      ...(noProject ? { cmux: { noProject: true } } : {}),
+    },
   };
 }
 
@@ -1682,13 +1688,15 @@ export class AcpmuxDirectClient {
     }
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
-  create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
+  /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
+  create(harness?: string, cwd?: string, peer?: string, noProject = false): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
         cwd,
         peer,
-        () => void this.create(harness, cwd, peer).catch(() => undefined),
+        () => void this.create(harness, cwd, peer, noProject).catch(() => undefined),
+        noProject,
       );
       return sessionId ? this.select(sessionId) : undefined;
     })();
@@ -1703,9 +1711,15 @@ export class AcpmuxDirectClient {
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
   /// `again` re-runs the caller's step after a Trust answer (the trust route).
-  async startSession(harness?: string, cwd?: string, peer?: string, again?: () => void): Promise<string | undefined> {
+  async startSession(
+    harness?: string,
+    cwd?: string,
+    peer?: string,
+    again?: () => void,
+    noProject = false,
+  ): Promise<string | undefined> {
     const result = await this.newSession(
-      newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject),
       again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.

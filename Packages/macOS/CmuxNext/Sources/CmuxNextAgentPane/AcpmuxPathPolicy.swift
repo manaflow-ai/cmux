@@ -100,10 +100,19 @@ nonisolated enum AcpmuxPathPolicy {
         var params = object["params"]
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
+        // Do not work in a project (`_meta.cmux.noProject`, the new chat's project picker,
+        // cx-9g0w) skips the root: the chat starts in the agent-home folder. The pane's own
+        // `_meta.cmux` never reaches acpmux.
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
+            var meta = fields["_meta"] as? [String: Any]
+            let noProject = (meta?["cmux"] as? [String: Any])?["noProject"] as? Bool == true
+            if meta?.removeValue(forKey: "cmux") != nil {
+                fields["_meta"] = meta
+                context.changed = true
+            }
             if fields["cwd"] == nil {
-                if let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
+                if !noProject, let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
                     fields["cwd"] = fill
                 } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
                     fields["cwd"] = path

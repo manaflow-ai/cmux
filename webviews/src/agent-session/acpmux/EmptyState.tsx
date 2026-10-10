@@ -1,5 +1,7 @@
 import React from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { FolderIcon } from "./NewTabPage";
+import { ProjectChooser, type Project } from "./ProjectChooser";
 import { type StringKey, useT } from "./i18n";
 import { isAgentHome, projectLabel } from "./sessionList";
 
@@ -33,11 +35,37 @@ export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean
   return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;
 }
 
+/// The hero's project picker (cx-9g0w): the chat's folder choices and what a pick does.
+export type EmptyStateProjects = {
+  projects: Project[];
+  /// The chat's project folder; none in no project (the agent-home folder).
+  current?: string;
+  currentPeer?: string;
+  onPick(cwd: string, peer?: string): void;
+  onBrowse?(): void;
+  onNoProject?(): void;
+};
+
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
-/// a small prompt glyph and one line naming the session's project.
-export function EmptyState({ project }: { project?: string }) {
+/// a small prompt glyph and one line naming the session's project. With `picker` the project's
+/// name is a picker (ChatGPT style): a pick moves the new chat to that folder.
+export function EmptyState({ project, picker }: { project?: string; picker?: EmptyStateProjects }) {
   const t = useT();
   const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");
+  const chooser = picker && (
+    <ProjectChooser
+      projects={picker.projects}
+      current={picker.current}
+      currentPeer={picker.currentPeer}
+      {...(project ? { currentLabel: project } : {})}
+      icon={<FolderIcon />}
+      onPick={picker.onPick}
+      onBrowse={picker.onBrowse}
+      onNoProject={picker.onNoProject}
+      side="bottom"
+      inline
+    />
+  );
   return (
     <div className="acpmux-empty">
       <svg
@@ -60,13 +88,15 @@ export function EmptyState({ project }: { project?: string }) {
         {project ? (
           <>
             {before}
-            <span className="acpmux-empty-project">{project}</span>
+            {chooser ?? <span className="acpmux-empty-project">{project}</span>}
             {after}
           </>
         ) : (
           t(EMPTY_STATE_LABELS.prompt)
         )}
       </h2>
+      {/* No project yet: the picker sits under the question, so a folder can still be chosen. */}
+      {!project && chooser && <div className="acpmux-empty-choose">{chooser}</div>}
     </div>
   );
 }
