@@ -939,6 +939,11 @@ validate_app_bundle() {
     echo "error: app executable not found after xcodebuild: $executable_path" >&2
     return 1
   fi
+  # Every BUNDLED first-party app package (and its native server binary)
+  # must be where the daemon loads it (cx-t2rz, cx-0uo1).
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
+    "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
+  fi
 }
 
 # Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
