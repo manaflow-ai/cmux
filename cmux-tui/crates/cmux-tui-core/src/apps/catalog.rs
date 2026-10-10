@@ -246,8 +246,13 @@ pub struct Sources {
     /// bundle's one copy, found from the daemon's own executable; elsewhere
     /// `apps/first-party` next to the daemon (`crate::first_party_dir`).
     pub first_party: Option<PathBuf>,
-    /// Directories of other app packages shipped with cmux (samples).
+    /// Directories of other app packages shipped with cmux (samples), next
+    /// to the daemon's real executable.
     pub bundled: Vec<PathBuf>,
+    /// `CMUX_APPS_DIRS` (replaces `bundled` when set): its packages are
+    /// never first-party, whatever their publisher (no native server, no
+    /// served ops).
+    pub extra: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
@@ -257,13 +262,17 @@ pub struct Sources {
 
 impl Sources {
     pub fn from_env(state_dir: Option<&Path>) -> Self {
-        let exe_dir =
-            std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+        // The real path: a symlinked binary never points the shipped samples at
+        // a user-writable directory.
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|exe| std::fs::canonicalize(exe).ok())
+            .and_then(|exe| exe.parent().map(Path::to_path_buf));
         // From the daemon's own bundle; the override counts only inside it (cx-0uo1, cx-e0cs).
         let first_party = crate::first_party_dir::current();
-        let bundled = match crate::first_party_dir::apps_dirs() {
-            Some(list) => std::env::split_paths(&list).collect(),
-            None => exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(),
+        let (bundled, extra) = match crate::first_party_dir::apps_dirs() {
+            Some(list) => (Vec::new(), std::env::split_paths(&list).collect()),
+            None => (exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(), Vec::new()),
         };
         let defaults = std::env::var("CMUX_APPS_DEFAULT").ok().map(|list| {
             list.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
@@ -271,6 +280,7 @@ impl Sources {
         Self {
             first_party,
             bundled,
+            extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
             defaults,
         }
@@ -281,6 +291,7 @@ impl Sources {
 enum DirKind {
     FirstParty,
     Bundled,
+    Extra,
     Local,
 }
 
@@ -289,6 +300,7 @@ pub fn load(sources: &Sources) -> Catalog {
     let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
     dirs.extend(sources.first_party.iter().map(|d| (d.clone(), DirKind::FirstParty)));
     dirs.extend(sources.bundled.iter().map(|d| (d.clone(), DirKind::Bundled)));
+    dirs.extend(sources.extra.iter().map(|d| (d.clone(), DirKind::Extra)));
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
@@ -362,10 +374,11 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         }
         _ => {}
     }
-    // First-party only from the shipped first-party directory: a cmux/ or
-    // manaflow-ai/ id in a bundled or CMUX_APPS_DIRS directory is not
-    // first-party (it cannot run a native server or serve backend ops).
-    let tier = if first_party && kind == DirKind::FirstParty {
+    // First-party only from the shipped directories (the first-party dir and
+    // the samples next to the daemon's real executable): a cmux/ or
+    // manaflow-ai/ id in a CMUX_APPS_DIRS directory is unverified (no native
+    // server, no served ops).
+    let tier = if first_party && matches!(kind, DirKind::FirstParty | DirKind::Bundled) {
         Tier::FirstParty
     } else {
         Tier::Unverified
