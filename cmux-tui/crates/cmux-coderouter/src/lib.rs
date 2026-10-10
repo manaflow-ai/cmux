@@ -300,11 +300,12 @@ pub struct Upstream {
     expires_at: u64,
 }
 impl Upstream {
-    /// `origin` must be https (or http on loopback, for tests): the bearer is sent there.
+    /// `origin` must be an https origin: the bearer is sent there.
     pub fn new(origin: &str, bearer: String, expires_at: u64) -> anyhow::Result<Self> {
         let url = url::Url::parse(origin)?;
-        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
+        // https only: any local user can listen on a loopback port, so plain
+        // http would hand the bearer to whoever holds that port.
+        if url.scheme() != "https"
             || url.path() != "/"
             || url.query().is_some()
             || !url.username().is_empty()
@@ -369,6 +370,16 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         tokio::fs::set_permissions(&router_dir, std::fs::Permissions::from_mode(0o700)).await?;
     }
+    // One router per home: a second one waits here until the first exits
+    // (`shutdown`, from a daemon of a newer build), so it never takes the
+    // socket from a router that still holds a bearer.
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(router_dir.join("router.lock"))?;
+    let lock =
+        tokio::task::spawn_blocking(move || fs4::FileExt::lock(&lock).map(|()| lock)).await??;
     let socket_path = router_dir.join("router.sock");
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
@@ -389,7 +400,13 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
     let upstream: SharedUpstream = Arc::new(tokio::sync::RwLock::new(None));
     let data = data_server(listener, keys.clone(), upstream.clone());
-    tokio::select! { _ = data => (), result = admin_loop(admin, keys, upstream, port) => result? }
+    let stop = Arc::new(tokio::sync::Notify::new());
+    tokio::select! {
+        _ = data => (),
+        result = admin_loop(admin, keys, upstream, port, stop.clone()) => result?,
+        _ = stop.notified() => (),
+    }
+    drop(lock);
     Ok(())
 }
 
@@ -413,6 +430,9 @@ async fn data_server(
 ) {
     let http = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
+        // Per read, not per request: a long stream keeps going while bytes
+        // arrive; an upstream that stops sending ends the request.
+        .read_timeout(std::time::Duration::from_secs(300))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_default();
@@ -438,15 +458,23 @@ async fn admin_loop(
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
     port: u16,
+    stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     loop {
         let (stream, _) = listener.accept().await?;
         let keys = keys.clone();
         let upstream = upstream.clone();
+        let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(stream, keys, upstream, port).await;
+            let _ = admin_connection(stream, keys, upstream, port, stop).await;
         });
     }
+}
+
+/// The build of the acpmux that started this router (`CMUX_ROUTER_BUILD`):
+/// a daemon of another build replaces it (`shutdown`, then a new router).
+fn router_build() -> String {
+    std::env::var("CMUX_ROUTER_BUILD").unwrap_or_default()
 }
 #[cfg(unix)]
 #[derive(Deserialize)]
@@ -478,6 +506,8 @@ enum AdminRequest {
         expires_at: u64,
     },
     ClearUpstream,
+    /// Exit after the reply (a daemon of a newer build starts its own router).
+    Shutdown,
 }
 #[cfg(unix)]
 async fn admin_connection(
@@ -485,14 +515,16 @@ async fn admin_connection(
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
     port: u16,
+    stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
         let request: AdminRequest = match serde_json::from_str(&line) {
             Ok(request) => request,
-            Err(error) => {
-                let reply = serde_json::json!({"error": format!("bad request: {error}")});
+            Err(_) => {
+                // A fixed message: a parse error can quote the request's values.
+                let reply = serde_json::json!({"error": "bad request"});
                 write.write_all(format!("{reply}\n").as_bytes()).await?;
                 continue;
             }
@@ -509,7 +541,7 @@ async fn admin_connection(
             }
             AdminRequest::Status => {
                 let up = upstream.read().await;
-                serde_json::json!({"port": port, "upstream": up.as_ref().map(Upstream::view)})
+                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view)})
             }
             AdminRequest::MintKey { scope } => {
                 let id = format!("s{}", uuid::Uuid::new_v4().simple());
@@ -532,6 +564,12 @@ async fn admin_connection(
             AdminRequest::ClearUpstream => {
                 *upstream.write().await = None;
                 serde_json::json!({"upstream": null})
+            }
+            AdminRequest::Shutdown => {
+                *upstream.write().await = None;
+                write.write_all(b"{\"stopping\":true}\n").await?;
+                stop.notify_one();
+                return Ok(());
             }
         };
         write.write_all(serde_json::to_string(&response)?.as_bytes()).await?;

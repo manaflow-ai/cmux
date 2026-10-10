@@ -785,23 +785,29 @@ fn ensure_router() {
     use std::os::unix::net::UnixStream;
     use std::os::unix::process::CommandExt;
     let socket = home().join("router").join("router.sock");
-    let alive = UnixStream::connect(&socket)
-        .and_then(|stream| {
-            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-            let mut writer = stream.try_clone()?;
-            writer.write_all(b"{\"op\":\"status\"}\n")?;
-            let mut line = String::new();
-            BufReader::new(stream).read_line(&mut line)?;
-            Ok(line.contains("\"port\""))
-        })
-        .unwrap_or(false);
-    if alive {
-        return;
+    let ask = |line: &[u8]| -> std::io::Result<Value> {
+        let stream = UnixStream::connect(&socket)?;
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut writer = stream.try_clone()?;
+        writer.write_all(line)?;
+        let mut answer = String::new();
+        BufReader::new(stream).read_line(&mut answer)?;
+        serde_json::from_str(&answer).map_err(std::io::Error::other)
+    };
+    let build = crate::hub::BUILD;
+    if let Ok(status) = ask(b"{\"op\":\"status\"}\n") {
+        if status.get("build").and_then(Value::as_str) == Some(build) {
+            return;
+        }
+        // Another build: it stops; the new router waits on router.lock until
+        // the old one has exited, so no sleep is needed here.
+        let _ = ask(b"{\"op\":\"shutdown\"}\n");
     }
     let Ok(exe) = std::env::current_exe() else { return };
     let mut command = std::process::Command::new(exe);
     command
         .args(["router", "serve"])
+        .env("CMUX_ROUTER_BUILD", build)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
