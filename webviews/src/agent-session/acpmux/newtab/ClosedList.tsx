@@ -7,6 +7,9 @@ import { useNt } from "./strings";
 /// The rows the section shows at most.
 const SHOWN = 5;
 
+/// A kind's glyph when there is no favicon, in the style of the field's rows.
+const GLYPH: Record<ClosedItem["kind"], string> = { terminal: "❯", browser: "◍", screen: "▭", workspace: "▦" };
+
 export function ClosedList({ items, onReopen }: { items: ClosedItem[]; onReopen(id: string): void }) {
   const nt = useNt();
   if (items.length === 0) return null;
@@ -24,7 +27,9 @@ export function ClosedList({ items, onReopen }: { items: ClosedItem[]; onReopen(
           {item.icon ? (
             <img className="nt-row-glyph nt-row-favicon" src={item.icon} alt="" draggable={false} />
           ) : (
-            <span className="nt-row-glyph" data-kind={item.kind} />
+            <span className="nt-row-glyph" data-kind={item.kind}>
+              {GLYPH[item.kind]}
+            </span>
           )}
           <span className="nt-row-title">{item.title}</span>
           {item.detail && <span className="nt-row-detail">{item.detail}</span>}

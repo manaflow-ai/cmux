@@ -60,8 +60,18 @@ enum NewTabClosed {
             case .workspace: .workspace
             }
             let detail = item.url ?? item.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? entry.detail
-            return AgentPaneClosedItem(id: entry.id, kind: kind, title: entry.title, detail: detail, closedAt: entry.time,
+            return AgentPaneClosedItem(id: entry.id, kind: kind, title: title(entry.title, item.url, item.cwd), detail: detail, closedAt: entry.time,
                                        icon: nil, isAvailable: entry.isAvailable)
         }.prefix(AgentPaneClosedItem.maximumPushed).map(\.self)
+    }
+
+    /// A title that is only the address or folder (a daemon record keeps no page title) reads
+    /// as host and path, or the folder's name, so the row does not repeat its detail.
+    static func title(_ title: String, _ url: String?, _ cwd: String?) -> String {
+        if title == url, let url = url.flatMap(URL.init(string:)), let host = url.host() {
+            return host + (url.path() == "/" ? "" : url.path())
+        }
+        if title == cwd, let cwd { return (cwd as NSString).lastPathComponent }
+        return title
     }
 }
