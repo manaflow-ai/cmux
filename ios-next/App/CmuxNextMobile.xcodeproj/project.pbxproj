@@ -11,11 +11,14 @@
 		1163EFF7A72C3CBEA85F6E0D /* CmuxNextApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */; };
 		2CF5E3DAA8E9439B2C36A224 /* CNAppShell in Frameworks */ = {isa = PBXBuildFile; productRef = E5E175AEFD9BD79769D08023 /* CNAppShell */; };
 		4F99DA3813A2A6B99B8D266A /* CmuxNextApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */; };
+		75EFDB6E7DDF36641E2FA06C /* LaunchAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8602A8187223EBD7B56FBF85 /* LaunchAssets.xcassets */; };
+		DA27F4164E42037CDF15BD78 /* LaunchAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8602A8187223EBD7B56FBF85 /* LaunchAssets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNextApp.swift; sourceTree = "<group>"; };
 		72F24ED5FA1DE379AC2CA487 /* Tabs.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Tabs.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8602A8187223EBD7B56FBF85 /* LaunchAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = LaunchAssets.xcassets; sourceTree = "<group>"; };
 		9A361FF6033A5D0E09F3CF77 /* Drawer.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Drawer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A4B235B1028931D86E118FA5 /* CmuxNextMobile */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxNextMobile; path = ../Packages/CmuxNextMobile; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -70,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				10072D30D4D1C5682F021A5A /* CmuxNextApp.swift */,
+				8602A8187223EBD7B56FBF85 /* LaunchAssets.xcassets */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -82,6 +86,7 @@
 			buildConfigurationList = EED544F737A03CF3553C52EE /* Build configuration list for PBXNativeTarget "Tabs" */;
 			buildPhases = (
 				71AB5F42A59B166F9CC965E5 /* Sources */,
+				030BA61EF62BB45D11162BAD /* Resources */,
 				13D1607A6EB9FBA90CAB4064 /* Frameworks */,
 			);
 			buildRules = (
@@ -101,6 +106,7 @@
 			buildConfigurationList = 8839525D27A2922A829B040E /* Build configuration list for PBXNativeTarget "Drawer" */;
 			buildPhases = (
 				F242A9D1D6174725EE6DCF2A /* Sources */,
+				EB7AD4A0E32699FE50150953 /* Resources */,
 				E978E9B8FB8F8506AFFCE4B5 /* Frameworks */,
 			);
 			buildRules = (
@@ -156,6 +162,25 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		030BA61EF62BB45D11162BAD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				75EFDB6E7DDF36641E2FA06C /* LaunchAssets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EB7AD4A0E32699FE50150953 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA27F4164E42037CDF15BD78 /* LaunchAssets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		71AB5F42A59B166F9CC965E5 /* Sources */ = {
@@ -254,7 +279,7 @@
 		24732FDDFDE3E3C725296C10 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Tabs/App.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = Tabs/Info.plist;
@@ -272,7 +297,7 @@
 		382C5F05E49D835940509F93 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Tabs/App.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = Tabs/Info.plist;
@@ -290,7 +315,7 @@
 		88EDDD8D788E7122B4D3B2E6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Drawer/App.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = Drawer/Info.plist;
@@ -375,7 +400,7 @@
 		E6B31B0FDA8A4563C0198A9E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Drawer/App.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = Drawer/Info.plist;

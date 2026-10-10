@@ -26,6 +26,10 @@ targetTemplates:
   CmuxNextApp:
     type: application
     platform: iOS
+    settings:
+      base:
+        # No icon set yet; the asset catalog only holds the launch assets.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
     sources:
       - path: Shared
     dependencies:
@@ -46,7 +50,11 @@ targetTemplates:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
           - CFBundleURLSchemes: [$(PRODUCT_BUNDLE_IDENTIFIER)]
-        UILaunchScreen: {}
+        # Launch screen = the first frame of the sign-in intro (CNAuthUI SignInView):
+        # the cmux mark centred on the background colour.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchMark
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:
