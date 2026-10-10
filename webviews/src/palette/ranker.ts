@@ -757,9 +757,11 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
   if (request.showsRecent && recentLimit > 0 && store?.entries && Object.keys(store.entries).length > 0) {
     const positionByKey = new Map<string, number>();
     entries.forEach((entry, index) => {
+      // Any row kind the user ran may be Recent (a workspace, tab or setting shows its section
+      // only while typing); a row that matches only behind a query prefix never is.
       if (
         (entry.isEnabled ?? true) &&
-        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        entry.queryPrefix == null &&
         entry.frecencyKey &&
         !positionByKey.has(entry.frecencyKey)
       )

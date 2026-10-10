@@ -1,8 +1,14 @@
 //! Mux event handlers: empty mux, surface exit and resize, graphics status,
 //! config reload, surface output, pairing requests and resolutions.
 
-// The handler bodies came verbatim from app.rs and name its items and imports.
-use crate::app::*;
+use std::sync::Arc;
+
+use cmux_tui_core::{GraphicsStatus, PairingChallenge, SurfaceId};
+
+use crate::app::App;
+use crate::app::overlays::PairingDialog;
+use crate::app::render_pacing::RenderAction;
+use crate::localization;
 
 impl App {
     pub(super) fn on_mux_empty(&mut self) -> anyhow::Result<RenderAction> {

@@ -7,7 +7,7 @@ import type { StackSyncReply } from "./team-stack-sync.ts"
  * The Stack team webhook (cx-3bi.43): `POST /v1/hooks/stack`. No bearer credential; the Svix
  * signature with the Worker secret STACK_WEBHOOK_SECRET is the credential (libs/svix-webhook, the
  * same check as the cmux VM Worker's). Stack's team.created, team.updated, team.deleted,
- * team_membership.created and team_membership.deleted go to the team's TeamDO, which reads the
+ * team_membership.created/deleted and team_permission.created/deleted go to the team's TeamDO, which reads the
  * team and membership from Stack as they are now and commits that (team-stack-sync.ts); every
  * other event is a 200 no-op.
  *
@@ -24,7 +24,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STACK_ID = /^[A-Za-z0-9._:-]{1,128}$/
 const normalId = (id: string) => (UUID.test(id) ? id.toLowerCase() : id)
 const TEAM_EVENTS = new Set(["team.created", "team.updated", "team.deleted"])
-const MEMBERSHIP_EVENTS = new Set(["team_membership.created", "team_membership.deleted"])
+/** A team permission change names one member (data {id, team_id, user_id}): their role is read again (cx-3bi.4). */
+const MEMBERSHIP_EVENTS = new Set(["team_membership.created", "team_membership.deleted", "team_permission.created", "team_permission.deleted"])
 
 type Fields = Readonly<Record<string, string | number | boolean>>
 

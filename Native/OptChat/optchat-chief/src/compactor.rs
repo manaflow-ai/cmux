@@ -170,15 +170,20 @@ pub fn compactor_sessions() -> usize {
 }
 
 /// Spare slots for warm sessions started ahead (`Slots::with_spares`):
-/// `OPTCHAT_COMPACTOR_SPARES` (0 to 16), else `WARM_SESSIONS` (4, about
-/// 0.8 GB of Claude Code processes).
+/// `OPTCHAT_COMPACTOR_SPARES` (0 to 16), else `DEFAULT_SPARES`.
 pub fn compactor_spares() -> usize {
     std::env::var("OPTCHAT_COMPACTOR_SPARES")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|n| *n <= 16)
-        .unwrap_or(WARM_SESSIONS)
+        .unwrap_or(DEFAULT_SPARES)
 }
+
+/// No spare slots by default: on a 2,020-message import, 4 spares hid 175
+/// of 1,207 Claude Code starts and the import took 26.0 min against 24.2
+/// min without (noise), for about 1 GB more memory (cmux-lawrence-2,
+/// 2026-10-09). The setting stays for measuring.
+pub const DEFAULT_SPARES: usize = 0;
 
 /// Every compactor slot: the active ones and the spares (one preset and
 /// working directory each).
@@ -419,6 +424,11 @@ impl Slots {
     fn rewarm(&self, max: usize) -> bool {
         let mut st = self.lock();
         if st.warm.len() + st.warming >= max {
+            return false;
+        }
+        // Without spare slots a warm session takes a node's slot: none
+        // starts while a node waits for one.
+        if st.free.len() <= st.max_active && st.waiting > 0 {
             return false;
         }
         st.warming += 1;
@@ -837,6 +847,29 @@ impl AcpmuxCompactor {
         }
     }
 
+    /// Warn-only: the probe session's Claude Code is older than the first
+    /// version that knows the compactor model. Such a Claude Code prices the
+    /// model at its default rates and checks it with one more request
+    /// (max_tokens 1) in every session. One host.log line and one
+    /// `compactor.model_unknown` trace event; never a note, never a failure.
+    fn check_model_known(&self, events: &[AcpmuxEvent]) {
+        let Some(model) = self.model() else { return };
+        let Some(version) = claude_code_version(events) else {
+            return;
+        };
+        if harness_knows_model(&model, &version) != Some(false) {
+            return;
+        }
+        let harness = self.harness();
+        self.say(&format!(
+            "compactor: Claude Code {version} ({harness}) does not know {model}: it prices it at its default rates and checks it with one more request per session; update Claude Code"
+        ));
+        self.trace.emit(
+            "compactor.model_unknown",
+            json!({"harness": harness, "cc_version": version, "model": model}),
+        );
+    }
+
     fn session_name(&self, node: NodeId) -> String {
         if node == PROBE_NODE {
             format!("{}-probe", self.spec.name)
@@ -1249,6 +1282,7 @@ impl AcpmuxCompactor {
             .map_err(|e| ModelError::new(format!("reading the compactor reply: {e}")))?;
         if node == PROBE_NODE {
             check_isolation(&events).map_err(ModelError::new)?;
+            self.check_model_known(&events);
         }
         let mut fold = TurnFold::after(after);
         for event in &events {
@@ -1761,6 +1795,37 @@ pub fn project_dir_name(cwd: &Path) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+/// The first Claude Code version known to have each model in its own model
+/// list (2.1.287 has no claude-haiku-5-5; 2.1.293 has it, with its prices).
+const KNOWN_SINCE: &[(&str, [u32; 3])] = &[("claude-haiku-5-5", [2, 1, 293])];
+
+/// Whether Claude Code `version` knows `model`: None when this table has no
+/// entry for the model or the version does not parse.
+pub fn harness_knows_model(model: &str, version: &str) -> Option<bool> {
+    let since = KNOWN_SINCE.iter().find(|(m, _)| *m == model)?.1;
+    let mut parts = version.trim().split('.').map(|p| p.parse::<u32>().ok());
+    let mut have = [0u32; 3];
+    for slot in &mut have {
+        *slot = parts.next()??;
+    }
+    Some(have >= since)
+}
+
+/// The Claude Code version its `system/init` reported (acpmux records it as
+/// a `session_info_update`).
+pub fn claude_code_version(events: &[AcpmuxEvent]) -> Option<String> {
+    events
+        .iter()
+        .filter(|e| e.kind == "session_info_update")
+        .find_map(|e| {
+            e.msg
+                .get("params")
+                .and_then(|p| p.pointer("/update/_meta/claude/version"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
 }
 
 /// Section 4.2 says a compactor call has no tools: the probe fails when the
