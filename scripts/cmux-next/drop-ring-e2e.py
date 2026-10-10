@@ -87,13 +87,11 @@ try:
     time.sleep(2)
     report["new_workspace"] = rpc("action.run", {"action": "newTab", "focus": True})
     time.sleep(3)
-    pane = focused_pane()
-    report["new_terminal_tab"] = rpc("action.run", {"action": "newSurface", "focus": True,
-                                                    "target": f"pane:{pane}" if pane else None})
+    # A second terminal tab beside the focused one.
+    report["new_terminal_tab"] = rpc("action.run", {"action": "newSurface", "focus": True})
     two = wait(lambda: [s for s in strips() if len(s.get("tabs") or []) >= 2], 15)
     if not two:
-        failure = f"no strip with two tabs: {json.dumps(strips())[:1500]}"
-        raise SystemExit
+        raise RuntimeError(f"no strip with two tabs: {json.dumps(report['new_terminal_tab'])} {json.dumps(strips())[:1500]}")
     time.sleep(1.5)
     strip = two[0]
     report["strips_before"] = len(strips())
@@ -120,6 +118,8 @@ try:
         failure = f"the drop did not split the pane ({report['strips_before']} -> {report['strips_after']} strips)"
     elif shown:
         failure = f"the drop ring is drawn after the drop: {len(shown)} samples, first {json.dumps(shown[0])}"
+except RuntimeError as error:
+    failure = str(error)
 finally:
     if app.poll() is None:
         rpc("action.run", {"action": "quit"}, timeout=10)
