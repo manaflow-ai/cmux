@@ -15594,6 +15594,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .openFolderInVSCodeInline) {
+            showOpenFolderInInlineVSCodePanel(
+                tabManager: preferredMainWindowContextForShortcuts(event: event)?.tabManager
+            )
+            return true
+        }
+
         // Check Show Notifications shortcut
         if matchConfiguredShortcut(event: event, action: .showNotifications) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)

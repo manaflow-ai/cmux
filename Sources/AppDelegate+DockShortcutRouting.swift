@@ -100,7 +100,7 @@ extension KeyboardShortcutSettings.Action {
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
              .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
-             .saveLayoutTemplate, .openFolder,
+             .saveLayoutTemplate, .openFolder, .openFolderInVSCodeInline,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread,

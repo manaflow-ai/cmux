@@ -116,7 +116,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         id: "sendFeedback",
         combos: [],
         description: { en: "Send feedback", ja: "フィードバックを送信" },
-        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
+        note: {"en": "unbound by default", "ja": "デフォルトでは未割り当て", "zh-CN": "默认未绑定", "zh-TW": "預設未綁定", "ko": "기본적으로 미할당", "de": "standardmäßig nicht zugewiesen", "es": "sin asignar por defecto", "fr": "non attribué par défaut", "it": "non assegnato per impostazione predefinita", "da": "ikke tildelt som standard", "pl": "domyślnie nieprzypisany", "ru": "по умолчанию не назначено", "bs": "podrazumijevano nije dodijeljeno", "ar": "غير معين افتراضيًا", "no": "ikke tilordnet som standard", "pt-BR": "não atribuído por padrão", "th": "ไม่ได้กำหนดไว้ตามค่าเริ่มต้น", "tr": "varsayılan olarak atanmamış", "km": "មិនបានកំណត់តាមលំនាំដើម", "uk": "типово не призначено"},
       },
       {
         id: "reopenPreviousSession",
@@ -156,6 +156,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "newCloudMachine", combos: [["⌘", "Y"]], description: {"en": "New cloud machine", "ja": "新規クラウドマシン", "zh-CN": "新建云机器", "zh-TW": "新增雲端機器", "ko": "새 클라우드 머신", "de": "Neue Cloud-Maschine", "es": "Nueva máquina en la nube", "fr": "Nouvelle machine cloud", "it": "Nuova macchina cloud", "da": "Ny cloud-maskine", "pl": "Nowa maszyna w chmurze", "ru": "Новая облачная машина", "bs": "Nova mašina u oblaku", "ar": "جهاز سحابي جديد", "no": "Ny skymaskin", "pt-BR": "Nova máquina na nuvem", "th": "เครื่องคลาวด์ใหม่", "tr": "Yeni bulut makinesi", "km": "ម៉ាស៊ីនលើពពកថ្មី", "uk": "Нова хмарна машина"} },
       { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
+      {
+        id: "openFolderInVSCodeInline",
+        combos: [],
+        description: {"en": "Open Folder in VS Code (Inline)", "de": "Ordner in VS Code öffnen (Inline)", "fr": "Ouvrir le dossier dans VS Code (intégré)", "ar": "فتح المجلد في VS Code (مضمن)", "es": "Abrir carpeta en VS Code (integrado)", "ko": "VS Code에서 폴더 열기 (인라인)", "ja": "フォルダを VS Code で開く（インライン）", "it": "Apri cartella in VS Code (integrato)", "da": "Åbn mappe i VS Code (indlejret)", "pl": "Otwórz folder w VS Code (wbudowany)", "ru": "Открыть папку в VS Code (встроенный)", "bs": "Otvori folder u VS Code (ugrađeni)", "no": "Åpne mappe i VS Code (innebygd)", "pt-BR": "Abrir pasta no VS Code (integrado)", "th": "เปิดโฟลเดอร์ใน VS Code (แบบฝัง)", "tr": "Klasörü VS Code ile aç (satır içi)", "km": "បើកថតនៅក្នុង VS Code (ក្នុងកម្មវិធី)", "uk": "Відкрити теку у VS Code (вбудований)", "zh-CN": "在 VS Code 中打开文件夹（内联）", "zh-TW": "在 VS Code 中開啟資料夾（內嵌）"},
+        note: {"en": "unbound by default", "ja": "デフォルトでは未割り当て", "zh-CN": "默认未绑定", "zh-TW": "預設未綁定", "ko": "기본적으로 미할당", "de": "standardmäßig nicht zugewiesen", "es": "sin asignar por defecto", "fr": "non attribué par défaut", "it": "non assegnato per impostazione predefinita", "da": "ikke tildelt som standard", "pl": "domyślnie nieprzypisany", "ru": "по умолчанию не назначено", "bs": "podrazumijevano nije dodijeljeno", "ar": "غير معين افتراضيًا", "no": "ikke tilordnet som standard", "pt-BR": "não atribuído por padrão", "th": "ไม่ได้กำหนดไว้ตามค่าเริ่มต้น", "tr": "varsayılan olarak atanmamış", "km": "មិនបានកំណត់តាមលំនាំដើម", "uk": "типово не призначено"},
+      },
       {
         id: "goToWorkspace",
         combos: [["⌘", "P"]],
