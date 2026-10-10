@@ -21,6 +21,7 @@ mod chief_target;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
+mod codex_app_server;
 mod command;
 mod docs;
 mod extra_help;
