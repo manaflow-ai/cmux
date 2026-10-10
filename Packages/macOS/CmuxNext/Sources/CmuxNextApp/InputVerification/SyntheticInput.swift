@@ -25,6 +25,12 @@ enum SyntheticInput {
         if pending.count > limit { pending.removeFirst(pending.count - limit) }
     }
 
+    /// Whether `event` was `register`ed and not yet dispatched through the app
+    /// (a posted event sent straight to a window). Does not consume it.
+    static func isRegistered(_ event: NSEvent) -> Bool {
+        pending.contains(Key(type: event.type.rawValue, timestamp: event.timestamp))
+    }
+
     /// Whether `event` is the user's own input (not one `register`ed).
     static func isUserInput(_ event: NSEvent) -> Bool {
         let key = Key(type: event.type.rawValue, timestamp: event.timestamp)

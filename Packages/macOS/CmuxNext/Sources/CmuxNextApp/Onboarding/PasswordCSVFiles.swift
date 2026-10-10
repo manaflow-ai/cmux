@@ -52,7 +52,7 @@ struct PasswordCSVFiles {
             lines: summaryLines(report) + [PasswordCSVStrings.plaintextWarning],
             buttons: [CmuxDialogButton(id: "keep", title: PasswordCSVStrings.keepFile, role: .cancel),
                       CmuxDialogButton(id: "trash", title: PasswordCSVStrings.moveToTrash, role: .default)],
-            identifier: "cmux.dialog.passwordCSV.trash")
+            identifier: "cmux.dialog.passwordCSV.trash", confirmKind: .destructive)
         let scope: CmuxDialogScope = (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
         CmuxDialogCenter.shared.present(spec, in: scope) { answer in
             if answer.button == "trash" { NSWorkspace.shared.recycle([url]) }

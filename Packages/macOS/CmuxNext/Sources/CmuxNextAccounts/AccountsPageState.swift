@@ -133,7 +133,8 @@ extension AccountsModel {
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)
-        case .confirmConnect(let provider): connect(provider, confirmed: true)
+        // Page script never confirms the Codex consent (cx-zk9t): it asks the native dialog.
+        case .confirmConnect(let provider): connect(provider)
         case .cancelConfirm: confirmTarget = nil
         case .remove(let id):
             if let account = await linkedAccount(id: id) { remove(account) }

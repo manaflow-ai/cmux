@@ -1704,6 +1704,137 @@
         }
       }
     },
+    "dialog.changedByAnotherApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changed by another app. Check it before you continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غيّره تطبيق آخر. تحقّق منه قبل المتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijenila ga je druga aplikacija. Provjerite prije nego što nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ændret af en anden app. Kontrollér det, før du fortsætter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Von einer anderen App geändert. Prüfe es, bevor du fortfährst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo cambió otra app. Revísalo antes de continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifié par une autre app. Vérifiez-le avant de continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modificato da un'altra app. Controllalo prima di continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリが変更しました。続ける前に確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានប្ដូរដោយកម្មវិធីផ្សេង។ សូមពិនិត្យមុនពេលបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 앱이 변경했습니다. 계속하기 전에 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endret av en annen app. Sjekk det før du fortsetter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmienione przez inną aplikację. Sprawdź to, zanim przejdziesz dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alterado por outro app. Confira antes de continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменено другим приложением. Проверьте, прежде чем продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปอื่นเปลี่ยนค่านี้ ตรวจสอบก่อนดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir uygulama değiştirdi. Devam etmeden önce kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінено іншою програмою. Перевірте, перш ніж продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ứng dụng khác đã thay đổi. Hãy kiểm tra trước khi tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已被其他应用更改。继续前请检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已被其他 App 更改。繼續前請檢查。"
+          }
+        }
+      }
+    },
     "dialog.from": {
       "extractionState": "manual",
       "localizations": {
