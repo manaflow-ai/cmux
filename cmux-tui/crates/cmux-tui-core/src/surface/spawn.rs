@@ -181,7 +181,16 @@ impl Surface {
                 directory_pending: AtomicBool::new(true),
                 directory_reported: AtomicBool::new(false),
                 geometry: RankedMutex::new(LockRank::Geometry, "pty.geometry", initial_geometry),
-                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_limits: Box::new(RankedMutex::new(
+                    LockRank::KittyLimits,
+                    "pty.kitty_graphics_limits",
+                    initial_kitty_limits,
+                )),
+                kitty_limits_request: RankedMutex::new(
+                    LockRank::KittyLimitsRequest,
+                    "pty.kitty_limits_request",
+                    (),
+                ),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
