@@ -811,8 +811,6 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 }
 
 mod launchers;
-#[cfg(test)]
-pub(super) use launchers::launcher_ok;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;

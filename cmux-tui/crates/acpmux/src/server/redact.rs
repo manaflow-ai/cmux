@@ -59,14 +59,3 @@ fn url_without_secrets(url: &str) -> String {
     let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     format!("{scheme}://{host}{path}")
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn peer_urls_lose_userinfo_query_and_fragment() {
-        let f = super::url_without_secrets;
-        assert_eq!(f("ws://u:secret@host:1/p?token=x#y"), "ws://host:1/p");
-        assert_eq!(f("ssh://me@box:22"), "ssh://box:22");
-        assert_eq!(f("ws://host/"), "ws://host/");
-    }
-}

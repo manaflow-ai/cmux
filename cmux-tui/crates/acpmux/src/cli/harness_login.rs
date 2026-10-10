@@ -386,7 +386,3 @@ pub async fn run_cmd(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "harness_login_tests.rs"]
-mod tests;

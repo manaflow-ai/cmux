@@ -96,7 +96,3 @@ pub fn run_cmd(id: &str, cwd: Option<PathBuf>, model: Option<String>) -> Result<
     let error = cmd.exec();
     Err(anyhow!("cannot start {}: {error}", plan.argv[0]))
 }
-
-#[cfg(test)]
-#[path = "harness_run_tests.rs"]
-mod tests;

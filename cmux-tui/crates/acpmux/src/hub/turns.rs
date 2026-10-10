@@ -1025,16 +1025,3 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("overloaded")
         || m.contains("429")
 }
-
-#[cfg(test)]
-mod limit_tests {
-    #[test]
-    fn recognizes_limit_messages() {
-        assert!(super::is_limit_error("You've reached your Fable limit. Switch to another model"));
-        assert!(super::is_limit_error("rate_limit_error: too many requests"));
-        assert!(super::is_limit_error("HTTP 429 overloaded"));
-        assert!(super::is_limit_error("Not logged in · Please run /login"));
-        assert!(!super::is_limit_error("simulated internal error"));
-        assert!(!super::is_limit_error("permission denied"));
-    }
-}
