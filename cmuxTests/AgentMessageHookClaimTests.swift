@@ -82,12 +82,13 @@ struct AgentMessageHookClaimTests {
     @Test("Human mark_read can acknowledge queued and delivered messages")
     func humanMarkReadStillIncludesQueuedMessages() async throws {
         let surfaceID = UUID()
-        let queued = try appendMessage(to: surfaceID, body: "queued")
         let delivered = try appendMessage(to: surfaceID, body: "delivered")
         _ = AgentMessageCenter.store.claimQueued(
             recipientSurfaceId: surfaceID.uuidString,
             via: "claude.wake"
         )
+        let queued = try appendMessage(to: surfaceID, body: "queued")
+        #expect(AgentMessageCenter.store.message(id: queued.id)?.state == .queued)
 
         let response = await TerminalController.shared.agentMessageResponse(ControlRequest(
             id: .string("human-read"),
