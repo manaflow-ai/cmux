@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 // Every shim run spawns dozens of processes (sh + jq per step); give the suites room.
 setDefaultTimeout(60_000);
 import { runChild } from "./helpers/run-child";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -825,6 +825,12 @@ type StatefulRun = { calls: string[][]; status: number | null; stdout: string; s
 
 function makeStatefulDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "cmux-guest-prims-"));
+  if (process.platform === "darwin") {
+    // The guest uses GNU realpath -m. Resolve real fixture symlinks on macOS,
+    // whose system realpath does not support missing path components.
+    writeFileSync(join(dir, "realpath"), '#!/usr/bin/python3\nimport os, sys\nassert sys.argv[1:3] == ["-m", "--"]\nprint(os.path.realpath(sys.argv[3]))\n');
+    chmodSync(join(dir, "realpath"), 0o755);
+  }
   writeFileSync(join(dir, "cmux"), GUEST_CMUX_SHIM);
   chmodSync(join(dir, "cmux"), 0o755);
   writeFileSync(join(dir, "cmux-tui"), STATEFUL_FAKE_TUI);
@@ -2032,6 +2038,26 @@ describe("in-VM cmux shim: file drop", () => {
     expect(crlf.status).toBe(0);
     expect(statSync(join(dir, "bin", "run.sh")).mode & 0o777).toBe(0o755);
     expect(readFileSync(join(dir, "bin", "run.sh"), "utf8")).toBe("#!/bin/sh\necho hi\n");
+  });
+
+  test.each(["file", "missing/file"])("file receive rejects a symlink that resolves through a literal tilde (%s)", async (suffix) => {
+    const dir = makeStatefulDir();
+    mkdirSync(join(dir, "~"));
+    symlinkSync("~", join(dir, "alias"));
+    const run = await runStateful(dir, ["file", "receive", `alias/${suffix}`, "--stdin"], {}, stream(Buffer.from("x")));
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe("CMUX-FILE-ERR unexpanded-tilde-path\n");
+    expect(readdirSync(join(dir, "~"))).toEqual([]);
+    expect(readdirSync(dir).filter((name) => name.startsWith(".cmux-file."))).toEqual([]);
+  });
+
+  test("file receive follows an ordinary destination parent symlink", async () => {
+    const dir = makeStatefulDir();
+    mkdirSync(join(dir, "~alice"));
+    symlinkSync("~alice", join(dir, "alias"));
+    const run = await runStateful(dir, ["file", "receive", "alias/missing/file", "--stdin"], {}, stream(Buffer.from("ok")));
+    expect(run.status).toBe(0);
+    expect(readFileSync(join(dir, "~alice", "missing", "file"), "utf8")).toBe("ok");
   });
 
   test("file receive refuses garbage, truncation, empty and oversize payloads, directories and bad modes without leaving anything behind", async () => {

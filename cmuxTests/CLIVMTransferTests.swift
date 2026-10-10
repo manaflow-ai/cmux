@@ -1623,11 +1623,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
 @Suite("Cloud SCP with OpenSSH")
 struct CloudSCPIntegrationTests {
     @Test func transferUsesRealSFTPAndChecksTheHostKey() throws {
+        let report = try runTransferHarness()
+        #expect(report.contains("PASS watch and bounded control messages without file bytes"), "\(report)")
+    }
+
+    @Test func rejectsTildeDestinationsAfterSymlinkResolutionBeforeStaging() throws {
+        let report = try runTransferHarness(arguments: ["--symlink-destinations-only"])
+        #expect(report.contains("PASS resolved symlink destinations reject tilde before staging"), "\(report)")
+    }
+
+    private func runTransferHarness(arguments: [String] = []) throws -> String {
         let cli = try BundledCLITestSupport.bundledCLIPath(for: CLINotifyProcessIntegrationRegressionTests.self)
         let script = SwiftTestingAssertions.sourceURL().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [script.path, cli]
+        process.arguments = [script.path, cli] + arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = output
@@ -1636,6 +1646,6 @@ struct CloudSCPIntegrationTests {
         process.waitUntilExit()
         let report = String(bytes: data, encoding: .utf8) ?? "Invalid UTF-8 test output"
         #expect(process.terminationStatus == 0, "\(report)")
-        #expect(report.contains("PASS watch and bounded control messages without file bytes"), "\(report)")
+        return report
     }
 }
