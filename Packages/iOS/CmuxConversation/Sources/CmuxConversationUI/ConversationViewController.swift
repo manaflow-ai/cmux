@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import GameController
 import UIKit
 
 /// Host-provided presentation details.
@@ -109,6 +110,10 @@ public final class ConversationViewController: UIViewController {
     var timestampDrawerRelease: TimestampDrawerPhysics.Release?
     var timestampDrawerReleaseStart: CFTimeInterval?
     var timestampDrawerLink: CADisplayLink?
+    /// A held bubble growing before its menu opens (`MessagePressTiming`).
+    var pressedActions: MessageActionOverlay?
+    var pressBeganUptime: TimeInterval = 0
+    var pressStart: CGPoint = .zero
     var replyDragRowID: String?
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false
@@ -135,6 +140,9 @@ public final class ConversationViewController: UIViewController {
     var keyboardEndTop: CGFloat = .greatestFiniteMagnitude
     /// The composer's bottom edge after the last keyboard-following pass.
     var lastComposerBottom: CGFloat = 0
+    /// A rotation or resize is under way (iOS 27 hides and reshows the
+    /// keyboard around one).
+    private var isTransitioningSize = false
     var effects = ConversationEffectsState()
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
@@ -337,7 +345,10 @@ public final class ConversationViewController: UIViewController {
     /// the header. When the bottom inset changes (keyboard, composer growth)
     /// the visible content moves with it, unless the finger is driving.
     func updateInsets() {
-        let top = header.frame.maxY + 4
+        // Messages' transcript starts at its navigation bar's bottom, 157.33
+        // pt on a Dynamic Island iPhone: 8 pt under the name pill, 3.33 under
+        // the bottom of our header (iOS 26.5 and 27.0).
+        let top = header.frame.maxY + 10.0 / 3.0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -423,6 +434,9 @@ public final class ConversationViewController: UIViewController {
 
     private func observeKeyboardFrames() {
         let center = NotificationCenter.default
+        center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resignComposerIfKeyboardGone() }
+        }
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
@@ -444,8 +458,51 @@ public final class ConversationViewController: UIViewController {
                 // jumping (and leaves the composer at rest when the guide did
                 // not move because the finger was already past the safe area).
                 self.view.setNeedsLayout()
-                self.view.layoutIfNeeded()
+                self.layoutRidingKeyboardAnimation()
             }
+        }
+    }
+
+    /// Keyboard hidden means the composer is not first responder (see
+    /// `ConversationKeyboardFocusPolicy`), whichever path hid it, so a
+    /// single tap on the field always brings the keyboard back.
+    private func resignComposerIfKeyboardGone() {
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        let state = ConversationKeyboardFocusPolicy.KeyboardHidden(
+            composerIsFirstResponder: composer.textView.isFirstResponder,
+            keyboardGuideAtRest: view.keyboardLayoutGuide.layoutFrame.minY >= restingGuideTop - 0.5,
+            hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
+            sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
+            isTransitioningSize: isTransitioningSize
+        )
+        guard ConversationKeyboardFocusPolicy.composerResigns(after: state) else { return }
+        composer.textView.resignFirstResponder()
+    }
+
+    public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        isTransitioningSize = true
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.isTransitioningSize = false }
+    }
+
+    /// Lays out inside the keyboard's animation, in an animation of our own.
+    ///
+    /// A nested animation inherits the keyboard's remaining duration and
+    /// spring, so the composer and transcript still ride its curve. It keeps
+    /// our views' animations out of UIKit's own block, though: when an
+    /// interactive dismissal ends (a fling, or a release partway down),
+    /// UIKit resigns the text view from that block's completion, and with
+    /// the composer's animation joined to it that completion never ran. The
+    /// keyboard left while the field stayed first responder, so tapping the
+    /// field showed its edit menu instead of bringing the keyboard back.
+    private func layoutRidingKeyboardAnimation() {
+        let remaining = UIView.inheritedAnimationDuration
+        guard remaining > 0 else {
+            view.layoutIfNeeded()
+            return
+        }
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+            self.view.layoutIfNeeded()
         }
     }
 
@@ -1158,7 +1215,18 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
                let typer = store.typingParticipantIDs.first, previous.message.senderID == typer {
                 return ConversationTheme.groupedSpacing
             }
-            return index > 0 && isMessage(index - 1) ? 10 : 0
+            switch rows[index] {
+            case .timestamp, .notice:
+                // Body to separator line as in Messages; the tail above hangs
+                // into the gap and our row's line sits below its top.
+                if index > 0, case let .message(previous) = rows[index - 1] {
+                    let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+                    return TimestampCell.gapAfterBody - overhang - TimestampCell.lineTop
+                }
+                return 0
+            default:
+                return index > 0 && isMessage(index - 1) ? 10 : 0
+            }
         }
         guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
         // Gaps run body to body; the previous row's tail hangs into this one.

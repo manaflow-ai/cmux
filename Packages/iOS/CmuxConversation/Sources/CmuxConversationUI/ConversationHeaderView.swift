@@ -148,8 +148,9 @@ final class ConversationHeaderView: UIView {
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
-            // The action glyph is a bar button's default symbol (body, 17 pt regular).
-            self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: isX ? .semibold : .regular)), for: .normal)
+            // Both glyphs are a bar button's default symbol (body, 17 pt
+            // regular): the video 26.7 x 17.7 pt ink, Cancel's xmark 17.33 x 15.33 pt.
+            self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)), for: .normal)
             self.trailingButton.accessibilityLabel = mode == .cancel
                 ? String(localized: "conversation.select.cancel", defaultValue: "Cancel", bundle: .module)
                 : mode == .close

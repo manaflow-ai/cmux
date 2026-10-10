@@ -15,9 +15,11 @@ protocol ConversationTranscriptLayoutDataSource: AnyObject {
     func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance
 }
 
-/// A single-column, bottom-anchored transcript layout. Content shorter than
-/// the viewport sits at the bottom, like Messages. Frames are computed from
-/// cached heights, so a full pass over thousands of rows is a sum.
+/// A single-column transcript layout. Content shorter than the viewport sits
+/// at the top under the header, like Messages on iOS 26.5 and 27.0 (a new
+/// conversation's first messages start just below the service line); longer
+/// content scrolls to its bottom. Frames are computed from cached heights, so
+/// a full pass over thousands of rows is a sum.
 final class ConversationTranscriptLayout: UICollectionViewLayout {
     enum Appearance {
         case none
@@ -45,21 +47,18 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         dataSource.transcriptWillPrepare(width: width)
         frames.removeAll(keepingCapacity: true)
         frames.reserveCapacity(count)
+        // Rows stack at their unrounded heights and each origin snaps to the
+        // pixel grid, as ChatKit's transcript does: 40.287 pt bubbles 4 pt
+        // apart land at 232.33, 276.67, 321.00 (Messages, iOS 26.5 and 27.0).
+        let scale = max(1, collectionView.traitCollection.displayScale)
         var y: CGFloat = topPadding
         for index in 0..<count {
             y += index == 0 ? 0 : dataSource.transcriptSpacing(before: index)
             let height = dataSource.transcriptHeight(at: index, width: width)
-            frames.append(CGRect(x: 0, y: y, width: width, height: height))
+            frames.append(CGRect(x: 0, y: (y * scale).rounded() / scale, width: width, height: height))
             y += height
         }
         contentHeight = y + 6 - (count > 0 ? dataSource.transcriptBottomOverhang() : 0)
-        // Bottom-anchor short transcripts.
-        let visible = collectionView.bounds.height - collectionView.adjustedContentInset.top - collectionView.adjustedContentInset.bottom
-        if contentHeight < visible {
-            let shift = visible - contentHeight
-            for index in frames.indices { frames[index].origin.y += shift }
-            contentHeight = visible
-        }
         cachedAttributes = Array(repeating: nil, count: frames.count)
     }
 

@@ -17,16 +17,17 @@ import Foundation
 /// grows to 222.7 pt while held and lifts to 234.5 pt with the menu; a
 /// 278 pt bubble to 291.5 pt and 303.5 pt.
 public enum MessagePressTiming {
-    public static let liftBegins: TimeInterval = 0.4
+    public static let liftBegins: TimeInterval = 0.15
     public static let clickDown: TimeInterval = 0.4
-    public static let clickTimeout: TimeInterval = 0.4
+    public static let clickTimeout: TimeInterval = 0.725
     /// Points the long side grows while the press is held.
     public static let pressGrowth: CGFloat = 14
     /// Points the long side grows once the menu opens.
     public static let liftGrowth: CGFloat = 26
-    /// The held growth follows `1 - exp(-t / 0.2 s)` from `liftBegins` to
-    /// `clickTimeout`; this cubic matches it within 1.2 %.
-    public static let pressCurve = (CGPoint(x: 0.26, y: 0.9), CGPoint(x: 0.85, y: 1))
+    /// The held growth follows `1 - exp(-t / 0.27 s)` from `liftBegins` to
+    /// `clickTimeout` (fitted to iOS 26.5 and 27.0 Messages frame by frame,
+    /// within 0.07 of progress); this cubic matches that within 1 %.
+    public static let pressCurve = (CGPoint(x: 0.32, y: 0.85), CGPoint(x: 0.95, y: 1))
 
     public enum Release: Equatable, Sendable {
         /// The bubble settles back; no menu.
@@ -37,7 +38,7 @@ public enum MessagePressTiming {
 
     /// What lifting the finger does after holding for `elapsed` seconds.
     public static func release(afterHolding elapsed: TimeInterval) -> Release {
-        .open  // today: the menu opens at recognition, whatever follows
+        elapsed >= clickDown ? .open : .cancel
     }
 
     /// Scale of a held bubble of `size` just before the menu opens.
@@ -51,6 +52,8 @@ public enum MessagePressTiming {
     }
 
     private static func scale(for size: CGSize, growth: CGFloat) -> CGFloat {
-        growth == pressGrowth ? 1 : 1.052  // today: no growth while held, a fixed 1.052 lift
+        let side = max(size.width, size.height)
+        guard side > 0 else { return 1 }
+        return 1 + growth / side
     }
 }

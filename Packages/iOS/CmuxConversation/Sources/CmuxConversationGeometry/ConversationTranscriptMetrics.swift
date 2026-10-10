@@ -32,4 +32,18 @@ public enum ConversationTranscriptMetrics {
         // A hair of tolerance so an exact pixel value (278.0000001) stays put.
         return ((value * s) - 0.001).rounded(.up) / s
     }
+
+    /// ChatKit's outgoing gradient runs down its gradient reference view (the
+    /// whole window) but ends `gradientBottomPlaceholderHeight` above the
+    /// bottom: the resting entry view, 69 pt on Face ID iPhones (35 pt of bar
+    /// over the 34 pt home indicator inset; 402 and 440 pt wide, iOS 26.5 and
+    /// 27.0). Below that line bubbles keep the final color. Fitting Messages'
+    /// bubble fills (light and dark, both widths) to this span recovers our
+    /// stops within 1-3 levels; the full window height leaves them 2-6 off.
+    public static let gradientEntryBarHeight: CGFloat = 35
+
+    /// Height of the band the outgoing gradient spans, from the window's top.
+    public static func gradientSpan(windowHeight: CGFloat, bottomSafeInset: CGFloat) -> CGFloat {
+        max(1, windowHeight - bottomSafeInset - gradientEntryBarHeight)
+    }
 }

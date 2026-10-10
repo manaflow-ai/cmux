@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 extension ConversationViewController: UIGestureRecognizerDelegate {
@@ -9,10 +10,19 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         pan.name = "conversation.horizontalPan"
         collectionView.addGestureRecognizer(pan)
 
+        // Messages' context-menu timing (UIKit's click driver): the bubble
+        // starts growing at 0.15 s; the menu opens on a lift after 0.4 s or
+        // by itself at 0.725 s.
         let press = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        press.minimumPressDuration = 0.4
+        press.minimumPressDuration = MessagePressTiming.liftBegins
+        press.name = Self.pressName
         press.delegate = self
         collectionView.addGestureRecognizer(press)
+        let pressTimeout = UILongPressGestureRecognizer(target: self, action: #selector(handlePressTimeout(_:)))
+        pressTimeout.minimumPressDuration = MessagePressTiming.clickTimeout
+        pressTimeout.name = Self.pressTimeoutName
+        pressTimeout.delegate = self
+        collectionView.addGestureRecognizer(pressTimeout)
 
         // Double-tap on a bubble: the tapback bar alone (Messages, iOS 26).
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
@@ -54,8 +64,17 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        gestureRecognizer is UITapGestureRecognizer
+        let presses: Set<String?> = [Self.pressName, Self.pressTimeoutName]
+        if presses.contains(gestureRecognizer.name) {
+            // The two press clocks run together. Until the menu opens a drag
+            // may still scroll or swipe; it cancels the growing bubble.
+            return presses.contains(other.name) || (other is UIPanGestureRecognizer && pressedActions?.isPressing == true)
+        }
+        return gestureRecognizer is UITapGestureRecognizer
     }
+
+    static let pressName = "conversation.press"
+    static let pressTimeoutName = "conversation.pressTimeout"
 
     func messageCell(at point: CGPoint, requireContentHit: Bool) -> MessageCell? {
         guard let indexPath = collectionView.indexPathForItem(at: point),
@@ -71,7 +90,11 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let translation = pan.translation(in: collectionView).x
         switch pan.state {
         case .began:
-            if translation > 0, let cell = replySwipeCell(at: pan.location(in: collectionView), velocity: pan.velocity(in: collectionView)), let model = cell.model {
+            // UIKit can report the travel past its slop as 0 at .began
+            // (a fast flick lands its first move right on the threshold),
+            // so the direction comes from the velocity shouldBegin checked.
+            let velocity = pan.velocity(in: collectionView)
+            if translation >= 0, velocity.x > 0, let cell = replySwipeCell(at: pan.location(in: collectionView), velocity: velocity), let model = cell.model {
                 replyDragRowID = model.rowID
                 replyHapticFired = false
             } else {
@@ -103,11 +126,51 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     // MARK: Long press
 
     @objc private func handleLongPress(_ press: UILongPressGestureRecognizer) {
-        guard press.state == .began,
-              let cell = messageCell(at: press.location(in: collectionView), requireContentHit: true),
-              let model = cell.model else { return }
+        let point = press.location(in: collectionView)
+        switch press.state {
+        case .began:
+            guard pressedActions == nil,
+                  let cell = messageCell(at: point, requireContentHit: true),
+                  let model = cell.model else { return }
+            pressStart = point
+            pressBeganUptime = ProcessInfo.processInfo.systemUptime
+            pressedActions = presentActions(for: model, cell: cell, mode: .menu, pressing: true)
+        case .changed:
+            // UIKit's click driver allows 10 pt of travel before the click.
+            if hypot(point.x - pressStart.x, point.y - pressStart.y) > 10 { cancelPressedActions() }
+        case .ended:
+            let held = ProcessInfo.processInfo.systemUptime - pressBeganUptime + MessagePressTiming.liftBegins
+            switch MessagePressTiming.release(afterHolding: held) {
+            case .open: commitPressedActions()
+            case .cancel: cancelPressedActions()
+            }
+        case .cancelled, .failed:
+            cancelPressedActions()
+        default:
+            break
+        }
+    }
+
+    /// Held to the click timeout: the menu opens under the finger.
+    @objc private func handlePressTimeout(_ press: UILongPressGestureRecognizer) {
+        if press.state == .began { commitPressedActions() }
+    }
+
+    func commitPressedActions() {
+        guard let overlay = pressedActions, overlay.isPressing else { return }
+        pressedActions = nil
+        // The menu owns the touch now: a scroll that started under the
+        // growing bubble stops.
+        collectionView.panGestureRecognizer.isEnabled = false
+        collectionView.panGestureRecognizer.isEnabled = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        presentActions(for: model, cell: cell, mode: .menu)
+        showActions(overlay)
+    }
+
+    func cancelPressedActions() {
+        guard let overlay = pressedActions else { return }
+        pressedActions = nil
+        overlay.cancelPress()
     }
 
     @objc private func handleDoubleTap(_ tap: UITapGestureRecognizer) {
@@ -287,7 +350,8 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     /// Messages' select-mode bar: the composer gives way to two glass circles,
     /// Delete at the leading edge and Forward at the trailing edge (48 pt,
     /// centers 52 pt in from each side, 4 pt above the composer's center line;
-    /// measured on iOS 26.5 Messages).
+    /// measured on iOS 26.5 Messages at 402 and 440 pt). The glyphs are bar
+    /// button defaults (17 pt regular: trash 19 x 20.67 pt).
     private func setSelectionToolbar(visible: Bool) {
         let tag = 4242
         if visible {
@@ -301,7 +365,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 tag: Self.selectionTrashTag
             ) { [weak self] button in self?.confirmDeleteSelection(from: button) }
             let forward = makeSelectionButton(
-                symbol: "arrowshape.turn.up.right",
+                symbol: "arrowshape.turn.up.forward",
                 label: String(localized: "conversation.select.forward", defaultValue: "Forward", bundle: .module),
                 tag: Self.selectionForwardTag
             ) { [weak self] _ in self?.forwardSelection() }
@@ -339,7 +403,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let glass = makeGlassView(cornerRadius: Self.selectionButtonSize / 2, interactive: true)
         glass.frame = CGRect(x: 0, y: 0, width: Self.selectionButtonSize, height: Self.selectionButtonSize)
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)), for: .normal)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)), for: .normal)
         button.tintColor = .label
         button.accessibilityLabel = label
         button.tag = tag

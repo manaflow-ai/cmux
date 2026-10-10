@@ -456,14 +456,13 @@ final class MessageCell: UICollectionViewCell {
         )
     }
 
-    /// ChatKit parks the indicator at the balloon's resting leading edge
-    /// (past the 6 pt tail for incoming), centered on the balloon view,
-    /// whose height includes the tail drop.
+    /// Messages parks the indicator at the balloon's resting leading edge,
+    /// centered on the balloon view, whose height includes the tail drop.
     private var replyIndicatorCenter: CGPoint {
         guard let model, let cellLayout else { return .zero }
         let balloon = cellLayout.bubbleFrame ?? cellLayout.linkCardFrame ?? cellLayout.imageFrames.first ?? cellLayout.contentFrame
         let height = balloon.height + (model.showsTail ? ConversationTheme.tailDrop : 0)
-        let minX = model.isOutgoing ? balloon.minX : balloon.minX + ReplySwipeIndicator.incomingTailWidth
+        let minX = ConversationReplyMotion.indicatorMinX(balloon: balloon, isOutgoing: model.isOutgoing)
         return CGPoint(x: minX + ReplySwipeIndicator.size / 2, y: balloon.minY + height / 2)
     }
 
@@ -625,6 +624,18 @@ final class TimestampCell: UICollectionViewCell {
         label.frame = CGRect(x: 16, y: 10, width: contentView.bounds.width - 32, height: max(18, ceil(ConversationTheme.timestampFont.lineHeight)))
     }
 
+    /// Where a label sized to one caption line (13.33 pt at Large, as
+    /// ChatKit's `CKTranscriptLabelCell`) would start in this row: ours is
+    /// taller and centers the same line.
+    static var lineTop: CGFloat {
+        let font = ConversationTheme.timestampFont
+        return 10 + (max(18, ceil(font.lineHeight)) - ceil(font.lineHeight * 3) / 3) / 2
+    }
+
+    /// Messages starts the separator's line 13.67 pt under the bubble body
+    /// above it (iOS 27.0, a message two hours after the one before).
+    static let gapAfterBody: CGFloat = 41.0 / 3.0
+
     /// The separator's baseline below the row's top (UILabel centers the
     /// line in the label).
     static var baselineOffset: CGFloat {
@@ -717,7 +728,7 @@ final class ConversationStartCell: UICollectionViewCell {
     static let baselineToTimestampBaseline: CGFloat = 27.98
     static var height: CGFloat {
         let secondBaseline = topInset + textHeight + ConversationTheme.timestampFont.descender
-        return ceil((secondBaseline + baselineToTimestampBaseline - TimestampCell.baselineOffset) * 3) / 3
+        return secondBaseline + baselineToTimestampBaseline - TimestampCell.baselineOffset
     }
 
     /// Both lines, lock included (the glyph can make its line a hair taller

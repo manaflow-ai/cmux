@@ -184,8 +184,10 @@ enum ConversationTheme {
     }
 
     /// Messages fills outgoing bubbles from a gradient fixed to the screen:
-    /// lighter near the top, the plain service color at the bottom. Stops
-    /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB).
+    /// lighter near the top, the plain service color from the resting
+    /// composer down (`ConversationTranscriptMetrics.gradientSpan`). Stops
+    /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB) and
+    /// re-fitted against Messages on iOS 27.0, light and dark, within 1-3 levels.
     struct ScreenGradient: Sendable {
         var light: [(CGFloat, CGFloat, CGFloat)]
         var dark: [(CGFloat, CGFloat, CGFloat)]
@@ -224,16 +226,22 @@ enum ConversationTheme {
     }
 
     static let iMessageGradient = ScreenGradient(
-        light: [(90, 200, 250), (72, 184, 251), (52, 168, 252), (30, 152, 254), (0, 136, 255)],
+        light: [(90, 200, 250), (73, 185, 251), (53, 169, 252), (32, 153, 254), (0, 136, 255)],
         dark: [(64, 156, 255), (52, 153, 255), (37, 150, 255), (22, 148, 255), (0, 145, 255)]
     )
 
     /// Contacts' monogram for people without a photo (CNAvatarImageRenderer
     /// on iOS 26.3): a periwinkle gradient, top to bottom, the same in dark
     /// mode, with white semibold initials at 0.47 of the diameter.
+    /// Contacts' monogram gradient, top to bottom. Dark mode is a deeper
+    /// violet (MobileSMS 26.5 / 27.0: 87,82,104 to 47,37,73).
     static let monogramGradient = [
-        UIColor(red: 169 / 255, green: 194 / 255, blue: 226 / 255, alpha: 1),
-        UIColor(red: 115 / 255, green: 127 / 255, blue: 185 / 255, alpha: 1),
+        UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(red: 87 / 255, green: 82 / 255, blue: 104 / 255, alpha: 1)
+            : UIColor(red: 169 / 255, green: 194 / 255, blue: 226 / 255, alpha: 1) },
+        UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(red: 47 / 255, green: 37 / 255, blue: 73 / 255, alpha: 1)
+            : UIColor(red: 115 / 255, green: 127 / 255, blue: 185 / 255, alpha: 1) },
     ]
     static let monogramFontScale: CGFloat = 0.472
 

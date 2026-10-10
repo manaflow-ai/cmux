@@ -27,7 +27,7 @@ protocol ConversationComposerViewDelegate: AnyObject {
 final class ConversationComposerView: UIView, UITextViewDelegate {
     weak var delegate: (any ConversationComposerViewDelegate)?
 
-    let plusButton = UIButton(type: .system)
+    let plusButton = ComposerPlusButton(type: .system)
     private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true)
     let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerMinHeight / 2, interactive: false)
     /// TextKit 1, so the effect overlay can read glyph geometry.
@@ -282,7 +282,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale
         )
         plusGlass.frame = row.plus
-        plusButton.frame = plusGlass.bounds.offsetBy(dx: 0, dy: ComposerBarGeometry.plusGlyphOffsetY(iOS27: Self.isIOS27))
+        plusButton.frame = plusGlass.bounds
         fieldGlass.frame = row.field
         let field = fieldGlass.bounds
         var textTop: CGFloat = sendLaterHeight
@@ -350,6 +350,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         self.textView.restyle()
         textDidChange()
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        // The next focus brings the keyboard, not the Text Effects palette.
+        self.textView.inputView = nil
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -662,6 +667,17 @@ final class ComposerTextView: UITextView {
     override func paste(_ sender: Any?) {
         super.paste(sender)
         delegate?.textViewDidChange?(self)
+    }
+}
+/// The "+" button: its glyph sits `ComposerBarGeometry.plusGlyphOffsetY`
+/// from the circle's center while the button (and its accessibility frame)
+/// covers the whole circle.
+final class ComposerPlusButton: UIButton {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let offset = ComposerBarGeometry.plusGlyphOffsetY(iOS27: ConversationComposerView.isIOS27)
+        guard offset != 0, let imageView, imageView.image != nil else { return }
+        imageView.center.y = bounds.midY + offset
     }
 }
 #endif
