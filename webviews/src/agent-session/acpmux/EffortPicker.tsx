@@ -54,9 +54,11 @@ export function EffortPicker({
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>('.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]')
-        ?.focus({ preventScroll: true });
+      const reasoningGroup = document.querySelector<HTMLElement>('.acpmux-effort-menu [role="group"]');
+      const selectedReasoning =
+        reasoningGroup?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ??
+        reasoningGroup?.querySelector<HTMLElement>('[role="menuitemradio"]');
+      selectedReasoning?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);
