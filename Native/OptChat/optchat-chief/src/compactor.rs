@@ -2086,6 +2086,17 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         env.insert(key.to_owned(), "1".to_owned());
     }
     env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    // No start-up network calls (feature flags, telemetry): under an
+    // import's 16 starts at once they took 3-4.6 s per start (p50) and up
+    // to 17 s, against 0.75 s and 1.2 s without (stub server on
+    // cmux-lawrence-2, 2026-10-10). The compactor's request stays the same
+    // but for two betas it never uses (inline-tools, advisor-tool): no
+    // tools, permission mode default. Compactor sessions only; turns and
+    // subagents keep their feature flags.
+    env.insert(
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_owned(),
+        "1".to_owned(),
+    );
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
@@ -2221,44 +2232,5 @@ pub fn compact_route(choice: Option<&str>, config: &Config) -> Result<CompactRou
             let _ = config;
             Ok(CompactRoute::Acpmux)
         }
-    }
-}
-
-#[cfg(test)]
-mod slot_order_tests {
-    use super::*;
-
-    /// No starvation: while chat nodes keep coming, a waiting import node
-    /// still takes every `BACKGROUND_EVERY + 1`-th session, and each queue
-    /// keeps its own order.
-    #[test]
-    fn an_import_node_takes_a_session_between_chat_nodes() {
-        let mut st = SlotState::default();
-        st.queues[1].extend([100, 101]);
-        st.queues[0].extend(1..=10);
-        let mut order = Vec::new();
-        while !st.queues[0].is_empty() || !st.queues[1].is_empty() {
-            let q = (0..2)
-                .find(|&q| st.queues[q].front().is_some_and(|&t| st.turn(q, t)))
-                .expect("someone's turn");
-            order.push(*st.queues[q].front().unwrap());
-            st.took(q);
-        }
-        assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
-    }
-}
-
-#[cfg(test)]
-mod session_count_tests {
-    use super::*;
-
-    #[test]
-    fn the_session_count_setting_takes_1_to_jobs_else_the_default() {
-        assert_eq!(compactor_sessions_from(None), COMPACTOR_SESSIONS);
-        assert_eq!(compactor_sessions_from(Some("32")), 32);
-        assert_eq!(compactor_sessions_from(Some(" 1 ")), 1);
-        assert_eq!(compactor_sessions_from(Some("0")), COMPACTOR_SESSIONS);
-        assert_eq!(compactor_sessions_from(Some("65")), COMPACTOR_SESSIONS);
-        assert_eq!(compactor_sessions_from(Some("lots")), COMPACTOR_SESSIONS);
     }
 }

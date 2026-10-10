@@ -87,6 +87,7 @@ import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import {
   canFork,
@@ -100,7 +101,8 @@ import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
-import { copyText } from "./conversation/clipboard";
+import { copyText, copyTextResult } from "./conversation/clipboard";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
@@ -355,7 +357,11 @@ const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
     return <WorkingFor row={row} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.at === b.row.at &&
+    a.row.durationMs === b.row.durationMs,
 );
 
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
@@ -455,6 +461,31 @@ const defaultRegistry: NativeRegistry = {
 type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
+type TranscriptRange = { anchorId: string; focusId: string };
+
+/// The text a transcript row contributes to a keyboard copy. Rendered Markdown is intentionally
+/// not scraped from the DOM: doing that would make copy depend on virtualization and would lose
+/// the source text while a reply is streaming.
+function transcriptCopyText(row: AcpmuxRow): string {
+  const parts: string[] = [];
+  if (row.text?.trim()) parts.push(row.text.trim());
+  if (row.shell) {
+    if (row.shell.command.trim()) parts.push(`$ ${row.shell.command.trim()}`);
+    if (row.shell.output.trim()) parts.push(row.shell.output.trim());
+    if (row.shell.error?.trim()) parts.push(row.shell.error.trim());
+  }
+  for (const item of row.items ?? []) {
+    if (item.text.trim()) parts.push(item.text.trim());
+    if (item.tool?.output?.trim()) parts.push(item.tool.output.trim());
+  }
+  return parts.join("\n").trim();
+}
+
+/// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
+/// floating action for prompts and tool rows where no adjacent copy control exists.
+const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
+  row.kind !== "assistant" && row.kind !== "turnSummary" && transcriptCopyText(row).length > 0;
+
 /// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
 /// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
@@ -499,6 +530,13 @@ function RowFrame({
   report,
   enter,
   onEntered,
+  active,
+  selected,
+  tabStop,
+  onFocus,
+  onRowKeyDown,
+  onCopy,
+  copyable,
   children,
 }: {
   row: AcpmuxRow;
@@ -513,11 +551,21 @@ function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  active: boolean;
+  selected: boolean;
+  tabStop: boolean;
+  onFocus: () => void;
+  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+  onCopy?: () => Promise<void>;
+  copyable: boolean;
   children: React.ReactNode;
 }) {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
+  const [copied, setCopied] = useState(false);
+  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
+  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -539,11 +587,36 @@ function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
+      data-transcript-active={active ? "true" : undefined}
+      data-transcript-selected={selected ? "true" : undefined}
+      aria-current={active ? "true" : undefined}
+      {...rowTabStop}
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
+      onFocus={onFocus}
     >
+      {copyable && (
+        <button
+          type="button"
+          className="acpmux-row__copy cv-iconbtn"
+          {...copyTabStop}
+          aria-label={copied ? t("turn.copied") : t("turn.copy")}
+          title={copied ? t("turn.copied") : t("turn.copy")}
+          onClick={async () => {
+            try {
+              await onCopy?.();
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1200);
+            } catch {
+              setCopied(false);
+            }
+          }}
+        >
+          <Copy />
+        </button>
+      )}
       {children}
     </article>
   );
@@ -634,6 +707,31 @@ export function VirtualTranscript({
   rowWidthRef.current = transcriptRowWidth(width);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
+  // because the transcript virtualizes rows and can unmount either end while the reader moves.
+  const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
+  const [transcriptRange, setTranscriptRange] = useState<TranscriptRange | undefined>();
+  const pendingFocus = useRef<string | undefined>(undefined);
+  const sessionKey = sessionId ?? "";
+  // Keep the key in state so a StrictMode render cannot consume the session transition before the
+  // reset effect commits. The keyed values below make the first new-session paint fresh as well.
+  const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
+  const sessionChanged = selectionSessionKey !== sessionKey;
+  useEffect(() => {
+    if (sessionChanged) {
+      setSelectionSessionKey(sessionKey);
+      setActiveRowId(rows[0]?.id);
+      setTranscriptRange(undefined);
+      pendingFocus.current = undefined;
+      return;
+    }
+    const ids = new Set(rows.map((row) => row.id));
+    setActiveRowId((current) => (current && ids.has(current) ? current : rows[0]?.id));
+    setTranscriptRange((current) => {
+      if (!current) return current;
+      return ids.has(current.anchorId) && ids.has(current.focusId) ? current : undefined;
+    });
+  }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -780,6 +878,114 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
   const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
+  // A session can reuse row ids. Until the reset effect commits, render the new session as a
+  // fresh transcript so a stale focus or range never flashes on its first paint.
+  const effectiveActiveRowId = sessionChanged ? rows[0]?.id : activeRowId;
+  const effectiveTranscriptRange = sessionChanged ? undefined : transcriptRange;
+  const selectedBounds = useMemo(() => {
+    if (!effectiveTranscriptRange) return undefined;
+    const anchor = rows.findIndex((row) => row.id === effectiveTranscriptRange.anchorId);
+    const focus = rows.findIndex((row) => row.id === effectiveTranscriptRange.focusId);
+    if (anchor < 0 || focus < 0) return undefined;
+    return { first: Math.min(anchor, focus), last: Math.max(anchor, focus) };
+  }, [rows, effectiveTranscriptRange]);
+  const selectedRows = useMemo(() => {
+    if (!selectedBounds) return new Set<number>();
+    const selected = new Set<number>();
+    for (let index = selectedBounds.first; index <= selectedBounds.last; index += 1) selected.add(index);
+    return selected;
+  }, [selectedBounds]);
+  const selectedRowIds = useMemo(
+    () => (selectedBounds ? rows.slice(selectedBounds.first, selectedBounds.last + 1).map((row) => row.id) : []),
+    [rows, selectedBounds],
+  );
+  const focusRow = useCallback(
+    (index: number) => {
+      if (rows.length === 0) return;
+      const nextIndex = Math.max(0, Math.min(rows.length - 1, index));
+      const id = rows[nextIndex]!.id;
+      setActiveRowId(id);
+      pendingFocus.current = id;
+      const node = ref.current;
+      if (!node) return;
+      const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
+      if (mounted) {
+        (mounted.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? mounted).focus();
+        pendingFocus.current = undefined;
+        return;
+      }
+      const top = layout.tops[nextIndex] ?? 0;
+      const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
+      const nextTop = Math.max(0, Math.min(maximum, top));
+      const delta = nextTop - node.scrollTop;
+      node.scrollTop = nextTop;
+      setScroll((current) => ({ top: nextTop, delta: delta || nextTop - current.top }));
+    },
+    [layout, rows],
+  );
+  useLayoutEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    const node = ref.current;
+    const target = [...(node?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
+      (row) => row.dataset.rowId === id,
+    );
+    if (target) {
+      (target.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? target).focus();
+      pendingFocus.current = undefined;
+    }
+  }, [range, effectiveActiveRowId]);
+  const copyRows = useCallback(
+    async (rowIds: string[]) => {
+      const text = rowIds
+        .map((id) => rows.find((row) => row.id === id))
+        .filter((row): row is AcpmuxRow => row !== undefined)
+        .map((row) => transcriptCopyText(row))
+        .filter(Boolean)
+        .join("\n\n");
+      if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
+    },
+    [rows],
+  );
+  const rowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => {
+      // Buttons and links own their keyboard behavior. A focused row itself owns only the
+      // navigation and copy keys below, so selecting prose never toggles a disclosure by accident.
+      if (event.target !== event.currentTarget) return;
+      const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      const jump = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : undefined;
+      if (move || jump !== undefined) {
+        event.preventDefault();
+        const nextIndex = jump ?? index + move;
+        const clamped = Math.max(0, Math.min(rows.length - 1, nextIndex));
+        const nextId = rows[clamped]?.id;
+        if (!nextId) return;
+        setTranscriptRange((current) =>
+          event.shiftKey ? { anchorId: current?.anchorId ?? rows[index]!.id, focusId: nextId } : undefined,
+        );
+        focusRow(clamped);
+        return;
+      }
+      if (event.key === "Escape") {
+        if (effectiveTranscriptRange) {
+          event.preventDefault();
+          setTranscriptRange(undefined);
+        }
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+        const native = window.getSelection?.();
+        if (native && !native.isCollapsed) return;
+        event.preventDefault();
+        const rowIds = selectedRowIds.length > 0 ? selectedRowIds : [rows[index]!.id];
+        void copyRows(rowIds).catch(() => undefined);
+      }
+    },
+    [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
+  );
+  const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
+  const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
+  const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const last = range.last - 1;
     acpmuxPerf.mountedTop = range.last > range.first ? layout.tops[range.first] : 0;
@@ -881,7 +1087,7 @@ export function VirtualTranscript({
               row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
             return (
               <RowFrame
-                key={row.id}
+                key={`${sessionId ?? ""}:${row.id}`}
                 row={row}
                 kind={kind}
                 index={absoluteIndex}
@@ -893,6 +1099,15 @@ export function VirtualTranscript({
                 report={reportDrawn}
                 enter={enteringRows.current.has(row.id)}
                 onEntered={onEntered}
+                active={effectiveActiveRowId === row.id}
+                selected={selectedRows.has(absoluteIndex)}
+                tabStop={tabStopId === row.id}
+                onFocus={() => rowFocus(row.id)}
+                onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                copyable={transcriptHasFloatingCopy(row)}
+                onCopy={() =>
+                  copyRows(selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id])
+                }
               >
                 <Component
                   row={row}
@@ -1190,12 +1405,23 @@ function AcpmuxPane() {
       : snapshot.rows;
     return withMoveRows(
       withShellRows(
-        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        withSubagentRows(
+          turnView(rows, expanded, { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs }),
+          expanded,
+        ),
         chatShellRuns,
       ),
       sessionMoves,
     );
-  }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  }, [
+    snapshot.rows,
+    expanded,
+    snapshot.isWorking,
+    snapshot.clockOffsetMs,
+    snapshot.permissionGroups,
+    chatShellRuns,
+    sessionMoves,
+  ]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
@@ -2809,9 +3035,6 @@ function AcpmuxPane() {
                       </span>
                     )}
                     <ChatHeaderTools
-                      changes={lastChanges}
-                      changesOpen={Boolean(diffView && diffOpen)}
-                      onChanges={toggleLastChanges}
                       tabTools={!quick}
                       onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
@@ -2820,6 +3043,8 @@ function AcpmuxPane() {
                           // Another chat closes its summary and gallery, as it does the image viewer.
                           key={snapshot.sessionId}
                           rows={snapshot.rows}
+                          changes={quick ? undefined : lastChanges}
+                          onOpenChanges={toggleLastChanges}
                           onOpenOutput={quick ? undefined : openOutput}
                           onOpenImage={quick ? undefined : openImage}
                         />

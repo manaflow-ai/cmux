@@ -4,6 +4,9 @@
   "mux_protocol": 12,
   "resource_operations": [
     "agent.list",
+    "agent.message.list",
+    "agent.message.mark",
+    "agent.message.send",
     "agent.report",
     "browser.activate",
     "browser.attach",
@@ -267,6 +270,8 @@
       "delete-workspace-group",
       "detach-client",
       "export-layout",
+      "feed-local-list",
+      "feed-local-read",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -445,6 +450,7 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-search",
+      "history-search",
       "conversation-op",
       "conversation-typing",
       "conversation-bind",
@@ -467,7 +473,10 @@
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
       "conversation-attachment-upload",
-      "conversation-attachment-read"
+      "conversation-attachment-read",
+      "feed-local-handoff-begin",
+      "feed-local-handoff-abort",
+      "feed-local-handoff-done"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

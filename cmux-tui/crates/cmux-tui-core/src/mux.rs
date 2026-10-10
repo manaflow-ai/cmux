@@ -165,6 +165,7 @@ pub(crate) use browser_tab_create::{
 };
 pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+mod agent_chat_columns;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -181,8 +182,10 @@ use deadline_fanout::{
 mod dock_columns;
 mod event_emit;
 mod exit_settle;
+pub(crate) mod feed_local;
 mod focus;
 mod frontend_projection;
+mod history_search;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
@@ -296,6 +299,10 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
+pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
+pub(crate) use agent_chat_columns::{
+    agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
+};
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
@@ -504,6 +511,9 @@ pub struct Mux {
     /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
     /// a binary that has a cloud transport; absent otherwise.
     cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The history search index (`history-search-v1`), installed by the
+    /// binary with its feeds; absent otherwise.
+    history_search: OnceLock<crate::history_search::HistorySearch>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -582,30 +592,29 @@ pub struct Mux {
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
-    /// Nonterminal notifications remain placement-local. Terminal unread
-    /// state is keyed separately by stable content identity so every view of
-    /// one terminal shares the same attention marker.
+    /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
+    /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
-    /// Records finished shell commands in the journal
-    /// (`terminal-command-journal-v1`). Off until a trusted client turns it
-    /// on (`set-terminal-command-history`); never persisted, so a restarted
-    /// daemon records nothing until asked again.
+    /// Records finished shell commands in the journal (`terminal-command-journal-v1`). Off until
+    /// a trusted client turns it on (`set-terminal-command-history`); never persisted, so a
+    /// restarted daemon records nothing until asked again.
     terminal_command_history: AtomicBool,
     /// The shell command journal worker's bounded queue (started on first use).
     shell_command_journal:
         Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
-    /// Per-client read marks. The shared unread marker above answers "does
-    /// this terminal need attention on the shared console"; this map answers
-    /// "has this client install seen this notification", so several remote
-    /// clients of one session keep independent unread state.
+    /// Per-client read marks. The shared unread marker above answers "does this terminal need
+    /// attention on the shared console"; this map answers "has this client install seen this
+    /// notification", so several remote clients of one session keep independent unread state.
     notification_reads: Mutex<HashMap<NotificationPublicId, BTreeSet<String>>>,
-    /// Notification ids the in-memory ledger evicted whose durable read marks
-    /// are still to be pruned. Pruning happens only after a create commits,
-    /// and only for ids the committed receipts no longer retain, so a failed
-    /// create cannot orphan marks the next restart would rebuild.
+    /// Notification ids the in-memory ledger evicted whose durable read marks are still to be
+    /// pruned: only after a create commits, and only for ids the committed receipts no longer
+    /// retain, so a failed create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
+    /// `workspace_registry`, then `state`; never take it while holding either.
+    feed_local: Mutex<cmux_feed_core::Feed>,
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,

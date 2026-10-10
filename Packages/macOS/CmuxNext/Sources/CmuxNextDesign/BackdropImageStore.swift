@@ -33,7 +33,7 @@ public final class BackdropImageStore {
         if let running = loads[id] {
             load = running
         } else {
-            let url = selection.imageURL
+            let url = selection.resolvedImageURL()
             load = Task.detached(priority: .userInitiated) { url.flatMap(Self.decode) }
             loads[id] = load
         }

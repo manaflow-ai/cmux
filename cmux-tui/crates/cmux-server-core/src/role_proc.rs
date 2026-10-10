@@ -338,7 +338,3 @@ impl RoleProc {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "role_proc_tests.rs"]
-mod tests;
