@@ -29,6 +29,7 @@
             "rows" : [
               "tabs.newTabKind",
               "tabs.newTabTemplate",
+              "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
@@ -1483,6 +1484,72 @@
       "title" : {
         "key" : "settings.tabs.newTabTemplate",
         "text" : "New Tab Template"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "end",
+        "afterCurrent"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionEnd",
+            "text" : "At the End"
+          },
+          "value" : "end"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "end",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabPosition.help",
+        "text" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabPosition",
+      "keywords" : [
+        "new tab",
+        "cmd-t",
+        "position",
+        "order",
+        "right",
+        "end",
+        "after",
+        "insert"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.newTabPosition",
+        "text" : "New Tab Position"
       },
       "validation" : "portable"
     },
@@ -17875,7 +17942,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b80a715624cf80085c07f7db99bea69f7b0f51b5e51fd1ff273e6bc37355f8d7",
+  "schema_hash" : "8315c140d6282879e1eb545ac2335bccacba7e6c5c4bf43d90fc28a40109689c",
   "sections" : [
     {
       "id" : "general",

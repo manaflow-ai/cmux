@@ -2077,6 +2077,16 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.newTabPosition" : {
+      "default" : "end",
+      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "enum" : [
+        "end",
+        "afterCurrent"
+      ],
+      "title" : "New Tab Position",
+      "type" : "string"
+    },
     "tabs.newTabTemplate" : {
       "default" : "default",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",

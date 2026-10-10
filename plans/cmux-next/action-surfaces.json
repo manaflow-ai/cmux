@@ -6597,6 +6597,33 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-to-right",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.toRight",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab to the Right",
+      "title_key" : "action.newTab.toRight",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "tab new-page",
       "context_menu" : "offered",
@@ -30769,7 +30796,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.ofKind",
+          "id" : "newTab.toRight",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -30797,7 +30824,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "newSurface",
+              "id" : "newTab.ofKind",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -30810,9 +30837,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "openBrowser.chromium",
+              "id" : "newSurface",
               "kind" : "action",
               "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "openBrowser.chromium",
+              "kind" : "action",
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
