@@ -95,6 +95,11 @@ public struct RemoteInstallPlan: Hashable, Sendable {
         base.appendingPathComponent(commit.lowercased()).appendingPathComponent("manifest.json")
     }
 
+    /// `cmux-tui/tree/<key>/source.json`: the commit that published a tree key.
+    public static func treeSourceURL(key: String, base: URL = RemoteInstallPlan.base) -> URL {
+        base.appendingPathComponent("tree").appendingPathComponent(key.lowercased()).appendingPathComponent("source.json")
+    }
+
     /// Shared prelude: target, staging file and a digest helper.
     private var prelude: String {
         """
@@ -209,6 +214,6 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     }
 
     static func isHex(_ text: String, count: Int) -> Bool {
-        text.count == count && text.allSatisfy(\.isHexDigit)
+        text.count == count && text.allSatisfy { $0.isASCII && $0.isHexDigit }
     }
 }

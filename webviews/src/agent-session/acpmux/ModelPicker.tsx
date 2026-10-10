@@ -336,6 +336,14 @@ export function ModelPicker(props: ModelPickerProps) {
     // until the positioned menu is visible, even though JSDOM accepts that early focus.
     if (open && menuStyle.visibility === "visible") search.current?.focus({ preventScroll: true });
   }, [open, menuStyle.visibility]);
+  // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
+  // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
+  // viewport, so a pointer hover (always over a visible row) never scrolls.
+  const activeRowId = visible[active] ? modelRowId(visible[active].id) : undefined;
+  useLayoutEffect(() => {
+    if (!open || !activeRowId) return;
+    menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
+  }, [open, activeRowId]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {

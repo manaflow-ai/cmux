@@ -17,7 +17,7 @@ extension HomeStore {
     public func perform(_ op: HomeOp, key: IdempotencyKey = .make()) async throws -> HomeOpResult {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
         guard isOnline else {
-            if case .sendMessage(let conversation, _) = op {
+            if case .sendMessage(let conversation, _, _) = op {
                 try queueWhileOffline(HomeIntent(key: key, op: op), in: conversation)
             }
             throw HomeRejection.ownerUnreachable
@@ -33,7 +33,7 @@ extension HomeStore {
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
         afterLogChange(op)
-        if case .sendMessage(let conversation, _) = op {
+        if case .sendMessage(let conversation, _, _) = op {
             enqueueSend(key, in: conversation)
             await waitForTurn(key, in: conversation)
             // Cancelled or dropped while it waited.
@@ -65,7 +65,7 @@ extension HomeStore {
         // goes again under the same key (the owner's ledger replays it).
         if rejection == .indeterminate || rejection == .ownerUnreachable, uploads[key]?.reachedOwner ?? true {
             log.revive(key)
-            if case .sendMessage(let conversation, _) = entry.intent.op {
+            if case .sendMessage(let conversation, _, _) = entry.intent.op {
                 enqueueSend(key, in: conversation)
                 afterLogChange(entry.intent.op)
                 await waitForTurn(key, in: conversation)

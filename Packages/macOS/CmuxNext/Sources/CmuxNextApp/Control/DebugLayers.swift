@@ -18,6 +18,30 @@ enum DebugLayers {
         return .object([
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
+            "layout_passes": layoutPasses(),
+        ])
+    }
+
+    /// `LayoutPassGuard`: the most layout calls one view had in one
+    /// run-loop turn, the loops it caught (view class, window, ancestry)
+    /// and the busiest view classes since launch or the last reset.
+    static func layoutPasses() -> JSONValue {
+        let guardian = LayoutPassGuard.shared
+        return .object([
+            "installed": .bool(guardian.isInstalled),
+            "bound": .number(Double(LayoutPassGuard.bound)),
+            "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
+            "loops": .array(guardian.reports.map { report in
+                .object([
+                    "view_class": .string(report.viewClass),
+                    "window_class": report.windowClass.map(JSONValue.string) ?? .null,
+                    "ancestry": .array(report.ancestry.map(JSONValue.string)),
+                    "passes": .number(Double(report.passes)),
+                ])
+            }),
+            "top_classes": .array(guardian.passesByClass.prefix(20).map { entry in
+                .object(["view_class": .string(entry.viewClass), "passes": .number(Double(entry.passes))])
+            }),
         ])
     }
 

@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import CmuxNextCompat
 import Observation
 import os
 public import WebKit
@@ -32,6 +33,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
     let bridge: any PageHostBridge
+    /// Delivers router envelopes in order, rendering large ones off the main actor.
+    let scripts: PageScriptPipeline
     var loaded = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
@@ -174,7 +177,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.inputReadiness = inputReadiness
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
-        bridge = WebKitPageHostBridge(webView: webView)
+        let webKitBridge = WebKitPageHostBridge(webView: webView)
+        bridge = webKitBridge
+        scripts = PageScriptPipeline { script in webKitBridge.evaluate(script) }
         super.init(frame: .zero)
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         wantsLayer = true
@@ -198,8 +203,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         applyUIScale()
         observeUIScale()
         PageRegistry.add(self)
-        let bridge = bridge
-        router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
+        let scripts = scripts
+        router.send = { envelope in scripts.send(envelope) }
+        router.didClose = { scripts.reset() }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
         #if DEBUG
@@ -232,7 +238,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -317,9 +323,20 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
             return nil
         }
+        // The message conversion stays here: `handle` must start in the order the page posted, and
+        // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
         guard let body = JSONValue(foundation: message.body) else { return nil }
         let reply = await router.handle(body)
-        return reply.isNull ? nil : reply.foundationObject
+        // The reply reaches the page after the events sent before it and before the events sent
+        // after it (a subscribe's reply names the sub its first events use). A gate holds the
+        // script FIFO here while those earlier events drain and a large reply converts off main.
+        let large = !reply.isNull && !reply.fits(PageScriptPipeline.inlineBudget)
+        let gate = scripts.gate(always: large)
+        defer { gate?.open() }
+        await gate?.reached()
+        if reply.isNull { return nil }
+        guard large else { return reply.foundationObject }
+        return await PageReplyObject.convert(reply).object
     }
 
     // MARK: Theme

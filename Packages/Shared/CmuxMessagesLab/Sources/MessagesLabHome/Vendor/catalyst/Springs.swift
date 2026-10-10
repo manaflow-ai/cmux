@@ -187,7 +187,7 @@ enum Springs {
     static func osElement(_ name: String) -> SpringElement {
         ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
     }
-    static var bubbleOpacity: SpringElement { element("bubble.opacity") }
+    static var bubbleOpacity: SpringElement { osElement("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
     static var fieldOpacity: SpringElement { element("field.opacity") }
 

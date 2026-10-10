@@ -4,14 +4,29 @@
              avatarHolder?.shift = contentLeading / 2
          }
      }
--    private var pillCenter: NSLayoutConstraint!
+-    private(set) var pillCenter: NSLayoutConstraint!
 +    // cmux: built on first use in init, never an IUO (crash program).
 +    private let pillHolder = PassThroughView()
-+    private lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
++    private(set) lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
      /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
      /// pane: the pill moves from the accessory's center to the transcript's.
      func centerPill() {
-@@ -64,8 +66,7 @@
+@@ -55,8 +57,12 @@
+         toolbar.showsBaselineSeparator = false
+         toolbar.centeredItemIdentifiers = [Self.avatarID]
+ 
+-        pill.bezelStyle = .glass
+-        pill.borderShape = .capsule
++        if #available(macOS 26, *) { // cmux: macOS 14 has no glass bezel
++            pill.bezelStyle = .glass
++            pill.borderShape = .capsule
++        } else {
++            pill.bezelStyle = .push
++        }
+         pill.controlSize = .large
+         pill.imagePosition = .imageTrailing
+         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
+@@ -64,8 +70,7 @@
          pill.font = .systemFont(ofSize: 13, weight: .bold)
          pill.target = self
          pill.action = #selector(contactClicked)
@@ -21,7 +36,7 @@
          holder.translatesAutoresizingMaskIntoConstraints = false
          pill.translatesAutoresizingMaskIntoConstraints = false
          holder.addSubview(pill)
-@@ -94,7 +95,7 @@
+@@ -95,7 +100,7 @@
      static let accessoryHeight: CGFloat = 28
      static func flag(_ name: String, _ fallback: CGFloat) -> CGFloat {
          let a = ProcessInfo.processInfo.arguments
@@ -30,7 +45,7 @@
      }
      /// The pill's title and chevron sit 1 pt right of AppKit's centering in
      /// Messages (ink x 262-360.5 pt against 261-359.5).
-@@ -108,7 +109,7 @@
+@@ -109,7 +114,7 @@
      static let chevronCompact = flag("--chev-compact", 1) != 0
      static func chevronImage() -> NSImage? {
          guard let sym = NSImage(systemSymbolName: chevronCompact ? "chevron.compact.right" : "chevron.right", accessibilityDescription: nil)?
@@ -39,7 +54,7 @@
                  .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(white: chevronWhite, alpha: 1)]))) else { return nil }
          if chevronPad == 0 { return sym }
          let size = NSSize(width: sym.size.width + chevronPad, height: sym.size.height)
-@@ -121,7 +122,7 @@
+@@ -122,7 +127,7 @@
      static let avatarTop = flag("--avatar-top", 8)
      static let pillLift: CGFloat = {
          let a = ProcessInfo.processInfo.arguments

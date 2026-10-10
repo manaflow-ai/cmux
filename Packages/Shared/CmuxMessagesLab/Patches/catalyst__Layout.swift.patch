@@ -169,7 +169,16 @@
          let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown)
          let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown)
          lock.lock()
-@@ -538,20 +567,20 @@
+@@ -538,7 +567,7 @@
+         // Plain text that no width wrapped and that fits the new column: the same lines at the new
+         // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
+         // short bubbles' widths only in this way.
+-        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: m.parts[pi]) {
++        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part) { // cmux: the checked part
+             reuses += 1
+             store[k] = v
+             lock.unlock()
+@@ -547,20 +576,20 @@
          if estimate, let old = latest[pk] {
              estimates += 1
              lock.unlock()
@@ -195,7 +204,7 @@
          lock.unlock()
          return v
      }
-@@ -570,7 +599,7 @@
+@@ -595,7 +624,7 @@
          }
          let col = Metrics(width: width).maxTextWidth
          let total = tl.lines.reduce(0) { $0 + $1.width }
@@ -204,7 +213,18 @@
          let w = min(col, max(tl.width, total / CGFloat(lines))) + 2 * Fixture.bubblePadX
          return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                       text: nil, width: width, estimated: true)
-@@ -608,11 +637,11 @@
+@@ -611,7 +640,9 @@
+         guard n > 1 else { return prefetch(messages, width: width) }
+         DispatchQueue.concurrentPerform(iterations: n) { k in
+             for i in stride(from: k, to: messages.count, by: n) {
+-                for pi in messages[i].parts.indices { _ = size(messages[i], pi, width: width) }
++                // cmux: checked read (crash ratchet)
++                guard let m = messages[checked: i] else { continue }
++                for pi in m.parts.indices { _ = size(m, pi, width: width) }
+             }
+         }
+     }
+@@ -643,11 +674,11 @@
          var rows: [RowSpec] = []
          let receipts = receiptTargets(messages, me: me)
          // Thread counts (roots with 2+ replies get a label).
@@ -219,7 +239,7 @@
              }
              for m in s.conversation.messages {
                  if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
-@@ -620,18 +649,14 @@
+@@ -655,18 +686,14 @@
          }
          // The message above the range: the nearest one that is not deleted.
          var prevIndex = span.lowerBound - 1
@@ -242,7 +262,7 @@
                  rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
                                      gap: prev == nil ? 12 : 0, height: 35.5))
                  gap = 0
-@@ -676,8 +701,9 @@
+@@ -711,8 +738,9 @@
              if m.retractedAt != nil {
                  rows.append(RowSpec(key: "unsent:\(m.id)", kind: .unsent(outgoing: outgoing), gap: max(gap, 8), height: 16))
              } else {
@@ -254,7 +274,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                      let (size, tl) = (measured.size, measured.text)
-@@ -686,10 +712,10 @@
+@@ -721,10 +749,10 @@
                      // Link card then text: 3.5 pt (measured in the recording);
                      // every other pair in a group is 3 pt (macOS 26 references).
                      if g == 3, isText(part) {
@@ -267,7 +287,7 @@
                      // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
                      // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
                      // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
-@@ -709,7 +735,8 @@
+@@ -744,7 +772,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -277,7 +297,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -722,18 +749,22 @@
+@@ -757,10 +786,14 @@
              }
              prev = m
          }
@@ -293,6 +313,45 @@
          return rows
      }
  
+@@ -772,22 +805,27 @@
+     /// reply counts, thread previews, day labels) over the loaded window. Nil when a part row
+     /// does not name a loaded message (the caller then derives).
+     static func rewidth(_ derived: [RowSpec], messages: [Message], width: CGFloat, exact: Range<Int>?) -> [RowSpec]? {
+-        var out = derived
++        var out: [RowSpec] = []
++        out.reserveCapacity(derived.count)
+         var idx = 0
+-        for i in out.indices {
+-            out[i].width = width
+-            guard case var .part(p) = out[i].kind else { continue }
++        // cmux: element-wise, no index math (crash ratchet): the same rows in the same order.
++        for row in derived {
++            var row = row
++            row.width = width
++            guard case var .part(p) = row.kind else { out.append(row); continue }
+             // Rows follow message order: the part's message is at or after the previous one.
+-            while idx < messages.count, messages[idx].id != p.ref.messageId { idx += 1 }
+-            guard idx < messages.count, p.ref.partIndex < messages[idx].parts.count else { return nil }
+-            let measured = MeasureCache.shared.size(messages[idx], p.ref.partIndex, width: width,
++            // (dropFirst(idx).first: past the end is the normal miss, not a fault.)
++            while let m = messages.dropFirst(idx).first, m.id != p.ref.messageId { idx += 1 }
++            guard let m = messages.dropFirst(idx).first, p.ref.partIndex < m.parts.count else { return nil }
++            let measured = MeasureCache.shared.size(m, p.ref.partIndex, width: width,
+                                                     estimate: exact.map { !$0.contains(idx) } ?? false)
+             p.size = measured.size
+             p.text = measured.text
+             p.markdown = measured.markdown
+-            out[i].kind = .part(p)
+-            out[i].height = measured.size.height
+-            out[i].estimated = measured.estimated
++            row.kind = .part(p)
++            row.height = measured.size.height
++            row.estimated = measured.estimated
++            out.append(row)
+         }
+         return out
+     }
+@@ -795,8 +833,8 @@
      /// The message id of a row key ("kind:messageID[:part]"), without allocating.
      static func owner(_ key: String) -> Substring? {
          guard let a = key.firstIndex(of: ":") else { return nil }
@@ -303,7 +362,7 @@
      }
  
      /// Whether a row key belongs to a message (keys are "kind:messageID[:part]").
-@@ -751,9 +782,7 @@
+@@ -814,9 +852,7 @@
          var lastDelivered: (Int, Message)?
          // From the newest message back to my newest read one (a delivered one older than it
          // shows nothing): O(tail), not O(loaded window), per derive.
@@ -314,7 +373,7 @@
              if m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
                  switch m.status {
                  case let .read(at): lastRead = (i, m, at); break scan
-@@ -761,11 +790,10 @@
+@@ -824,11 +860,10 @@
                  default: break
                  }
              }
@@ -328,7 +387,7 @@
          return out
      }
  }
-@@ -773,7 +801,7 @@
+@@ -836,7 +871,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -337,7 +396,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -792,7 +820,7 @@
+@@ -855,7 +890,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -346,7 +405,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -807,8 +835,8 @@
+@@ -891,8 +926,8 @@
          if days < 7 { return weekday.string(from: d) }
          return days < 300 ? monthDay.string(from: d) : monthDayYear.string(from: d)
      }
@@ -357,7 +416,7 @@
  }
  
  /// Where every user-facing string of the MessagesLab code comes from (catalyst/Sources and
-@@ -821,7 +849,8 @@
+@@ -905,7 +940,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -367,7 +426,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -854,7 +883,8 @@
+@@ -938,7 +974,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

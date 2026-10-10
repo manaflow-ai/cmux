@@ -258,7 +258,11 @@ final class ScreenContentView: NSView {
     func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
         let multiple = paneFrames.count > 1
         let style = context.style
-        let ringAllowed = (multiple || style.focusRing.showsForSinglePane) && style.focusIndicator.marksBorder
+        let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
+            && style.focusIndicator.marksBorder
+            // Pointer and scroll focus should not leave a keyboard-only focus ring behind.
+            && context.model.lastFocusSource != .pointer
+            && context.model.lastFocusSource != .scroll
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused

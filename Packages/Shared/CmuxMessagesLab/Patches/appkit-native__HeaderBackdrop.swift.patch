@@ -28,7 +28,7 @@
  
      override init(frame: NSRect) {
          super.init(frame: frame)
-@@ -87,7 +93,7 @@
+@@ -97,7 +103,7 @@
      override func layout() {
          super.layout()
          CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -37,7 +37,7 @@
          fadeMask.frame = bounds
          let h = max(1, bounds.height)
          let solid = (params.height) / h
-@@ -95,6 +101,18 @@
+@@ -105,6 +111,18 @@
          CATransaction.commit()
      }
  

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7c70cdc4689123c255489da924f9c108ab579642fa47825c178b9a5a2133e5e7.
+// cmux-tui mux protocol 12, IR bfd8e31d1ae5b67f877d16d6152b6d873196bab92da901cd0d1c38ba2fed90c4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2421,6 +2421,12 @@ pub enum ViewAttachmentOutcome {
     Passive,
     #[serde(rename = "superseded")]
     Superseded,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewportPaneWidthResult {
+    pub width: f32,
 }
 
 #[rustfmt::skip]

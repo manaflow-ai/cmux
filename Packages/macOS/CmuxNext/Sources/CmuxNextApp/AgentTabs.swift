@@ -335,6 +335,8 @@ final class AgentTabStore {
             return await handler.listProjects(query)
         }
         model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
+        model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
         model.onImportAndSync = { [weak self] in
             guard let self else { return }
             if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }

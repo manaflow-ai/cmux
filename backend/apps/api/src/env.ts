@@ -11,6 +11,7 @@ import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
 import type { SpendGuardDO } from "./inference/spend-guard-do.ts"
+import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
@@ -210,6 +211,23 @@ export interface Env {
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
   /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */
   readonly SPEND_GUARD_DO: DurableObjectNamespace<SpendGuardDO>
+  /** Free tier (src/inference/free.ts): one FreeDeviceDO per App Attest key. */
+  readonly FREE_DEVICE_DO: DurableObjectNamespace<FreeDeviceDO>
+  /** Per-IP limits of the free tier: every free route, and new device grants. */
+  readonly INFERENCE_FREE_IP_LIMIT?: RateLimit
+  readonly INFERENCE_FREE_GRANT_LIMIT?: RateLimit
+  /** Comma list of "<Team ID>.<bundle id>" App Attest app ids the free tier accepts; unset = free tier refuses. */
+  readonly INFERENCE_FREE_APP_IDS?: string
+  /** "true" accepts development App Attest keys (dev builds); never in production. */
+  readonly INFERENCE_FREE_ATTEST_DEVELOPMENT?: string
+  /** Free tier quota per device per UTC day (tokens, default 300000) and requests per minute (default 20). */
+  readonly INFERENCE_FREE_DAILY_TOKENS?: string
+  readonly INFERENCE_FREE_PER_MINUTE?: string
+  /** Apple DeviceCheck: secrets KEY_P8 (PKCS#8 PEM) + KEY_ID, var APPLE_TEAM_ID; "true" = the development endpoint. */
+  readonly INFERENCE_DEVICECHECK_KEY_P8?: string
+  readonly INFERENCE_DEVICECHECK_KEY_ID?: string
+  readonly INFERENCE_DEVICECHECK_DEVELOPMENT?: string
+  readonly APPLE_TEAM_ID?: string
   /** Workers AI binding for the model router; absent = the workers-ai provider is not configured. */
   readonly AI?: Ai
   /** Router switch, fail-closed: only "1" serves /v1/inference/chat/completions. */
@@ -232,6 +250,9 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
+  /** Open requests per team (default 4) and per free device (default 1). */
+  readonly INFERENCE_MAX_CONCURRENT?: string
+  readonly INFERENCE_FREE_MAX_CONCURRENT?: string
   /** Largest max_tokens of a free-tier request (default 4096). */
   readonly INFERENCE_FREE_MAX_TOKENS?: string
   /** Secrets: provider keys. A provider without its key is skipped. */

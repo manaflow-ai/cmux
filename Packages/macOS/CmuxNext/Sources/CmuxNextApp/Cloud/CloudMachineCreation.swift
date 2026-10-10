@@ -187,6 +187,10 @@ struct CloudCreationFlow {
                 creations.remove(creation)
             } catch is CancellationError {
                 return
+            } catch CloudMachineCreateFlow.Failure.declined {
+                // The person said no in the confirmation: the creation closes
+                // quietly (its window shows what it showed before).
+                creations.remove(creation)
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)

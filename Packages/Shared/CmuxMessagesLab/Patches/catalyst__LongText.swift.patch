@@ -415,8 +415,8 @@
              if let md = bl.md {
                  let top = CGFloat(first) * lh
                  let local = NSRange(location: range.location - base, length: range.length)
-@@ -695,19 +705,18 @@
-                 if b + 1 >= blockCount { break }
+@@ -699,19 +709,18 @@
+                 line = max(first + max(1, bl.lineCount), firstLine(ofBlock: b + 1))
                  continue
              }
 -            for j in max(0, line - first)..<bl.lines.count {
@@ -438,7 +438,7 @@
                      out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                  }
              }
-@@ -724,9 +733,8 @@
+@@ -728,9 +737,8 @@
          guard index.ready, blockCount > 0, range.length > 0 else { return "" }
          var out = ""
          var b = index.block(sel: range.location)
@@ -449,7 +449,7 @@
              let lo = max(0, range.location - base), hi = min(s.length, NSMaxRange(range) - base)
              if lo < hi { out += s.substring(with: NSRange(location: lo, length: hi - lo)) }
              b += 1
-@@ -756,7 +764,7 @@
+@@ -760,7 +768,7 @@
  
      static func schedule(_ l: LongTextLayout) {
          lock.lock()
@@ -458,7 +458,7 @@
          let go = !scheduled
          scheduled = true
          lock.unlock()
-@@ -822,13 +830,14 @@
+@@ -826,13 +834,14 @@
      /// markdown (`markdown`, Message.format; plain by default) and not shown as source
      /// (MarkdownStore.showsSource); otherwise a markdown index is laid out as plain text.
      func layout(_ text: String, width: CGFloat, message: ID? = nil, markdown: Bool = false) -> LongTextLayout {
@@ -475,7 +475,7 @@
          if let l = layouts[id]?[wk] { lock.unlock(); return l }
          let carry = layouts[id]?.values.first { $0.markdown == md }
          lock.unlock()
-@@ -836,7 +845,7 @@
+@@ -840,7 +849,7 @@
          lock.lock()
          var per = layouts[id] ?? [:]
          if per.count >= 3 { per.values.forEach { $0.retired = true }; per.removeAll() }
@@ -484,7 +484,7 @@
          layouts[id] = per
          lock.unlock()
          return l
-@@ -848,13 +857,13 @@
+@@ -852,13 +861,13 @@
      private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
          var h = Hasher(), t = Hasher()
          let n = p.count, k = min(n, 1024)
@@ -501,7 +501,7 @@
          return h.finalize()
      }
  
-@@ -874,10 +883,13 @@
+@@ -878,10 +887,13 @@
              // Streaming: the same text with more at the end keeps every block but the last
              // (a plain stream that turns into markdown is indexed again from its start).
              if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0,
@@ -518,7 +518,7 @@
                  if same {
                      let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
                      LongTextStats.streamExtends += 1
-@@ -891,11 +903,11 @@
+@@ -895,11 +907,11 @@
                          let tailOffMain = LongText.offMainTail
                          let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
                          lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
@@ -533,7 +533,7 @@
                      }
                      return i
                  }
-@@ -932,7 +944,7 @@
+@@ -936,7 +948,7 @@
              let oid = ObjectIdentifier(old)
              layouts[oid]?.values.forEach { $0.retired = true }
              layouts[oid] = nil
@@ -542,7 +542,7 @@
              byAddr = byAddr.filter { $0.value !== old }
              byPrint = byPrint.filter { $0.value !== old }
          }
-@@ -940,7 +952,7 @@
+@@ -944,7 +956,7 @@
          byPrint[print] = i
          byHead[head] = i
          tick += 1
@@ -551,7 +551,7 @@
          // Bounded: the least recently used indexes go (their texts with them).
          let live = Set(byAddr.values.map { ObjectIdentifier($0) })
          if live.count > LongTextStore.maxIndexes {
-@@ -948,7 +960,7 @@
+@@ -952,7 +964,7 @@
              byAddr = byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
              byPrint = byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
              byHead = byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
@@ -560,7 +560,7 @@
          }
      }
  
-@@ -962,7 +974,7 @@
+@@ -966,7 +978,7 @@
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
      /// 3 screens (the 1041 pt window).

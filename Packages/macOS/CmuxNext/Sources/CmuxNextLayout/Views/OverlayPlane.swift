@@ -44,8 +44,10 @@ public final class OverlayPlane: NSView {
     /// Matches the plane's frame to the home. In the home that is its
     /// bounds; in a window overlay whose content view has the parent
     /// window's geometry, it is the home's rect in window coordinates.
-    public func syncFrame() {
-        guard let home, let superview else { return }
+    /// Returns whether the frame or visibility changed.
+    @discardableResult
+    public func syncFrame() -> Bool {
+        guard let home, let superview else { return false }
         let target: CGRect
         let hidden: Bool
         if superview === home {
@@ -58,8 +60,10 @@ public final class OverlayPlane: NSView {
             target = .zero
             hidden = true
         }
+        let changed = frame != target || isHidden != hidden
         if frame != target { frame = target }
         if isHidden != hidden { isHidden = hidden }
+        return changed
     }
 
     /// Whether the plane's frame matches its home (for `debug.layers`).

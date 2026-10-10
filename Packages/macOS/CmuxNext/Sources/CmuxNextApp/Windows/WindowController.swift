@@ -375,6 +375,20 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
+    /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
+    /// Work that crosses windows (the overlay panel's planes, Chromium page
+    /// windows, divider catcher panels) runs after the pass, never inside a
+    /// view's `layout()`: changing another window or the child window order
+    /// from inside layout re-marks this window and can loop until AppKit
+    /// throws (2026-10-09 nightly crash). The overlay planes also re-read
+    /// their home's place here, so a pane ring follows a pane that moved
+    /// because an ancestor moved (sidebar width), not only its own layout.
+    override func layoutIfNeeded() {
+        overlayLayer.windowWillLayout()
+        super.layoutIfNeeded()
+        overlayLayer.windowDidLayout()
+    }
+
     // MARK: OverlayPlaneHosting
 
     func adoptPlane(_ plane: OverlayPlane) { overlayLayer.adopt(plane) }

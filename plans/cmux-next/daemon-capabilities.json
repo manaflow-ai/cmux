@@ -3,6 +3,7 @@
   "optional" : [
     "agent-session-attach-v1",
     "agent-session-tabs-v1",
+    "app-screens-v1",
     "attach-identity-v1",
     "batch-close-v1",
     "bookmarks-v1",
@@ -19,6 +20,7 @@
     "dock-columns-v1",
     "edge-docks-v1",
     "end-terminals-keep-layout-v1",
+    "feed-local-owner-v1",
     "frontend-browser-activate-v1",
     "frontend-browser-history-v1",
     "frontend-browser-insert-after-v1",

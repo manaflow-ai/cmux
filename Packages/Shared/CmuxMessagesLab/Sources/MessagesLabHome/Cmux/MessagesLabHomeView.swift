@@ -248,7 +248,8 @@ public final class MessagesLabHomeView: NSView {
     public func debugMenuTitles(mine: Bool) -> [String]? {
         guard let hit = controller.demo?.lastTextRow(mine: mine),
               let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
-        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : $0.title }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : ($0 as? MenuAction)?.label ?? $0.title }
     }
 
     /// Automation (DEBUG socket): the field's height and, for the newest

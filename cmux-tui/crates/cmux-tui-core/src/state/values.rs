@@ -71,8 +71,12 @@ fn workspace_extra(
         fields.insert("ephemeral".into(), json!(true));
     }
     // `workspace-kind-v1`: absent for a normal workspace.
-    if let Some(kind) = super::home_store::workspace_kind(connection, workspace_id)? {
+    if let Some((kind, app)) = super::home_store::workspace_kind(connection, workspace_id)? {
         fields.insert("kind".into(), json!(kind));
+        // `app-screens-v1`: the app of an app workspace.
+        if let Some(app) = app {
+            fields.insert("app".into(), json!(app));
+        }
     }
     // AGENT-CWD-FOR-FOLDERLESS-WORKSPACE: absent until the user chose one.
     if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {

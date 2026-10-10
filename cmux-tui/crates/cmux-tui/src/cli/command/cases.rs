@@ -2,6 +2,12 @@
 //! operation it sends: the CLI's coverage test and `cmux mcp`'s parity test
 //! both read it.
 
+/// Operations whose CLI command sends several requests (`cmux agent message`
+/// and `cmux agent inbox`, cli/agent_message.rs), so no single case sends
+/// them.
+pub(in crate::cli) const MULTI_REQUEST_OPERATIONS: &[&str] =
+    &["agent.message.list", "agent.message.mark", "agent.message.send"];
+
 pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static str)> {
     const MACHINE: &str = "machine_00000000000000000000000000000001";
     const SESSION: &str = "session_00000000000000000000000000000002";

@@ -85,8 +85,11 @@ import AppKit
     func setFocus(_ group: GroupID?, ring: Bool = true) {
         let old = list.focusedGroup
         list.focusedGroup = group
+        // Kept on the list, not only on the view: a header view made later
+        // (reuse, scrolling, a reload that dropped it) draws the ring too.
+        list.showsFocusRing = ring && group != nil
         for key in [old, group].compactMap({ $0 }) {
-            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = ring && key == group
+            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = list.showsFocusRing && key == group
         }
     }
 

@@ -144,11 +144,6 @@ impl LinkRegistry {
         self.channels.take_received(channel, max)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn send(&self, channel: &str, bytes: Vec<u8>) -> Result<Frame, BackendError> {
-        self.channels.send(channel, bytes)
-    }
-
     /// The host closes a link. The app gets `cmux.terminal.connector.close`
     /// and answers with its `end`, which then finds no link and is dropped.
     pub(crate) fn close(&self, channel: &str) -> Result<LinkEvent, BackendError> {

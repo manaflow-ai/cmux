@@ -144,6 +144,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Route(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::route::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Harness(cmd)) => {
             let json_out = cli.json;
             match crate::cli::harness::run(cmd, json_out).await {

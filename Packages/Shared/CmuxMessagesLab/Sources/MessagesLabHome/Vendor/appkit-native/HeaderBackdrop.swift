@@ -90,6 +90,16 @@ final class HeaderBackdropView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// Light appearance: the same blend toward a light grey (out = base + gain * blur, base =
+    /// a * c): c from Apple's light window background (white) so base = a * 1. UNVERIFIED against a
+    /// light capture of Messages; the dark c is the fitted macOS 27 value.
+    func setLight(_ light: Bool) {
+        let c = light ? 1 : params.c
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        tint.backgroundColor = NSColor(white: c, alpha: 1).cgColor
+        CATransaction.commit()
+    }
+
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)

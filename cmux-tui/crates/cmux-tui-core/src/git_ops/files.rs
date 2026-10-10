@@ -299,15 +299,6 @@ impl Scorer {
     }
 }
 
-/// One path's score with a fresh scorer; for tests.
-#[cfg(test)]
-pub(super) fn score(path: &str, query: &[char]) -> Option<(i32, Vec<usize>)> {
-    match Scorer::new(query, usize::MAX).score(path) {
-        Scored::Match(score, matches) => Some((score, matches)),
-        Scored::NoMatch | Scored::OutOfBudget => None,
-    }
-}
-
 fn fold(character: char) -> char {
     character.to_lowercase().next().unwrap_or(character)
 }

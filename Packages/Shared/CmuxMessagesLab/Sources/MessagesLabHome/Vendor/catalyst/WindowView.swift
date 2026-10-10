@@ -214,11 +214,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         refreshVisibleCells()
     }
 
-    /// Light system appearance: link cards switch palette (cached bitmaps dropped).
+    /// Light system appearance: the one appearance source of the drawn transcript, header,
+    /// compose, link cards, custom rows and markdown (cached bitmaps dropped, chrome redrawn).
     func setLightAppearance(_ light: Bool) {
         guard Fixture.lightAppearance != light else { return }
         Fixture.lightAppearance = light
+        backgroundColor = Fixture.background
         RowBitmaps.shared.removeAll()
+        chrome.setNeedsDisplay()
+        chrome.subviews.forEach { $0.setNeedsDisplay() }
         refreshVisibleCells()
     }
 
@@ -246,6 +250,19 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop)
     }
 
+    /// Runs work at the start of the next display frame (appkit-native FrameTick: a display link
+    /// in the common modes, so it also fires in a divider drag's or live resize's tracking loop).
+    /// Set: a live width change runs the transcript's width pass at most once per display frame.
+    /// nil (Catalyst, iOS, captures): every width change runs it at once, as before.
+    var widthFrameScheduler: ((@escaping () -> Void) -> Void)?
+    /// A width pass ran in this display frame (cleared by the next frame's tick).
+    private var widthPassInFrame = false
+    /// A width change came after this frame's width pass: its width is in `bounds`, its pass
+    /// waits for the next frame's tick.
+    private var widthPassPending = false
+    /// Width passes run, and width changes that only recorded their width (bench evidence).
+    static var widthPasses = 0, widthPassesDeferred = 0
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard bounds.size != laidOutSize else { return }
@@ -259,20 +276,31 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let anchor = visibleAnchor()
         layoutFrames()
         compose.layoutIfNeeded()
-        // cmux: per view (several Home tabs): rows follow this view's width,
+        // cmux: per view (several Home tabs): rows follow this view's width (`rowsWidth`),
         // not the process-wide `Metrics.current`.
         if widthChanged || rowsWidth != bounds.width {
-            rowsWidth = bounds.width
-            Metrics.current = Metrics(width: bounds.width)
-            let st = store.state
-            let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: clock()), width: bounds.width)
-            model.set(rows, at: clock(), ghosts: false)
-            collection.reloadData()
+            // One width pass per display frame: in a divider drag or live resize AppKit lays the
+            // window out for each mouse event, and while a pass is longer than a frame 2-4 width
+            // changes ran back to back before one frame showed (only the last one's rows were
+            // seen). The first width change of a frame runs the pass now; a later one in the
+            // same frame only records its width, and the next frame's tick runs one pass at the
+            // last width (`widthTick`).
+            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame {
+                MessagesWindowView.widthPassesDeferred += 1
+                widthPassPending = true
+            } else {
+                widthPass(changed: widthChanged)
+                if widthChanged, !captureMode, let schedule = widthFrameScheduler, !widthPassInFrame {
+                    widthPassInFrame = true
+                    schedule { [weak self] in self?.widthTick() }
+                }
+            }
         }
         layout.bottomPad = bounds.height - anchorY
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor)
+        RowCell.flushReflow()
         // The fills follow the new height (cells made later get it in decorate).
         let span = fillSpan
         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
@@ -280,6 +308,118 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     /// cmux: the width this view's rows were derived for.
     private var rowsWidth: CGFloat = 0
+    /// The display frame after a width pass: a width change that waited runs its pass now, at
+    /// the current width (the last one recorded), and this frame counts as having had its pass.
+    private func widthTick() {
+        widthPassInFrame = false
+        guard widthPassPending else { return }
+        widthPassPending = false
+        guard rowsWidth != bounds.width, let schedule = widthFrameScheduler else { return }
+        let anchor = visibleAnchor()
+        widthPass(changed: true)
+        widthPassInFrame = true
+        schedule { [weak self] in self?.widthTick() }
+        layout.bottomPad = bounds.height - anchorY
+        _ = layout.rebaseIfNeeded(force: true)
+        layout.invalidateLayout()
+        restore(anchor)
+        RowCell.flushReflow()
+        onWidthPass()
+    }
+    /// After a width pass that ran at a display frame's tick (outside the host's layout): the
+    /// host's native views follow the new rows (appkit-native: scroller and document height).
+    var onWidthPass: () -> Void = {}
+
+    /// The transcript's rows at the current width.
+    private func widthPass(changed widthChanged: Bool) {
+        MessagesWindowView.widthPasses += 1
+        rowsWidth = bounds.width // cmux
+        Metrics.current = Metrics(width: bounds.width)
+        let st = store.state
+        // A width change (live resize, the sidebar divider: one per frame) measures with Core
+        // Text only the messages within two screens of the viewport; the others scale their
+        // last measurement (MeasureCache estimates). Measuring every loaded message took most
+        // of each frame (dogfood 2026-10-08: about 250 lost frames in a 4 s divider drag). The
+        // exact rows for the whole window follow off main (`measureWindow`).
+        let near = widthChanged ? messagesNearViewport(margin: 2 * cvHeight) : nil
+        if widthChanged { RowCell.beginReflow() }
+        // The near messages are measured on all cores first (MeasureCache is thread safe, as
+        // measureWindow's off-main pass relies on): the row derivation below then finds them
+        // in the cache. On main they were the largest part of each divider-drag step.
+        if let near { MeasureCache.shared.prefetchParallel(Array(st.conversation.messages.slice(near.lowerBound, near.upperBound)), width: bounds.width) } // cmux: clamped
+        let now = store.date(at: clock())
+        let rows = widthRows(st, now: now, near: near)
+        model.set(rows, at: clock(), ghosts: false)
+        collection.reloadData()
+        if near != nil, rows.contains(where: \.estimated) { measureWindow(width: bounds.width) }
+    }
+
+    /// The last rows derived for a width change and what they were derived from. The messages
+    /// array is kept (a copy): while this copy shares its buffer, the store's array cannot have
+    /// changed in place, so the same buffer means the same messages.
+    private var widthDerived: (messages: [Message], me: ID, atNewest: Bool, typing: [ID], day: DateInterval?,
+                               strings: ObjectIdentifier, rows: [RowSpec])?
+
+    /// The rows at the new width: re-measured from the last width change's rows when the state,
+    /// the day and the strings are the same (RowBuilder.rewidth: the derivation over every loaded
+    /// message was about a third of each divider-drag step), else derived.
+    private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
+        let msgs = st.conversation.messages
+        let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
+        if let d = widthDerived, d.messages.count == msgs.count, d.me == st.me, d.atNewest == st.atNewest,
+           d.typing == st.ui.typing, d.day == day, d.strings == strings,
+           d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress }),
+           let rows = RowBuilder.rewidth(d.rows, messages: msgs, width: bounds.width, exact: near) {
+            return rows
+        }
+        let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near)
+        widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, day, strings, rows)
+        return rows
+    }
+
+    /// Message indices of the rows within `margin` of the viewport (content y), nil without rows.
+    private func messagesNearViewport(margin: CGFloat) -> Range<Int>? {
+        guard model.count > 0 else { return nil }
+        let y = collection.contentOffset.y - layout.rowsTop
+        var ids = Set<ID>()
+        for i in model.range(y - margin, y + cvHeight + margin) {
+            if case let .part(p)? = model.rows[checked: i]?.spec.kind { ids.insert(p.ref.messageId) } // cmux: checked
+        }
+        let msgs = store.state.conversation.messages
+        guard let lo = msgs.firstIndex(where: { ids.contains($0.id) }), let hi = msgs.lastIndex(where: { ids.contains($0.id) }) else { return nil }
+        // One message more on each side (a row's neighbours set its gap and tail).
+        return max(0, lo - 1)..<min(msgs.count, hi + 2)
+    }
+
+    /// After a width change left estimates: every loaded message is measured at the new width off
+    /// main (MeasureCache.prefetch), then the rows are derived again on main from the current state,
+    /// all exact (cache hits, no Core Text). One measurement runs at a time; when it ends at a width
+    /// that is no longer the view's, it runs again for the current one.
+    private var measuringWidth: CGFloat?
+    private func measureWindow(width: CGFloat) {
+        guard measuringWidth == nil else { return }
+        measuringWidth = width
+        let msgs = store.state.conversation.messages
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            MeasureCache.shared.prefetch(msgs, width: width)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.measuringWidth = nil
+                guard self.bounds.width == width else { self.measureWindow(width: self.bounds.width); return }
+                let st = self.store.state
+                if st.conversation.messages.count != msgs.count { self.measureWindow(width: width) }
+                let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: self.store.date(at: self.clock()), width: width)
+                guard rows != self.model.rows.map(\.spec) else { return }
+                let anchor = self.visibleAnchor()
+                self.model.set(rows, at: self.clock(), ghosts: false)
+                self.collection.reloadData()
+                _ = self.layout.rebaseIfNeeded(force: true)
+                self.layout.invalidateLayout()
+                self.restore(anchor)
+            }
+        }
+    }
+
     private func initialRows() {
         let st = store.state
         rowsWidth = bounds.width
@@ -907,6 +1047,79 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// closed form (flight recorder: no presentation() of a layer that carries one spring per send).
     func containerTranslation(at now: CFTimeInterval) -> Double {
         containerMotions.reduce(0) { $0 + (now < $1.3 ? $1.1.value(now - $1.2, from: $1.0, to: 0) : 0) }
+            + pageTranslation(at: now)
+    }
+
+    // MARK: Page motion (a host scroll shown as one motion)
+
+    /// Live page motions: (displacement, timing, begin, end, animation keys). The host (appkit-native's
+    /// track click) has already moved the offset; the transcript layer's sublayer transform shows the
+    /// rows sliding from where they were (render server). Unlike a container motion, rows that get
+    /// cells while it runs move with it (they are part of the scrolled content).
+    private var pageMotions: [(Double, SpringElement, CFTimeInterval, CFTimeInterval, [(CALayer, String)])] = []
+    /// Layers outside the transcript layer that show its rows' overlays (appkit-native: the text
+    /// selection's layer host and the hosted rows' content view). Each gets the same additive
+    /// sublayer translation as the transcript layer for each page motion, and loses it with it,
+    /// so a highlight or a hosted view slides with its row (y down in each, as the transcript).
+    var pageFollowers: [CALayer] = []
+    /// The animation keys of the live page motions on the transcript layer (the hosted rows do not
+    /// copy them per view: their content view follows as a whole).
+    var pageMotionKeys: Set<String> { Set(pageMotions.flatMap { $0.4.filter { $0.0 === collection.layer }.map(\.1) }) }
+    /// What the live page motions have still to move, up (rows shown lower than their place) and
+    /// down: the band over which rows show during the slide (selection highlight, overscan).
+    func pageReach(at now: CFTimeInterval) -> (up: CGFloat, down: CGFloat) {
+        let rest = pageMotions.map { now < $0.3 ? CGFloat($0.1.value(now - $0.2, from: $0.0, to: 0)) : 0 }
+        return (rest.reduce(0) { $0 + max(0, $1) }, rest.reduce(0) { $0 - min(0, $1) })
+    }
+    /// Starts a page motion: the rows show `delta` points lower (window space) at `begin` (layer time of
+    /// this view, `Animate.now`) and slide to their place with `element`'s timing. Rows on screen during
+    /// it keep their cells until it ends (recycler overscan). Call before the offset moves, in the same
+    /// transaction, so the jump's layout pass already keeps the rows the motion starts from.
+    func addPageMotion(_ delta: CGFloat, _ element: SpringElement, begin: CFTimeInterval) {
+        guard abs(delta) > 0.01 else { return }
+        let now = Animate.now(layer)
+        pageMotions.removeAll { $0.3 < now }
+        var keys: [(CALayer, String)] = []
+        for l in [collection.layer] + pageFollowers {
+            keys += Animate.scalar(l, "sublayerTransform.translation.y", from: Double(delta), to: 0, element, begin: begin).map { (l, $0) }
+        }
+        let end = begin + element.settleTime
+        pageMotions.append((Double(delta), element, begin, end, keys))
+        if let r = collection as? RowRecycler {
+            // What each motion has still to move (it only shrinks): the rows from there to the view.
+            let reach = pageReach(at: now)
+            r.overscanTop = max(r.overscanTop, reach.up)
+            r.overscanBottom = max(r.overscanBottom, reach.down)
+            // A page jump is not a fast scroll: no velocity lead (cells for a screen past the
+            // landing view) from the prefetcher until the motion ends.
+            r.pageJumpUntil = max(r.pageJumpUntil, r.clock() + (end - now))
+        }
+        overscanUntil = max(overscanUntil, end)
+        // `settle` drops the overscan after the end.
+        requestWake(clock() + (end - now) + 1.0 / 60)
+    }
+    /// The recycler's pool gets cells for `screens` viewports of rows, a batch per run-loop pass (a
+    /// track click is likely: its page motion keeps two to three viewports of rows on screen, and
+    /// three chained clicks up to four, with the rows the earlier motions still cover).
+    func reservePageCells(screens: CGFloat) {
+        guard let r = collection as? RowRecycler else { return }
+        reserveCells(r, min(240, max(24, CrashGuard.int((CGFloat(collection.visibleCells.count) * screens).rounded(.up), in: 0...240)))) // cmux: no trap
+    }
+    /// The presented page translation (y, window space) at layer time `now`.
+    func pageTranslation(at now: CFTimeInterval) -> Double {
+        pageMotions.reduce(0) { $0 + (now < $1.3 ? $1.1.value(now - $1.2, from: $1.0, to: 0) : 0) }
+    }
+    var hasPageMotion: Bool { pageMotions.contains { $0.3 > Animate.now(layer) } }
+    /// Stops every page motion where it is now and returns its presented translation, which the host
+    /// adds to the offset in the same transaction (the rows stay where they show: no jump).
+    @discardableResult
+    func cancelPageMotions(at time: CFTimeInterval? = nil) -> CGFloat {
+        guard !pageMotions.isEmpty else { return 0 }
+        let rest = CGFloat(pageTranslation(at: time ?? Animate.now(layer)))
+        for m in pageMotions { m.4.forEach { $0.0.removeAnimation(forKey: $0.1) } }
+        (collection as? RowRecycler)?.pageJumpUntil = 0
+        pageMotions = []
+        return rest
     }
     /// `--no-container-motion`: one spring per row as before (A/B).
     static let containerMotion = !ProcessInfo.processInfo.arguments.contains("--no-container-motion")

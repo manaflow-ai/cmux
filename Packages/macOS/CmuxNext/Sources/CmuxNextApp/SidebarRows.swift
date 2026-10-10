@@ -25,9 +25,9 @@ final class SidebarRows {
         self.model = model
     }
 
-    /// The layout the sidebar draws: the store's with the Chats setting.
+    /// The layout the sidebar draws: the store's without a stored All chats section (cx-n0i9).
     static func visibleLayout(_ document: SidebarLayoutDocument) -> SidebarLayoutDocument {
-        document.chatsLayout(enabled: DesignSettings.shared.sidebarSections.showChats)
+        document.withoutChats
     }
 
     /// Shows `live` (when given) with the pending edits applied.
@@ -46,7 +46,7 @@ final class SidebarRows {
     /// Folds or opens `group` at once and keeps that look until `body`
     /// replied and the home store holds it, or failed (then `resync`).
     func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, resync: @escaping @MainActor () -> Void,
-              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+              _ body: @escaping DaemonCommandBody) {
         foldSerial += 1
         let serial = foldSerial
         folds[group] = (collapsed, serial)
@@ -94,7 +94,7 @@ final class SidebarRows {
 
     /// Sends one personal-state command to `home` for `edit`.
     func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, resync: @escaping @MainActor () -> Void,
-              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+              _ body: @escaping DaemonCommandBody) {
         let (failed, applied) = outcome(edit, resync: resync)
         let transaction = ClientTransactionID.generate()
         // task-owner: one personal command; settles its edit

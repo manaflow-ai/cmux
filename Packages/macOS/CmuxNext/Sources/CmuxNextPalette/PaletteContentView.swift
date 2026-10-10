@@ -139,7 +139,7 @@ final class PaletteContentView: NSView {
             appliedScroll = scroll
             list.scrollToSelection()
         }
-        let showEmpty = sections.isEmpty && !model.isLoading
+        let showEmpty = sections.isEmpty && !model.isLoading && !model.awaitsRank
         listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
         emptyHint.isHidden = !showEmpty

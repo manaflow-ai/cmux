@@ -43,6 +43,9 @@ final class RowRecycler: UIScrollView, TranscriptList {
     /// Rows ahead in the scroll direction get cells (bitmaps attached and uploaded while off
     /// screen); ScrollPrefetcher sets them from the velocity.
     var leadTop: CGFloat = 0, leadBottom: CGFloat = 0
+    /// Until this time (`clock`) a page motion runs (WindowView.addPageMotion): the offset jumped a
+    /// page at once, which is not a scroll, so the prefetcher adds no lead and reads no velocity.
+    var pageJumpUntil: CFTimeInterval = 0
     /// The transcript's clock (seconds; the window view sets its engine clock).
     var clock: () -> CFTimeInterval = { CACurrentMediaTime() }
     let prefetcher = ScrollPrefetcher()

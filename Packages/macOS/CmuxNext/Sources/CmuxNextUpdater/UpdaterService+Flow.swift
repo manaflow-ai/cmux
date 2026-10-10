@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Network
 public import Foundation
@@ -78,7 +79,7 @@ extension UpdaterService {
     func observeFlowPhase() {
         guard phaseObservation == nil else { return }
         phaseObservation = Task { [weak self] in
-            for await _ in Observations({ [weak self] in self?.indicatorPhase }) {
+            for await _ in ObservationStream({ [weak self] in self?.indicatorPhase }) {
                 self?.syncFlowPhase()
             }
         }

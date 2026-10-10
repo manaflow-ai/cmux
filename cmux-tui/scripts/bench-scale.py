@@ -517,7 +517,7 @@ class Bench:
         """server-stats with the resource projection section, or None."""
         try:
             c = Conn(self.sock_path, timeout=30)
-            st = c.call("server-stats", include=["resource_projection"])
+            st = c.call("server-stats", include=["resource_projection", "write_path"])
             c.close()
             return st.get("data") if st.get("ok") else None
         except Exception:  # noqa: BLE001
@@ -565,6 +565,7 @@ class Bench:
         lock = threading.Lock()
         error = []
         created = []
+        self.create_latencies_ms = []
         idx_iter = iter(range(base, base + count))
 
         def worker():
@@ -580,12 +581,15 @@ class Bench:
                     break
                 busy = busy_every > 0 and i % busy_every == 0
                 argv = self.busy_argv() if busy else list(self.args.shell)
-                ws = self.workspaces[i % len(self.workspaces)]
+                ws = self.workspaces[min(max(0, i - len(self.workspaces)) // self.args.per_workspace, len(self.workspaces) - 1)] if self.args.fill == "sequential" else self.workspaces[i % len(self.workspaces)]
+                t_call = time.perf_counter()
                 try:
                     resp = c.call("create-terminal", workspace=ws, argv=argv, cols=80, rows=24)
                 except Exception as e:  # noqa: BLE001
                     error.append(f"terminal {i}: {e!r}")
                     break
+                with lock:
+                    self.create_latencies_ms.append((time.perf_counter() - t_call) * 1000.0)
                 if not resp.get("ok"):
                     error.append(f"terminal {i}: {resp.get('error')!r} {resp.get('error_code', '')}")
                     break
@@ -653,6 +657,43 @@ class Bench:
         q = lambda p: lat[min(len(lat) - 1, int(p * len(lat)))]  # noqa: E731
         return {"samples": len(lat), "errors": errors, "p50_ms": round(q(0.50), 3), "p90_ms": round(q(0.90), 3), "p99_ms": round(q(0.99), 3), "max_ms": round(lat[-1], 3)}
 
+    # -- topology latency under output load
+
+    def topology_latency(self, samples):
+        """Topology read (`list-workspaces`) and write (`rename-workspace`)
+        latency while the busy terminals keep writing output."""
+        if not self.workspaces:
+            return None
+        c = Conn(self.sock_path, timeout=30)
+        reads, writes, errors = [], [], 0
+        for k in range(samples):
+            t0 = time.perf_counter()
+            r = c.call("list-workspaces")
+            if r.get("ok"):
+                reads.append((time.perf_counter() - t0) * 1000)
+            else:
+                errors += 1
+            ws = self.workspaces[k % len(self.workspaces)]
+            t0 = time.perf_counter()
+            r = c.call("rename-workspace", workspace=ws, name=f"w{k % len(self.workspaces)}-{k}")
+            if r.get("ok"):
+                writes.append((time.perf_counter() - t0) * 1000)
+            else:
+                errors += 1
+                if errors <= 3:
+                    log("topology sample error", r.get("error"))
+            time.sleep(0.01)
+        c.close()
+
+        def summary(lat):
+            if not lat:
+                return {"samples": 0}
+            lat.sort()
+            q = lambda p: lat[min(len(lat) - 1, int(p * len(lat)))]  # noqa: E731
+            return {"samples": len(lat), "p50_ms": round(q(0.50), 3), "p90_ms": round(q(0.90), 3), "p99_ms": round(q(0.99), 3), "max_ms": round(lat[-1], 3)}
+
+        return {"errors": errors, "read": summary(reads), "write": summary(writes)}
+
     # -- guard
 
     def guard(self, target):
@@ -696,6 +737,10 @@ class Bench:
             create_s = time.time() - t0
             step = {"target": target, "created": made, "create_seconds": round(create_s, 2), "create_rate_per_s": round(made / create_s, 1) if create_s > 0 else None, "terminals": len(self.terminals)}
             step["create_window"] = self.stats_window(pre, self.raw_stats())
+            lat = sorted(getattr(self, "create_latencies_ms", []))
+            if lat:
+                q = lambda f: lat[min(len(lat) - 1, int(f * len(lat)))]
+                step["create_latency"] = {"n": len(lat), "p50_ms": round(q(0.5), 1), "p90_ms": round(q(0.9), 1), "p99_ms": round(q(0.99), 1), "max_ms": round(lat[-1], 1), "mean_ms": round(sum(lat) / len(lat), 1)}
             if err:
                 step["error"] = err
                 log("creation stopped:", err)
@@ -732,9 +777,10 @@ class Bench:
             if IS_LINUX:
                 step["limits"] = LinuxProcs.limits()
             step["latency"] = self.echo_latency(self.args.latency_samples)
+            step["topology"] = self.topology_latency(self.args.topology_samples)
             try:
                 c = Conn(self.sock_path, timeout=30)
-                st = c.call("server-stats", include=["resource_projection"])
+                st = c.call("server-stats", include=["resource_projection", "write_path"])
                 c.close()
                 if st.get("ok"):
                     d = st["data"]
@@ -746,11 +792,12 @@ class Bench:
                         "registry_top_sites": sorted(rl.get("top_sites") or [], key=lambda x: -x.get("hold_total_us", 0))[:12],
                         "journal_writer": d.get("journal_writer"),
                         "resource_projection": d.get("resource_projection"),
+                        "write_path": d.get("write_path"),
                     }
             except Exception as e:  # noqa: BLE001
                 step["server_stats"] = {"error": repr(e)}
             self.result["steps"].append(step)
-            log(json.dumps({k: step[k] for k in ("target", "terminals", "create_rate_per_s", "latency")}))
+            log(json.dumps({k: step.get(k) for k in ("target", "terminals", "create_rate_per_s", "create_latency", "latency", "topology")}))
             for role, t in roles.items():
                 log(f"  {role}: n={t['count']} rss/each={t.get('rss_per', 0) / 1e6:.2f}MB pss/each={t.get('pss_per', 0) / 1e6:.2f}MB threads={t.get('threads')} fds={t.get('fds')} fdsize/each={t.get('fdsize_per')} cpu%={t['cpu_pct_window']} wk/s={t['wakeups_per_s']}")
             self.flush()
@@ -774,12 +821,14 @@ def main():
     p.add_argument("--busy-rate", type=float, default=10.0, help="lines per second per busy terminal")
     p.add_argument("--busy-line-bytes", type=int, default=80)
     p.add_argument("--per-workspace", type=int, default=200)
+    p.add_argument("--fill", choices=["round-robin", "sequential"], default="round-robin")
     p.add_argument("--create-concurrency", type=int, default=8)
     p.add_argument("--settle-seconds", type=float, default=120)
     p.add_argument("--settle-seconds-min", type=float, default=5)
     p.add_argument("--idle-seconds", type=float, default=20)
     p.add_argument("--latency-terminals", type=int, default=20)
     p.add_argument("--latency-samples", type=int, default=100)
+    p.add_argument("--topology-samples", type=int, default=200)
     p.add_argument("--out")
     p.add_argument("--root-dir", default="/tmp", help="parent of the daemon state, home and socket (tmpfs removes fsync cost)")
     p.add_argument("--keep-root", action="store_true")

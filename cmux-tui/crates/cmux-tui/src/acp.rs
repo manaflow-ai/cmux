@@ -12,7 +12,7 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
     run_as(args, "cmux acp")
 }
 
-/// `cmux <head> <args>` for `head` = `acp`, `chats` or `harness`.
+/// `cmux <head> <args>` for `head` = `acp`, `chats`, `harness` or `route`.
 pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
     run_as(args, if head == "acp" { "cmux acp" } else { "cmux" })
 }

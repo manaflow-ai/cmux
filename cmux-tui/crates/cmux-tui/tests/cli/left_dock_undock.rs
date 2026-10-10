@@ -74,7 +74,7 @@ fn a_tab_moved_into_a_left_dock_undocks_on_the_left() {
             "cmd": "move-tab-to-column",
             "surface": chat,
             "pane": right,
-            "dock": {"edge": "left", "mode": "docked"},
+            "dock": {"edge": "left", "mode": "docked", "role": "agent_chat"},
         }),
     );
     let docked = screen(&server, "dock");
@@ -82,6 +82,13 @@ fn a_tab_moved_into_a_left_dock_undocks_on_the_left() {
         .into_iter()
         .find(|id| !columns_before.contains(id))
         .expect("a new column");
+    // The move pins the new column with its role, and the left dock leads the order.
+    assert_eq!(column_ids(&docked)[0], dock, "the left dock must lead the order: {docked}");
+    assert_eq!(
+        docked["columns"][0]["dock"],
+        serde_json::json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+        "{docked}"
+    );
     let dock_pane = pane_of(&docked, &chat);
 
     request(

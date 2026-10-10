@@ -142,6 +142,7 @@ const indexPage = `<!doctype html>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
+<li><a href="/debug-settings/?mock">/debug-settings/?mock</a>: Debug Settings page against the in-page mock tunables</li>
 <li><a href="/gallery/">/gallery/</a>: every component and page in named fixture states, with locale, theme, font, scale and width controls</li>
 <li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
 </ul>
@@ -271,10 +272,12 @@ function agentPaneHost(): Plugin {
 // The React pages under src/pages/<page>/index.html (scripts/cmux-next/build-pages-web.sh PAGES).
 const DEV_PAGES = [
   "history",
+  "home-channels",
   "apps",
   "coderouter",
   "cloud",
   "keybindings",
+  "debug-settings",
   "icon-picker",
   "settings",
   "passwords",

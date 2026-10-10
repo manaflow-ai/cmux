@@ -81,6 +81,12 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "notification toggle-workspace-mute"
             ),
             ActionDescriptor(
+                id: "notifications.dismissHighlight",
+                title: String(localized: "action.notifications.dismissHighlight", defaultValue: "Dismiss Highlight", bundle: .module),
+                keywords: ["highlight", "ring", "attention", "notifications", "workspace", "dismiss"], category: .notifications,
+                symbol: "circle.dashed", surfaces: [.palette, .contextMenu], targets: [.workspace]
+            ),
+            ActionDescriptor(
                 id: "notifications.toggleBanners",
                 title: String(localized: "action.notifications.toggleBanners", defaultValue: "Toggle Notification Banners", bundle: .module),
                 keywords: ["banner", "desktop", "system", "macos", "notifications"], category: .notifications, symbol: "rectangle.stack.badge.minus",

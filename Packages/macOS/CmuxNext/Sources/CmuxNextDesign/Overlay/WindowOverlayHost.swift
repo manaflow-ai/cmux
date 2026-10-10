@@ -235,8 +235,11 @@ public final class WindowOverlayHost {
         return index > last
     }
 
-    /// Page windows (Chromium) are the child windows that are not panels.
-    public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool { !(child is NSPanel) }
+    /// Page windows are the child windows that are not panels (Chromium),
+    /// and content panels (`ContentChildPanel`: remote browser popups).
+    public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool {
+        !(child is NSPanel) || child is ContentChildPanel
+    }
 
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()

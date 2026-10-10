@@ -179,7 +179,11 @@ pub(crate) fn harness_command(
     } else {
         owned
     };
-    let env = resolved_profile_env(profile)?;
+    let mut env = resolved_profile_env(profile)?;
+    // A bound route's provider variables the inherited env must not keep
+    // (routes.rs): an earlier route's key never reaches this process.
+    let route_unset = env.remove(crate::routes::UNSET_KEY);
+    env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
     crate::login_env::apply_tokio(&mut cmd);
@@ -194,6 +198,9 @@ pub(crate) fn harness_command(
     crate::cua_socket::scrub_agent_env(&mut cmd);
     // A nested launch must not be taken for its parent's thread.
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
+    for k in route_unset.iter().flat_map(|list| list.split(',')) {
+        cmd.env_remove(k);
+    }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
             .env("ACPMUX_SESSION_ID", id)

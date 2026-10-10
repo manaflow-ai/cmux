@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7c70cdc4689123c255489da924f9c108ab579642fa47825c178b9a5a2133e5e7";
+inline constexpr std::string_view kProtocolIrSha256 = "bfd8e31d1ae5b67f877d16d6152b6d873196bab92da901cd0d1c38ba2fed90c4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -202,6 +202,7 @@ struct TerminalResources;
 struct TerminalResourcesResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
+struct ViewportPaneWidthResult;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
@@ -4902,6 +4903,11 @@ struct UrlOpenSubscribeRequest {
     friend bool operator==(const UrlOpenSubscribeRequest&, const UrlOpenSubscribeRequest&) = default;
 };
 
+struct ViewportPaneWidthResult {
+    float width{};
+    friend bool operator==(const ViewportPaneWidthResult&, const ViewportPaneWidthResult&) = default;
+};
+
 struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
@@ -6149,6 +6155,12 @@ template <>
 struct Codec<ViewAttachmentOutcome> {
     static Result<Json> encode(const ViewAttachmentOutcome& value);
     static Result<ViewAttachmentOutcome> decode(const Json& value);
+};
+
+template <>
+struct Codec<ViewportPaneWidthResult> {
+    static Result<Json> encode(const ViewportPaneWidthResult& value);
+    static Result<ViewportPaneWidthResult> decode(const Json& value);
 };
 
 template <>

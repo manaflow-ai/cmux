@@ -737,6 +737,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
 /// Deterministic on purpose: bash without rc files, a fixed one-cell prompt
 /// and no resize, so only the typed line itself wraps (on purpose, to cover
 /// the soft-wrapped rows), and every step waits for the screen it needs.
+#[cfg(unix)]
 #[test]
 fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
     let server = HeadlessServer::start_without_shell_integration("history-clear");
@@ -802,6 +803,65 @@ fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
         "clear-history did not move the whole wrapped pending line to the top row: {cleared_screen:?}"
     );
     assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
+
+    // The journal records the clear (a local terminal: `screen_cleared`; a
+    // hosted one: the resync's `host_reconnect`), so a restore or respawn
+    // starts after it instead of bringing the old text back.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let reasons = journal_gap_reasons(&server.socket, &terminal);
+        if reasons.iter().any(|reason| reason == "screen_cleared" || reason == "host_reconnect") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no journal gap after the clear: {reasons:?}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// `terminal.output.gap` reasons the session journal holds for `terminal`.
+#[cfg(unix)]
+fn journal_gap_reasons(socket: &std::path::Path, terminal: &str) -> Vec<String> {
+    use std::io::{BufRead, BufReader, Write};
+    let stream = UnixStream::connect(socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "clear-gaps",
+        "operation": "session.journal.subscribe",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "stream_id": "stream_33333333333343338333333333333333",
+            "start": "beginning",
+            "filter": {"kinds": ["terminal.output.gap"], "max_sensitivity": "sensitive"},
+        },
+    });
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+    let mut reasons = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).is_err() || line.is_empty() {
+            break;
+        }
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let ours = record["subjects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|subject| subject["kind"] == "terminal" && subject["id"] == terminal);
+        if ours {
+            reasons.push(record["payload"]["reason"].as_str().unwrap_or_default().to_string());
+        }
+    }
+    reasons
 }
 
 #[test]

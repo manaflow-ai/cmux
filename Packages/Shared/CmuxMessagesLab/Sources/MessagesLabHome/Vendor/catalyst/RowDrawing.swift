@@ -32,6 +32,20 @@ enum RowDraw {
         return max(0, x - 36 - (p.outgoing ? extra : 0))...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
     }
 
+    /// Whether a part row's bitmap is the same at every row width: its drawn span is not cut by
+    /// the row's edges, so the bubble, its tail, badges and save button are drawn at the same
+    /// place relative to the span's start (render translates by it). Custom rows draw through
+    /// providers and long text through tiles: never.
+    static func widthInvariant(_ spec: RowSpec) -> Bool {
+        guard case let .part(p) = spec.kind else { return false }
+        if case .custom = p.part { return false }
+        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
+        var media = false
+        if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
+        let extra: CGFloat = media ? 46 : 0
+        return x - 36 - (p.outgoing ? extra : 0) >= 0 && x + p.size.width + 20 + (p.outgoing ? 0 : extra) <= spec.width
+    }
+
     /// Body rect of a part row in row coordinates (window width, margin above).
     static func bodyRect(_ spec: RowSpec) -> CGRect {
         guard case let .part(p) = spec.kind else { return .zero }
@@ -568,10 +582,11 @@ enum PartRenderer {
         }
     }
 
-    static func drawEmoji(_ e: String, in rect: CGRect, ctx: CGContext) {
-        let f = HomeFonts.system(ofSize: 15) // cmux: HomeFonts (cx-qpqs)
+    /// `scale` sizes the 15 pt emoji about the rect's center (the context menu palette: 0.89).
+    static func drawEmoji(_ e: String, in rect: CGRect, ctx: CGContext, scale: CGFloat = 1) {
+        let f = HomeFonts.system(ofSize: 15 * scale) // cmux: HomeFonts (cx-qpqs)
         let w = TextDraw.width(e, font: f)
-        TextDraw.line(e, font: f, color: .white, x: rect.midX - w / 2, baseline: rect.midY + 5.5, in: ctx)
+        TextDraw.line(e, font: f, color: .white, x: rect.midX - w / 2, baseline: rect.midY + 5.5 * scale, in: ctx)
     }
 }
 
@@ -659,15 +674,25 @@ final class RowBitmaps {
     static let byteBudget = 160 << 20
     private(set) var bytes = 0
 
-    func image(for spec: RowSpec) -> CGImage? { cache.value(for: spec) } // cmux: dictionary read
-    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(spec) || waiters.keys.contains(spec) } // cmux
+    /// The cache key of a row's bitmap: without the width for a width-invariant row
+    /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
+    /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
+    /// about 6 % of main in a divider drag).
+    static func key(_ spec: RowSpec) -> RowSpec {
+        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return spec }
+        var k = spec
+        k.width = 0
+        return k
+    }
+    func image(for spec: RowSpec) -> CGImage? { cache.value(for: RowBitmaps.key(spec)) } // cmux: dictionary read
+    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(RowBitmaps.key(spec)) || waiters.keys.contains(spec) } // cmux
 
     /// Main thread: get the bitmap now or when it is rendered.
     func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
         // Long text rows are tiles (TiledBubble.swift): no bitmap, and no spec (with its text) held here.
         // cmux: without the empty image (allocation failed) a tiled row has no bitmap to report.
         if TiledBubble.applies(spec) { if let empty = TiledBubble.emptyImage { done?(empty) }; return }
-        if let img = cache[spec] { done?(img); return }
+        if let img = cache[RowBitmaps.key(spec)] { done?(img); return }
         if waiters[spec] != nil { if let done { waiters[spec]?.append(done) }; return } // cmux: no force unwrap
         waiters[spec] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
@@ -733,22 +758,41 @@ final class RowBitmaps {
             let batch = self.pending
             self.pending = []
             self.pendingLock.unlock()
-            for (spec, img, gen) in batch {
-                // Rendered with an older palette: drop it and render again.
-                guard gen == Fixture.paletteGeneration else {
-                    let w = self.waiters.removeValue(forKey: spec) ?? []
-                    for d in w { self.request(spec, d) }
-                    if w.isEmpty { self.request(spec) }
-                    continue
-                }
-                self.store(spec, img)
-                self.waiters.removeValue(forKey: spec)?.forEach { $0(img) }
-            }
+            if RowBitmaps.testHold { self.held += batch; return }
+            self.apply(batch)
         }
     }
 
-    private func store(_ spec: RowSpec, _ img: CGImage) {
-        if TiledBubble.applies(spec) { return }
+    /// Test only (scroller bench control, `--scroller-control --page`): while set, finished bitmaps
+    /// wait on main instead of reaching their cells; `releaseHeld()` delivers them. The control
+    /// holds them during each page slide, so rows slide in without text and the bench's empty-row
+    /// check must find them.
+    static var testHold = false
+    private var held: [(RowSpec, CGImage, Int)] = []
+    func releaseHeld() {
+        guard !held.isEmpty else { return }
+        let batch = held
+        held = []
+        apply(batch)
+    }
+
+    private func apply(_ batch: [(RowSpec, CGImage, Int)]) {
+        for (spec, img, gen) in batch {
+            // Rendered with an older palette: drop it and render again.
+            guard gen == Fixture.paletteGeneration else {
+                let w = waiters.removeValue(forKey: spec) ?? []
+                for d in w { request(spec, d) }
+                if w.isEmpty { request(spec) }
+                continue
+            }
+            store(spec, img)
+            waiters.removeValue(forKey: spec)?.forEach { $0(img) }
+        }
+    }
+
+    private func store(_ s: RowSpec, _ img: CGImage) {
+        if TiledBubble.applies(s) { return }
+        let spec = RowBitmaps.key(s)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache.updateValue(img, forKey: spec) // cmux: dictionary write
         bytes += img.bytesPerRow * img.height

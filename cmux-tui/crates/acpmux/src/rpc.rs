@@ -239,6 +239,18 @@ pub mod method {
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
+    // Routes: how a harness reaches its model provider (ROUTES R1-R3;
+    // server/routes.rs). add, edit, remove, restore: the unix socket only;
+    // the rest also the local app. Never Web or peer.
+    pub const MUX_ROUTE_LIST: &str = "_acpmux/route/list";
+    pub const MUX_ROUTE_SHOW: &str = "_acpmux/route/show";
+    pub const MUX_ROUTE_ADD: &str = "_acpmux/route/add";
+    pub const MUX_ROUTE_EDIT: &str = "_acpmux/route/edit";
+    pub const MUX_ROUTE_REMOVE: &str = "_acpmux/route/remove";
+    pub const MUX_ROUTE_RESTORE: &str = "_acpmux/route/restore";
+    pub const MUX_ROUTE_TEST: &str = "_acpmux/route/test";
+    pub const MUX_ROUTE_DEFAULT_SET: &str = "_acpmux/route/default.set";
+    pub const MUX_CHAT_ROUTE_SET: &str = "_acpmux/chat/route.set";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";

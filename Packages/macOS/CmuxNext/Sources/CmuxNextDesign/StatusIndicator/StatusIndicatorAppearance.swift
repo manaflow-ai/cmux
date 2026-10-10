@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import Observation
 import CmuxNextWakeups
 
@@ -112,7 +113,7 @@ public final class StatusIndicatorAppearance {
     private func startObserving() {
         guard observation == nil else { return }
         observation = Task { [weak self] in
-            for await next in Observations({ StatusIndicatorConfig.current }) {
+            for await next in ObservationStream({ StatusIndicatorConfig.current }) {
                 guard let self else { return }
                 self.apply(next)
             }

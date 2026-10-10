@@ -27,6 +27,7 @@ tree scripts/ci/macos-stubs
 # same path to cmux-tui-artifacts.yml's pull_request_target paths. A blob a
 # revision lacks is left out of its key.
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
+blob backend/catalog/cloud-operations.json
 blob backend/packages/home-core/conformance/conversation-cases.json
 blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json

@@ -51,7 +51,7 @@
          let s = orient >= 5 ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
          lock.lock(); sizes[k] = s; lock.unlock()
          return s
-@@ -282,8 +283,7 @@
+@@ -287,8 +288,7 @@
                                  : CGRect(x: 0, y: r.bounds.maxY, width: r.bounds.width, height: far)
          let n = r.layout.model.count
          for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {

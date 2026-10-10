@@ -216,7 +216,13 @@ public final class LayoutModel {
     public func focus(_ pane: PaneID, notify: Bool, source: ColumnFocusSource = .programmatic) {
         guard let screen = screen(containing: pane) else { return }
         if activeScreenID != screen.id { activeScreenID = screen.id }
-        guard focusedPane != pane else { return }
+        if focusedPane == pane {
+            // A pointer or scroll can re-focus the already active pane. Keep the source current
+            // so a keyboard ring is dismissed immediately, without letting passive programmatic
+            // reveals overwrite that pointer state.
+            if source == .pointer || source == .scroll { lastFocusSource = source }
+            return
+        }
         lastFocusSource = source
         focusedPane = pane
         if notify { emit(.focus(pane)) }

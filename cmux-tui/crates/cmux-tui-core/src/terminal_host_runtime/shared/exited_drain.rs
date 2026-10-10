@@ -50,6 +50,7 @@ impl ExitedDrain {
     pub(crate) fn wait(&mut self, host: &HostShared, state: MutexGuard<'_, Option<TerminalExit>>) {
         let waiting = |_: &mut Option<TerminalExit>| {
             !host.group_escalation_complete.load(Ordering::Acquire)
+                && !host.group_escalation_failed.load(Ordering::Acquire)
                 && (host.termination_started.load(Ordering::Acquire)
                     || !host.pty_drained.load(Ordering::Acquire))
         };

@@ -31,3 +31,22 @@
   background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
   color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
 }
+
+/* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
+   "Reasoning" and "Service Tier" as large unstyled titles at another indent, with no line between the sections, because
+   the pane does not load ui.css). Zero-specificity defaults: a quiet caption aligned with the rows' text, and a
+   hairline between sections; a feature's own rules still win. */
+:where(.ui-menu-group-label) {
+  display: block;
+  padding: 6px var(--ui-row-padding-inline) 2px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 500;
+}
+:where(.ui-separator) {
+  height: 1px;
+  margin: 4px var(--ui-row-padding-inline);
+  border: 0;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}

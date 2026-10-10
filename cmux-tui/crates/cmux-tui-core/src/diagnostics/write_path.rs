@@ -2,19 +2,20 @@
 //!
 //! The journal write path moves request-thread transactions into the journal
 //! writer's batch (plans/cmux-tui-journal-write-path.md, PR4..PR7). These
-//! counters prove the move at the socket: effect receipt commits carried by
-//! writer batches, effect receipt commits that still ran their own
-//! transaction on a request thread, and registry lock acquisitions on the
-//! journal writer thread. The last one must stay zero: a request thread
-//! holds the registry lock while it waits for a writer receipt, so a writer
-//! that took the registry lock would deadlock until the receipt deadline.
+//! counters prove the move at the socket: registry commits (effect receipts,
+//! terminal records, workspace registry revisions) carried by writer
+//! batches, registry commits that still ran their own transaction on a
+//! request thread, and registry or state lock acquisitions on the journal
+//! writer thread. The last one must stay zero: a request thread holds the
+//! registry lock (and may hold state) while it waits for a writer receipt,
+//! so a writer that took either would deadlock until the receipt deadline.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 
-/// Registry lock (or request-side registry connection) acquisitions on a
-/// journal writer thread, process-wide. Release builds count them; debug
+/// Registry lock, request-side registry connection or mux state lock
+/// acquisitions on a journal writer thread, process-wide. Release builds count them; debug
 /// builds also assert.
 static WRITER_REGISTRY_LOCKS: AtomicU64 = AtomicU64::new(0);
 
@@ -63,19 +64,20 @@ impl WritePathStats {
 /// The `write_path` section of `server-stats`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct WritePathSnapshot {
-    /// Effect receipt commits applied by the journal writer in its batch.
+    /// Registry commits (effect receipts, terminal records, workspace
+    /// registry revisions) applied by the journal writer in its batch.
     pub effect_intents: u64,
     /// Effect intents the writer rolled back to their savepoint; each
     /// request got the error.
     pub effect_intent_failures: u64,
     /// Writer batches that carried at least one effect intent.
     pub effect_intent_batches: u64,
-    /// Effect receipt commits that ran their own transaction and fsync on a
-    /// request thread: topology close patches (a later step moves them) and
-    /// the fallback when the journal writer is disabled, stopped, or not
-    /// running.
+    /// Registry commits that ran their own transaction and fsync on a
+    /// request thread: callers that still hold the connection (topology
+    /// close patches, borrowed extra rows) and the fallback when the journal
+    /// writer is disabled, stopped, or not running.
     pub request_effect_commits: u64,
-    /// Registry lock acquisitions on a journal writer thread, process-wide.
-    /// Always zero; any other value is a lock-order defect.
+    /// Registry or state lock acquisitions on a journal writer thread,
+    /// process-wide. Always zero; any other value is a lock-order defect.
     pub writer_registry_locks: u64,
 }

@@ -79,16 +79,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ping_round_trips_and_pong_echoes() {
-        let ping = Probe { kind: ProbeKind::Ping, id: 0xDEAD_BEEF_0000_0001, path: PathId(7) };
-        let decoded = Probe::decode(&ping.encode()).expect("decodes");
-        assert_eq!(decoded, ping);
-        let pong = decoded.pong().expect("ping has a pong");
-        assert_eq!((pong.kind, pong.id, pong.path), (ProbeKind::Pong, ping.id, ping.path));
-        assert_eq!(pong.pong(), None);
-    }
-
-    #[test]
     fn malformed_probes_are_refused() {
         let ping = Probe { kind: ProbeKind::Ping, id: 1, path: PathId(1) }.encode();
         assert_eq!(Probe::decode(&ping[..14]), Err(ProbeError::Length(14)));

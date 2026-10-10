@@ -28,15 +28,49 @@ public struct RemoteInstaller: Sendable {
     }
 
     /// The pinned build for `platform`, checked against its manifest.
-    public func plan(commit: String, platform: RemotePlatform, remoteBinary: String) async throws -> RemoteInstallPlan {
-        var request = URLRequest(url: RemoteInstallPlan.manifestURL(commit: commit), cachePolicy: .reloadIgnoringLocalCacheData,
-                                 timeoutInterval: 30)
+    ///
+    /// Only commits the cmux-tui artifacts job published have a manifest. A
+    /// dev build compiles its cmux-tui tree itself, and the same tree was
+    /// published under its tree key (`treeKey`, `key=` in cmux-tui.version)
+    /// by an earlier commit T: on a 404 the plan is T's build, whose digest
+    /// must also match the tree's own `source.json` (cx-z0uk). Release and
+    /// nightly builds always have their own manifest.
+    public func plan(commit: String, treeKey: String? = nil, platform: RemotePlatform, remoteBinary: String) async throws -> RemoteInstallPlan {
+        let (status, data) = try await get(RemoteInstallPlan.manifestURL(commit: commit))
+        if status == 200 {
+            return try RemoteInstallPlan(commit: commit, platform: platform, manifest: CmuxTUIManifest.decode(data), remoteBinary: remoteBinary)
+        }
+        let noManifest = RemoteInstallError.downloadFailed("manifest: HTTP \(status)")
+        guard status == 404, let treeKey, RemoteInstallPlan.isHex(treeKey, count: 40) else { throw noManifest }
+        let (sourceStatus, sourceData) = try await get(RemoteInstallPlan.treeSourceURL(key: treeKey))
+        guard sourceStatus == 200 else { throw noManifest }
+        guard let tree = try? CmuxTUITreeSource.decode(sourceData) else {
+            throw RemoteInstallError.downloadFailed("tree \(treeKey.prefix(12)): unreadable source.json")
+        }
+        guard tree.key.lowercased() == treeKey.lowercased(), RemoteInstallPlan.isHex(tree.commit, count: 40) else { throw RemoteInstallError.badCommit }
+        let (treeStatus, treeData) = try await get(RemoteInstallPlan.manifestURL(commit: tree.commit))
+        guard treeStatus == 200 else { throw RemoteInstallError.downloadFailed("manifest of tree \(treeKey.prefix(12)): HTTP \(treeStatus)") }
+        let plan = try RemoteInstallPlan(commit: tree.commit, platform: platform, manifest: CmuxTUIManifest.decode(treeData),
+                                         remoteBinary: remoteBinary)
+        // Two records of one published binary: they must agree, else nothing
+        // installs. A tree that does not list the artifact does not vouch for it.
+        let treeDigest = tree.binaries[plan.artifact]?.lowercased() ?? "absent"
+        if treeDigest != plan.sha256 {
+            throw RemoteInstallError.checksumMismatch(expected: plan.sha256, actual: treeDigest)
+        }
+        logger.info("no manifest for \(commit, privacy: .public); installing tree \(treeKey, privacy: .public) from \(tree.commit, privacy: .public)")
+        return plan
+    }
+
+    /// GET `url` as JSON: the status and body. The query string bypasses a
+    /// 404 the CDN edge cached before the build was published.
+    private func get(_ url: URL) async throws -> (status: Int, data: Data) {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970)))]
+        var request = URLRequest(url: components?.url ?? url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw RemoteInstallError.downloadFailed("manifest: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-        }
-        return try RemoteInstallPlan(commit: commit, platform: platform, manifest: CmuxTUIManifest.decode(data), remoteBinary: remoteBinary)
+        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 
     /// Installs `plan` on `host`, then restarts its session's daemon
@@ -115,6 +149,17 @@ public struct BundledCmuxTUI {
         guard let result = try? await SSHProcessRunner.run([binary.path, "--version"], environment: ProcessInfo.processInfo.environment,
                                                         deadline: .seconds(10), label: "cmux-tui --version") else { return nil }
         return commit(inVersion: result.stdout)
+    }
+
+    /// The cmux-tui tree key of a tree-mode bundle (`key=` in
+    /// cmux-tui.version, 40 hex), nil for a pinned build or a missing file.
+    public static func treeKey(binary: URL) -> String? {
+        let versionFile = binary.deletingLastPathComponent().appendingPathComponent("cmux-tui.version")
+        guard let text = try? String(contentsOf: versionFile, encoding: .utf8) else { return nil }
+        let lines = text.split(whereSeparator: \.isNewline)
+        guard lines.contains("mode=tree"), let line = lines.first(where: { $0.hasPrefix("key=") }) else { return nil }
+        let key = String(line.dropFirst("key=".count))
+        return RemoteInstallPlan.isHex(key, count: 40) ? key.lowercased() : nil
     }
 
     /// `cmux 0.1.0 (c27a76e…; ghostty …)` → the 40-hex commit.

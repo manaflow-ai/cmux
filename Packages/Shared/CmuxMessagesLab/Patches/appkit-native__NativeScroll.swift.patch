@@ -30,7 +30,16 @@
          pinContent()
          guard applyingModel == 0, let demo, let cv = collection else { return }
          let y = clip.bounds.origin.y - shift
-@@ -513,10 +519,9 @@
+@@ -300,7 +306,7 @@
+         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
+         let n = r.layout.model.count
+         for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
+-            let spec = r.layout.model.rows[a.indexPath.item].spec
++            guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec else { continue } // cmux: checked
+             switch spec.kind { case .receipt, .typing: continue; default: break }
+             if !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec) }
+         }
+@@ -626,10 +632,9 @@
          }
      }
      /// The thumb's right edge (scroller coordinates): the window's right edge minus 2 pt.
@@ -44,3 +53,13 @@
      /// The drawn bar (scroller coordinates): 7 pt (11 pt expanded) wide, right edge at the
      /// window's right edge minus 2 pt, top and bottom on whole device pixels at every
      /// position (no row of the edge lost or doubled while it moves).
+@@ -743,7 +748,8 @@
+         guard abs(shownTop - bar.minY) >= 0.25, let s = window?.backingScaleFactor else { endSlide(); return }
+         var from = bar
+         from.origin.y = (shownTop * s).rounded() / s
+-        slideKnob(from: from, Self.slideStop, begin: Animate.now(layer ?? v.layer!))
++        guard let clockLayer = layer ?? v.layer else { endSlide(); return } // cmux: no force unwrap
++        slideKnob(from: from, Self.slideStop, begin: Animate.now(clockLayer))
+         if slideKeys.isEmpty { endSlide() }
+     }
+     /// The stop's ease-out (not measured: Messages' stop of a sliding page has no reference take).
