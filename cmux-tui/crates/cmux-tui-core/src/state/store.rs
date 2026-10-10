@@ -227,7 +227,8 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replayed.into());
         }
@@ -284,7 +285,7 @@ impl WorkspaceRegistry {
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        read(&self.connection)
+        read(&self.connection.get())
     }
 }
 

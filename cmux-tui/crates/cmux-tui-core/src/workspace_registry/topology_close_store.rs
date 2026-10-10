@@ -51,7 +51,8 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let deltas = &self.prune_stated_topology_deltas(deltas)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(resource) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             let terminal_batch =
                 TerminalBatchClose { revision: transaction_terminal_revision(&tx)?, closed: 0 };
@@ -139,6 +140,7 @@ impl WorkspaceRegistry {
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
+        drop(db);
         self.record_public_fold(previous_revision, revision, &deltas, true);
         Ok(TopologyCloseCommit {
             resource: ResourcePatchCommit { revision, result: result.clone(), replayed: false },
