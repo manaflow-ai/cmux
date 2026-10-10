@@ -308,60 +308,6 @@
   // ---------------------------------------------------------------------------
   // Content export (page.exportContent, tabs.content)
 
-  // Runs in the page: its visible content as Markdown.
-  function pageMarkdown() {
-    const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "CANVAS", "IFRAME"]);
-    const clean = (t) => t.replace(/\s+/g, " ");
-    const hidden = (el) => { const cs = getComputedStyle(el); return cs.display === "none" || cs.visibility === "hidden"; };
-    const inline = (node) => {
-      if (node.nodeType === 3) return clean(node.textContent);
-      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return "";
-      const inner = [...node.childNodes].map(inline).join("");
-      if (node.tagName === "A" && node.getAttribute("href")) return inner.trim() ? `[${inner.trim()}](${node.href})` : "";
-      if (node.tagName === "B" || node.tagName === "STRONG") return inner.trim() ? `**${inner.trim()}**` : "";
-      if (node.tagName === "EM" || node.tagName === "I") return inner.trim() ? `*${inner.trim()}*` : "";
-      if (node.tagName === "CODE") return "`" + inner + "`";
-      if (node.tagName === "IMG") return node.alt ? `![${node.alt}](${node.src})` : "";
-      if (node.tagName === "BR") return "\n";
-      if (node.tagName === "INPUT" || node.tagName === "TEXTAREA") return node.type === "password" ? "" : node.value ? `\`${node.value}\`` : "";
-      return inner;
-    };
-    const out = [];
-    const block = (node, depth) => {
-      if (node.nodeType === 3) {
-        const t = clean(node.textContent).trim();
-        if (t) out.push(t);
-        return;
-      }
-      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return;
-      const tag = node.tagName;
-      const m = /^H([1-6])$/.exec(tag);
-      if (m) return void out.push("#".repeat(Number(m[1])) + " " + inline(node).trim());
-      if (tag === "P" || tag === "SUMMARY" || tag === "LABEL" || tag === "BUTTON") return void (inline(node).trim() && out.push(inline(node).trim()));
-      if (tag === "PRE") return void out.push("```\n" + node.innerText + "\n```");
-      if (tag === "UL" || tag === "OL") {
-        let n = 0;
-        for (const li of node.children) if (li.tagName === "LI") out.push(`${"  ".repeat(depth)}${tag === "OL" ? `${++n}.` : "-"} ${inline(li).trim()}`);
-        return;
-      }
-      if (tag === "TABLE") {
-        const rows = [...node.rows].map((r) => "| " + [...r.cells].map((c) => inline(c).trim().replace(/\|/g, "\\|")).join(" | ") + " |");
-        if (rows.length) out.push([rows[0], "| " + [...node.rows[0].cells].map(() => "---").join(" | ") + " |", ...rows.slice(1)].join("\n"));
-        return;
-      }
-      if (tag === "BLOCKQUOTE") return void out.push("> " + inline(node).trim());
-      const hasBlock = [...node.children].some((c) => /^(DIV|P|H[1-6]|UL|OL|TABLE|SECTION|ARTICLE|MAIN|NAV|HEADER|FOOTER|ASIDE|FORM|PRE|BLOCKQUOTE|DETAILS|FIELDSET|FIGURE|LI)$/.test(c.tagName));
-      if (!hasBlock) {
-        const t = inline(node).trim();
-        if (t) out.push(t);
-        return;
-      }
-      for (const c of node.childNodes) block(c, depth);
-    };
-    block(document.body || document.documentElement, 0);
-    return `# ${document.title}\n\n<${location.href}>\n\n` + out.filter(Boolean).join("\n\n") + "\n";
-  }
-
   // Google Workspace export endpoints for a Docs, Sheets or Slides URL.
   const GOOGLE_FORMATS = {
     document: ["pdf", "md", "docx", "txt", "odt", "rtf", "html", "epub"],
@@ -421,6 +367,28 @@
     return lines.join("\n") + (lines.length ? "\n" : "");
   }
 
+  // The longest page title an export's heading keeps.
+  const EXPORT_TITLE_MAX = 500;
+
+  // tabs.content reads in the page agent's world, within the page-read
+  // budget (A.budget, page-agent.js): the body's text or the document's
+  // HTML is built under the budget (the getter runs only when its string
+  // fits, else node by node), so a page's text or HTML crosses to the
+  // session cut at the URL's share, and no DOM-wide string is made first.
+  const CONTENT_READ_SIZE = 2000000;
+  function readContent(opts) {
+    const B = globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize });
+    let content;
+    if (opts.html) {
+      const doctype = document.doctype ? B.fit(new XMLSerializer().serializeToString(document.doctype)) : "";
+      content = doctype + (document.documentElement ? B.outerHTML(document.documentElement) : "");
+    } else content = document.body ? B.innerText(document.body) : "";
+    return { content, truncated: B.truncated || null, report: B.report() };
+  }
+  function readTitle(opts) {
+    return globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize }).fit(document.title);
+  }
+
   function createExporter({ fetch, fs, path, host, Buffer }) {
     let n = 0;
     const target = (options, ext) => {
@@ -431,8 +399,13 @@
       return path.join(dir, `export-${++n}${ext}`);
     };
     return {
+      // The page's Markdown is page.markdown()'s, read within the
+      // page-read budget (a page past it ends with the cut note), under a
+      // title (cut at EXPORT_TITLE_MAX characters) and the page's URL.
       async markdown(page, options) {
-        const text = await page.evaluate(pageMarkdown);
+        const title = String((await page.title()) || "").replace(/\s+/g, " ");
+        const heading = title.length > EXPORT_TITLE_MAX ? `${title.slice(0, EXPORT_TITLE_MAX)}…` : title;
+        const text = `# ${heading}\n\n<${page.url()}>\n\n${await page.markdown()}`;
         const file = target(options, ".md");
         fs.writeFileSync(file, text);
         return file;
@@ -664,16 +637,33 @@
         const format = opts.format || "text";
         if (!["text", "markdown", "html", "snapshot"].includes(format)) throw new Error(`tabs.content: format: expected one of text, markdown, html, snapshot, got ${JSON.stringify(format)}`);
         const timeout = opts.timeout !== undefined ? opts.timeout : 30000;
-        const one = async (url) => {
+        let left = CONTENT_READ_SIZE;
+        const cutNote = (maxSize) => core.readCutNote("tabs.content", { truncated: "size", maxSize });
+        const one = async (url, share) => {
+          if (share < 1) return { url, title: null, status: null, content: null, truncated: `${cutNote(CONTENT_READ_SIZE)} for this call; this URL was not read` };
           const page = await session.newPage(undefined, { background: true });
           try {
             const response = await page.goto(url, { timeout, waitUntil: opts.waitUntil || "load" });
             let content;
-            if (format === "html") content = await page.content();
-            else if (format === "snapshot") content = String((await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity })).tree);
-            else if (format === "markdown") content = await page.evaluate(ns.api.pageMarkdown);
-            else content = await page.evaluate(() => (document.body ? document.body.innerText : ""));
-            return { url: page.url(), title: await page.title(), status: response ? response.status() : null, content };
+            let cut = false;
+            let reason = null;
+            if (format === "snapshot") {
+              const snap = await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity, _maxSize: share });
+              content = String(snap.tree);
+              cut = /^# the page is too large to read whole/m.test(content);
+            } else if (format === "markdown") {
+              content = await page.markdown({ _maxSize: share });
+              cut = /<!-- the page is too large to read whole/.test(content);
+            } else {
+              const r = await page._mainFrame._call("agent", core.functionSource(readContent), [{ html: format === "html", maxSize: share }]);
+              content = r.content;
+              cut = !!r.truncated;
+              if (cut) reason = r.report;
+            }
+            const title = await page._mainFrame._call("agent", core.functionSource(readTitle), [{ maxSize: 1000 }]);
+            const row = { url: page.url(), title, status: response ? response.status() : null, content };
+            if (cut) row.truncated = reason ? core.readCutNote("tabs.content", reason) : cutNote(share);
+            return row;
           } catch (e) {
             return { url, title: null, status: null, content: null, error: String((e && e.message) || e) };
           } finally {
@@ -682,7 +672,13 @@
         };
         const out = [];
         // A few at a time, in the order given.
-        for (let i = 0; i < urls.length; i += 4) out.push(...(await Promise.all(urls.slice(i, i + 4).map(one))));
+        for (let i = 0; i < urls.length; i += 4) {
+          const batch = urls.slice(i, i + 4);
+          const share = Math.floor(left / batch.length);
+          const rows = await Promise.all(batch.map((u) => one(u, share)));
+          for (const row of rows) left -= row.content ? Math.min(share, row.content.length) : 0;
+          out.push(...rows);
+        }
         return out;
       },
       // cmux's browser history, most recent first: [{ url, title, dateVisited }].
@@ -778,5 +774,5 @@
     return { globals, show, importModule, state };
   }
 
-  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
+  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
 })(typeof globalThis !== "undefined" ? globalThis : this);

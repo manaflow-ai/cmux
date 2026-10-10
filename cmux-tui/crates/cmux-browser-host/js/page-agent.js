@@ -2120,6 +2120,7 @@
     read,
     readBounded,
     readAllBounded,
+    slotAssigned,
     documentHTML,
     iframeHandles,
     contentBox,
