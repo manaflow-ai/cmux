@@ -23,6 +23,7 @@ nonisolated enum AgentActivityStrings {
     static var resume: String { t("action.resume", "Resume") }
     static var watch: String { t("action.watch", "Watch") }
     static var export: String { t("action.export", "Export") }
+    static var more: String { t("action.more", "More") }
     static var openAgent: String { t("action.openAgent", "Open Agent") }
     static var openTarget: String { t("action.openTarget", "Open Target") }
 

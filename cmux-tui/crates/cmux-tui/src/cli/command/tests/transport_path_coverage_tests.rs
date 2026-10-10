@@ -150,6 +150,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Launch credentials: acpmux and owners call these
+                        // on the socket; an agent never mints or rotates.
+                        | "credential.verify"
+                        | "credential.mint"
+                        | "credential.rotate"
             )
         })
         .map(String::as_str)

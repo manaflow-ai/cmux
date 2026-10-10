@@ -3654,10 +3654,10 @@
     },
     {
       "entry": {
-        "actionID": "newTab.sameKind",
+        "actionID": "newTab.default",
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "action:newTab.sameKind",
+        "frecencyKey": "action:newTab.default",
         "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -3670,7 +3670,7 @@
         "title": "New Tab",
         "typingSectionIndex": 16
       },
-      "id": "action:newTab.sameKind"
+      "id": "action:newTab.default"
     },
     {
       "entry": {

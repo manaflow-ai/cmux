@@ -63,7 +63,43 @@ public final class OverlayPlane: NSView {
         let changed = frame != target || isHidden != hidden
         if frame != target { frame = target }
         if isHidden != hidden { isHidden = hidden }
+        syncClip()
         return changed
+    }
+
+    /// Adopted, the plane sits outside the layout's clipping ancestors, so
+    /// it masks itself to the nearest rounded one (the window's curved main
+    /// pane, cx-rkgu); at home that ancestor clips it already. Without this,
+    /// a ring or dim at a rounded corner paints square while a Chromium
+    /// page shows.
+    private func syncClip() {
+        guard let home, let superview, superview !== home, home.window != nil,
+              let clip = Self.roundedClip(around: home) else {
+            if layer?.mask != nil { layer?.mask = nil }
+            return
+        }
+        let rect = convert(superview.convert(clip.rect, from: nil), from: superview)
+        let radius = min(clip.radius, rect.width / 2, rect.height / 2)
+        let mask = (layer?.mask as? CAShapeLayer) ?? CAShapeLayer()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.frame = bounds
+        mask.path = rect.isEmpty ? nil : CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        if layer?.mask !== mask { layer?.mask = mask }
+        CATransaction.commit()
+    }
+
+    /// The nearest view at or above `view` whose layer clips with a corner
+    /// radius: its bounds in window coordinates and its radius.
+    static func roundedClip(around view: NSView) -> (rect: CGRect, radius: CGFloat)? {
+        var current: NSView? = view
+        while let candidate = current {
+            if let layer = candidate.layer, layer.masksToBounds, layer.cornerRadius > 0 {
+                return (candidate.convert(candidate.bounds, to: nil), layer.cornerRadius)
+            }
+            current = candidate.superview
+        }
+        return nil
     }
 
     /// Whether the plane's frame matches its home (for `debug.layers`).
