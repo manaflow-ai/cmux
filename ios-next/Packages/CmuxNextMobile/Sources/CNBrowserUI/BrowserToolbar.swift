@@ -102,6 +102,9 @@ struct BrowserToolbar: View {
             Text(labelText).font(.system(size: style.metrics.urlFont, weight: .medium)).fixedSize().hidden()
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { labelWidth = $0 }
         }
+        // Back <-> back | forward and the enabled tint morph with the toolbar spring.
+        .animation(BrowserStyle.shared.motion.resolve(BrowserStyle.shared.motion.expandTap), value: splitBack)
+        .animation(.easeInOut(duration: 0.2), value: tab?.canGoBack == true)
         .onChange(of: tab?.loading ?? false, initial: true) { _, loading in updateProgress(loading: loading) }
         .onChange(of: tab?.progress ?? 1) { _, _ in updateProgress(loading: tab?.loading ?? false) }
     }
@@ -113,30 +116,39 @@ struct BrowserToolbar: View {
 
     // MARK: Back / forward
 
+    /// One glass capsule whose width animates between the 48 pt back circle
+    /// and the back | forward capsule; the forward glyph and the divider
+    /// slide and fade inside it, and the disabled tint crossfades. All of it
+    /// rides the toolbar spring (no pop).
     @ViewBuilder private func backButton(_ r: CGRect) -> some View {
         let canBack = tab?.canGoBack == true
-        HStack(spacing: 0) {
+        let control = style.metrics.control
+        ZStack(alignment: .leading) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left").font(.system(size: 19, weight: .medium))
-                    .frame(width: splitBack ? r.width / 2 : r.width, height: r.height)
+                    .frame(width: splitBack ? r.width / 2 : control, height: r.height)
                     .contentShape(.rect)
             }
             .disabled(!canBack)
             .foregroundStyle(canBack ? style.colors.label : style.colors.glyphDisabled)
             .accessibilityLabel("Back")
-            if splitBack {
-                Button(action: onForward) {
-                    Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
-                        .frame(width: r.width / 2, height: r.height)
-                        .contentShape(.rect)
-                }
-                .foregroundStyle(style.colors.label)
-                .accessibilityLabel("Forward")
+            Button(action: onForward) {
+                Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
+                    .frame(width: max(1, r.width / 2), height: r.height)
+                    .contentShape(.rect)
             }
+            .foregroundStyle(style.colors.label)
+            .opacity(splitBack ? 1 : 0)
+            .scaleEffect(splitBack ? 1 : 0.6, anchor: .leading)
+            .offset(x: splitBack ? r.width / 2 : control / 2)
+            .allowsHitTesting(splitBack)
+            .accessibilityHidden(!splitBack)
+            .accessibilityLabel("Forward")
         }
         .buttonStyle(.plain)
         .opacity(chrome.menuOpen ? 0.3 : 1)
-        .frame(width: r.width, height: r.height)
+        .frame(width: r.width, height: r.height, alignment: .leading)
+        .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 
@@ -239,7 +251,27 @@ struct BrowserToolbar: View {
         .glassEffect(.regular.interactive(), in: .capsule)
         .contentShape(.capsule)
         .simultaneousGesture(swipe, including: chrome.editing || collapsed ? .subviews : .all)
-        .onTapGesture { if collapsed { chrome.expand(tap: true) } }
+        .overlay {
+            // Collapsed: the whole pill is one hit target that starts the
+            // expand spring on touch-up, from wherever the bar is (SwiftUI
+            // springs retarget from the presented value). A zero-distance
+            // drag ends on touch-up without waiting for any other gesture to
+            // fail (a tap gesture beside the button and the swipe did).
+            if collapsed {
+                Capsule().fill(Color.clear)
+                    .contentShape(.capsule)
+                    .highPriorityGesture(DragGesture(minimumDistance: 0, coordinateSpace: .local).onEnded { _ in
+                        #if DEBUG
+                        PillTrace.touchUp()
+                        #endif
+                        chrome.expand(tap: true)
+                    })
+                    .accessibilityElement()
+                    .accessibilityLabel("Show toolbar, \(labelText)")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { chrome.expand(tap: true) }
+            }
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -380,6 +412,44 @@ struct AddressField: UIViewRepresentable {
         func textFieldShouldReturn(_ f: UITextField) -> Bool {
             parent.onGo(f.text ?? "")
             return false
+        }
+    }
+}
+#endif
+
+#if os(iOS) && DEBUG
+import os
+
+/// DEBUG trace: time from the pill's touch-up to the expand handler, and to
+/// the first display frame after it (`dev.cmux.next` / `browser.trace`).
+@MainActor
+enum PillTrace {
+    private static let log = Logger(subsystem: "dev.cmux.next", category: "browser.trace")
+
+    /// Logs the handler time and the display time of the first frame after
+    /// it, which carries the first step of the expand spring.
+    static func touchUp() {
+        let start = CACurrentMediaTime()
+        let probe = FrameProbe { frameTime, duration in
+            let ms = (frameTime - start) * 1000
+            log.notice("pill: touch-up handler -> first animated frame on screen \(String(format: "%.1f", ms)) ms (frame \(String(format: "%.1f", duration * 1000)) ms)")
+        }
+        probe.start()
+    }
+
+    private final class FrameProbe: NSObject {
+        let done: @MainActor (CFTimeInterval, CFTimeInterval) -> Void
+        var link: CADisplayLink?
+        init(_ done: @escaping @MainActor (CFTimeInterval, CFTimeInterval) -> Void) { self.done = done }
+        @MainActor func start() {
+            let l = CADisplayLink(target: self, selector: #selector(fire(_:)))
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+        @MainActor @objc func fire(_ l: CADisplayLink) {
+            l.invalidate()
+            link = nil
+            done(l.targetTimestamp, l.targetTimestamp - l.timestamp)
         }
     }
 }

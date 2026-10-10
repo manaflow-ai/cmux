@@ -436,3 +436,89 @@ at the top:
 from Aziz's recording.
 
 The zoom timing is unchanged from rounds 3–4 (same springs).
+
+## Round 6: controllable pinch, pill tap, back/forward morph
+
+### Pinch to and from the overview
+
+**Detection.** One UIKit `UIPinchGestureRecognizer` covers the whole browser
+screen. It never cancels or delays touches. The decision is local:
+
+- **Pinch-in on the page.** It drives the zoom when the scale reaches 0.96,
+  if either is true:
+  - the last frame shows the page at its minimum zoom (start pages, blank
+    tabs and unloaded tabs count), or
+  - it happens within 40 ms of the fingers starting to move.
+
+  Otherwise, and for any pinch-out, the gesture goes to the remote page as
+  touches.
+- **Pinch-out on a grid card.** Passing 1.04 opens that card.
+- **Pinch during a running zoom.** It grabs the zoom where it is.
+
+**Tracking.** `PinchTracker` takes the zoom rect as presented when the fingers
+came down:
+
+- **Width:** start width × pinch scale.
+- **Position:** the page point under the start centroid stays under the
+  centroid.
+- **Rubber band:** with diminishing returns past the card (up to 0.35 progress)
+  and past the full page (up to 0.12).
+
+`TabZoomState` gained a free translation with its own velocity. On release,
+progress and translation spring from the tracked values with the tracked
+velocities (no discontinuity). The decision uses the projected width: below
+75 % goes to the grid, otherwise back; strong inward velocity also decides.
+
+**Unit tests (`PinchTrackerTests`).**
+
+- 1:1 tracking within 0.01 pt at 5 scales.
+- Rubber banding.
+- Release continuity: same values and velocities, motion continues in the
+  same direction.
+- Grabbing a running zoom with no jump.
+- The release rule.
+
+**Synthetic pinch on the Pro Max simulator.** `CMUX_NEXT_BROWSER_PINCH=page`
+replays a scale and centroid path on the display clock through the same
+handler. It draws magenta finger dots and outlines the zoom rect in green; a
+script compares them per frame.
+
+| Run | Width vs fingers | Page point under the centroid | Release |
+|---|---|---|---|
+| page | ≤ 2.5 pt (dot-detection noise; most frames ≤ 1.3) | ≤ 1.6 pt | Velocity continuous (dY +4.0 → −1.3 → −9.3 pt/frame under the spring) |
+| card (pinch-out) | ≤ 1.1 pt while tracking | ≤ 1.0 pt | Opened |
+| grab (pinch during the tap zoom) | Continuous: no jump at the grab | | |
+
+The rect clips at the screen edge past the full-page size, so those frames
+are not measured. The feel on ProMotion is for Aziz to judge.
+`pinch-tracking.png` shows the page run.
+
+### Collapsed pill tap
+
+**Possible causes** (none was isolated). The collapsed pill was the address
+`Button`, beside an `.onTapGesture` and a swipe `DragGesture` on the same
+capsule, under interactive glass. The button fires only after SwiftUI settles
+which gesture wins.
+
+**Fix.** When collapsed, the pill is now one high-priority zero-distance drag
+target that calls `expand` on touch-up. SwiftUI springs start from the
+presented value, so the expand also interrupts a collapse in flight.
+
+**Trace (`browser.trace`).** On the simulator, the first frame carrying the
+expand is on screen 32 ms (two 16.7 ms frames) after the handler, in 4 of 4
+taps. That is the render pipeline's floor: the change is committed in the
+next frame and presented on the one after. No frame waits on another gesture.
+
+### Back / forward
+
+The back control is now one glass capsule:
+
+- Its width animates between the 48 pt circle and the back | forward capsule
+  with the toolbar spring (0.37 / 0.9). The address capsule slides with it.
+- The forward chevron slides in from inside the circle (offset, scale 0.6 → 1
+  and fade) instead of popping.
+- The disabled tint crossfades over 0.2 s.
+
+There is no Safari capture of this morph, so it is not frame-matched.
+`back-forward-morph.png` (frames 163–182 appear, 373–395 disappear) shows it
+settling in about 17 frames with no pop.
