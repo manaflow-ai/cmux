@@ -34,14 +34,16 @@ done
 repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
-frozen() { # repository-relative path -> 0 when frozen
-  local pattern
+frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
+  local pattern hit=1
   while IFS= read -r pattern; do
     [[ -z "$pattern" || "$pattern" == \#* ]] && continue
     # shellcheck disable=SC2053 # the pattern is a glob
-    [[ "$1" == $pattern ]] && return 0
+    if [[ "$pattern" == !* ]]; then [[ "$1" == ${pattern#!} ]] && return 1
+    elif [[ "$1" == $pattern ]]; then hit=0
+    fi
   done < "$frozen_list"
-  return 1
+  return "$hit"
 }
 
 # 1. Generated files.
