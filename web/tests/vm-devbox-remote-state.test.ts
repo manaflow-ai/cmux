@@ -69,7 +69,35 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
       const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
       expect(result.status).toBe(1);
-      expect(result.stderr).toBe("cmux fork daemon did not become ready\n");
+      expect(result.stderr.split("\n")[0]).toBe("cmux fork daemon did not become ready: stage=unbound supervisor=unknown");
+    });
+  });
+
+  // The first stderr line names the stalled stage from a fixed vocabulary, so
+  // the provider error (stored and alerted on) carries it without guest text.
+  test("names the metadata stage when the clone cannot read its instance id", async () => {
+    await withFakeGuest("vm-source", async (env, root, boundFile) => {
+      const bin = env.PATH.split(":")[0];
+      writeFileSync(path.join(bin, "curl"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
+      const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      expect(result.status).toBe(1);
+      expect(result.stderr.split("\n")[0]).toBe("cmux fork daemon did not become ready: stage=metadata-unavailable supervisor=unknown");
+    });
+  });
+
+  test("names the listener stage when the clone is bound but nothing listens", async () => {
+    await withFakeGuest("vm-clone", async (env, root, boundFile) => {
+      const bin = env.PATH.split(":")[0];
+      writeFileSync(path.join(bin, "ss"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\ncase \"$*\" in *is-active*) echo active; exit 0;; esac\nexit 0\n", { mode: 0o755 });
+      writeFileSync(path.join(bin, "journalctl"), "#!/bin/sh\necho 'cmux-tui: some guest log line'\n", { mode: 0o755 });
+      const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      expect(result.status).toBe(1);
+      const [first, ...rest] = result.stderr.split("\n");
+      expect(first).toBe("cmux fork daemon did not become ready: stage=daemon-absent supervisor=active");
+      expect(rest.join("\n")).toContain("cmux-tui: some guest log line");
     });
   });
 
@@ -109,14 +137,14 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
     });
   });
 
-  test("returns a generic failure when the daemon never listens", async () => {
+  test("names the supervisor state when the supervisor never binds the clone", async () => {
     await withFakeGuest("vm-source", async (env, root, boundFile) => {
       const bin = env.PATH.split(":")[0];
       writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\ncase \"$*\" in *is-active*) echo failed; exit 3;; esac\nexit 1\n", { mode: 0o755 });
       const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
       expect(result.status).toBe(1);
-      expect(result.stderr).toBe("cmux fork daemon did not become ready\n");
+      expect(result.stderr.split("\n")[0]).toBe("cmux fork daemon did not become ready: stage=unbound supervisor=failed");
     });
   });
 });

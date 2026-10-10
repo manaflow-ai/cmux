@@ -107,6 +107,38 @@ describe("FreestyleProvider transport contract", () => {
   });
 });
 
+describe("Freestyle fork readiness", () => {
+  // The fork readiness error is stored on the row and alerted on, so it names
+  // the stalled stage from the guest's fixed vocabulary and nothing else; the
+  // guest's log lines go only to the server log.
+  const forkClient = (stderr: string) => ({
+    client: {
+      vms: {
+        create: async () => ({
+          vmId: VM_ID,
+          data: {},
+          vm: { exec: async () => ({ statusCode: 1, stdout: "", stderr }), delete: async () => {} },
+        }),
+      },
+    } as unknown as Freestyle,
+  });
+
+  test("names the stalled stage without guest log text", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=unbound supervisor=active\ncmux-tui: /home/cmux/private-path refused\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unbound supervisor=active)");
+    expect((error as Error).message).not.toContain("private-path");
+  });
+
+  test("does not echo an unrecognized guest answer into the error", async () => {
+    const fake = forkClient("something else entirely: stage=$(rm -rf /)\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("rm -rf");
+  });
+});
+
 describe("Freestyle platform contract", () => {
   test("firewall on a private-network machine: outbound only, no inbound at all", () => {
     // The VPC's members-reach-each-other rule is what admits the daemon port;
