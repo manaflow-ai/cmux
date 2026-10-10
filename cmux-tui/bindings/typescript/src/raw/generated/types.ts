@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f. */
+/* cmux-tui mux protocol 12, IR c3e75f81f153b62db514f794bde678dc60c2776c6715471d2055c9cd99ec3172. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -441,6 +441,22 @@ export type GuestUrlOpenResult = {
 
 export type GuestUrlSubscribeResult = {
   "url_open_ready": boolean;
+};
+
+export type HistorySearchHit = {
+  "at_ms": bigint;
+  "highlights": Array<HistorySearchRange>;
+  "key": string;
+  "kind": string;
+  "position": (bigint) | null;
+  "snippet": string;
+  "target": string;
+  "title": string;
+};
+
+export type HistorySearchRange = {
+  "end": number;
+  "start": number;
 };
 
 export type Id = bigint;
@@ -984,6 +1000,7 @@ export type SetTerminalIdlePolicyResult = {
 export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
 };
 
 export type ShutdownDaemonResult = {
@@ -1273,6 +1290,7 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
 };
@@ -1341,6 +1359,10 @@ export type Tree = {
 };
 
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
+export type ViewportPaneWidthResult = {
+  "width": number;
+};
 
 export type VtStateResult = {
   "cols": number;

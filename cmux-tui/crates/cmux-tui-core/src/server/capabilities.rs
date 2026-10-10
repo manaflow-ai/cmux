@@ -4,13 +4,17 @@
 use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
-/// when the binary installed a cloud transport, and
+/// when the binary installed a cloud transport, `history-search-v1` when it
+/// installed the search index, and
 /// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
+    }
+    if mux.history_search().is_some() {
+        capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
@@ -94,6 +98,7 @@ pub(super) fn advertised_capabilities(
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
@@ -110,6 +115,7 @@ pub(super) fn advertised_capabilities(
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
@@ -120,6 +126,8 @@ pub(super) fn advertised_capabilities(
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
+        crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
+        detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
@@ -139,6 +147,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
+    #[cfg(unix)]
+    capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities
 }
 

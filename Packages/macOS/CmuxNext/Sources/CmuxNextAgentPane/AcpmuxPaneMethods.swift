@@ -27,6 +27,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // Withdraw a queued prompt of a session in the pane's scope (direct.ts removeQueued).
+        "_acpmux/queue_remove",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -145,14 +147,16 @@ nonisolated enum AcpmuxPaneMethods {
         return allowed ? .success(object) : refuse(.methodRefused, method, id)
     }
 
-    /// The first frame with the LocalApp token in `_meta.acpmux` (the host's own key; the page
-    /// never sees it).
+    /// The first frame with the LocalApp token and this launch's person key (``AcpmuxPersonKey``)
+    /// in `_meta.acpmux` (the host's own keys; the page never sees them). Any `personKey` the
+    /// page put there is replaced.
     static func withLocalAppToken(_ object: [String: Any], _ token: String) -> [String: Any] {
         var object = object
         var params = object["params"] as? [String: Any] ?? [:]
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
         acpmux["localAppToken"] = token
+        acpmux["personKey"] = AcpmuxPersonKey.current
         meta["acpmux"] = acpmux
         params["_meta"] = meta
         object["params"] = params
@@ -164,7 +168,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):

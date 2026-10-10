@@ -33,10 +33,11 @@ extension SidebarBridge {
         case .setGroupColor(let group, let color):
             groupFlow.edit(group, color: color, intent)
         case .toggleCollapse(.group(let group)):
-            model.apply(intent)
-            guard let collapsed = model.group(group)?.isCollapsed else { return true }
-            let v2 = statePersonal
-            personal("update-personal-group") {
+            // Each click flips what the sidebar shows now; the fold holds
+            // until the store has it, so no echo undoes a click (cx-qno.17).
+            guard let shown = model.group(group)?.isCollapsed else { return true }
+            let collapsed = !shown, v2 = statePersonal
+            rows.fold(group, collapsed: collapsed, on: services.machines.local, resync: { [weak self] in self?.resync() }) {
                 if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }
@@ -109,7 +110,7 @@ extension SidebarBridge {
     /// Sends one personal-state command to the home daemon; a failure
     /// re-syncs the sidebar; a pending `edit` settles (SidebarRows.send).
     private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
-                          _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                          _ body: @escaping DaemonCommandBody) {
         rows.send(label, edit: edit, on: services.machines.local, resync: { [weak self] in self?.resync() }, body)
     }
 }

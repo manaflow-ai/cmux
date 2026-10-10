@@ -1,9 +1,12 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextOnboarding
+import CmuxNextSettings
 import Observation
 
 /// Agent actions. Forks read the agent session the daemon reports for the
@@ -21,6 +24,9 @@ enum AgentHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
         let forks: [(ActionID, Placement)] = [
             ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
             ("palette.forkAgentConversationTop", .above), ("palette.forkAgentConversationBottom", .below),
@@ -155,6 +161,40 @@ enum AgentHandlers {
         )
     }
 
+    private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
+
+    private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
+        let scope = context.scope(invocation)
+        guard let pane = scope.pane,
+              let key = scope.tab?.id.rawValue ?? pane.currentTabKey,
+              let view = context.services.agentTabs.existingView(key) else {
+            context.refuse(MiscHandlerStrings.noAgentChat)
+            return nil
+        }
+        return view
+    }
+
+    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context, invocation) else { return }
+        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
+        let next = min(max(current + delta,
+                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
+        context.design.agentPaneZoom = CGFloat(next)
+        view.zoom = next
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
+    }
+
+    private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context, invocation) else { return }
+        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
+        view.zoom = AgentPaneZoomSetting.fallback
+        context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
+    }
+
     /// The pane a new agent chat opens in (New Agent Chat, Add Harness…): the invocation's pane,
     /// else, while the active workspace has no mounted pane yet (Home, a settling workspace),
     /// Cmd-T's shared path repairs or creates its first usable pane and `open` runs once its
@@ -189,7 +229,7 @@ enum AgentHandlers {
         func mounted() -> PaneController? {
             workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
         }
-        for await isMounted in Observations({ () -> Bool in
+        for await isMounted in ObservationStream({ () -> Bool in
             _ = services.paneMounts.generation
             return mounted() != nil
         }) where isMounted {
@@ -198,34 +238,23 @@ enum AgentHandlers {
         return nil
     }
 
-    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
-    /// workspace whose only tab is the chat, like a new thread in the Codex
-    /// and Claude apps (lawrence-call-1006 D). The chat inherits the focused
-    /// tab's cwd and draft as a tab would. Scripts, an explicit target and a
-    /// daemon that cannot hold a chat get a tab in `pane`: false.
+    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens the one New Tab page, the
+    /// same screen as Cmd-T and Cmd-N (Lawrence 2026-10-10, cx-n0i9: "we need just the one screen
+    /// for new tab"): a new workspace on the New Tab page, through New Workspace itself, so its
+    /// placement and page match Cmd-N. The page lists every chat; a prompt there starts one.
+    /// Cmd-I again while an untouched New Tab page is focused keeps that page (no second
+    /// workspace, no other screen). Scripts, an explicit target and a daemon that cannot hold
+    /// the page get a chat tab in `pane`: false.
     private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
                                                   context: AppActionContext) -> Bool {
         let services = context.services
-        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
-              let windowID = context.activeWindow?.state.id else { return false }
-        let folder = pane.selectedTab?.cwd
-        services.newTabKinds.record(.agent, folder: folder)
-        let source = pane.agentSeedFromSelectedTab()
-        let daemon = pane.daemon
-        context.registry.track(Task { @MainActor in
-            var seed = await source?.take() ?? AgentPaneSeed()
-            seed.cwd = seed.cwd ?? folder
-            var spawn = WorkspaceSpawn(cwd: seed.cwd)
-            spawn.firstChat = seed
-            do {
-                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
-                return nil
-            } catch {
-                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new agent chat: \(error)")
-            }
-        })
-        return true
+        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon) else { return false }
+        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key),
+           let model = services.agentTabs.existingView(key)?.model, !model.userTouched {
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+            return true
+        }
+        return context.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {

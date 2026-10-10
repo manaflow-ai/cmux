@@ -43,8 +43,8 @@ const SEED_HEADROOM_BYTES: usize = 64 * 1024;
 /// reader's path; a refusal (the child already ended) leaves no custody.
 pub(super) fn request_custody(surface: &Arc<Surface>) {
     // Runs on the surface's reader thread, which must never wait for
-    // `pty.runtime`: a control request (mint, clear history) holds that lock
-    // while it waits for its reply, and only this reader delivers the reply.
+    // `pty.runtime`: a control request could hold that lock briefly while it
+    // sends, and only this reader delivers the reply.
     // Every lock and the custody exchange happen on a short-lived thread.
     let surface = Arc::downgrade(surface);
     // The name is unique and within Linux's 15-byte thread name, so a
@@ -123,9 +123,10 @@ pub(super) fn after_host_death(
     {
         return DeadHost::Replaced(Box::new(attachment));
     }
-    let end = sidecar.map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit)).unwrap_or_else(|| {
-        TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
-    });
+    let end =
+        sidecar.map(|(_, exit)| TerminalEnd::from_host_exit(exit.exit)).unwrap_or_else(|| {
+            TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
+        });
     *pty.exit.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);
     mark_hosted_runtime_exited(pty, identity);
     pty.host_connection_state.store(TerminalHostConnectionState::Exited as u8, Ordering::Release);

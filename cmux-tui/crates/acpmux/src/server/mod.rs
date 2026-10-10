@@ -15,7 +15,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
+/// Windows port: the daemon socket is `cmux::local_socket` there (a later
+/// landing); until then no listener exists, so none is ever bound.
+#[cfg(not(unix))]
+pub enum UnixListener {}
 use tokio::sync::{broadcast, mpsc};
 
 /// How one connection receives one attached session's live records.
@@ -36,9 +42,38 @@ pub struct Conn {
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     watch_all: AtomicBool,
+    /// The unix socket peer's audit token, read at accept (macOS); what
+    /// `_acpmux/person_enroll` checks. None for WebSocket connections.
+    peer: Option<cmux_link::app_caller::PeerToken>,
+    /// Its first request was seen (`hub/person.rs`).
+    initialized: AtomicBool,
+    /// It presented this launch's person key in that `initialize`.
+    person: AtomicBool,
 }
 
 impl Conn {
+    /// Whether this connection is the person (`hub/person.rs`).
+    pub(super) fn is_person(&self) -> bool {
+        self.person.load(Ordering::SeqCst)
+    }
+
+    /// A request's person key leaves its params before anything else reads
+    /// them. A unix socket or LocalApp connection whose FIRST request is an
+    /// `initialize` that carries this launch's key is the person for its
+    /// life; a key anywhere else carries no weight.
+    fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
+        let key = params.as_mut().and_then(crate::hub::person::take_key);
+        let first = !self.initialized.swap(true, Ordering::SeqCst);
+        if !first || m != method::INITIALIZE {
+            return;
+        }
+        if matches!(self.origin, Origin::Local | Origin::LocalApp)
+            && key.is_some_and(|k| hub.person.matches(&k))
+        {
+            self.person.store(true, Ordering::SeqCst);
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let _ = self.out.try_send(msg.to_line());
     }
@@ -75,6 +110,7 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 }
 
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
+#[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
@@ -100,7 +136,12 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
+#[cfg(not(unix))]
+pub async fn bind_unix(_path: &std::path::Path) -> Result<UnixListener> {
+    Err(crate::platform::unsupported("the acpmux daemon socket"))
+}
 
+#[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
@@ -112,6 +153,11 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
         };
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Named by its audit token, read once here, never by pid.
+            let peer = {
+                use std::os::fd::AsRawFd;
+                cmux_link::app_caller::peer_token(stream.as_raw_fd())
+            };
             let (rd, mut wr) = stream.into_split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
             let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
@@ -130,9 +176,13 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     }
                 }
             });
-            serve_connection(hub, in_rx, out_tx).await;
+            serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
         });
     }
+}
+#[cfg(not(unix))]
+pub async fn serve_unix(_hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
+    match listener {}
 }
 
 const INDEX_HTML: &str = include_str!("../../web/index.html");
@@ -587,9 +637,20 @@ pub async fn serve_connection(
 
 pub async fn serve_connection_with(
     hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    origin: Origin,
+) {
+    serve_connection_from(hub, inbound, out, origin, None).await
+}
+
+/// `serve_connection_with` for a unix socket peer named by its audit token.
+async fn serve_connection_from(
+    hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
     origin: Origin,
+    peer: Option<cmux_link::app_caller::PeerToken>,
 ) {
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
@@ -598,6 +659,9 @@ pub async fn serve_connection_with(
         out,
         subs: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        peer,
+        initialized: AtomicBool::new(false),
+        person: AtomicBool::new(false),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -659,7 +723,10 @@ pub async fn serve_connection_with(
             }
         };
         match msg {
-            Message::Request { id, method: m, params } => {
+            Message::Request { id, method: m, mut params } => {
+                // In order, before the request is spawned: a later request
+                // on this connection sees the person decided.
+                conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
@@ -696,6 +763,7 @@ pub async fn serve_connection_with(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    chats::push_activity(hub, conn, &ev);
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
@@ -789,7 +857,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "tags"
             | "turn_started"
             | "turn_result" => rec.kind.as_str(),
-            "queued" | "dequeued" => "queue",
+            "queued" | "dequeued" | "queue_removed" => "queue",
             "permission_auto" => "permission_resolved",
             _ => return,
         };
@@ -832,7 +900,7 @@ fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str)
 }
 
-pub(super) fn session_key(params: &Value) -> Result<&str, RpcError> {
+pub(crate) fn session_key(params: &Value) -> Result<&str, RpcError> {
     str_param(params, "sessionId")
         .or_else(|| str_param(params, "session"))
         .or_else(|| str_param(params, "name"))
@@ -882,6 +950,7 @@ mod peer_forward;
 mod redact;
 mod remote_guard;
 mod requests;
+mod routes;
 pub(crate) mod trust_gate;
 mod wait;
 use requests::handle_notification;

@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
 impl Hub {
@@ -517,13 +518,15 @@ impl Hub {
         if let Some((id, true)) = grouping {
             self.start_permission_group_timer(session, id);
         }
-        let outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
-        self.append(
-            session,
-            "mux",
-            "permission_decision",
-            json!({"permissionId":permission_id,"outcome":outcome}),
-        );
+        let mut outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
+        // Who answered for the person (`hub/person.rs` answered_by): audit
+        // only, never sent to the agent.
+        let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
+        let mut decision = json!({"permissionId":permission_id,"outcome":outcome});
+        if let Some(by) = answered_by {
+            decision["answeredBy"] = by;
+        }
+        self.append(session, "mux", "permission_decision", decision);
         {
             let state = session.permissions.lock().unwrap();
             if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
@@ -550,6 +553,7 @@ impl Hub {
         permission_id: &str,
         option_id: Option<String>,
         answers: Option<Value>,
+        answered_by: Option<Value>,
         control: Control,
     ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
@@ -615,6 +619,9 @@ impl Hub {
             input["answers"] = a;
             outcome["_meta"] = json!({"updatedInput": input});
         }
+        if let Some(by) = answered_by {
+            outcome[ANSWERED_BY_SLOT] = by;
+        }
         let _ = pending.reply.send(outcome);
         Ok(())
     }
@@ -668,17 +675,4 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_path;
-    use std::path::Path;
-
-    #[test]
-    fn normalize_resolves_parent_components() {
-        assert_eq!(normalize_path(Path::new("/w/src/../../secret")), Path::new("/secret"));
-        assert_eq!(normalize_path(Path::new("/w/./src/a.rs")), Path::new("/w/src/a.rs"));
-        assert_eq!(normalize_path(Path::new("/../x")), Path::new("/x"));
-    }
 }

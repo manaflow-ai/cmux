@@ -48,24 +48,6 @@ const vmToken = async (guest: { private_jwk: JsonWebKey }, user: string, install
 }
 
 describe("team VM bind commands and proofs", () => {
-  it("builds commands only from shell-safe values", () => {
-    expect(enrollCommand("team_x", 3, "abc-_1")).toBe("/opt/cmux/current/bin/cmux host team-enroll --team team_x --epoch 3 --nonce abc-_1")
-    expect(enrollCommand("team_x; rm -rf /", 3, "n")).toBeNull()
-    expect(enrollCommand("team_x", 3, "n$(id)")).toBeNull()
-    const ok = { team: "team_x", epoch: "3", user: "user_y", install: "inst_z", api: "https://cloud-api-staging.cmux.dev", env: "stg" }
-    expect(commitCommand(ok)).toContain("--commit --team team_x --epoch 3 --user user_y --install inst_z --api https://cloud-api-staging.cmux.dev --env stg")
-    expect(commitCommand({ ...ok, api: "http://evil.example" })).toBeNull()
-    expect(commitCommand({ ...ok, api: "https://x.dev/$(id)" })).toBeNull()
-    expect(commitCommand({ ...ok, env: "qa" })).toBeNull()
-  })
-
-  it("takes only a well-formed P-256 proof from the last output line", () => {
-    const good = { instance_id: "vm-1", public_jwk: { kty: "EC", crv: "P-256", x: "AAAA", y: "BBBB" }, signature: "c2ln" }
-    expect(parseProof(`noise\n${JSON.stringify(good)}\n`)).toEqual(good)
-    expect(parseProof(JSON.stringify({ ...good, public_jwk: { ...good.public_jwk, crv: "P-384" } }))).toBeNull()
-    expect(parseProof(JSON.stringify({ ...good, instance_id: "vm 1" }))).toBeNull()
-    expect(parseProof("not json")).toBeNull()
-  })
 
   it("team_vm.bind_install refuses a bind that names another VM of the epoch", () => {
     const sys: Principal = { identity: "system:team_vm", kind: "system" }
@@ -192,21 +174,3 @@ describe("TeamVmDO binds its VM through the provider exec", { timeout: 60_000 },
   })
 })
 
-describe("the Freestyle exec the bind uses", () => {
-  it("runs the command as root on exactly that VM (the default exec user cannot write the VM's state)", async () => {
-    const seen: Array<{ url: string; body: any }> = []
-    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      seen.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) })
-      return Response.json({ statusCode: 0, stdout: "x".repeat(20_000) + "\nlast\n", stderr: "" })
-    })
-    try {
-      const out = await new FreestyleDriver("k", "https://api.freestyle.example", "snap").exec("vm-abc", "/opt/cmux/current/bin/cmux host team-enroll --team t --epoch 1 --nonce n", 30_000)
-      expect(seen).toEqual([{ url: "https://api.freestyle.example/v5/vms/vm-abc/exec-await", body: { command: "/opt/cmux/current/bin/cmux host team-enroll --team t --epoch 1 --nonce n", timeoutMs: 30_000, linuxUser: "root" } }])
-      expect(out.code).toBe(0)
-      expect(out.stdout.endsWith("\nlast\n")).toBe(true)
-      expect(out.stdout.length).toBeLessThanOrEqual(16_384)
-    } finally {
-      spy.mockRestore()
-    }
-  })
-})

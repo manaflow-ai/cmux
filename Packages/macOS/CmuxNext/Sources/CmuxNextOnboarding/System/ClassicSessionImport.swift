@@ -1,10 +1,23 @@
 public import Foundation
 
+/// Errors produced while reading a classic cmux session snapshot.
+public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendable {
+    case snapshotTooLarge(actualBytes: Int, maximumBytes: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .snapshotTooLarge:
+            "The classic cmux session snapshot is too large to read."
+        }
+    }
+}
+
 /// Read-only access to classic cmux's saved session file.
 public nonisolated struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
-    /// Classic stable and classic NIGHTLY: each saves its own snapshot.
-    static let classicBundleIdentifiers = [stableBundleIdentifier, "com.cmuxterm.app.nightly"]
+    /// Snapshots are topology-only input, so a generous cap prevents a corrupt
+    /// or hostile file from consuming unbounded memory during onboarding.
+    public static let maximumSnapshotBytes = 64 * 1024 * 1024
     public let fileURL: URL
 
     public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
@@ -24,49 +37,45 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// The snapshot classic saved last under `support`, stable's when there
     /// is none.
     static func newestSnapshot(in support: URL) -> URL {
-        let candidates = Self.classicBundleIdentifiers.map { support.appendingPathComponent("cmux/session-\($0).json") }
+        let directory = support.appendingPathComponent("cmux", isDirectory: true)
+        // Enumerate names, then append them to the caller's URL. This keeps
+        // temporary fixture paths stable when `/var` is symlinked to `/private/var`.
+        let candidates = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { name in
+                guard name.hasSuffix(".json"), name.hasPrefix("session-") else { return false }
+                let bundle = String(name.dropFirst("session-".count).dropLast(".json".count))
+                return Self.isClassicBundleIdentifier(bundle)
+            }
+            .map { directory.appendingPathComponent($0) }
+        let fallback = directory.appendingPathComponent("session-\(stableBundleIdentifier).json")
         let saved = candidates.compactMap { url -> (URL, Date)? in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             return date.map { (url, $0) }
         }
-        return saved.max { $0.1 < $1.1 }?.0 ?? candidates[0]
+        return saved.max { $0.1 < $1.1 }?.0 ?? fallback
+    }
+
+    private static func isClassicBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        let channels = ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc",
+                        "com.cmuxterm.app.staging", "com.cmuxterm.app.debug"]
+        return channels.contains(bundleIdentifier) || channels.dropFirst().contains { bundleIdentifier.hasPrefix($0 + ".") }
     }
 
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
     public func read() throws -> [ClassicSessionWorkspace] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
-        let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+        guard let data = try readData() else { return [] }
         return try decode(data)
     }
 
-    /// The Claude Code and Codex chats classic's terminals had open, as
-    /// `AgentChat.id`s; empty when classic cmux has no snapshot.
-    public func readOpenChats() throws -> Set<String> {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
-        return try openChats(Data(contentsOf: fileURL, options: [.mappedIfSafe]))
-    }
-
-    /// Each terminal's `agent` (classic's restorable agent session) that is
-    /// a Claude Code or Codex chat.
-    public func openChats(_ data: Data) throws -> Set<String> {
-        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let windows = (root["windows"] as? [[String: Any]]) ?? []
-        let panels = windows.flatMap { window -> [[String: Any]] in
-            let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
-            return ((manager["workspaces"] as? [[String: Any]]) ?? []).flatMap { ($0["panels"] as? [[String: Any]]) ?? [] }
+    private func readData() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        if let size = (attributes[.size] as? NSNumber)?.intValue,
+           size > Self.maximumSnapshotBytes {
+            throw ClassicSessionImportError.snapshotTooLarge(actualBytes: size, maximumBytes: Self.maximumSnapshotBytes)
         }
-        return Set(panels.compactMap { panel -> String? in
-            guard let agent = (panel["terminal"] as? [String: Any])?["agent"] as? [String: Any],
-                  let session = agent["sessionId"] as? String, !session.isEmpty else { return nil }
-            let app: AgentApp? = switch agent["kind"] as? String {
-            case "claude": .claudeCode
-            case "codex": .codex
-            default: nil
-            }
-            return app.map { "\($0.rawValue):\(session)" }
-        })
+        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
+        return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
     }
 
     /// Decodes only topology, names, directories, and titles from a classic snapshot.

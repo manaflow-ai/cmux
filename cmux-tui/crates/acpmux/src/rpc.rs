@@ -44,6 +44,19 @@ impl RpcError {
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
     }
+    /// A request whose handler waited on an agent past its deadline
+    /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
+    /// the wait, and the request may be retried.
+    pub fn deadline_exceeded(wait: &str, timeout: std::time::Duration) -> Self {
+        Self::new(-32000, format!("{wait} did not finish within {timeout:?}")).with_data(
+            serde_json::json!({
+                "reason": "deadline_exceeded",
+                "wait": wait,
+                "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                "retryable": true,
+            }),
+        )
+    }
 }
 
 impl std::fmt::Display for RpcError {
@@ -194,9 +207,12 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
+    /// The signed app gives this launch's person key (`hub/person.rs`).
+    pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
@@ -236,6 +252,18 @@ pub mod method {
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
+    // Routes: how a harness reaches its model provider (ROUTES R1-R3;
+    // server/routes.rs). add, edit, remove, restore: the unix socket only;
+    // the rest also the local app. Never Web or peer.
+    pub const MUX_ROUTE_LIST: &str = "_acpmux/route/list";
+    pub const MUX_ROUTE_SHOW: &str = "_acpmux/route/show";
+    pub const MUX_ROUTE_ADD: &str = "_acpmux/route/add";
+    pub const MUX_ROUTE_EDIT: &str = "_acpmux/route/edit";
+    pub const MUX_ROUTE_REMOVE: &str = "_acpmux/route/remove";
+    pub const MUX_ROUTE_RESTORE: &str = "_acpmux/route/restore";
+    pub const MUX_ROUTE_TEST: &str = "_acpmux/route/test";
+    pub const MUX_ROUTE_DEFAULT_SET: &str = "_acpmux/route/default.set";
+    pub const MUX_CHAT_ROUTE_SET: &str = "_acpmux/chat/route.set";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
@@ -253,33 +281,4 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_request() {
-        let m = Message::request(1, "session/prompt", json!({"sessionId": "s"}));
-        let back = Message::parse(&m.to_line()).unwrap();
-        assert_eq!(m, back);
-    }
-
-    #[test]
-    fn parses_error_response() {
-        let m = Message::parse(r#"{"jsonrpc":"2.0","id":3,"error":{"code":-1,"message":"x"}}"#)
-            .unwrap();
-        match m {
-            Message::Response { error: Some(e), .. } => assert_eq!(e.code, -1),
-            _ => panic!("expected error response"),
-        }
-    }
-
-    #[test]
-    fn notification_has_no_id() {
-        let m =
-            Message::parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#).unwrap();
-        assert!(matches!(m, Message::Notification { .. }));
-    }
 }

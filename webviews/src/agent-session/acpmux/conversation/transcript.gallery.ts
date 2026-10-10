@@ -355,6 +355,25 @@ export default agentPaneEntry({
         summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
+    "turn-error-with-pdf": {
+      note: "A failed turn keeps its attached PDF available to Retry, so the next request does not lose document context.",
+      snapshot: chat([
+        user("Review the attached build report", 6, {
+          retryAttachments: [
+            {
+              id: "gallery-build-report",
+              kind: "document",
+              name: "build-report.pdf",
+              mimeType: "application/pdf",
+              size: 128,
+              data: "JVBERi0xLjQK",
+              pageCount: 3,
+            },
+          ],
+        }),
+        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
+      ]),
+    },
     "turn-error-long": {
       note: "A turn that failed with a long gateway error: the note wraps and the row grows.",
       snapshot: chat([
@@ -365,6 +384,125 @@ export default agentPaneEntry({
             "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2945s). This is a server-side issue, usually temporary. Try again in a moment. If it persists, check your inference gateway (100.89.225.106:31415).",
         }),
       ]),
+    },
+    "turn-error-signed-out": {
+      note: "The CLI's own login is gone: only this class says sign in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Claude Code is not logged in. Please run /login. (OAuth token has expired)",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="subscription-login"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-proxy-401": {
+      note: "A proxy route refused the request: name the route and the status, not a sign-in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://cmux-lawrences-mac-mini:31415/v1/messages',
+          }),
+        ],
+        { harness: "claude-sr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="proxy-auth"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-invalid-key": {
+      note: "A bad or missing API key.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="invalid-key"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-rate-limited": {
+      note: "Rate limits mention authentication sometimes; they are still rate limits.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "API Error: 429 rate_limit_error: This request would exceed your account's rate limit. Please check your authentication plan.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="rate-limited"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-unreachable": {
+      note: "The route's server is down or unreachable.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Connection error: fetch failed (connect ECONNREFUSED 127.0.0.1:31415)",
+          }),
+        ],
+        { harness: "claude-cr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="unreachable"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-other": {
+      note: "Anything else keeps the agent's own words.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "The agent stopped: the tool output was larger than the context window.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="other"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
     },
     "refused-retry": {
       note: "A prompt the host refused: why, and Retry.",
@@ -555,6 +693,20 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.selectText({ selector: '[data-row-id="gallery-selection-user"]' });
         await ctx.selectText({ selector: '[data-row-id="gallery-selection-answer"] .cv-md' });
+      },
+    },
+    "keyboard-selection": {
+      note: "Play: move the transcript roving focus with Shift+ArrowDown and keep the selected range visible.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
       },
     },
     "keyboard-focus": {

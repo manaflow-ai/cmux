@@ -40,26 +40,29 @@ impl Surface {
                 "browser surface does not have a VT terminal"
             )));
         };
+        // Send under the runtime lock, wait for the acknowledgement after
+        // releasing it: the surface's reader delivers that acknowledgement,
+        // and after a reconnect it takes the runtime lock before it reads
+        // the new stream.
         #[cfg(unix)]
         {
-            {
-                let runtime = pty.runtime.lock().unwrap();
-                match &*runtime {
-                    PtyRuntime::Hosted(host) => {
-                        if host.send_clear_history(fallback_key)? {
-                            return Ok(());
-                        }
-                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                            "terminal host does not support clear-history"
-                        )));
-                    }
-                    PtyRuntime::ExitedHosted => {
-                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                            "terminal host has exited"
-                        )));
-                    }
-                    PtyRuntime::Local { .. } => {}
+            let pending = match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
+                PtyRuntime::ExitedHosted => {
+                    return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "terminal host has exited"
+                    )));
                 }
+                PtyRuntime::Local { .. } => None,
+            };
+            match pending {
+                Some(Some(pending)) => return pending.wait(),
+                Some(None) => {
+                    return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "terminal host does not support clear-history"
+                    )));
+                }
+                None => {}
             }
         }
 

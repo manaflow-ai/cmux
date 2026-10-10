@@ -791,6 +791,26 @@ class GuestUrlSubscribeResult:
 
 
 @dataclass(frozen=True)
+class HistorySearchHit:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchHit'
+    at_ms: int
+    highlights: List[HistorySearchRange]
+    key: str
+    kind: str
+    position: Union[int, None]
+    snippet: str
+    target: str
+    title: str
+
+
+@dataclass(frozen=True)
+class HistorySearchRange:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchRange'
+    end: int
+    start: int
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -1425,6 +1445,7 @@ class SetTerminalKeepResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalKeepResult'
     terminal_id: str
     keep: bool
+    terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1757,6 +1778,7 @@ class TerminalPlacement:
     replayed: bool
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1836,6 +1858,12 @@ class Tree:
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ViewportPaneWidthResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ViewportPaneWidthResult'
+    width: float
 
 
 @dataclass(frozen=True)
@@ -2621,6 +2649,7 @@ class CreateTerminalRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    detached: Union[bool, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
@@ -2731,6 +2760,39 @@ class ExportLayoutRequest:
 
 
 @dataclass(frozen=True)
+class FeedLocalHandoffAbortRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-abort/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffBeginRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-begin/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-done/request'
+    home: str
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-list/request'
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    state: Union[str, None, MissingType] = field(default=MISSING)
+    unread: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
+    items: List[str]
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -2780,6 +2842,21 @@ class GetFrontendProjectionRequest:
 class GetSizeStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-size-state/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class HistorySearchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/request'
+    query: str
+    kinds: Union[List[str], MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HistorySearchResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/result'
+    hits: List[HistorySearchHit]
+    took_us: int
 
 
 @dataclass(frozen=True)
@@ -3227,6 +3304,18 @@ class NewPaneRightRequest:
 
 
 @dataclass(frozen=True)
+class NewRemoteTerminalTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-remote-terminal-tab/request'
+    terminal_id: str
+    session_id: str
+    session_name: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NewRowRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-row/request'
     pane: Id
@@ -3433,6 +3522,12 @@ class ReloadConfigResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/reload-config/result'
     path: Union[str, None]
     reloaded: Literal[True]
+
+
+@dataclass(frozen=True)
+class RemoteTerminalSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-terminal-snapshot/request'
+    surface: Id
 
 
 @dataclass(frozen=True)
@@ -4070,6 +4165,15 @@ class UpdateProfileRequest:
     icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
     theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UpdateRemoteTerminalTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-remote-terminal-tab/request'
+    surface: Id
+    session_name: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5012,6 +5116,8 @@ __all__ = [
     'GuestUrlClaimResult',
     'GuestUrlOpenResult',
     'GuestUrlSubscribeResult',
+    'HistorySearchHit',
+    'HistorySearchRange',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -5115,6 +5221,7 @@ __all__ = [
     'TerminalResources',
     'TerminalResourcesResult',
     'Tree',
+    'ViewportPaneWidthResult',
     'VtStateResult',
     'WaitForResult',
     'Workspace',
@@ -5220,6 +5327,11 @@ __all__ = [
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
+    'FeedLocalHandoffAbortRequest',
+    'FeedLocalHandoffBeginRequest',
+    'FeedLocalHandoffDoneRequest',
+    'FeedLocalListRequest',
+    'FeedLocalReadRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -5228,6 +5340,8 @@ __all__ = [
     'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
     'GetSizeStateRequest',
+    'HistorySearchRequest',
+    'HistorySearchResult',
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',
@@ -5279,6 +5393,7 @@ __all__ = [
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
+    'NewRemoteTerminalTabRequest',
     'NewRowRequest',
     'NewScreenRequest',
     'NewTabRequest',
@@ -5302,6 +5417,7 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoteTerminalSnapshotRequest',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
     'RemoveTabsFromTabGroupResult',
@@ -5378,6 +5494,7 @@ __all__ = [
     'UpdateFrontendBrowserTabRequest',
     'UpdatePersonalGroupRequest',
     'UpdateProfileRequest',
+    'UpdateRemoteTerminalTabRequest',
     'UpdateScreenGroupRequest',
     'UpdateTabGroupRequest',
     'UpdateWorkspaceGroupRequest',

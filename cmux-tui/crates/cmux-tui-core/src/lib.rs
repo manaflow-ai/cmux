@@ -17,6 +17,8 @@ pub use cmux_tui_util::backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
+/// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
+pub mod first_party_dir;
 mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
@@ -30,6 +32,7 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -166,8 +169,9 @@ pub use workspace_registry::{
     JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
-    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    RegistryCommit, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
+    SessionJournalPage, SessionJournalRecord, UnsupportedWorkspaceRegistrySchema,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

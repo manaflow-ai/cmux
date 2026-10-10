@@ -7,6 +7,7 @@ import Speech
 /// ended, and resampling can make a buffer a frame longer than the time to
 /// the next buffer's capture. A start never precedes the previous end; a
 /// real gap (a dropped tap buffer) is kept.
+@available(macOS 26, *)
 struct AnalyzerTimeline {
     /// Where the previous buffer ended.
     private var end: CMTime?

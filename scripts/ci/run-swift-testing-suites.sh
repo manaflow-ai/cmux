@@ -44,6 +44,14 @@ if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
   echo "CMUX_SWIFT_TEST_SUITE_JOBS must be a positive integer" >&2
   exit 2
 fi
+# A fleet step runs with the cores its worker granted it (CMUX_CI_CPU_BUDGET,
+# hq build-fleet internal/cpubudget). More suite processes than granted cores
+# oversubscribe a host that runs other steps too (2026-10-10: load 88 on 14
+# cores, and timing-sensitive suites failed), so the budget caps the jobs.
+if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]] && [ "$CMUX_CI_CPU_BUDGET" -lt "$suite_jobs" ]; then
+  echo "CMUX_CI_CPU_BUDGET=$CMUX_CI_CPU_BUDGET caps the suite jobs at $CMUX_CI_CPU_BUDGET (was $suite_jobs)"
+  suite_jobs="$CMUX_CI_CPU_BUDGET"
+fi
 lock_args=()
 [ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
 # CMUX_SWIFT_TEST_DIRECT=1 runs each suite from the built test bundle the way
@@ -185,17 +193,19 @@ if [ -n "${tree_path_job:-}" ]; then
 fi
 if [ "$direct" -eq 1 ]; then
   # Everything else the suites need from the toolchain, resolved once: the
-  # test bundle, and the two runners with the platform paths SwiftPM sets.
+  # test bundles, and the two runners with the platform paths SwiftPM sets.
+  # SwiftPM 6.3 builds one bundle for the package; SwiftPM 6.4 (Xcode 27)
+  # builds one per test target, and run_swift_test_bundle.py picks each
+  # test's bundle by its module name.
   phase direct-tools
-  bundles=()
+  bundle_args=()
   for candidate in "$bin_path"/*.xctest; do
-    [ -d "$candidate" ] && bundles+=("$candidate")
+    [ -d "$candidate" ] && bundle_args+=(--bundle "$candidate")
   done
-  if [ "${#bundles[@]}" -ne 1 ]; then
-    echo "error: expected one .xctest bundle in $bin_path, found ${#bundles[@]}; no .xctest bundle to run directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
+  if [ "${#bundle_args[@]}" -eq 0 ]; then
+    echo "error: no .xctest bundle in $bin_path to run directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
     exit 1
   fi
-  test_bundle="${bundles[0]}"
   xctest_tool="$(xcrun --find xctest)"
   testing_helper="$(dirname "$(xcrun --find swift-test)")/../libexec/swift/pm/swiftpm-testing-helper"
   platform_path="$(xcrun --sdk macosx --show-sdk-platform-path)"
@@ -207,7 +217,7 @@ if [ "$direct" -eq 1 ]; then
     fi
   done
   package_dir="$(cd "$package_path" && pwd -P)"
-  echo "Running suites directly from $test_bundle (CMUX_SWIFT_TEST_DIRECT=1)."
+  echo "Running suites directly from $((${#bundle_args[@]} / 2)) test bundle(s) in $bin_path (CMUX_SWIFT_TEST_DIRECT=1)."
 fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
@@ -242,7 +252,7 @@ attempt_suite() {
   local command
   if [ "$direct" -eq 1 ]; then
     command=(python3 "$script_dir/run_swift_test_bundle.py"
-      --bundle "$test_bundle" --xctest "$xctest_tool" --helper "$testing_helper"
+      "${bundle_args[@]}" --xctest "$xctest_tool" --helper "$testing_helper"
       --platform "$platform_path" --sdk "$sdk_path" --cwd "$package_dir"
       --tests "$evidence_dir/discovered-tests.txt" --xctest-tests "$evidence_dir/xctest-tests.txt"
       --filter "$suite")

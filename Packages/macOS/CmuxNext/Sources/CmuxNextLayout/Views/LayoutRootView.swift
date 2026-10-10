@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -39,6 +40,9 @@ public final class LayoutRootView: NSView {
     /// The zone hit the drop preview shows now; the next hit test holds it
     /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
     var tabDropHit: DropTarget?
+    /// The pane the current drag empties, as the last preview decided the
+    /// split room with it: the drop decides with the same pane (cx-ohle).
+    var tabDragRemoving: PaneID?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -148,7 +152,7 @@ public final class LayoutRootView: NSView {
     private func observe() {
         let model = model
         observationTask = Task { [weak self] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Snapshot(
                     screens: model.screens,
                     activeScreen: model.activeScreenID,

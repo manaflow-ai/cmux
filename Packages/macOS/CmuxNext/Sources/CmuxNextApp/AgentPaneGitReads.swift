@@ -33,10 +33,15 @@ final class AgentPaneGitLink {
         }
         do {
             let result = try await GitResourceClient(connection: connection).read(request.operation, params: request.sessionHostParams)
-            return try JSONEncoder().encode(result)
+            return try await Self.encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)
         }
+    }
+
+    /// A whole diff, status or search result can be megabytes of JSON: encoded off the main actor.
+    @concurrent private nonisolated static func encode(_ result: JSONValue) async throws -> Data {
+        try JSONEncoder().encode(result)
     }
 
     /// Opens the connection on the first read; afterwards it reconnects by
@@ -51,6 +56,14 @@ final class AgentPaneGitLink {
             if opening == task { opening = nil }
             throw error
         }
+    }
+
+    /// Ends the link for good (its machine left the app): closes the connection, which ends the drain.
+    func close() {
+        let opening = opening
+        self.opening = nil
+        // task-owner: one bounded close of a connection nothing else holds
+        Task { if let connection = try? await opening?.value { await connection.close() } }
     }
 
     private func open() -> Task<DaemonConnection, any Error> {
@@ -73,6 +86,36 @@ final class AgentPaneGitLink {
             }
             return connection
         }
+    }
+}
+
+/// One ``AgentPaneGitLink`` per machine. A chat tab's git reads go to the session
+/// host of the machine that holds it, so a Cloud or SSH chat's Changes and file search read the
+/// folder on that machine, never a folder of the same path on this Mac (cx-d0tq).
+final class AgentPaneGitLinks {
+    /// This Mac's link.
+    let local: AgentPaneGitLink
+    private let machines: MachineRegistry
+    private var remote: [ObjectIdentifier: AgentPaneGitLink] = [:]
+
+    init(machines: MachineRegistry) {
+        self.machines = machines
+        local = AgentPaneGitLink(daemon: machines.local)
+    }
+
+    /// The link of `daemon`'s machine, opened on first use. Links of machines that left the app
+    /// (removed, signed out) close here.
+    func link(for daemon: DaemonService) -> AgentPaneGitLink {
+        if daemon.isLocal { return local }
+        let live = Set(machines.remoteDaemons.map(ObjectIdentifier.init))
+        for (id, link) in remote where !live.contains(id) {
+            link.close()
+            remote[id] = nil
+        }
+        if let link = remote[ObjectIdentifier(daemon)] { return link }
+        let link = AgentPaneGitLink(daemon: daemon)
+        remote[ObjectIdentifier(daemon)] = link
+        return link
     }
 }
 

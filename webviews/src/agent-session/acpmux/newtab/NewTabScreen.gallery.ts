@@ -29,6 +29,35 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
   newSession: true,
 });
 
+// One page of the device chat index as the host answers `chats.page` (AllChatsList): titled
+// chats, untitled ones in several projects (named apart by their project), newest first.
+const CHAT_TITLES = [
+  "cmux-next chief",
+  "Browser use and cmux computer use for cmux-next",
+  "/loop keep improving things until we are at the theoretical limit for iteration speed",
+  "cx-4eho scope watch test",
+  "does it work for me? can i try it?",
+  "iMessage clone Swift demo for cmux",
+  "subscription extra usage: how much per account?",
+  "GPUI CEF browser with libghostty tabs",
+];
+const CHAT_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/.acpmux/tags/dev/unattended"];
+const allChatsPage = {
+  ready: true,
+  design: "age",
+  chats: Array.from({ length: 40 }, (_, index) => ({
+    key: `claude:chat-${index}`,
+    harness: index % 3 === 1 ? "codex" : "claude",
+    ...(index < CHAT_TITLES.length ? { title: CHAT_TITLES[index] } : {}),
+    cwd: CHAT_PROJECTS[index % CHAT_PROJECTS.length],
+    updatedAt: minutesAgo(index < 3 ? 0 : index * 2),
+  })),
+};
+const withAllChats = <V extends object>(variants: Record<string, V>) =>
+  Object.fromEntries(
+    Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
+  ) as Record<string, V>;
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -47,17 +76,27 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
+    "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "ui/VirtualList.tsx#VirtualList",
   ],
-  variants: {
+  variants: withAllChats({
     empty: {
       note: "No chats yet.",
       ready: newTab(),
       snapshot: noChat(),
     },
     "many-chats": {
-      note: "Recent chats as cards, the newest first.",
+      note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
       ready: newTab(),
       snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector(".nt-all-scroll")?.getBoundingClientRect();
+          const box = ctx.document.querySelector(".nt-box")?.getBoundingClientRect();
+          const row = ctx.document.querySelector(".nt-all-item:not(.is-loader)")?.getBoundingClientRect();
+          return !!list && !!box && !!row && row.top >= list.top - 1 && row.top >= box.bottom;
+        });
+      },
     },
     "long-title": {
       note: "A chat title far longer than its card.",
@@ -157,8 +196,27 @@ export default agentPaneEntry({
     },
     "template-classic": {
       note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
-      ready: newTab({ template: "classic" }),
+      ready: newTab({ template: "classic", templateSwitcher: true }),
       snapshot: noChat(manySessions(4)),
     },
-  },
+    "switcher-off": {
+      note: "The template switcher is off by default until it is styled (cx-7qqu): no dots.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-screen"));
+        if (ctx.document.querySelector(".nt-templates"))
+          throw new Error("the template dots show with the switcher off");
+      },
+    },
+    "switcher-on": {
+      note: "With Debug Settings newTab.templateSwitcher on, a dot switches the page in place (cx-7qqu).",
+      ready: newTab({ templateSwitcher: true }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        await ctx.click({ selector: '.nt-template-dot[data-template="threads"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="threads"]'));
+      },
+    },
+  }),
 });

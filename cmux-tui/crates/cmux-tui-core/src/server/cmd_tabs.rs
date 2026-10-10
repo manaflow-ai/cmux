@@ -437,12 +437,15 @@ pub(super) fn reopen_saved_tab_group(
     Ok(tab_group_outcome_json(&outcome))
 }
 
+/// `ack-tab-notifications`. `refused` lists the tab's unread local feed
+/// items that another owner holds (`feed-local-owner-v1`).
 pub(super) fn ack_tab_notifications(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let ack = mux.acknowledge_tab_notifications(surface)?;
     Ok(json!({
         "surface": surface,
         "cleared": ack.cleared,
         "acknowledged": ack.acknowledged,
+        "refused": crate::mux::feed_local::refused_json(&ack.refused),
     }))
 }
 
@@ -540,7 +543,10 @@ fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
     }
 }
 
-fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
+pub(super) fn surface_placement(
+    mux: &Mux,
+    surface: SurfaceId,
+) -> (Option<WorkspaceId>, Option<PaneId>) {
     mux.with_state(|state| {
         let pane = state.pane_of(surface);
         let workspace = pane

@@ -78,7 +78,8 @@ The Chief's tools are `zoom`, `date`, `spawn(tasks)` and `tell(id, message)`,
 all served by the host on `optchat/tools.sock` (the `optchat` MCP server on a
 Claude harness, `chief spawn|tell|zoom|date` on any other).
 
-- `spawn` waits for settle, renders the view, and starts one acpmux session per
+- `spawn` waits for settle (at most 10 s, as a turn does; then the lines
+  still building read as the placeholder), renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
   `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
   home; a directory that does not exist on the host is reported and
@@ -812,7 +813,8 @@ written (55%) with the session key alone. The compactor keeps its
 The team subrouter serves Claude Code clients: a raw Messages API call for a
 Claude model gets `429 rate_limit_error` every time (checked live on
 2026-10-04), so a compactor that calls the API there builds no node that
-needs a model, and every turn then waits on settle forever. The route is
+needs a model, and every turn then reads those lines unsummarized (a turn
+waits at most 10 s on compaction, see Deviations from the spec). The route is
 acpmux unless `OPTCHAT_COMPACTOR=api`:
 
 - `acpmux` (default):
@@ -820,8 +822,9 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   (claude-sr), as `mux/host/src/compactor.ts` does. The session runs with the
   `deny-all` policy and the compactor's own acpmux presets
   (`optchat-compact-<home id>-slot-<k>`, one per slot), which it requires: when acpmux refuses the
-  preset, no compactor session starts (nodes fail and are retried, and the
-  probe says why), so a node never runs with the user's `~/.claude` hooks,
+  preset, no compactor session starts (a setup error: the node is stuck at
+  once, no turn waits for it, it is retried every 5 min, and the probe says
+  why), so a node never runs with the user's `~/.claude` hooks,
   MCP servers or auto-memory. The preset sets `CLAUDE_CONFIG_DIR` to
   `optchat/compactor-claude` (not the turn agent's) and turns off
   auto-memory, CLAUDE.md files, bundled skills and Claude Code's own refusal
@@ -860,7 +863,13 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   retry that keeps its slot 28.1 min, and 4 spare sessions started ahead
   26.0 min (175 of 1,207 starts hidden, about 1 GB more); run-to-run noise
   is about 2 min. The time goes to one Claude Code process per call; the
-  reference calls the Messages API directly. Nothing pretends to be Claude Code and no API key is involved:
+  reference calls the Messages API directly. Most of a start under load is
+  Claude Code's start-up network calls (feature flags, telemetry): a start
+  takes 0.54 s alone, but 3-4.6 s (p50) and up to 17 s with 16 at once;
+  with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, 0.75 s and 1.2 s
+  (stub server, cmux-lawrence-2, 2026-10-10). The compactor presets set it
+  (its request keeps no tools and permission mode default; only two unused
+  betas go); turn and subagent sessions keep their feature flags. Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
@@ -1122,6 +1131,18 @@ the Too long retry, the 4-line cache blocks and single-flight. The replay
 test `optchat-core/tests/cache_replay.rs` pins the cache rate: turns 99.3%,
 compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 
+- Section 6, settle (chief 2026-10-10: a user turn never waits more than 10 s
+  on compaction). The spec starts no turn before every view line is a
+  summary. Here a turn waits at most `SETTLE_BOUND` (10 s) for lines that are
+  still building, then starts and reads them as the placeholder (`zoom` opens
+  them); the next turn reads their summaries. A node the compactor cannot
+  build at all (a setup error such as a missing acpmux preset or a refused
+  harness, or a request error on every try) is stuck at once and holds no
+  turn; the Chief status says why. The class rule: a user message never
+  waits more than 10 s on the compactor (a turn's start and `spawn` alike).
+  Cost: a deferred turn's cache mark covers a view with placeholders, so the
+  next turn, which reads the summaries there, misses the cache from that
+  line on once.
 - **Claude Code compactor tools.** Compactions send the turns' system text,
   but a compactor session keeps `--tools ""` and deny-all (isolation), so
   on the Claude Code route its tool prefix differs from the turns' and it
@@ -1215,8 +1236,11 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   being retried forever. On the acpmux route a refusal arrives as acpmux
   sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
   refusal text, which always links `anthropic.com/legal/aup`; a usage limit
-  or an overload is not a refusal and is retried. Other failures retry every 10 s forever, as the spec
-  says; after a minute of waiting the conversation hears which line fails.
+  or an overload is not a refusal and is retried. Other failures retry with
+  a growing wait; a node that fails every try, or fails with a setup error,
+  is stuck: it holds no turn, it is retried every 5 min, and the
+  conversation hears once which line is stuck and why (retracted once it is
+  built). See the Section 6 item above for the 10 s bound.
 - **Subagents (section 9).** `spawn`/`tell` follow the spec (see Subagents);
   `tell` lands after the subagent's current turn. The older `chief agents`
   children (named, any harness) still work and report alone, one
@@ -1317,22 +1341,14 @@ build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux
 
 ## Tests
 
-Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
+Only boundary tests are kept (the binary, real sockets, child processes,
+the shared corpus, live and replay checks, benches). Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
 cmux checkout), in each of optchat-core, optchat-host and optchat-chief:
 
 ```bash
 umask 022; cargo test --release; cargo clippy --release --all-targets -- -D warnings; cargo fmt --check
 ```
 
-`tests/brain.rs` runs the brain against in-process fakes of both owners;
-`tests/compactor.rs` runs the acpmux compactor route against the fake acpmux
-port (one session per node, size loop in it, purge and transcript deletion,
-one JOBS gate across main and fallback, refusals as acpmux sends them, the
-probe's fallback and isolation checks, per-node token lines, route choice,
-the start-up notice, the cached layout's system prompt file and single
-marker, the retry without the marker, the old layout without preset args); `tests/audit3.rs` covers interrupts on the acpmux
-engine and home-scoped turn names, `tests/native.rs` interrupts on the
-native engine;
 `tests/harness.rs` covers the harness switch, the Claude turn layout (preset system prompt, one marker, no CLAUDE.md, the 4-breakpoint rerun, the old layout), the codex turn layout and AGENTS.md, both usage shapes (also when the answer follows `turn_end`), `chief zoom`/`date`, and the `cmux.chief` tags;
 `tests/acpmux_wire.rs` (preset args, `systemPrompt` and their feature detection, session tags included) and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
@@ -1342,9 +1358,5 @@ each transaction boundary of logging a message and folding a turn and
 checks that a fresh brain logs each message and step exactly once, and that
 an old host.json moves into the database once; `tests/backup.rs` pushes to a
 local bare repository (holds on a secret, retries offline, never forces).
-In optchat-host, `tests/migrate.rs` migrates `tests/fixtures/old-home`
-(written by the line store at 07a17e8a78d) and checks the view, the counts,
-the kept files, the byte-identical export and a crash during the migration;
-`tests/sqlite.rs` covers search, the incremental export, a reader during
-writes and crashes inside an append and a node write; `tests/bench.rs` is
+In optchat-host, `tests/bench.rs` is
 the ignored benchmark above.

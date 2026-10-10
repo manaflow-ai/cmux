@@ -21,6 +21,7 @@
 
 mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
+use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
@@ -106,6 +107,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
 
@@ -264,8 +266,14 @@ pub struct PresentationSnapshot {
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
     /// `conversation-tabs-v1` records keyed by public browser id.
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
+    /// `remote-terminal-tabs-v1` references keyed by public browser id.
+    pub remote_terminals: HashMap<String, RemoteTerminalRecord>,
     /// Key of the store's home workspace (`workspace-kind-v1`), if any.
     pub home_workspace: Option<String>,
+    /// The app of every live app workspace, by workspace key (`app-screens-v1`).
+    pub app_workspaces: HashMap<String, String>,
+    /// App tab records, by public browser id (`app-screens-v1`).
+    pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
@@ -1130,53 +1138,6 @@ impl WorkspaceRegistry {
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<HashSet<_>, _>>()?;
         Ok(ids)
-    }
-
-    /// Durably acknowledge notifications, then drop acknowledgements of
-    /// notifications no longer retained by committed receipts. Returns how
-    /// many ids were newly acknowledged.
-    pub fn ack_notifications_durable(
-        &mut self,
-        notification_ids: &[String],
-        acked_at_ms: u64,
-        subjects: Vec<JournalSubject>,
-    ) -> anyhow::Result<usize> {
-        if notification_ids.is_empty() {
-            return Ok(0);
-        }
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        let mut added = 0;
-        for id in notification_ids {
-            anyhow::ensure!(
-                id.starts_with("notification_") && id.len() <= 64,
-                "bad request: invalid notification id {id}"
-            );
-            added += tx.execute(
-                "INSERT OR IGNORE INTO notification_acks(notification_id, acked_at_ms)
-                 VALUES(?1, ?2)",
-                params![id, i64::try_from(acked_at_ms)?],
-            )?;
-        }
-        tx.execute(
-            "DELETE FROM notification_acks WHERE notification_id NOT IN (
-               SELECT json_extract(outcome_json, '$.value.id')
-               FROM resource_effect_receipts
-               WHERE operation = 'notification.create' AND state = 'committed'
-                 AND json_extract(outcome_json, '$.value.id') IS NOT NULL
-             )",
-            [],
-        )?;
-        if added > 0 {
-            append_presentation_record(
-                &tx,
-                "notification.acknowledged",
-                subjects,
-                &json!({"notification_ids": notification_ids, "acked_at_ms": acked_at_ms}),
-            )?;
-        }
-        tx.commit()?;
-        Ok(added)
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).

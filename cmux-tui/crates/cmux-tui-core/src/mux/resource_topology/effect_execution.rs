@@ -2,6 +2,7 @@
 
 use super::client_ids::{requested_client_pane_id, requested_client_tab_id};
 use super::*;
+use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 
 impl Mux {
     pub(super) fn resource_topology_effect_intent(
@@ -433,12 +434,20 @@ impl Mux {
                     None => {
                         let (workspace_key, workspace_public_id, workspace_mutation) =
                             self.effect_workspace_reservation(intent)?;
+                        // `app-screens-v1`: the app workspace and its kind
+                        // row are staged together with the app tab.
+                        let mark = match fields.get(APP_WORKSPACE_FIELD).and_then(Value::as_str) {
+                            Some(app) => {
+                                crate::state::home_store::EmptyWorkspaceMark::App(app.to_string())
+                            }
+                            None => crate::state::home_store::EmptyWorkspaceMark::None,
+                        };
                         let placement = self.create_empty_workspace_for_resource_effect(
-                            None,
+                            optional_owned_string(fields, APP_WORKSPACE_NAME_FIELD)?,
                             Some(workspace_key),
                             workspace_public_id,
                             &workspace_mutation,
-                            false,
+                            mark,
                         )?;
                         self.create_browser_surface_in_workspace(
                             placement.workspace,
@@ -618,7 +627,7 @@ impl Mux {
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
-            ephemeral,
+            crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
         )?;
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
@@ -787,6 +796,15 @@ impl Mux {
                 })
             })
             .transpose()?;
+        let operation = if direction.is_some() {
+            ResourceOperation::PaneSplit
+        } else {
+            ResourceOperation::PaneCreate
+        }
+        .wire_name();
+        if viewport_width.is_none() {
+            self.with_state(|state| ensure_pane_column_not_agent_chat(operation, state, target))?;
+        }
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
@@ -823,6 +841,9 @@ impl Mux {
             let Some((workspace, screen_index)) = state.screen_of(target) else {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
+            if viewport_width.is_none() {
+                ensure_pane_column_not_agent_chat(operation, &state, target)?;
+            }
             let workspace_id = state.workspaces[workspace].id;
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
             let screen = &mut state.workspaces[workspace].screens[screen_index];

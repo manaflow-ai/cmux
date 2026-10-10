@@ -62,7 +62,7 @@ extension AgentTabStore {
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(tag: services.environment.tag, registry: services.registry,
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, git: services.agentGit, settings: services.settings)
+                                 linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
@@ -97,6 +97,18 @@ extension AgentTabStore {
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
+        }
+        tabs.locate = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
+            return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
+        }
+        // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
+        // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
+        tabs.gitLink = { [weak services, weak tabs] key in
+            guard let services else { return nil }
+            guard let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession,
+                  AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .remote else { return services.agentGit.local }
+            return services.agentGit.link(for: services.machines.daemon(forTab: tab))
         }
         tabs.remoteHost = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let session = tab.agentSession?.session else { return nil }

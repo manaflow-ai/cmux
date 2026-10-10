@@ -9,6 +9,7 @@ import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_ROW } from "./subagents/subagentRows";
+import type { ComposerAttachment } from "./attachments";
 
 export type AcpmuxRow = {
   id: string;
@@ -26,6 +27,9 @@ export type AcpmuxRow = {
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// The originating prompt row, so Retry can restore image/PDF attachments.
+  retryRowId?: string;
+  retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
@@ -156,6 +160,9 @@ export type AcpmuxSnapshot = {
   origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
+  /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
+  /// events carry the peer's clock; unset when they share a clock or it is not known yet.
+  clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
   canHandoff?: boolean;

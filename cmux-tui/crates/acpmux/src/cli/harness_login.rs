@@ -120,6 +120,7 @@ struct Started {
 
 impl Drop for Started {
     fn drop(&mut self) {
+        #[cfg(unix)]
         if let Some(pid) = self.child.id() {
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);
@@ -386,7 +387,3 @@ pub async fn run_cmd(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "harness_login_tests.rs"]
-mod tests;

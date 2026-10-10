@@ -27,7 +27,18 @@ extension InternalPageTabStore {
             if focus { reveal(found.key, in: pane) }
             return view(for: found.key)
         }
-        guard let pane = content.focusedPane ?? panes.first else { return nil }
+        return openNew(page, in: window, focus: focus)
+    }
+
+    /// One more tab of `page` after `window`'s focused pane's selected tab,
+    /// even when the window lists one already (`home.tab`): a store tab
+    /// where the pane's daemon holds page tabs, else an app-only one. Focus
+    /// as in ``show(_:in:focus:)``. Nil when `window` has no pane.
+    @discardableResult
+    func openNew(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
+        guard let window else { return nil }
+        if focus { window.leaveTopPage() }
+        guard let content = window.workspaceContent, let pane = content.focusedPane ?? content.panes.values.first else { return nil }
         if let view = openStoreTab(page, in: pane, window: window, focus: focus) { return view }
         let key = open(page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue, window: window)
         pane.apply(pane.snapshot())

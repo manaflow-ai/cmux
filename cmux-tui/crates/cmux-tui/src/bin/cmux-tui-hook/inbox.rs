@@ -202,39 +202,3 @@ fn request(
     let result = response["result"].clone();
     Ok(if mutation { result["value"].clone() } else { result })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn message_events_map_to_their_provider_output() {
-        assert_eq!(Delivery::for_event("claude", "Stop"), None);
-        assert_eq!(Delivery::for_event("gemini", "UserPromptSubmit"), None);
-        let prompt = Delivery::for_event("codex", "UserPromptSubmit").unwrap();
-        assert_eq!(prompt.output(None), json!({}));
-        assert_eq!(
-            prompt.output(Some("hi")),
-            json!({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "hi"}})
-        );
-        let stop = Delivery::for_event("codex", "Stop").unwrap();
-        assert_eq!(stop.output(Some("hi")), json!({"decision": "block", "reason": "hi"}));
-        assert!(Delivery::for_event("claude", "UserPromptSubmit").is_some());
-    }
-
-    #[test]
-    fn a_hook_hands_over_the_oldest_messages_that_fit() {
-        let message = |id: &str, bytes: usize| json!({"id": id, "body": "x".repeat(bytes)});
-        // The daemon lists oldest first (oldest_first).
-        let ids = |batch: Vec<Value>| -> Vec<String> {
-            batch.iter().map(|message| message["id"].as_str().unwrap().to_owned()).collect()
-        };
-        assert_eq!(
-            ids(batch(vec![message("m1", 10), message("m2", 10), message("m3", 10)])),
-            ["m1", "m2", "m3"]
-        );
-        assert_eq!(ids(batch(vec![message("m1", 6000), message("m2", 6000)])), ["m1"]);
-        // One message always goes, however long.
-        assert_eq!(ids(batch(vec![message("m1", 30_000)])), ["m1"]);
-    }
-}

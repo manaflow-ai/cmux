@@ -315,6 +315,7 @@ fn tab_request(y: f64, source_machine: Option<&str>) -> TabRequest {
         section_top_fraction: SECTION_TOP_FRACTION,
         tab_into_start: TAB_INTO_START,
         tab_into_end: TAB_INTO_END,
+        reorders_tab_rows: false,
     }
 }
 

@@ -28,7 +28,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     }
     // cmux: built on first use in init, never an IUO (crash program).
     private let pillHolder = PassThroughView()
-    private lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
+    private(set) lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
     /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
     /// pane: the pill moves from the accessory's center to the transcript's.
     func centerPill() {
@@ -57,8 +57,12 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         toolbar.showsBaselineSeparator = false
         toolbar.centeredItemIdentifiers = [Self.avatarID]
 
-        pill.bezelStyle = .glass
-        pill.borderShape = .capsule
+        if #available(macOS 26, *) { // cmux: macOS 14 has no glass bezel
+            pill.bezelStyle = .glass
+            pill.borderShape = .capsule
+        } else {
+            pill.bezelStyle = .push
+        }
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
@@ -85,6 +89,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             pill.heightAnchor.constraint(equalToConstant: 28),
         ])
         accessory.view = holder
+        holder.onLayout = { [weak self] in self?.centerPill() }
         accessory.layoutAttribute = .bottom
         if #available(macOS 26.1, *) { accessory.preferredScrollEdgeEffectStyle = .soft }
         applyTitle()
@@ -321,6 +326,14 @@ private final class AvatarLane: NSView {
 /// The contact pill's title and chevron, drawn over the glass button (clicks pass to it).
 private final class PillContentView: NSView {
     var title = "" { didSet { needsDisplay = true } }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // Drawn when the title changes, not when the pill moves (it moves at every width of a
+        // live resize; the default policy redrew it in each frame).
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+    required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) { HeaderBar.drawPillContent(title, in: bounds) }
@@ -328,9 +341,22 @@ private final class PillContentView: NSView {
 
 /// The name pill's accessory: only the pill takes clicks (the sidebar's controls sit under
 /// the accessory's empty sides).
+/// Its layout re-centres the pill (`onLayout`): the pill's offset depends on this view's frame in
+/// the window, which AppKit's titlebar can change after the content's own layout reported the
+/// content leading (a sidebar collapse moves the accessory from the detail pane to the window).
 private final class PassThroughView: NSView {
+    var onLayout: (() -> Void)?
     override func hitTest(_ point: NSPoint) -> NSView? {
         let v = super.hitTest(point)
         return v === self ? nil : v
+    }
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if moved { needsLayout = true }
+    }
+    override func layout() {
+        onLayout?()
+        super.layout()
     }
 }

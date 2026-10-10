@@ -36,8 +36,15 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
     bridge.receive(structuredClone(snapshot));
   };
+  const next = (method: string | undefined) => {
+    const after =
+      method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
+    // In a task after the answer, as the app's transport sends a snapshot.
+    if (after) setTimeout(() => window.cmuxAcpmuxBridge?.receive(structuredClone(after)), 0);
+  };
   const handle = (message: Message) => {
     context.log(message.method ?? "?", message.params);
+    next(message.method);
     switch (message.method) {
       case "ready":
         // The snapshot follows the answer, as the app's transport sends it: in a task after the

@@ -4,6 +4,7 @@ import { clearSignInRules } from "../src/policy-gate.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { call, deliver, mirroredTeam, teamIdOf, teamStub } from "./team-stack-support.ts"
 import { inDO, sessionToken, testEnv } from "./team-ssh-support.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 const userStub = (user: string) => testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
 

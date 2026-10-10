@@ -1,5 +1,6 @@
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -13,7 +14,7 @@ extension BookmarkService {
     func observeHome() {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            for await serves in Observations({ [weak self] in self?.usesDaemon ?? false }) {
+            for await serves in ObservationStream({ [weak self] in self?.usesDaemon ?? false }) {
                 guard let self else { return }
                 fetched.removeAll()
                 if serves {

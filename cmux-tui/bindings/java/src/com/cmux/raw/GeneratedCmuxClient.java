@@ -413,6 +413,31 @@ public abstract class GeneratedCmuxClient {
         return ExportLayoutResult.fromWire(result);
     }
 
+    public final Object feedLocalHandoffAbort(FeedLocalHandoffAbortRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_ABORT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalHandoffBegin(FeedLocalHandoffBeginRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_BEGIN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalHandoffDone(FeedLocalHandoffDoneRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_DONE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalList(FeedLocalListRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_LIST, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalRead(FeedLocalReadRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);
@@ -451,6 +476,11 @@ public abstract class GeneratedCmuxClient {
     public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
         Object result = execute(Commands.GET_SIZE_STATE, request.toWire());
         return GetSizeStateResult.fromWire(result);
+    }
+
+    public final HistorySearchResult historySearch(HistorySearchRequest request) throws CmuxException {
+        Object result = execute(Commands.HISTORY_SEARCH, request.toWire());
+        return HistorySearchResult.fromWire(result);
     }
 
     public final IdentifyResult identify() throws CmuxException {
@@ -678,6 +708,11 @@ public abstract class GeneratedCmuxClient {
         return PaneSurfaceResult.fromWire(result);
     }
 
+    public final Object newRemoteTerminalTab(NewRemoteTerminalTabRequest request) throws CmuxException {
+        Object result = execute(Commands.NEW_REMOTE_TERMINAL_TAB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final NewRowResult newRow(NewRowRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_ROW, request.toWire());
         return NewRowResult.fromWire(result);
@@ -781,6 +816,11 @@ public abstract class GeneratedCmuxClient {
     public final ReloadConfigResult reloadConfig() throws CmuxException {
         Object result = execute(Commands.RELOAD_CONFIG, Map.of());
         return ReloadConfigResult.fromWire(result);
+    }
+
+    public final Object remoteTerminalSnapshot(RemoteTerminalSnapshotRequest request) throws CmuxException {
+        Object result = execute(Commands.REMOTE_TERMINAL_SNAPSHOT, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final Object removeScreensFromScreenGroup(RemoveScreensFromScreenGroupRequest request) throws CmuxException {
@@ -1003,9 +1043,9 @@ public abstract class GeneratedCmuxClient {
         return SetTerminalKeepResult.fromWire(result);
     }
 
-    public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
+    public final ViewportPaneWidthResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
-        return EmptyResult.fromWire(result);
+        return ViewportPaneWidthResult.fromWire(result);
     }
 
     public final EmptyResult setWindowTitle(SetWindowTitleRequest request) throws CmuxException {
@@ -1137,6 +1177,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object updateProfile(UpdateProfileRequest request) throws CmuxException {
         Object result = execute(Commands.UPDATE_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object updateRemoteTerminalTab(UpdateRemoteTerminalTabRequest request) throws CmuxException {
+        Object result = execute(Commands.UPDATE_REMOTE_TERMINAL_TAB, request.toWire());
         return Wire.immutableJson(result);
     }
 

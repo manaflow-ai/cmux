@@ -21,8 +21,6 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
-    /// The members' bar starts under the chip (the members' rows continue it).
-    private let connector = CALayer()
     /// The more button (⋮): the group editor. Shows on hover and while the editor is open.
     let moreButton = SidebarIconButton(symbol: "ellipsis", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
                                        label: GroupEditorStrings.more)
@@ -30,7 +28,6 @@ final class GroupHeaderRowView: SidebarRowView {
     private var hasIcon = false
     private var color: GroupColor = .grey
     private var collapsed = false
-    private var hasMembers = false
     private var chevronFrame: CGRect = .zero
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
@@ -43,9 +40,8 @@ final class GroupHeaderRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        layer?.addSublayer(connector)
         layer?.addSublayer(pill)
-        for sublayer in [pill, connector] { sublayer.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()] }
+        pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         glyph.drawsUncoloredSymbolAsText = true
         // The more glyph stands upright (⋮), like the Chrome chip's.
         moreButton.image = Self.verticalEllipsis()
@@ -83,7 +79,6 @@ final class GroupHeaderRowView: SidebarRowView {
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
-        hasMembers = row.childCount > 0
         chevron.image = Self.chevronImage(collapsed: collapsed)
         moreButton.image = Self.verticalEllipsis()
         activity.configure(collapsed ? group.aggregateActivity : .idle)
@@ -184,6 +179,9 @@ final class GroupHeaderRowView: SidebarRowView {
         // (the sidebar density: compact 24, comfortable 32 pt).
         let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
         let pad = (barHeight * 0.62).rounded()
+        // The name starts where a loose workspace's title does (cx-qno.17:
+        // less room before the name); the chevron keeps its own margin.
+        let lead = SidebarStyle.titleLeading
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         let chevronSide = max(Metrics.smallIconSize - Metrics.space1, (barHeight * 0.46).rounded())
@@ -212,8 +210,8 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
-        glyph.frame = NSRect(x: pad - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
-        let nx = pad + (hasIcon ? glyphSide : 0)
+        glyph.frame = NSRect(x: lead - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        let nx = lead + (hasIcon ? glyphSide : 0)
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - nx))
@@ -224,7 +222,8 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.isHidden = renaming
         pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
         pill.cornerRadius = (barHeight * 0.23).rounded()
-        connector.isHidden = true
+        // The members' line starts under this bar: one layer per group
+        // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
     }
 

@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -19,7 +20,7 @@ extension HomeService {
         cloudLinker = linker
         // task-owner: lives as long as the service; event-driven (Observation)
         cloudLink = Task {
-            for await link in Observations({
+            for await link in ObservationStream({
                 let connection = local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil
                 return HomeCloudLink.Link(endpoint: connection.map(CloudConversationClient.init),
                                           id: connection.map(ObjectIdentifier.init),

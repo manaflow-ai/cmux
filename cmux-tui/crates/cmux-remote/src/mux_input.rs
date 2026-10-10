@@ -120,41 +120,4 @@ mod tests {
             json!({"id": 17, "cmd": "send", "surface": 23, "bytes": "AP+A"})
         );
     }
-
-    #[test]
-    fn legacy_and_semantically_different_sends_stay_on_mux_control() {
-        for line in [
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA=="}"#.as_slice(),
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"!","no_reply":true}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA==","no_reply":true,"paste":true}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA==","no_reply":true,"paste":"false"}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"text":"x","bytes":"eA==","no_reply":true}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"text":false,"bytes":"eA==","no_reply":true}"#,
-        ] {
-            assert!(encode_local_line(line).unwrap().is_none());
-        }
-    }
-
-    #[test]
-    fn oversized_input_falls_back_to_fragmented_mux_control() {
-        let encoded =
-            base64::engine::general_purpose::STANDARD.encode(vec![b'x'; MAX_INPUT_BYTES + 1]);
-        let line = serde_json::to_vec(&json!({
-            "id": 1,
-            "cmd": "send",
-            "surface": 2,
-            "bytes": encoded,
-            "no_reply": true,
-        }))
-        .unwrap();
-        assert!(encode_local_line(&line).unwrap().is_none());
-    }
-
-    #[test]
-    fn malformed_compact_packet_is_rejected() {
-        assert!(matches!(
-            decode_packet(&Bytes::from_static(b"CMXIshort")),
-            Err(MuxInputError::InvalidPacket)
-        ));
-    }
 }

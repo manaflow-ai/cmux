@@ -1,29 +1,27 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
-import CmuxNextDaemon
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
-import Synchronization
 
-/// App platform in the App (plans/cmux-next/app-platform.md), DEV
-/// prototype: the prototype registry, the JavaScriptCore app host with its
-/// operation sink, and catalog event fan-out from the control snapshot.
-/// The router-backed sink attaches when the control socket starts; calls
-/// before that answer `unavailable`.
+/// App platform in the App (plans/cmux-next/app-platform.md section 13):
+/// the client of the local daemon's app supervisor (`apps-v1`). The
+/// supervisor owns installs, grants, storage and the app hosts; this service
+/// mirrors them (`client`), serves the Mac-side app op families over the
+/// provider channel once the control router exists, and owns the App
+/// Store's and the app pages' tabs. Nothing here runs app code.
 @MainActor
 final class AppsService {
     unowned let services: AppServices
-    let registry: AppRegistry
-    let host: AppHost
-    let storage: AppStorageStore
-    private let sink = DeferredAppSink()
+    let transport: DaemonAppsTransport
+    let client: AppsClient
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
     private var coderouterPage: CodeRouterPageTab?
-    private var fingerprints: [String: Int] = [:]
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
@@ -33,54 +31,51 @@ final class AppsService {
     private var appPages: [String: AppPanePage] = [:]
     /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
     private var webStorePages: [String: PageWebView] = [:]
-    /// The App Store tabs (internal page), one store model per tab.
-    /// Captures the store's parts, not the service, so a page set that outlives
-    /// the service still makes models.
-    private(set) lazy var storePages = AppStorePages { [weak self, registry = self.registry, host = self.host, previewHost = self.previewHost, storage = self.storage] in
-        Self.makeStoreModel(registry: registry, host: host, previewHost: previewHost, storage: storage) {
-            self?.services.locationTrail.pageHistoryDidChange()
-        }
+    /// The App Store tabs (internal page), one store model per tab over the
+    /// one client. Captures the client, not the service, so a page set that
+    /// outlives the service still makes models.
+    private(set) lazy var storePages = AppStorePages { [weak self, client = self.client] in
+        let model = AppStoreModel(client: client)
+        model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
+        return model
     }
-    /// Runs previews of apps that are not installed (sample data, no grant).
-    private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
     init(services: AppServices) {
         self.services = services
-        let directory = AppRegistryFile.appsDirectory(tag: services.environment.tag)
-        registry = AppRegistry(directory: directory)
-        storage = AppStorageStore(directory: directory.appending(path: "storage", directoryHint: .isDirectory))
-        host = AppHost(sink: sink)
-        host.grants = { [weak self] manifest in
-            self?.registry.app(manifest.id)?.grants ?? AppGrants.Snapshot(scopes: [], sandboxed: true)
-        }
-        registry.onChange = { [weak self] app in self?.host.refreshGrants(app.manifest) }
+        transport = DaemonAppsTransport(daemon: services.daemon)
+        client = AppsClient(transport: transport)
     }
 
-    /// Turning apps off stops every running app and refuses new starts
-    /// (DisabledFeatures); open app pages show "Turned off by your organization".
+    /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
+    /// from this Mac: every mount ends on the supervisor, nothing mounts,
+    /// every change is refused, and open app sections and pages show
+    /// "Turned off by your organization".
     func applyPolicy(disabled: Bool) {
-        host.disabledReason = disabled ? RefusalStrings.turnedOffByOrganization : nil
+        // The mounts end on the supervisor first (in order on the client's chain); a reconnect remounts them.
+        if disabled, transport.turnedOff == nil { client.suspendMounts() }
+        transport.turnedOff = disabled ? RefusalStrings.turnedOffByOrganization : nil
+    }
+
+    /// What the local daemon's supervisor needs from this app at launch: the
+    /// first-party app packages shipped in the app bundle (its default apps).
+    nonisolated static var daemonEnvironment: [String: String] {
+        ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
     }
 
     func start() {
-        // task-owner: one-shot registry scan at launch; an open store lists the result.
-        Task { [weak self] in
-            await self?.registry.load()
-            self?.storePages.refreshAll()
-        }
+        client.start()
+        // task-owner: one off-main load of the bundled package directories and the scope table at launch
+        Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
 
-    /// Wires the sink to the control router (reads, action.run) and the daemon.
+    /// Serves the Mac-side app op families (`coderouter`, `action`) on the
+    /// control router through the supervisor's provider channel.
     func attach(router: ControlRouter) {
         controlRouter = router
-        let daemon = services.daemon
-        let ledger: @Sendable () async throws -> [ListNotificationsRequest.Entry] = {
-            guard let connection = await MainActor.run(body: { daemon.connection }) else {
-                throw AppOperationError(code: "unavailable", message: "the daemon is not connected", retryable: true)
-            }
-            return try await connection.notificationLedger(limit: 200)
+        let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in
+            try await router.appControl(method, params)
         }
-        sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control)]))
     }
 
     /// Opens the App Store (palette "App Store", `appStore.show`): a user
@@ -116,24 +111,29 @@ final class AppsService {
     }
 
     /// Opens an app's page as a tab of the active window (one per window),
-    /// then runs `command` (a `contributes.commands` id) in the app when
-    /// given, for example CodeRouter's connectAccount. User runs select and
+    /// then runs `command` (one of the app's palette ops, by name or its last
+    /// segment, for example CodeRouter's connectAccount) in the app when
+    /// given. User runs select and
     /// focus the tab; automation opens it without moving focus.
-    func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
-        guard let app = registry.app(appID), app.isActive else { throw .unknownApp }
-        let codeRouter = appID == CodeRouterPageTab.appID && PageTunables.coderouter.value == .web
-        if codeRouter, command == nil, let provider = pageProvider(appID: appID) {
+    /// The CodeRouter web page opens without the apps client (it talks to
+    /// this Mac's CodeRouter ops, not to the supervisor). Returns the
+    /// command's run, whose failure the caller reports.
+    @discardableResult
+    func openApp(_ appID: String, command: String? = nil, focus: Bool = true, origin: ActionOrigin = .user) throws(AppsServiceError) -> ActionWork? {
+        if appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web, command == nil,
+           let provider = pageProvider(appID: appID) {
             guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
-            return
+            return nil
         }
+        if let reason = client.unavailableReason { throw .unavailable(reason) }
+        guard let app = client.app(appID), app.isActive else { throw .unknownApp }
         guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
         guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
-        if let command {
-            guard let entry = AppCommandPalette.entries(registry, includingNonPalette: true).first(where: { $0.app.id == appID && $0.command.id == command }) else {
-                throw .unknownCommand
-            }
-            AppCommandPalette.run(entry, services: services)
+        guard let command else { return nil }
+        guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {
+            throw .unknownCommand
         }
+        return AppCommandPalette.run(AppCommandPalette.Entry(app: app, command: found), services: services, origin: origin)
     }
 
     /// The page provider of app `appID` (registered on first use): CodeRouter's
@@ -147,50 +147,13 @@ final class AppsService {
             }
             return tab
         }
-        guard let app = registry.app(appID), app.isActive, AppPanePage.opens(app) else { return nil }
+        guard let app = client.app(appID), app.isActive, AppPanePage.opens(app) else { return nil }
         let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
         if appPages[appID] == nil {
             appPages[appID] = provider
             services.pages.register(provider)
         }
         return provider
-    }
-
-    private static func makeStoreModel(registry: AppRegistry, host: AppHost, previewHost: AppHost, storage: AppStorageStore,
-                                       onNavigate: @escaping () -> Void) -> AppStoreModel {
-        let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
-        model.onRemoved = { [storage] id in await storage.clear(app: id) }
-        model.onNavigate = onNavigate
-        return model
-    }
-
-    /// Posts `<family>.changed` for streams an app listens to, when the
-    /// published mirror changed for that family.
-    func topologyPublished(_ topology: ControlTopology) {
-        let active = host.events.activeStreams
-        guard !active.isEmpty else { return }
-        for (stream, value) in AppTopologyReads.fingerprints(topology) where active.contains(stream) {
-            if fingerprints[stream] != value {
-                let first = fingerprints[stream] == nil
-                fingerprints[stream] = value
-                if !first { host.events.post(stream) }
-            }
-        }
-    }
-}
-
-/// The sink the host holds from launch; the real one attaches when the
-/// control router exists.
-nonisolated final class DeferredAppSink: AppOperationSink, Sendable {
-    private let inner = Mutex<(any AppOperationSink)?>(nil)
-
-    func attach(_ sink: any AppOperationSink) { inner.withLock { $0 = sink } }
-
-    func perform(_ request: AppOperationRequest) async -> Result<AppOperationResult, AppOperationError> {
-        guard let sink = inner.withLock({ $0 }) else {
-            return .failure(AppOperationError(code: "unavailable", message: "cmux is still starting", retryable: true))
-        }
-        return await sink.perform(request)
     }
 }
 
@@ -235,5 +198,7 @@ extension AppsService: InternalPageProvider {
 
 enum AppsServiceError: Error {
     case unknownApp, noPage, noWindow, unknownCommand
+    /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
+    case unavailable(AppsUnavailableReason)
 }
 

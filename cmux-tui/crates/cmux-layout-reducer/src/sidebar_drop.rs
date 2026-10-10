@@ -140,9 +140,23 @@ pub enum Target {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TabDrop {
-    IntoWorkspace { workspace: String },
-    NewWorkspace { section: SectionId, group: Option<String>, index: i32 },
-    IntoGroup { group: String },
+    IntoWorkspace {
+        workspace: String,
+    },
+    NewWorkspace {
+        section: SectionId,
+        group: Option<String>,
+        index: i32,
+    },
+    IntoGroup {
+        group: String,
+    },
+    /// Onto a tab row's edge: before `tab` in its pane (rapid-switch item 3,
+    /// a tab row reorders like a strip tab).
+    BeforeTab {
+        workspace: String,
+        tab: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -168,6 +182,10 @@ pub struct TabRequest {
     pub tab_into_start: f64,
     #[serde(default = "default_tab_into_end")]
     pub tab_into_end: f64,
+    /// A tab drag (not a workspace or screen drag): a tab row's edge
+    /// answers `BeforeTab`.
+    #[serde(default)]
+    pub reorders_tab_rows: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -534,6 +552,14 @@ pub fn resolve(request: &Request) -> Option<Target> {
     Some(target)
 }
 
+/// The tab row right below `row` when it lists the same workspace's tab.
+fn next_tab_row<'a>(row: &Row, rows: &'a [Row]) -> Option<&'a Row> {
+    let index = rows.iter().position(|candidate| candidate == row)?;
+    let next = rows.get(index + 1)?;
+    matches!((&row.key, &next.key), (RowKey::Tab { workspace: a, .. }, RowKey::Tab { workspace: b, .. }) if a == b)
+        .then_some(next)
+}
+
 /// Resolves a tab dragged in from a pane.
 pub fn resolve_tab_drop(request: &TabRequest) -> Option<TabDrop> {
     let (row, fraction) = hit(request.y, &request.rows)?;
@@ -546,9 +572,25 @@ pub fn resolve_tab_drop(request: &TabRequest) -> Option<TabDrop> {
         RowKey::Tab { workspace, .. } => Some(workspace.as_str()),
         _ => None,
     };
-    if let Some(id) = target_workspace
-        .filter(|_| (request.tab_into_start..=request.tab_into_end).contains(&fraction))
+    let into = (request.tab_into_start..=request.tab_into_end).contains(&fraction);
+    if let (RowKey::Tab { workspace: id, .. }, false, true) =
+        (&row.key, into, request.reorders_tab_rows)
     {
+        // A tab row's top edge goes before that tab; its bottom edge before
+        // the next tab row of the workspace. The last tab row's bottom edge
+        // stays the gap after the workspace (new workspace).
+        let before = if fraction < request.tab_into_start {
+            Some(row)
+        } else {
+            next_tab_row(row, &request.rows)
+        };
+        if let Some(RowKey::Tab { id: tab, .. }) = before.map(|row| &row.key) {
+            let ws = workspace(id, &request.sections)?;
+            return machine_ok(Some(ws.machine.as_str()))
+                .then(|| TabDrop::BeforeTab { workspace: id.clone(), tab: tab.clone() });
+        }
+    }
+    if let Some(id) = target_workspace.filter(|_| into) {
         let ws = workspace(id, &request.sections)?;
         if machine_ok(Some(ws.machine.as_str())) {
             return Some(TabDrop::IntoWorkspace { workspace: id.to_string() });

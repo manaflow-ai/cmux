@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 import os
@@ -40,7 +41,7 @@ enum BrowserOmnibarPreference {
         Task { [weak settings, weak cache] in
             guard let settings else { return }
             var reported: BrowserOmnibarSetting?
-            for await setting in Observations({ settings.snapshot.browserOmnibar }) {
+            for await setting in ObservationStream({ settings.snapshot.browserOmnibar }) {
                 guard let cache else { return }
                 let resolved = OmniboxConfiguration.resolve(setting)
                 if resolved.invalidCustomEngine, reported != setting {

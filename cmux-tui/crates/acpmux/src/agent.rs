@@ -179,7 +179,11 @@ pub(crate) fn harness_command(
     } else {
         owned
     };
-    let env = resolved_profile_env(profile)?;
+    let mut env = resolved_profile_env(profile)?;
+    // A bound route's provider variables the inherited env must not keep
+    // (routes.rs): an earlier route's key never reaches this process.
+    let route_unset = env.remove(crate::routes::UNSET_KEY);
+    env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
     crate::login_env::apply_tokio(&mut cmd);
@@ -194,11 +198,22 @@ pub(crate) fn harness_command(
     crate::cua_socket::scrub_agent_env(&mut cmd);
     // A nested launch must not be taken for its parent's thread.
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
+    // The daemon's own terminal (it may have started in a cmux terminal) is
+    // not the agent's: a stale id would open the agent's tabs beside it.
+    for key in crate::agent_tools::INHERITED_CALLER_ENV {
+        cmd.env_remove(key);
+    }
+    for k in route_unset.iter().flat_map(|list| list.split(',')) {
+        cmd.env_remove(k);
+    }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
             .env("ACPMUX_SESSION_ID", id)
             .env("ACPMUX_SESSION_NAME", sname)
-            .env("ACPMUX_SOCKET", crate::config::socket_path());
+            .env("ACPMUX_SOCKET", crate::config::socket_path())
+            // The caller the cmux CLI names to the app: its tabs open in the
+            // column right of this session's chat (beside_caller).
+            .env(crate::agent_tools::AGENT_SESSION_ENV, id);
     }
     cmd.args(args)
         .envs(env.iter())
@@ -209,10 +224,12 @@ pub(crate) fn harness_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // Own process group, so stopping the session stops everything the
-        // agent started underneath it (background shells included).
-        .process_group(0)
         .kill_on_drop(true);
+    // Own process group, so stopping the session stops everything the
+    // agent started underneath it (background shells included). Windows
+    // port: a job object there (a later landing).
+    #[cfg(unix)]
+    cmd.process_group(0);
     Ok(cmd)
 }
 
@@ -361,6 +378,7 @@ impl ChildAgent {
                             } else if !agent_for_exit.is_alive().await {
                                 leader_gone = Some(tokio::time::Instant::now());
                                 // Stop what the agent left running so the pipe closes.
+                                #[cfg(unix)]
                                 if let Some(pg) = agent_for_exit.pid {
                                     unsafe {
                                         libc::killpg(pg as i32, libc::SIGKILL);
@@ -503,12 +521,14 @@ impl ChildAgent {
             // TERM the whole group first so children get a chance to exit,
             // then KILL whatever is left. The wait ends as soon as the
             // agent exits; 300 ms is only the most it gets.
+            #[cfg(unix)]
             unsafe {
                 libc::killpg(pid as i32, libc::SIGTERM);
             }
             if let Some(child) = guard.as_mut() {
                 let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
             }
+            #[cfg(unix)]
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
             }
@@ -542,6 +562,7 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        #[cfg(unix)]
         if let Some(pg) = pgid {
             unsafe {
                 libc::killpg(pg, libc::SIGTERM);
@@ -555,6 +576,7 @@ impl ChildAgent {
             }
         })
         .await;
+        #[cfg(unix)]
         if let Some(pg) = pgid {
             unsafe {
                 libc::killpg(pg, libc::SIGKILL);

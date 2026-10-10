@@ -1,12 +1,14 @@
 //! The connection worker: one owned thread that ensures the daemon, connects
 //! with the SDK, identifies, loads a snapshot, follows `session.events`, and
 //! reports each step to a caller callback. When the daemon advertises
-//! `bookmarks-v1`, a second thread per connection follows `bookmarks-changed`
-//! on a protocol-12 `subscribe` stream (the resource API has no bookmarks).
+//! `bookmarks-v1` or `profiles-v1`, a second thread per connection follows
+//! `bookmarks-changed` and `personal-changed` on a protocol-12 `subscribe`
+//! stream (the resource API has neither).
 //! See the crate docs for the thread contract.
 
 use crate::launcher::{self, Launcher};
 use crate::mirror::{Applied, Mirror, MirrorChange};
+use crate::spaces::PROFILES_CAPABILITY;
 use cmux::{
     ClientMetadataOptions, Config, ConnectedClientId, EventStreamOptions, Selector,
     StreamCancellation, Update,
@@ -23,9 +25,9 @@ use std::time::Duration;
 pub const DEFAULT_SESSION: &str = "cmux2-gpui";
 /// The capability of the bookmark commands and `bookmarks-changed`.
 pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
-/// How long the bookmark stream waits for one event before it waits again
+/// How long the subscribe stream waits for one event before it waits again
 /// (a quiet stream is healthy; `stop` closes it at once).
-const BOOKMARK_EVENTS_IDLE: Duration = Duration::from_secs(3600);
+const SUBSCRIBE_EVENTS_IDLE: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Debug)]
 pub struct DaemonConfig {
@@ -51,6 +53,10 @@ pub struct DaemonConfig {
     /// Report `bookmarks-changed` as [`DaemonEvent::BookmarksChanged`] (one
     /// more connection while connected to a daemon with `bookmarks-v1`).
     pub bookmark_events: bool,
+    /// Report `personal-changed` as [`DaemonEvent::PersonalChanged`] (the
+    /// same extra connection, while connected to a daemon with
+    /// `profiles-v1`).
+    pub personal_events: bool,
     /// Additive capabilities the mirror's connections declare (for example
     /// `conversation-tabs-v1` and `agent-session-tabs-v1`, so the snapshot
     /// and the event stream read those tabs in their canonical form). Only
@@ -73,6 +79,7 @@ impl DaemonConfig {
             min_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(10),
             bookmark_events: true,
+            personal_events: true,
             capabilities: Vec::new(),
         }
     }
@@ -120,6 +127,14 @@ pub enum DaemonEvent {
         browser_profile_id: String,
         bookmarks_revision: u64,
     },
+    /// The home session's personal state changed (`personal-changed`):
+    /// spaces, pins, follows, personal groups or workspace rows. Read it
+    /// again with `list-personal` ([`crate::Spaces::from_personal`]).
+    /// Reported after `Connected` and before the connection's
+    /// `Disconnected`, while the daemon has `profiles-v1`.
+    PersonalChanged {
+        personal_revision: u64,
+    },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
         error: String,
@@ -149,7 +164,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 type Callback = Box<dyn FnMut(&DaemonEvent, &Mirror) + Send + 'static>;
-/// The callback, shared by the worker and its bookmark thread, which call it
+/// The callback, shared by the worker and its subscribe thread, which call it
 /// one at a time.
 type SharedCallback = Arc<Mutex<Callback>>;
 
@@ -355,19 +370,29 @@ fn follow(
     lock(&shared.mirror).reset(snapshot);
     *lock(&shared.connection) = Some(info.clone());
     *backoff = config.min_backoff;
-    let bookmarks = config.bookmark_events
-        && info.capabilities.iter().any(|capability| capability == BOOKMARKS_CAPABILITY);
+    let advertised = |name: &str| info.capabilities.iter().any(|capability| capability == name);
+    let follow = Follow {
+        bookmarks: config.bookmark_events && advertised(BOOKMARKS_CAPABILITY),
+        personal: config.personal_events && advertised(PROFILES_CAPABILITY),
+    };
     let socket = info.socket.clone();
     emit(shared, on_event, &DaemonEvent::Connected(info));
     emit(shared, on_event, &DaemonEvent::Reset);
     // Ends (closed and joined) when this function returns, so no
-    // BookmarksChanged follows the connection's Disconnected.
-    let _bookmarks = if bookmarks {
-        let follower =
-            BookmarkEvents::start(&socket, config, shared, on_event, events.cancellation());
+    // BookmarksChanged or PersonalChanged follows the connection's
+    // Disconnected.
+    let _subscribed = if follow.bookmarks || follow.personal {
+        let follower = SubscribeEvents::start(
+            &socket,
+            config,
+            follow,
+            shared,
+            on_event,
+            events.cancellation(),
+        );
         Some(follower.map_err(|e| {
             let _ = events.cancel();
-            format!("bookmark events: {e}")
+            format!("subscribe events: {e}")
         })?)
     } else {
         None
@@ -400,18 +425,26 @@ fn follow(
     }
 }
 
-/// The `bookmarks-changed` follower of one connection: a protocol-12
-/// `subscribe` stream read on its own thread. Dropping it closes the stream
-/// and joins the thread.
-struct BookmarkEvents {
+/// Which `subscribe` events a connection reports.
+#[derive(Clone, Copy, Debug)]
+struct Follow {
+    bookmarks: bool,
+    personal: bool,
+}
+
+/// The `bookmarks-changed` and `personal-changed` follower of one
+/// connection: a protocol-12 `subscribe` stream read on its own thread.
+/// Dropping it closes the stream and joins the thread.
+struct SubscribeEvents {
     closer: cmux::raw::StreamCloser,
     thread: Option<JoinHandle<()>>,
 }
 
-impl BookmarkEvents {
+impl SubscribeEvents {
     fn start(
         socket: &std::path::Path,
         config: &DaemonConfig,
+        follow: Follow,
         shared: &Arc<Shared>,
         on_event: &SharedCallback,
         session_events: StreamCancellation,
@@ -428,14 +461,20 @@ impl BookmarkEvents {
         let closer = stream.closer();
         let (shared, on_event) = (shared.clone(), on_event.clone());
         let thread = std::thread::Builder::new()
-            .name("cmux-daemon-client-bookmarks".into())
+            .name("cmux-daemon-client-subscribe".into())
             .spawn(move || {
                 let error = loop {
-                    match stream.recv_timeout(BOOKMARK_EVENTS_IDLE) {
-                        Ok(cmux::raw::Event::BookmarksChanged(changed)) => {
+                    match stream.recv_timeout(SUBSCRIBE_EVENTS_IDLE) {
+                        Ok(cmux::raw::Event::BookmarksChanged(changed)) if follow.bookmarks => {
                             let event = DaemonEvent::BookmarksChanged {
                                 browser_profile_id: changed.browser_profile_id,
                                 bookmarks_revision: changed.bookmarks_revision,
+                            };
+                            emit(&shared, &on_event, &event);
+                        }
+                        Ok(cmux::raw::Event::PersonalChanged(changed)) if follow.personal => {
+                            let event = DaemonEvent::PersonalChanged {
+                                personal_revision: changed.personal_revision,
                             };
                             emit(&shared, &on_event, &event);
                         }
@@ -445,9 +484,9 @@ impl BookmarkEvents {
                         Err(e) => break e.to_string(),
                     }
                 };
-                // A lost bookmark stream would hide changes: end the
+                // A lost subscribe stream would hide changes: end the
                 // connection so the worker reconnects both streams.
-                log::warn!("cmux daemon: bookmark events ended: {error}");
+                log::warn!("cmux daemon: subscribe events ended: {error}");
                 let _ = session_events.cancel();
                 drop(client);
             })
@@ -456,7 +495,7 @@ impl BookmarkEvents {
     }
 }
 
-impl Drop for BookmarkEvents {
+impl Drop for SubscribeEvents {
     fn drop(&mut self) {
         self.closer.close();
         if let Some(thread) = self.thread.take()

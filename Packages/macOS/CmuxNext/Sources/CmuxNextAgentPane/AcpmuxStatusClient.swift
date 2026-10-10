@@ -50,6 +50,13 @@ nonisolated enum AcpmuxStatusClient {
         ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
     }
 
+    /// `_acpmux/tag {sessionId, set, remove}`: sets and removes a session's tags.
+    @concurrent static func tag(socketPath: String, sessionId: String, set: [String: String], remove: [String],
+                                deadline: Duration = .seconds(2)) async throws {
+        _ = try await call(socketPath: socketPath, method: "_acpmux/tag",
+                           params: ["sessionId": sessionId, "set": set, "remove": remove], deadline: deadline)
+    }
+
     /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
     /// daemon's Web mode fields, its free config ids and, for a known session with a string value,
     /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when
@@ -191,12 +198,17 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var pid: Int32?
     /// The daemon runs agents under agent hosts: a restart keeps them.
     var agentHosts: Bool
+    /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
+    /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
+    var chiefMuxHome: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false) {
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
+         chiefMuxHome: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
+        self.chiefMuxHome = chiefMuxHome
     }
 
     init(_ result: [String: Any]) {
@@ -204,6 +216,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
+        chiefMuxHome = result["chiefMuxHome"] as? String
     }
 
     /// The WebSocket endpoint; `.noWebSocket` when the listener failed to bind.

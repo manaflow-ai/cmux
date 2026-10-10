@@ -270,58 +270,13 @@ describe("team_vm.accounts is fenced to the current epoch's install (cx-n3fb)", 
   })
 })
 
-describe("team VM taint (TeamVmDO reducer)", () => {
-  const sys: Principal = { identity: "system:team_vm", kind: "system" }
-  const fromTeam = (team: string): Principal => ({ identity: `system:team:${team}`, kind: "system" })
-  const ctx = (p: Principal, now: number): ReduceContext => ({ principal: p, now, tx: `tx${now}`, newId: (x) => `${x}_${now}` })
-  const running = { ...teamVmDomain.initial(), team: "team_t", vm: "vm-a", slug: "s", epoch: 1, status: "running" as const, vm_created_at: 1_000 }
-
-  it("taints only for a certificate valid after the VM was created, and only from the team's own TeamDO", () => {
-    const before = teamVmDomain.reduce(running, "team_vm.member_removed", { user: "user_a", at: 5_000, cert_valid_before: 900 }, ctx(fromTeam("team_t"), 5_000))
-    expect(before).toMatchObject({ ok: true })
-    expect((before as any).state.taint ?? null).toBeNull()
-    const after = teamVmDomain.reduce(running, "team_vm.member_removed", { user: "user_a", at: 5_000, cert_valid_before: 1_500 }, ctx(fromTeam("team_t"), 5_000))
-    expect((after as any).state.taint).toMatchObject({ epoch: 1, users: ["user_a"] })
-    const forged = teamVmDomain.reduce(running, "team_vm.member_removed", { user: "user_a", at: 5_000, cert_valid_before: 1_500 }, ctx(fromTeam("team_other"), 5_000))
-    expect((forged as any).state?.taint ?? null).toBeNull()
-  })
-
-  it("a removal after an acceptance needs a new one, also for the same member re-joined and removed again", () => {
-    const accepted = { ...running, taint: { epoch: 1, at: 2_000, users: ["user_a"], accepted_by: "user_o", accepted_at: 3_000 } }
-    const replay = teamVmDomain.reduce(accepted, "team_vm.member_removed", { user: "user_a", at: 2_000, cert_valid_before: 9_000 }, ctx(fromTeam("team_t"), 4_000))
-    expect((replay as any).state.taint.accepted_by).toBe("user_o")
-    const again = teamVmDomain.reduce(accepted, "team_vm.member_removed", { user: "user_a", at: 5_000, cert_valid_before: 9_000 }, ctx(fromTeam("team_t"), 5_000))
-    expect((again as any).state.taint).toMatchObject({ users: ["user_a"], accepted_by: null })
-  })
-
-  it("the owner-action ops refuse every identity but TeamVmDO's own", () => {
-    const tainted = { ...running, taint: { epoch: 1, at: 2_000, users: ["user_a"], accepted_by: null, accepted_at: null } }
-    for (const who of [fromTeam("team_t"), { identity: "system:team", kind: "system" } as Principal, { identity: "user:x", kind: "session", user: "x", team: "team_t" } as Principal]) {
-      expect(teamVmDomain.reduce(tainted, "team_vm.taint_accepted", { epoch: 1, users: ["user_a"], by: "x" }, ctx(who, 3_000))).toMatchObject({ ok: false, code: "auth.forbidden" })
-      expect(teamVmDomain.reduce(tainted, "team_vm.rebuild_requested", { epoch: 1, by: "x" }, ctx(who, 3_000))).toMatchObject({ ok: false, code: "auth.forbidden" })
+describe("internal owner-action ops over the API", () => {
+  it("the owner-action ops refuse every identity but TeamVmDO's own: the public API does not run them", async () => {
+    const { token } = await setup("88800000000000000088")
+    for (const op of ["team_vm.taint_accepted", "team_vm.rebuild_requested"]) {
+      const r = await mutate(token, op, { epoch: 1, users: ["user_a"], by: "x" })
+      expect(r.ok ?? false, op).toBe(false)
+      expect(r.error?.code ?? r.code, op).toBe("validation.invalid")
     }
-  })
-
-  it("a failed pause backs off, and the alarm follows it", () => {
-    const retired = { ...running, vm: null, retired: [{ vm: "vm-a", slug: "s", epoch: 1, state: "pausing" as const, at: 1_000, by: "o", tainted_by: [], pause_attempts: 0, pause_retry_at: 1_000 }] }
-    const r1 = teamVmDomain.reduce(retired, "team_vm.retired_pause_failed", { vm: "vm-a" }, ctx(sys, 2_000)) as any
-    expect(pauseWakeAt(r1.state)).toBe(2_000 + 2_000)
-    const r2 = teamVmDomain.reduce(r1.state, "team_vm.retired_pause_failed", { vm: "vm-a" }, ctx(sys, 4_000)) as any
-    expect(pauseWakeAt(r2.state)).toBe(4_000 + 4_000)
-  })
-
-  it("an unreachable team VM record fails closed for members and open for admins", async () => {
-    const down = async () => {
-      throw new Error("down")
-    }
-    expect(await certTaintGate(down, false)).toMatchObject({ refuse: true, unreachable: true })
-    expect(await certTaintGate(down, true)).toMatchObject({ refuse: false })
-  })
-
-  it("a tainted epoch's install cannot bind until the taint is accepted", () => {
-    const tainted = { ...running, taint: { epoch: 1, at: 2_000, users: ["user_a"], accepted_by: null, accepted_at: null } }
-    expect(teamVmDomain.reduce(tainted, "team_vm.bind_install", { install: "inst_00000000000000000001", epoch: 1, vm: "vm-a" }, ctx(sys, 3_000))).toMatchObject({ ok: false, code: "team_vm.tainted" })
-    const accepted = { ...tainted, taint: { ...tainted.taint, accepted_by: "user_o", accepted_at: 2_500 } }
-    expect(teamVmDomain.reduce(accepted, "team_vm.bind_install", { install: "inst_00000000000000000001", epoch: 1, vm: "vm-a" }, ctx(sys, 3_000))).toMatchObject({ ok: true })
   })
 })

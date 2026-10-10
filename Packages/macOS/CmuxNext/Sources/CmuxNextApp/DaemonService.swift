@@ -8,6 +8,15 @@ import Network
 import Observation
 import os
 
+/// A command body run against a daemon connection. It runs isolated to the
+/// connection actor, off the caller's actor: under
+/// NonisolatedNonsendingByDefault a plain async closure type would run its
+/// synchronous parts (JSON encode/decode, string work) on the main actor of
+/// every `send`/`run` caller. The connection actor (not `@concurrent`, which
+/// hops to the global pool) keeps fire-and-forget commands in the order the
+/// main actor started them.
+typealias DaemonCommandBody = @Sendable (isolated DaemonConnection) async throws -> Void
+
 /// One machine's cmux-tui daemon connection: the local daemon (launched or
 /// found by `start(launch:)`) or a Cloud machine reached through its link
 /// socket (`start(remote:)`). Keeps the mirror (`store`) current once per
@@ -103,7 +112,8 @@ final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
+                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment,
+                                                daemonEnvironment: AppsService.daemonEnvironment)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
                 return
@@ -301,7 +311,7 @@ final class DaemonService {
 
     /// Runs a command and logs a failure. Returns false when it threw.
     @discardableResult
-    func run(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> Bool {
+    func run(_ label: String, _ body: DaemonCommandBody) async -> Bool {
         await failure(label, ticket: openTicket(), body) == nil
     }
 
@@ -316,7 +326,7 @@ final class DaemonService {
 
     /// Like ``run(_:_:)``, but tells a deadline miss (outcome unknown) apart
     /// from a failure, so callers can reconcile instead of reverting.
-    func runReportingTimeout(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> CommandOutcome {
+    func runReportingTimeout(_ label: String, _ body: DaemonCommandBody) async -> CommandOutcome {
         let ticket = openTicket()
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
@@ -340,7 +350,7 @@ final class DaemonService {
     }
 
     /// Fire-and-forget variant for UI handlers.
-    func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+    func send(_ label: String, _ body: @escaping DaemonCommandBody) {
         // Always start the task; `workTracker?(Task {...})` would skip
         // creating it (and drop the command) when no tracker is set.
         // The ticket opens now, so an action that awaits its scope waits
@@ -350,13 +360,26 @@ final class DaemonService {
         workTracker?(task)
     }
 
+    /// `send` that also hands a failure to `onFailure` (on the main actor),
+    /// with the same ticket and work tracking.
+    func send(_ label: String, onFailure: @escaping @MainActor (ActionWorkFailure) -> Void,
+              _ body: @escaping DaemonCommandBody) {
+        let ticket = openTicket()
+        let task = Task {
+            let failed = await failure(label, ticket: ticket, body)
+            if let failed { onFailure(failed) }
+            return failed
+        }
+        workTracker?(task)
+    }
+
     /// Runs a command; returns nil on success, else the failure (logged).
-    func failure(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> ActionWorkFailure? {
+    func failure(_ label: String, _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         await failure(label, ticket: openTicket(), body)
     }
 
     private func failure(_ label: String, ticket: CommandTicket?,
-                         _ body: @Sendable (DaemonConnection) async throws -> Void) async -> ActionWorkFailure? {
+                         _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)

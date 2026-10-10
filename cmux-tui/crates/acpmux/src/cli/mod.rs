@@ -18,6 +18,7 @@ pub mod harness_secret;
 pub mod hosts;
 pub mod orchestrate;
 pub mod output;
+pub mod route;
 pub mod run;
 pub mod session_folder;
 pub mod shutdown;

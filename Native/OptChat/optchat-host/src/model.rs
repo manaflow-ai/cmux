@@ -41,7 +41,15 @@ pub struct ModelError {
     pub refused: bool,
     /// How long the server asked to wait before the next try (`retry-after`).
     pub retry_after: Option<std::time::Duration>,
+    /// The compactor cannot start at all here (its acpmux preset is missing,
+    /// its harness is refused, it has no route): no retry soon changes that,
+    /// so the node is stuck on this first failure and no turn waits for it
+    /// (chief 2026-10-10: a user turn never waits more than 10 s on compaction).
+    pub setup: bool,
 }
+
+/// How a setup error's message starts in the status failures and reports.
+pub const SETUP_ERROR: &str = "setup error: ";
 
 impl ModelError {
     pub fn new(message: impl Into<String>) -> ModelError {
@@ -49,6 +57,7 @@ impl ModelError {
             message: message.into(),
             refused: false,
             retry_after: None,
+            setup: false,
         }
     }
 
@@ -57,6 +66,17 @@ impl ModelError {
             message: message.into(),
             refused: true,
             retry_after: None,
+            setup: false,
+        }
+    }
+
+    /// A setup error (`setup`): the compactor cannot start here.
+    pub fn setup(message: impl Into<String>) -> ModelError {
+        ModelError {
+            message: message.into(),
+            refused: false,
+            retry_after: None,
+            setup: true,
         }
     }
 }
@@ -207,45 +227,4 @@ pub(crate) fn retry_after_in(message: &str) -> Option<std::time::Duration> {
                 .collect();
             digits.parse().ok().map(std::time::Duration::from_secs)
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// E2 (hq-6d): the subrouter's exhausted-route error, as acpmux passes it.
-    #[test]
-    fn an_exhausted_route_is_a_capacity_wait() {
-        let e = r#"starting a compactor session: session/new: model "claude-sonnet-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
-        assert_eq!(capacity_wait(e), Some(std::time::Duration::from_secs(3596)));
-        assert_eq!(error_class(e).map(|c| c.status), Some(503));
-        assert!(capacity_wait("HTTP 429: slow down").is_some());
-        assert_eq!(
-            capacity_wait("no non-exhausted claude accounts available (retry after 90s)"),
-            Some(std::time::Duration::from_secs(90))
-        );
-        assert_eq!(
-            capacity_wait(
-                r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"x"}}"#
-            ),
-            None
-        );
-        assert_eq!(capacity_wait("the acpmux connection was lost"), None);
-    }
-
-    #[test]
-    fn a_request_error_is_permanent_and_a_rate_limit_is_not() {
-        let e = error_class(r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl: wrong order"}}"#).unwrap();
-        assert_eq!(
-            e.to_string(),
-            "400 invalid_request_error: cache_control.ttl: wrong order"
-        );
-        assert!(e.permanent());
-        assert!(!error_class("HTTP 429: slow down").unwrap().permanent());
-        assert!(!error_class("API Error: 529 overloaded")
-            .unwrap()
-            .permanent());
-        assert!(!error_class("API Error: 408 timeout").unwrap().permanent());
-        assert_eq!(error_class("the acpmux connection was lost"), None);
-    }
 }

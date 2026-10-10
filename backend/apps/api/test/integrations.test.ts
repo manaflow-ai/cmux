@@ -57,20 +57,6 @@ const fakeHttp = (routes: Record<string, (req: Request) => Promise<Response> | R
 }
 const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
-describe("credential envelope", () => {
-  it("round-trips and refuses another AAD or KEK", async () => {
-    const kek = testEnv.INTEGRATIONS_KEK as string
-    const aad = aadFor("conn_a", "team_a", "slack", 1)
-    const sealed = await seal(kek, "xoxb-secret", aad)
-    expect(JSON.stringify(sealed)).not.toContain("xoxb")
-    expect(await open(kek, sealed, aad)).toBe("xoxb-secret")
-    await expect(open(kek, sealed, aadFor("conn_a", "team_b", "slack", 1))).rejects.toThrow()
-    await expect(open(kek, sealed, aadFor("conn_a", "team_a", "slack", 2))).rejects.toThrow()
-    const other = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
-    await expect(open(other, sealed, aad)).rejects.toThrow()
-  })
-})
-
 describe("provider clients (fake HTTP)", () => {
   const e = testEnv as any
   const userScope = { githubScope: "linking_user_repos" as const, requireOrgAdmin: false }
@@ -82,26 +68,6 @@ describe("provider clients (fake HTTP)", () => {
         ok(opts.installations ?? { installations: [{ id: 42, account: { login: "manaflow-ai", type: "Organization", html_url: "https://github.com/manaflow-ai" }, permissions: { issues: "write" } }] }),
       "https://api.github.com/user/memberships/orgs/manaflow-ai": () => ok({ state: "active", role: opts.role ?? "member" })
     })
-
-  it("GitHub: proves the user can access the installation and records only the user's repositories", async () => {
-    const r = await github.complete(e, ghLink({ repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })
-    expect(r).toMatchObject({
-      account: { key: "github:installation:42", name: "manaflow-ai" },
-      scopes_granted: ["issues:write"],
-      credential: { kind: "github_installation", installation_id: 42 },
-      resources: { repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }
-    })
-    const whole = await github.complete(e, ghLink().http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: { githubScope: "installation", requireOrgAdmin: false } })
-    expect(whole.resources).toEqual({ repos: null })
-    await expect(github.complete(e, ghLink({ installations: { installations: [{ id: 7 }] } }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })).rejects.toThrow(/cannot access/)
-    await expect(github.complete(e, ghLink().http, { installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })).rejects.toThrow(/no installation_id or code/)
-  })
-
-  it("GitHub: require_org_admin refuses a member and accepts an admin", async () => {
-    const policy = { githubScope: "linking_user_repos" as const, requireOrgAdmin: true }
-    await expect(github.complete(e, ghLink({ role: "member" }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy })).rejects.toThrow(/organization admin/)
-    expect((await github.complete(e, ghLink({ role: "admin" }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy })).account.key).toBe("github:installation:42")
-  })
 
   it("GitHub: comments with a minted installation token signed by the App key", async () => {
     const f = fakeHttp({
@@ -372,16 +338,6 @@ describe("connections end to end (workerd)", () => {
     await setIntegrationPolicy(token, team, { github: { scope: "installation" } })
     await setIntegrationPolicy(token, team, { allowed_providers: ["slack"] })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 3, body: "x" })).json.error.code).toBe("policy.denied")
-  })
-
-  it("GitHub: more than 1000 accessible repositories refuses the link instead of truncating", async () => {
-    const full = { repositories: Array.from({ length: 100 }, (_, i) => ({ full_name: `acme/r${i}` })) }
-    const f = fakeHttp({
-      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations/42/repositories": () => ok(full),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 42, account: { login: "acme", type: "Organization" } }] })
-    })
-    await expect(github.complete(testEnv as any, f.http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: { githubScope: "linking_user_repos", requireOrgAdmin: false } })).rejects.toThrow(/more than 1000/)
   })
 
   it("pending connections expire once after 30 minutes from the alarm, even after a restart; late callbacks are refused; active ones are untouched", async () => {

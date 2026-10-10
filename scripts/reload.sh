@@ -939,6 +939,11 @@ validate_app_bundle() {
     echo "error: app executable not found after xcodebuild: $executable_path" >&2
     return 1
   fi
+  # Every BUNDLED first-party app package (and its native server binary)
+  # must be where the daemon loads it (cx-t2rz, cx-0uo1).
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
+    "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
+  fi
 }
 
 # Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
@@ -1312,6 +1317,16 @@ else
     echo "==> cmux-next: bundling the cmux-tui client set built on this host, $CMUX_TUI_CLIENT_LOCAL"
   fi
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# Release reloads build the helper binaries universal: Release is universal
+# (ONLY_ACTIVE_ARCH = NO), and Bundle acpmux and Bundle optchat-chief need every
+# app architecture in their binaries, while both build scripts default to the
+# host. A fleet --release build failed on "acpmux has architectures arm64, but
+# the app needs arm64 x86_64" (job f03724be4852). An explicit choice wins.
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-arm64 x86_64}"
+  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
 fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
@@ -2174,6 +2189,10 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
   if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
+  fi
+  # ... and every other page from the `bun run dev:pages` server (PageDevServer).
+  if [[ -n "${CMUX_NEXT_PAGES_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_PAGES_DEV_URL="$CMUX_NEXT_PAGES_DEV_URL")
   fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")

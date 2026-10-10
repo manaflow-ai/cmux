@@ -71,15 +71,17 @@ enum PaneHandlers {
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
-        // A split always stays in its pane's column: it never opens a column
-        // and never scrolls the strip (user decision, column-sizing.md).
-        switch ctx.services.splitRoom(for: pane, edge: edge(direction)) {
+        // The one tool-split rule (AppServices.toolSplit, cx-yihq): never a new column; from the
+        // docked chat, a person's terminal opens as a tab in the strip (its cwd the explicit one or
+        // the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
+        switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
         case .split:
             break
         case .refused(let reason):
             return ctx.refuse(reason)
-        case .newColumn:
-            return ctx.refuse(RefusalStrings.columnTooNarrowToSplit)
+        case .tab(let strip):
+            if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
+            return strip.newTerminalTab(cwd: invocation["cwd"]?.stringValue, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in
@@ -98,7 +100,14 @@ enum PaneHandlers {
         // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
         if let provisional { content?.expectFocus(on: provisional.surface, generation: intent) }
+        // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path
+        // focus moves only after the reply, and on the optimistic path the swap to the daemon's
+        // pane remounts the view; keys typed in either gap went to the old pane.
+        let window = content == nil ? nil : controller?.view.window
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         ctx.registry.track(Task {
+            var landed = false
+            defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let created = if let provisional {
                     try await command.sendIntended(on: daemon, provisional: provisional)
@@ -106,6 +115,7 @@ enum PaneHandlers {
                     try await command.send(on: daemon)
                 }
                 content?.expectFocus(on: created.surface, generation: intent)
+                landed = true
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil
             } catch {

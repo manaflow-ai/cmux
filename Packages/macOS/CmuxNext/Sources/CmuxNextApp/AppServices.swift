@@ -12,6 +12,7 @@ import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
+import os
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -27,8 +28,8 @@ final class AppServices {
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
-    /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
-    private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
+    /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
+    private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
@@ -78,6 +79,14 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
+    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
+    private(set) lazy var modelRouter: ModelRouterLease? = {
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        guard let acpmux = AgentTabPaneSource.paneEnvironment(tag: environment.tag, bundledBinDirectory: bin,
+                                                               environment: ProcessInfo.processInfo.environment) else { return nil }
+        return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
+                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
+    }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
@@ -219,11 +228,7 @@ final class AppServices {
             self?.home.releaseTabView(key)
             self?.madeAgentTabs?.releaseIfGone(key)
         }
-        cache.machineBadge = { [weak self] key, url in
-            guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
-            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            return remoteLocalhost.badge(for: tab, url: url, engine: engine)
-        }
+        cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery, crashReporting] in
@@ -273,6 +278,7 @@ final class AppServices {
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
+            attachMachineBadgeMenu(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

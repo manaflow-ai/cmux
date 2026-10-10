@@ -24,9 +24,8 @@ struct HeadlessServer {
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
-    /// The daemon's stderr, drained continuously. An undrained pipe blocks
-    /// every daemon thread that logs once the pipe buffer fills, while that
-    /// thread may hold mux locks; the tail also explains a teardown failure.
+    /// The daemon's stderr, drained continuously. An undrained pipe blocks every daemon thread
+    /// that logs once the buffer fills (it may hold mux locks); the tail explains a failure.
     stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
@@ -70,8 +69,7 @@ impl HeadlessServer {
         Self::start_with_options(name, None, Some(launch_cwd), &[])
     }
 
-    /// Shells launched without Ghostty shell integration emit no OSC 133
-    /// prompt marks, so the terminal sees no prompt boundary.
+    /// Shells launched without Ghostty shell integration emit no OSC 133 prompt marks.
     fn start_without_shell_integration(name: &str) -> Self {
         Self::start_with_options(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
     }
@@ -278,12 +276,11 @@ impl HeadlessServer {
 }
 
 #[cfg(unix)]
-/// Creates an executable script without this process ever holding a write
-/// descriptor for it. Tests run on many threads, and a sibling test that
-/// forks while such a descriptor is open hands a copy to its child until that
-/// child execs; running the script in that window fails with ETXTBSY ("Text
-/// file busy"). A short-lived `sh` opens, writes, and closes the file in its
-/// own process, so no fork of this process can inherit it.
+/// Creates an executable script without this process ever holding a write descriptor for it.
+/// Tests run on many threads, and a sibling test that forks while such a descriptor is open
+/// hands a copy to its child until that child execs; running the script then fails with
+/// ETXTBSY ("Text file busy"). A short-lived `sh` opens, writes, and closes the file in its own
+/// process, so no fork of this process can inherit it.
 #[cfg(unix)]
 fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
     use std::io::Write as _;
@@ -2962,6 +2959,10 @@ fn plain_launch_attaches_to_existing_local_session() {
 mod session_shutdown;
 
 #[cfg(unix)]
+#[path = "cli/apps_store.rs"]
+mod apps_store;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]
@@ -3643,10 +3644,27 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/all_sessions_scope.rs"]
+mod all_sessions_scope;
+#[cfg(unix)]
+#[path = "cli/app_workspaces.rs"]
+mod app_workspaces;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
+#[cfg(unix)]
+#[path = "cli/explicit_socket.rs"]
+mod explicit_socket;
+#[cfg(unix)]
+#[path = "cli/feed_local.rs"]
+mod feed_local;
+#[cfg(unix)]
+#[path = "cli/left_dock_undock.rs"]
+mod left_dock_undock;
+#[path = "cli/lone_width.rs"]
+mod lone_width;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

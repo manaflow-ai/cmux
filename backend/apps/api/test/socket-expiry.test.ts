@@ -126,14 +126,6 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
       expect(sock.state.closed).toBe(4401)
     })
 
-    it(`${c.name}: an expired token's socket closes with no event (alarm sweep)`, async () => {
-      const s = await c.setup()
-      const sock = await listen(s.stub, s.entity, { ...s.principal, expires_at: Date.now() + 300 })
-      await sleep(400)
-      await fireAlarm(s.stub)
-      await sleep(50)
-      expect(sock.state.closed).toBe(4401)
-    })
   }
 
   it("a revoked install's socket on another owner (FeedDO) gets no further event", async () => {

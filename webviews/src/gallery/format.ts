@@ -141,6 +141,9 @@ export type AgentPaneVariant = VariantBase & {
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
+  /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
+   *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
+  afterCall?: Record<string, AcpmuxSnapshot>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -211,6 +214,8 @@ export type ChangelogPageVariant = VariantBase & {
   error?: { code: string; message: string };
   current?: string;
   notes: ReleaseNotes[];
+  /** The page route the host opens it on (`#/?from=<v>&to=<v>`, an update's span). */
+  route?: string;
 };
 
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */

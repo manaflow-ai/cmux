@@ -1,13 +1,15 @@
-// The chat header's top right, after the Codex app's: Changes with the last turn's counts, which
-// opens the changes view beside the transcript; Terminal and Browser, which split the pane in the
-// chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
-// size; data fills in place.
+// The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
+// whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
+// folder and toggle, as in T3 Chat and ChatGPT); the summary (Sources) button, whose popover also
+// opens the last turn's changes; and the "..." chat menu. Every control renders from the first frame
+// at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+import { useQuickActions, type QuickActionMode } from "./quickActions";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
@@ -35,9 +37,6 @@ export type ChatMenuItem =
     };
 
 export function ChatHeaderTools({
-  changes,
-  changesOpen,
-  onChanges,
   onTerminal,
   onBrowser,
   tabTools = true,
@@ -47,12 +46,10 @@ export function ChatHeaderTools({
   expand,
   onExpanded,
 }: {
-  /// The last turn that edited files, with its counts; undefined before any edit.
-  changes?: { additions: number; deletions: number };
-  changesOpen: boolean;
-  onChanges: () => void;
-  onTerminal: () => void;
-  onBrowser: () => void;
+  /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
+  /// `toggle` closes the split this button opened when it is still there.
+  onTerminal: (mode: QuickActionMode) => void;
+  onBrowser: (mode: QuickActionMode) => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
   summary: ReactNode;
@@ -67,44 +64,35 @@ export function ChatHeaderTools({
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
-  const changesLabel = changes
-    ? `${t("header.changes")}: +${changes.additions} -${changes.deletions}`
-    : t("header.changes");
+  const actions = useQuickActions();
   return (
     <div className="acpmux-header-tools">
-      <button
-        type="button"
-        className="acpmux-header-changes"
-        aria-pressed={changesOpen}
-        aria-label={changesLabel}
-        title={t("header.changes")}
-        disabled={!changes}
-        onClick={onChanges}
-      >
-        <Icon name="diff.file" size={15} />
-      </button>
-      {tabTools && (
-        <>
-          <button
-            type="button"
-            className="acpmux-header-tool"
-            aria-label={t("header.terminal")}
-            title={withShortcut(t("header.terminal"), terminalKey)}
-            onClick={onTerminal}
-          >
-            <Icon name="terminal" size={15} />
-          </button>
-          <button
-            type="button"
-            className="acpmux-header-tool"
-            aria-label={t("header.browser")}
-            title={withShortcut(t("header.browser"), browserKey)}
-            onClick={onBrowser}
-          >
-            <Icon name="browser" size={15} />
-          </button>
-        </>
-      )}
+      {tabTools &&
+        actions.map(({ id, mode }) =>
+          id === "terminal" ? (
+            <button
+              key={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t("header.terminal")}
+              title={withShortcut(t("header.terminal"), terminalKey)}
+              onClick={() => onTerminal(mode)}
+            >
+              <Icon name="terminal" size={15} />
+            </button>
+          ) : (
+            <button
+              key={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t("header.browser")}
+              title={withShortcut(t("header.browser"), browserKey)}
+              onClick={() => onBrowser(mode)}
+            >
+              <Icon name="browser" size={15} />
+            </button>
+          ),
+        )}
       {summary}
       <ChatMenu
         items={menu}

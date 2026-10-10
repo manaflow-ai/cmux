@@ -39,38 +39,13 @@ const state = {
 const sys: ReduceContext = { principal: { identity: "system:user", kind: "system" }, now: 9, tx: "t", newId: (p) => `${p}_x` }
 
 describe("old Mac grants lose execute once", () => {
-  it("finds only active mac grants that still carry execute", () => {
-    expect(macGrantsToNarrow(state).sort()).toEqual(["grant_a", "grant_e"])
-  })
 
-  it("drops execute and keeps every other class, and a second run changes nothing", () => {
-    const r = userDomain.reduce(state, "install.mac_execute_narrow", {}, sys)
-    if (!r.ok) throw new Error(r.message)
-    const s = r.state as UserState
-    expect([...s.grants["grant_a"]!.op_classes].sort()).toEqual(["mutate-own", "mutate-shared", "read"])
-    expect([...s.grants["grant_e"]!.op_classes].sort()).toEqual(["cloud-link", "read"])
-    expect(s.grants["grant_b"]).toEqual(state.grants["grant_b"])
-    expect(s.grants["grant_c"]).toEqual(state.grants["grant_c"])
-    expect(s.grants["grant_d"]).toEqual(state.grants["grant_d"])
-    expect(r.value).toEqual({ narrowed: 2 })
-    expect(macGrantsToNarrow(s)).toEqual([])
-    const again = userDomain.reduce(s, "install.mac_execute_narrow", {}, sys)
-    if (!again.ok) throw new Error(again.message)
-    expect(again.state).toEqual(s)
-  })
-
-  it("runs once per user: after the done flag, a mac grant with execute is left alone", () => {
-    const r = userDomain.reduce(state, "install.mac_execute_narrow", {}, sys)
-    if (!r.ok) throw new Error(r.message)
-    const done = r.state as UserState
-    expect(done.migrations?.mac_execute_narrow).toBe(true)
-    const later = { ...done, grants: { ...done.grants, grant_a: grant("grant_a", "inst_mac_old_000000000000", OLD_MAC) } } as unknown as UserState
-    expect(macGrantsToNarrow(later)).toEqual([])
-  })
-
-  it("is refused for a non-system caller", () => {
-    const session: ReduceContext = { ...sys, principal: { identity: `user:${OWNER}`, user: OWNER, kind: "session" } }
-    expect(userDomain.reduce(state, "install.mac_execute_narrow", {}, session)).toMatchObject({ ok: false })
+  it("is refused for a non-system caller: the public API does not run the internal op", async () => {
+    const session = await sessionToken("mac-narrow-public")
+    await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const r = await post("/v1/ops", session, { op: "install.mac_execute_narrow", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(r.status).toBe(400)
+    expect(r.body?.error?.code ?? r.body?.code).toBe("validation.invalid")
   })
 
   it("the per-request grant check (installGrant) narrows an old Mac grant first, so execute is gone at once", { timeout: 60_000 }, async () => {

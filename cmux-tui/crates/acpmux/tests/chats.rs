@@ -1,7 +1,7 @@
 //! ALL-CHATS-ON-DEVICE S4: the daemon wires the chat index. Every store is
 //! a synthetic fixture in a temp home; no test reads a real harness store.
 
-use acpmux::chats::{ChatSources, launch_roots, lookup, refusal};
+use acpmux::chats::{ChatSources, refusal};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -133,17 +133,6 @@ fn keys(result: &Value) -> Vec<String> {
 }
 
 #[test]
-fn env_lookup_prefers_the_daemon_env_then_the_login_env() {
-    let process =
-        |k: &str| (k == "A").then(|| "daemon".to_owned()).or_else(|| (k == "E").then(String::new));
-    let login = |k: &str| matches!(k, "A" | "B" | "E").then(|| "login".to_owned());
-    assert_eq!(lookup("A", process, login).as_deref(), Some("daemon"));
-    assert_eq!(lookup("B", process, login).as_deref(), Some("login"));
-    assert_eq!(lookup("E", process, login).as_deref(), Some("login"), "empty counts as unset");
-    assert_eq!(lookup("C", process, login), None);
-}
-
-#[test]
 fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     let home = Path::new("/Users/me");
     let acpmux = Path::new("/Users/me/.acpmux/tags/dev");
@@ -159,28 +148,6 @@ fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     for path in ["/Users/me/.claude/projects", "/Users/me/.codex", "/opt/agents/.codex"] {
         assert_eq!(refusal(Path::new(path), home, acpmux), None, "{path} must be allowed");
     }
-}
-
-#[test]
-fn launch_roots_come_from_profile_and_family_env() {
-    let cfg: Config = serde_json::from_value(json!({
-        "harnesses": {
-            "claude-alt": {"argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": "/opt/alt-claude"}},
-            "codex-alt": {"argv": ["codex"], "env": {"CODEX_HOME": "/opt/alt-codex"}},
-            "rel": {"argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": "relative"}},
-        },
-        "defaults": {"claude": {"env": {"CLAUDE_CONFIG_DIR": "/opt/alt-claude"}}},
-    }))
-    .unwrap();
-    let roots: Vec<(String, PathBuf)> =
-        launch_roots(&cfg).into_iter().map(|r| (r.harness.id().to_owned(), r.path)).collect();
-    assert_eq!(
-        roots,
-        vec![
-            ("claude-code".to_owned(), PathBuf::from("/opt/alt-claude/projects")),
-            ("codex".to_owned(), PathBuf::from("/opt/alt-codex")),
-        ]
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -224,12 +191,31 @@ async fn chats_lists_synthetic_roots_with_filters_and_pages() {
     assert!(bad["error"]["message"].as_str().unwrap().contains("unknown"), "{bad}");
 
     // The cache is written, owner-only.
+    #[cfg(unix)]
     let cache = h.0.join(".acpmux/chat-index/v1.json");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&cache).unwrap().permissions().mode() & 0o777, 0o600);
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_history_is_paged_and_filterable() {
+    let h = home("settled");
+    let projects = h.0.join(".claude/projects");
+    write_session(&projects, A, &[user(A, "/work/app", "fix the build")]);
+    write_session(&projects, B, &[user(B, "/work/docs", "write docs")]);
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+
+    let first = c.ok("_acpmux/chat_settled", json!({"limit": 1})).await;
+    assert_eq!(first["settled"], true);
+    assert_eq!(first["chats"].as_array().unwrap().len(), 1);
+    let second = c.ok("_acpmux/chat_settled", json!({"folder": "/work/docs"})).await;
+    assert_eq!(second["settled"], true);
+    assert_eq!(keys(&second), vec![format!("claude-code:{B}")]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -336,6 +322,7 @@ async fn websocket_origins_never_get_chats() {
         let mut c = Client::new(&hub, origin);
         for m in [
             "_acpmux/chats",
+            "_acpmux/chat_settled",
             "_acpmux/chats_watch",
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",

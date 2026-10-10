@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextDesign
@@ -40,8 +41,8 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
-        sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
+        sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), source: control.engineSource())
         super.init(frame: .zero)
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
@@ -83,7 +84,7 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing) in Observations({ () -> (Bool, Int, String, Bool, Bool) in
+            for await (isChief, _, title, cloud, typing) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
@@ -143,7 +144,7 @@ final class HomeHostView: NSView {
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
             // placed on a server) needs no local Chief owner.
-            for await (available, online, why, notice) in Observations({
+            for await (available, online, why, notice) in ObservationStream({
                 (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
                  service.conversationNotice(for: id))
             }) {

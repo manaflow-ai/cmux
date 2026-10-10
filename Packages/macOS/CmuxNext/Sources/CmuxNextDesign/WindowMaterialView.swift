@@ -3,7 +3,7 @@ public import AppKit
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
 ///
-/// It hosts at most one material view: an `NSGlassEffectView` for
+/// It hosts at most one material view: a Liquid Glass `GlassPanelView` for
 /// ``WindowMaterial/glass(_:)``, and none for ``WindowMaterial/frosted``
 /// or ``WindowMaterial/translucent`` (only the tint; the window's CGS
 /// blur radius frosts what shows through) or ``WindowMaterial/opaque``,
@@ -34,7 +34,6 @@ public final class WindowMaterialView: NSView {
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
     private var artImage: NSImage?
-    private let textureCache = BackdropTextureCache()
     private let images: BackdropImageStore
     /// Loads the art the last `apply` asked for when it was not decoded yet.
     private var artLoad: Task<Void, Never>?
@@ -90,7 +89,7 @@ public final class WindowMaterialView: NSView {
     /// tint for glass, otherwise the color laid over the desktop; nil while
     /// opaque.
     public var tintColor: CGColor? {
-        if let glass = materialView as? NSGlassEffectView { return glass.tintColor?.cgColor }
+        if let glass = materialView as? GlassPanelView { return glass.tintColor?.cgColor }
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
 
@@ -129,7 +128,7 @@ public final class WindowMaterialView: NSView {
     }
 
     private func updateInactiveTint() {
-        let glass = materialView as? NSGlassEffectView
+        let glass = materialView as? GlassPanelView
         let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
         inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
         inactiveTintView.alphaValue = alpha
@@ -156,15 +155,18 @@ public final class WindowMaterialView: NSView {
             artLoad = nil
             let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
             let texture = backdrop.texture
-            // A painting not decoded yet loads off the main actor and fades
-            // in; until then the window shows the theme's colors.
-            showArt(shown.flatMap(images.cached), id: shown?.id, texture: texture)
-            if let shown, artImage == nil {
+            // Decoded art shows at once. Otherwise an earlier launch's snapshot shows in this
+            // first frame, and the full image replaces it in place; without one the window shows
+            // the theme's colors until the art, decoded off the main actor, fades in.
+            let ready = shown.flatMap { images.cached($0, texture: texture) }
+            showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture) }))
+            if let shown, ready == nil {
+                let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown)
+                    let image = await images.image(shown, texture: texture)
                     guard !Task.isCancelled, let self, let image else { return }
-                    self.showArt(image, id: shown.id, texture: texture)
-                    self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn")
+                    self.showArt(image)
+                    if fades { self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn") }
                 }
             }
         }
@@ -179,9 +181,10 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: tintView)
             }
         }
-        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
+        // Over art the tuner thins the glass only down to the legible tint.
+        let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
-        let glass = materialView as? NSGlassEffectView
+        let glass = materialView as? GlassPanelView
         glass?.tintColor = color
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
@@ -190,8 +193,8 @@ public final class WindowMaterialView: NSView {
         updateInactiveTint()
     }
 
-    private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {
-        artImage = source.flatMap { textureCache.image(for: id ?? "none", source: $0, texture: texture) }
+    private func showArt(_ image: NSImage?) {
+        artImage = image
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
         updateArtCrop()
@@ -244,13 +247,11 @@ public final class WindowMaterialView: NSView {
         case .opaque, .translucent, .frosted:
             return nil
         case .glass(let style):
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 0
+            // WindowBackdrop frosts the window instead where Liquid Glass is missing.
             switch style {
-            case .regular: glass.style = .regular
-            case .clear: glass.style = .clear
+            case .regular: return GlassPanelView(style: .regular)
+            case .clear: return GlassPanelView(style: .clear)
             }
-            return glass
         }
     }
 }

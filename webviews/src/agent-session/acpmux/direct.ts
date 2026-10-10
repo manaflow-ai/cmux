@@ -443,6 +443,10 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// Attachments sent with a prompt until its user-message event gives it a durable row id.
+  private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
+  /// Attachments for completed prompts, used when their turn is retried later.
+  private retryAttachments = new Map<string, ComposerAttachment[]>();
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
@@ -451,6 +455,9 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
+  /// clock): the smallest arrival lag of a live event, since delays only make it larger.
+  private clockOffset?: number;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
   private handoffSupported = false;
@@ -661,6 +668,7 @@ export class AcpmuxDirectClient {
     this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
+    this.clockOffset = undefined;
     this.summary = undefined;
     this.usage = undefined;
     this.queue = [];
@@ -670,6 +678,8 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
     this.optimisticPromptRows.clear();
     this.optimisticPromptTexts.clear();
+    this.optimisticPromptAttachments.clear();
+    this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
@@ -726,8 +736,11 @@ export class AcpmuxDirectClient {
       return;
     }
     const notification = message as Notification;
-    if (notification.method === "_acpmux/event") this.apply(notification.params as EventRecord);
-    else if (notification.method === "session/update")
+    if (notification.method === "_acpmux/event") {
+      this.observeClock(notification.params?.sessionId, notification.params?.at);
+      this.apply(notification.params as EventRecord);
+    } else if (notification.method === "session/update") {
+      this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
@@ -736,7 +749,7 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
+    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
@@ -1057,6 +1070,13 @@ export class AcpmuxDirectClient {
     this.emit("permission");
   }
 
+  /// A live event's stamp, to tell the session's clock from this computer's.
+  private observeClock(sessionId: unknown, at: unknown): void {
+    if (sessionId !== this.selectedSessionId || typeof at !== "number" || !(at > 0)) return;
+    const offset = Date.now() - at;
+    this.clockOffset = this.clockOffset === undefined ? offset : Math.min(this.clockOffset, offset);
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId || event.seq <= this.lastSeq) return;
     this.events.push(event);
@@ -1188,7 +1208,15 @@ export class AcpmuxDirectClient {
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
+            ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
+            : {}),
         });
+        if (fallbackPromptId) {
+          const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
+          if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);
+          this.optimisticPromptAttachments.delete(fallbackPromptId);
+        }
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
@@ -1393,6 +1421,8 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
+      // Only a peer runs on another clock; this computer's own sessions need no correction.
+      ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
@@ -1480,6 +1510,7 @@ export class AcpmuxDirectClient {
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
+    if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
     const accept = () => {
@@ -1511,6 +1542,7 @@ export class AcpmuxDirectClient {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
+        this.optimisticPromptAttachments.delete(promptId);
         // The prompt is still in the composer, so Enter sends it again (no Retry button).
         if (held && !isTrustRefusal(error)) this.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
         else this.emit();
@@ -1534,6 +1566,7 @@ export class AcpmuxDirectClient {
       }
       this.optimisticPromptRows.delete(promptId);
       this.optimisticPromptTexts.delete(promptId);
+      this.optimisticPromptAttachments.delete(promptId);
       // The host refused one frame and answered it: the connection is as it was.
       this.emit(refused ? undefined : "failed");
       throw error;
@@ -1549,6 +1582,10 @@ export class AcpmuxDirectClient {
     this.rows.delete(rowId);
     this.emit();
     return this.send(failed.input, failed.attachments);
+  }
+  /// The original blocks for a completed turn, for the App send path to retry safely.
+  retryAttachmentsFor(rowId: string): ComposerAttachment[] {
+    return this.retryAttachments.get(rowId) ?? [];
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
@@ -1581,6 +1618,11 @@ export class AcpmuxDirectClient {
     });
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
+  }
+  /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
+  async removeQueued(promptId: string): Promise<{ removed: boolean }> {
+    if (!this.selectedSessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
@@ -1818,6 +1860,18 @@ export class AcpmuxDirectClient {
         this.emit("fork failed");
       }
       return undefined;
+    } finally {
+      this.forking = false;
+    }
+  }
+  /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
+  /// host opens beside this chat. One fork at a time, as `fork`.
+  async forkAside(throughSeq: number): Promise<string | undefined> {
+    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    this.forking = true;
+    try {
+      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      return result?.sessionId ? String(result.sessionId) : undefined;
     } finally {
       this.forking = false;
     }

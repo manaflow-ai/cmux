@@ -9,7 +9,6 @@ name: cmux-tui Windows check
 on:
   push:
     branches:
-      - feat-cmux-next
       - "feat-cmux-next-*"
     paths:
       - "cmux-tui/**"
@@ -78,10 +77,10 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-windows-gnu-check
 
-      - name: cargo check cmux-tui-core and cmux-tui for Windows
+      - name: cargo check cmux-tui-core, cmux-tui and acpmux for Windows
         working-directory: cmux-tui
         run: |
-          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui; then
-            echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm."
+          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux; then
+            echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm."
             exit 1
           fi

@@ -49,8 +49,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
-    @ObservationIgnored public var onImportAndSync: (() -> Void)? // onboarding's project and history import
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
+    @ObservationIgnored public var onOpenChatInTerminal: ((String) -> Void)? // `chats.openInTerminal`: a row's right-click menu
+    @ObservationIgnored public var onChatsPage: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)? // `chats.page` (cx-n0i9)
     /// The chat's own right-click menu on empty space: detached items the App renders from its placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
     /// Search the Web on selected chat text: a browser tab with the omnibar's search engine.
@@ -193,7 +194,7 @@ public final class AgentPaneModel {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .unsupported,
-             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
+             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -306,12 +307,13 @@ public final class AgentPaneModel {
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
-        case .importAndSync:
-            guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
-            onImportAndSync()
-            return AgentPaneReply.success()
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
-        case .paneAction, .tabState: return respondToHeader(request)
+        case .openChatInTerminal(let key):
+            guard let onOpenChatInTerminal else { return Self.unsupported("chats.openInTerminal") }
+            onOpenChatInTerminal(key)
+            return AgentPaneReply.success()
+        case .chatsPage(let query): return await respondToChatsPage(query)
+        case .paneAction, .tabState, .archive, .sideChat: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -356,7 +358,8 @@ public final class AgentPaneModel {
             guard let onGit else { return Self.gitFailure(.notConnected) }
             do {
                 let data = try await onGit(git)
-                guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+                // A git.diff with patches can be many megabytes: parse it off the main actor (cx-9c8m).
+                guard let value = await Self.parseGitReply(data)?.value else {
                     return Self.gitFailure(.failed)
                 }
                 return AgentPaneReply.success(value)

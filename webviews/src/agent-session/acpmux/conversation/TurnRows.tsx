@@ -14,7 +14,7 @@ import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
 import { useT } from "../i18n";
-import { failureCopy, isAuthenticationFailure } from "../failureCopy";
+import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({
@@ -92,12 +92,14 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const { fork, forkSeq, retry, reauthenticate } = useContext(TurnActionsContext);
+  const { fork, forkSeq, retry, reauthenticate, route, switchModel } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
-  const authenticationFailed = failed && isAuthenticationFailure(row.error);
+  const kind = failed ? failureKind(row.error, route) : undefined;
+  // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
+  const authenticationFailed = kind === "subscription-login" || kind === "auth";
   return (
     <div className="cv-turn-actions">
       {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
@@ -124,7 +126,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={t("turn.retry")}
             title={t("turn.retryLabel")}
-            onClick={() => retry(prompt)}
+            onClick={() => retry(row.retryRowId ?? "", prompt)}
           >
             <Retry size={14} />
           </button>
@@ -146,10 +148,63 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </button>
         )}
       </span>
-      {failed && <span className="cv-turn-note">{failureCopy(t, row.error)}</span>}
+      {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
       <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
         {clock.format(row.at)}
       </time>
     </div>
+  );
+}
+
+/// A failed turn's note (cx-w10a): the cause in plain words, naming the harness and the proxy or endpoint
+/// when the error names one, never a generic "sign-in expired"; the agent's own message under Details;
+/// Switch model for capacity, network, key and proxy failures; Copy error always.
+function TurnFailure({
+  message,
+  route,
+  switchModel,
+}: {
+  message: string | undefined;
+  route?: FailureRoute;
+  switchModel?: () => void;
+}) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const kind = failureKind(message, route);
+  const sentence = failureCopy(t, message, route);
+  const offersSwitch = switchModel && ["rate-limited", "unreachable", "invalid-key", "proxy-auth"].includes(kind);
+  return (
+    <span className="cv-turn-note" data-failure-kind={kind}>
+      <span className="text-fg">{sentence}</span>
+      {message && sentence !== message && (
+        <details className="mt-0.5">
+          <summary className="cursor-pointer text-detail text-dim">{t("turn.failure.details")}</summary>
+          <span className="mt-1 block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
+        </details>
+      )}
+      {(offersSwitch || message) && (
+        <span className="mt-1 flex flex-wrap gap-1.5">
+          {offersSwitch && (
+            <button type="button" className="cv-turn-auth-action" onClick={switchModel}>
+              {t("turn.failure.switchModel")}
+            </button>
+          )}
+          {message && (
+            <button
+              type="button"
+              className="cv-turn-auth-action"
+              onClick={() =>
+                void copyText(message).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                )
+              }
+            >
+              {copied ? t("turn.copied") : t("turn.failure.copyError")}
+            </button>
+          )}
+        </span>
+      )}
+    </span>
   );
 }
