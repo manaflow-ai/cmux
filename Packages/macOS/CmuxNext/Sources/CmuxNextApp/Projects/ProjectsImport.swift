@@ -13,8 +13,8 @@ import os
 @MainActor
 final class ProjectsImport {
     /// One harness's projects: each cwd with its newest chat.
-    struct Batch: Equatable {
-        struct Entry: Equatable {
+    nonisolated struct Batch: Equatable, Sendable {
+        nonisolated struct Entry: Equatable, Sendable {
             let path: String
             let lastUsedMs: Int64
         }
@@ -38,8 +38,11 @@ final class ProjectsImport {
 
     /// The batches for `chats`, leaving out each harness whose fingerprint is
     /// already `sent`. A harness in `sent` with no chat left gets an empty
-    /// complete list. Sorted by harness, entries by path.
-    nonisolated static func batches(_ chats: [AcpmuxChat], sent: [String: Int]) -> [Batch] {
+    /// complete list. Sorted by harness, entries by path. Nothing while the
+    /// index is not `complete` (still scanning, or turned off): a partial
+    /// list sent as complete would drop the harness from its projects.
+    nonisolated static func batches(_ chats: [AcpmuxChat], sent: [String: Int], complete: Bool = true) -> [Batch] {
+        guard complete else { return [] }
         var newest: [String: [String: Int64]] = [:]
         for chat in chats {
             guard let cwd = chat.cwd, cwd.hasPrefix("/") else { continue }
@@ -96,7 +99,9 @@ final class ProjectsImport {
         let id = ObjectIdentifier(connection)
         let fresh = connectionID != id
         if fresh { sent = [:] }
-        let batches = Self.batches(services.chatsFeed?.chats ?? [], sent: sent)
+        let feed = services.chatsFeed
+        let batches = Self.batches(feed?.chats ?? [], sent: sent,
+                                   complete: (feed?.isReady ?? false) && (feed?.isEnabled ?? false))
         guard fresh || !batches.isEmpty else { return }
         let client = ProjectStateClient(connection: connection)
         sending = Task { [weak self] in

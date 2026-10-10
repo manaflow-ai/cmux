@@ -45,6 +45,13 @@ import Testing
         #expect(gone[0].entries.isEmpty)
     }
 
+    @Test func aScanningOrDisabledIndexSendsNothing() {
+        let first = ProjectsImport.batches([chat("1", "claude", "/a", 1)], sent: [:])
+        let sent = Dictionary(uniqueKeysWithValues: first.map { ($0.source, $0.fingerprint) })
+        #expect(ProjectsImport.batches([], sent: sent, complete: false).isEmpty)
+        #expect(ProjectsImport.batches([chat("2", "codex", "/b", 1)], sent: [:], complete: false).isEmpty)
+    }
+
     @Test func theObserveParamsCarryDecimalTimes() {
         let batch = ProjectsImport.batches([chat("1", "claude", "/a", 1_790_901_089_000)], sent: [:])[0]
         #expect(batch.entriesJSON == [.object(["path": .string("/a"), "last_used_ms": .string("1790901089000")])])

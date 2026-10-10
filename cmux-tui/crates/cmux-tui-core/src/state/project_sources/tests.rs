@@ -59,6 +59,10 @@ fn project_sources_vscode_family_reads_recent_folders_newest_first_and_skips_rem
         cursor.entries[0].last_used_ms > cursor.entries[1].last_used_ms,
         "newest first keeps its order"
     );
+    assert!(
+        cursor.entries[1].last_used_ms < 1_000_000,
+        "only the newest entry takes the file's time"
+    );
     let code = scans.iter().find(|scan| scan.source == "vscode").expect("vscode scanned");
     assert_eq!(paths(code), vec!["/Users/me/src/api"]);
     assert!(
@@ -78,12 +82,16 @@ fn project_sources_zed_reads_local_workspace_roots_and_skips_remote_and_file_roo
            remote_connection_id INTEGER, timestamp TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL);
          INSERT INTO workspaces VALUES (1, '/Users/me/src/app', '0', NULL, '2026-10-02 00:31:29');
          INSERT INTO workspaces VALUES (2, '/Users/me/src/one' || char(10) || '/Users/me/src/two/main.rs', '0,1', NULL, '2026-09-28 05:53:28');
-         INSERT INTO workspaces VALUES (3, '/home/me/remote', '0', 7, '2026-10-03 00:00:00');",
+         INSERT INTO workspaces VALUES (3, '/home/me/remote', '0', 7, '2026-10-03 00:00:00');
+         INSERT INTO workspaces VALUES (4, '/Users/me/src/three.js', '0', NULL, '2026-09-01 00:00:00');",
     )
     .unwrap();
     let scan = scan_zed(&Layout::macos(&home)).expect("zed scanned");
     assert_eq!(scan.source, "zed");
-    assert_eq!(paths(&scan), vec!["/Users/me/src/app", "/Users/me/src/one"]);
+    assert_eq!(
+        paths(&scan),
+        vec!["/Users/me/src/app", "/Users/me/src/one", "/Users/me/src/three.js"]
+    );
     assert_eq!(scan.entries[0].last_used_ms, 1_790_901_089_000, "UTC timestamp to ms");
 }
 
@@ -98,6 +106,21 @@ fn project_sources_missing_or_corrupt_files_report_nothing() {
     let empty = fixture_home("empty");
     assert!(scan_vscode_family(&Layout::macos(&empty)).is_empty());
     assert!(scan_zed(&Layout::macos(&empty)).is_none());
+}
+
+#[test]
+fn project_sources_an_unreadable_vscdb_never_falls_back_to_the_smaller_list() {
+    let home = fixture_home("vscdb-unreadable");
+    let storage = home.join("Library/Application Support/Code/User/globalStorage");
+    write(&storage.join("state.vscdb"), "not a database");
+    write(
+        &storage.join("storage.json"),
+        r#"{"profileAssociations":{"workspaces":{"file:///Users/me/src/api":"__default__profile__"}}}"#,
+    );
+    assert!(
+        scan_vscode_family(&Layout::macos(&home)).is_empty(),
+        "no complete list from storage.json"
+    );
 }
 
 #[test]

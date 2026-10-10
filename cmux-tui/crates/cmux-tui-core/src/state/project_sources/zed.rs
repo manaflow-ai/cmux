@@ -8,10 +8,10 @@ use super::{Layout, SourceScan, open_read_only};
 use crate::state::projects::Observation;
 
 /// Extensions of the files people open on their own in an editor.
-const FILE_EXTENSIONS: [&str; 30] = [
-    "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java", "js", "json", "jsx", "kt", "lock",
-    "log", "lua", "md", "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "txt", "xml",
-    "yaml", "yml",
+/// Not `js` or `io`: folders like `three.js` and `socket.io` are projects.
+const FILE_EXTENSIONS: [&str; 27] = [
+    "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java", "jsx", "kt", "lock", "log", "lua",
+    "md", "py", "rb", "rs", "sh", "sql", "swift", "toml", "tsx", "txt", "xml", "yaml", "yml",
 ];
 
 pub(crate) fn scan_zed(layout: &Layout) -> Option<SourceScan> {
@@ -28,7 +28,10 @@ pub(crate) fn scan_zed(layout: &Layout) -> Option<SourceScan> {
         .ok()?;
     let mut newest = std::collections::BTreeMap::<String, i64>::new();
     let mut order = Vec::new();
-    for (paths, timestamp) in rows.flatten() {
+    // A row that fails (busy mid-step) would make the list partial, and a
+    // partial list sent as complete drops projects: report nothing instead.
+    let rows = rows.collect::<Result<Vec<_>, _>>().ok()?;
+    for (paths, timestamp) in rows {
         let Some(used) = utc_ms(&timestamp) else { continue };
         for root in
             paths.lines().map(str::trim).filter(|root| !root.is_empty() && !is_file_name(root))

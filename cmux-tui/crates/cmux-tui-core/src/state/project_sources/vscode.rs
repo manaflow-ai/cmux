@@ -26,23 +26,36 @@ pub(crate) fn scan_vscode_family(layout: &Layout) -> Vec<SourceScan> {
         .iter()
         .filter_map(|(product, source)| {
             let storage = layout.vscode_user_dir(product).join("globalStorage");
-            let entries = recent_list(&storage.join("state.vscdb"))
-                .or_else(|| profile_workspaces(&storage.join("storage.json")))?;
+            // `state.vscdb` holds the full list: when it is there but cannot
+            // be read (busy, mid-migration), report nothing rather than the
+            // smaller `storage.json` list as complete.
+            let db = storage.join("state.vscdb");
+            let entries = if db.exists() {
+                recent_list(&db)?
+            } else {
+                profile_workspaces(&storage.join("storage.json"))?
+            };
             Some(SourceScan { source, entries })
         })
         .collect()
 }
 
-/// The list carries no times: the file's mtime is the newest use, and each
-/// later entry is a millisecond older so the order survives the merge.
+/// The list carries no times: the file's mtime is the first entry's use.
+/// Each later entry gets the epoch plus its rank, so a write to the file
+/// never makes the whole list look just used, and the order still survives
+/// the merge (the reducer keeps each source's newest time).
 fn ordered(paths: Vec<String>, file: &Path) -> Vec<Observation> {
     let newest = modified_ms(file).unwrap_or(0);
     let mut seen = std::collections::BTreeSet::new();
+    let paths: Vec<String> = paths.into_iter().filter(|path| seen.insert(path.clone())).collect();
+    let paths_len = paths.len();
     paths
         .into_iter()
-        .filter(|path| seen.insert(path.clone()))
         .enumerate()
-        .map(|(index, path)| Observation { path, last_used_ms: newest - index as i64 })
+        .map(|(index, path)| {
+            let last_used_ms = if index == 0 { newest } else { (paths_len - index) as i64 };
+            Observation { path, last_used_ms }
+        })
         .collect()
 }
 
