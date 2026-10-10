@@ -19,7 +19,8 @@
 #   --out DIR    where to unpack (default: .build/web-bundles/<key>)
 #   --install    then install into this checkout and stamp it (build-web-bundles.sh --from)
 #   --print-key  print this checkout's key and exit
-# Exit 0 fetched (prints DIR); 3 not published for this key (build it, or wait for
+# An existing DIR is replaced only when it holds .manifest.json (written here).
+# Exit 0 fetched (prints DIR); 3 not published for this key (HTTP 404) (build it, or wait for
 # the publish run); 1 a download or sha256 check failed.
 # CMUX_WEB_BUNDLES_BASE overrides https://files.cmux.com/cmux-next-web.
 set -euo pipefail
@@ -38,23 +39,28 @@ done
 [[ -n "$key" ]] || key="$(python3 "$root/scripts/cmux-next/web-bundle-key.py" "$root" --source)"
 [[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "fetch-web-bundles: bad key $key" >&2; exit 2; }
 base="${CMUX_WEB_BUNDLES_BASE:-https://files.cmux.com/cmux-next-web}/$key"
-out="${out:-$root/.build/web-bundles/$key}"
+out="${out:-$root/.build/web-bundles/$key}"; out="${out%/}"
+[[ -n "$out" ]] || { echo "fetch-web-bundles: bad --out" >&2; exit 2; }
+if [[ -e "$out" && ! -f "$out/.manifest.json" ]]; then
+  echo "fetch-web-bundles: refusing to replace $out (not a directory this script wrote)" >&2; exit 2
+fi
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 code="$(curl -sS -o "$work/manifest.json" -w '%{http_code}' --retry 3 --connect-timeout 20 --max-time 60 "$base/manifest.json" || true)"
-if [[ "$code" == 404 || "$code" == 403 ]]; then
+if [[ "$code" == 404 ]]; then
   echo "fetch-web-bundles: no bundle published for key $key ($base/manifest.json: HTTP $code)" >&2; exit 3
 fi
 [[ "$code" == 200 ]] || { echo "fetch-web-bundles: manifest download failed (HTTP ${code:-none})" >&2; exit 1; }
 read -r m_key archive sha < <(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m.get("schema")==1, "schema"; print(m["key"], m["archive"], m["sha256"])' "$work/manifest.json")
 [[ "$m_key" == "$key" ]] || { echo "fetch-web-bundles: manifest names key $m_key, not $key" >&2; exit 1; }
 [[ "$archive" =~ ^web-bundles-[0-9a-f]{64}\.tar\.gz$ && "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "fetch-web-bundles: bad manifest entry $archive $sha" >&2; exit 1; }
-curl -fsS --retry 3 --connect-timeout 20 --max-time 300 -o "$work/$archive" "$base/$archive"
+curl -fsS --retry 3 --connect-timeout 20 --max-time 300 -o "$work/$archive" "$base/$archive" || { echo "fetch-web-bundles: archive download failed" >&2; exit 1; }
 actual="$( (command -v sha256sum >/dev/null && sha256sum "$work/$archive" || shasum -a 256 "$work/$archive") | awk '{print $1}')"
 [[ "$actual" == "$sha" ]] || { echo "fetch-web-bundles: $archive has sha256 $actual, the manifest says $sha" >&2; exit 1; }
-rm -rf "$out.tmp"; mkdir -p "$(dirname "$out")"
-python3 "$root/scripts/cmux-next/web-bundle-archive.py" unpack "$work/$archive" "$out.tmp"
-cp "$work/manifest.json" "$out.tmp/.manifest.json"
-rm -rf "$out"; mv "$out.tmp" "$out"
+mkdir -p "$(dirname "$out")"
+stage="$(mktemp -d "$(dirname "$out")/.web-bundles.XXXXXX")"
+python3 "$root/scripts/cmux-next/web-bundle-archive.py" unpack "$work/$archive" "$stage" || { rm -rf "$stage"; exit 1; }
+cp "$work/manifest.json" "$stage/.manifest.json"
+rm -rf "$out"; mv "$stage" "$out"
 if [[ "$install" == 1 ]]; then
   [[ "$(python3 "$root/scripts/cmux-next/web-bundle-key.py" "$root" --source)" == "$key" ]] || {
     echo "fetch-web-bundles: --install needs this checkout's own key (fetched $key)" >&2; exit 2; }

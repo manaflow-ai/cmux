@@ -42,12 +42,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # The build runs third-party npm code (bun install, Vite), so it holds no
+  # secret: it packs the archive and the manifest as a workflow artifact. The
+  # publish job below gets the R2 credentials, starts from a clean checkout and
+  # runs no bun or node (the cmux-tui artifacts build/publish split).
+  build:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
-    name: publish the web bundles for this source key
-    environment: artifacts
+    name: build the web bundles for this source key
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      published: ${{ steps.key.outputs.published }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -90,7 +96,6 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web-bundles-out"
 
       - name: Pack the archive and the manifest
-        id: pack
         if: steps.key.outputs.published != 'true'
         env:
           KEY: ${{ steps.key.outputs.key }}
@@ -113,34 +118,56 @@ jobs:
                      "outputs": outputs or None}, open(path, "w"), indent=1, sort_keys=True)
           PY
           cat "$dir/manifest.json"
-          echo "dir=$dir" >> "$GITHUB_OUTPUT"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Hand the archive to the publish job
+        if: steps.key.outputs.published != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-web-bundles
+          path: ${{ runner.temp }}/web-bundles-publish
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: build
+    if: needs.build.outputs.published != 'true'
+    name: publish the web bundles to files.cmux.com
+    environment: artifacts
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-web-bundles
+          path: ${{ runner.temp }}/web-bundles-publish
 
       - name: Upload to R2 (archive first, manifest last)
-        if: steps.key.outputs.published != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          KEY: ${{ steps.key.outputs.key }}
-          DIR: ${{ steps.pack.outputs.dir }}
-          ARCHIVE: ${{ steps.pack.outputs.archive }}
+          KEY: ${{ needs.build.outputs.key }}
         run: |
           set -euo pipefail
+          dir="$RUNNER_TEMP/web-bundles-publish"
+          archive="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2]; print(m["archive"])' "$dir/manifest.json" "$KEY")"
+          [[ "$archive" =~ ^web-bundles-[0-9a-f]{64}\.tar\.gz$ && -f "$dir/$archive" ]]
+          published() { [[ "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?verify=$GITHUB_RUN_ID-$1" || true)" == 200 ]]; }
+          if published a; then echo "key $KEY was published meanwhile; nothing to do"; exit 0; fi
           up() { python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                   --cache-control "public, max-age=31536000, immutable" --file "$1" --key "cmux-next-web/$KEY/$2" ${3:+--content-type "$3"}; }
-          up "$DIR/$ARCHIVE" "$ARCHIVE" application/gzip
-          if ! up "$DIR/manifest.json" manifest.json application/json; then
-            # Another run published this key first (its archive bytes differ): keep its manifest.
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?verify=$GITHUB_RUN_ID" || true)"
-            [[ "$code" == 200 ]] || exit 1
-            echo "::notice::another run published key $KEY first; its manifest stays"
-          fi
+                   --cache-control "public, max-age=31536000, immutable" --file "$1" --key "cmux-next-web/$KEY/$2" --content-type "$3"; }
+          up "$dir/$archive" "$archive" application/gzip
+          up "$dir/manifest.json" manifest.json application/json || published b
 
       - name: Verify the publication with the fetch helper
         env:
-          KEY: ${{ steps.key.outputs.key }}
+          KEY: ${{ needs.build.outputs.key }}
         run: |
           set -euo pipefail
           out="$(scripts/cmux-next/fetch-web-bundles.sh --key "$KEY" --out "$RUNNER_TEMP/web-bundles-fetched")"
