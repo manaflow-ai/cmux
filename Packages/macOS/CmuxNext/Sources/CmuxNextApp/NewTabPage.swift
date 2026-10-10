@@ -1,4 +1,3 @@
-import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -180,23 +179,6 @@ enum NewTabPage {
     /// Projects discovered off the main actor during app startup. The current
     /// session cwd still arrives immediately from the pane handshake.
     static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
-
-    /// Choose Folder…: a folder panel, a sheet on `window` when there is
-    /// one; nil when the person cancels.
-    static func chooseFolder(in window: NSWindow?) async -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        let response = await withCheckedContinuation { done in
-            if let window {
-                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
-            } else {
-                panel.begin { done.resume(returning: $0) }
-            }
-        }
-        return response == .OK ? panel.url : nil
-    }
 
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
