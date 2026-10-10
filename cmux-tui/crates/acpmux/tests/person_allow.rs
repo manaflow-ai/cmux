@@ -629,12 +629,9 @@ async fn a_person_proof_replayed_on_another_connection_is_refused() {
     let mut late = Rpc::connect(&d.socket).await;
     let mine = late.initialize().await;
     late.ok("_acpmux/status", json!({})).await;
-    let own = person_proof(
-        KEY,
-        mine["nonce"].as_str().unwrap(),
-        mine["connection"].as_str().unwrap(),
-    )
-    .unwrap();
+    let own =
+        person_proof(KEY, mine["nonce"].as_str().unwrap(), mine["connection"].as_str().unwrap())
+            .unwrap();
     let r = late.call("_acpmux/person_prove", json!({"proof": own})).await;
     assert_eq!(reason(&r), "person.proof_refused", "{r}");
 
