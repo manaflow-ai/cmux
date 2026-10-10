@@ -12,18 +12,6 @@ name: cloud image staleness
 # a rebake from the tip and a promotion (images/cmux-vm/promote.ts), never a change here.
 
 on:
-  push:
-    # The trunk only: lane side branches touch cmux-tui all day and are not what new VMs boot.
-    branches: [feat-cmux-next]
-    paths:
-      - cmux-tui/crates/**
-      - images/cmux-vm/channels/**
-      - backend/apps/api/wrangler.jsonc
-      - scripts/cmux-next/release/image-staleness.ts
-      - .github/workflows/cloud-image-staleness.yml
-  # Dormant: GitHub runs schedules only from the default branch (main), and cmux-next does not
-  # change main now. This block takes effect when feat-cmux-next reaches main; until then the push
-  # trigger above is the check (a capability is added by a push, which is when drift starts).
   schedule:
     - cron: "41 8 * * *"
   workflow_dispatch:
