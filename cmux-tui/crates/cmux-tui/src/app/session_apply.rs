@@ -249,7 +249,7 @@ impl App {
     }
 
     pub(super) fn replace_tree(&mut self, mut tree: TreeView) {
-        let previous_active = self.active_pane();
+        let (previous_active, focus_before) = (self.active_pane(), self.current_client_focus());
         let selected_workspace = self
             .tree
             .workspaces()
@@ -317,6 +317,7 @@ impl App {
         if first_adoption {
             self.restore_client_focus_from_session();
         }
+        self.absorb_server_focus_change(focus_before);
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
     }

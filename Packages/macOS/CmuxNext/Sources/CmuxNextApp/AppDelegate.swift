@@ -228,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
         services.chatsFeed?.keepCurrent()
+        services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second

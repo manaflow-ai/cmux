@@ -439,7 +439,13 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         .lookup_resource_effect(idempotency_key, operation, &fingerprint)
         .map_err(resource_operation_error)?
     {
-        return finish_notification_effect(mux, idempotency_key, &fingerprint, preparation);
+        return finish_notification_effect(
+            mux,
+            &request.actor,
+            idempotency_key,
+            &fingerprint,
+            preparation,
+        );
     }
 
     ensure_session_route(mux, &request.selectors)?;
@@ -496,11 +502,12 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             expected_revision(&request.fields)?,
         )
         .map_err(resource_operation_error)?;
-    finish_notification_effect(mux, idempotency_key, &fingerprint, preparation)
+    finish_notification_effect(mux, &request.actor, idempotency_key, &fingerprint, preparation)
 }
 
 fn finish_notification_effect(
     mux: &Mux,
+    actor: &crate::Actor,
     idempotency_key: &str,
     fingerprint: &Value,
     preparation: ResourceEffectPreparation,
@@ -517,13 +524,14 @@ fn finish_notification_effect(
             let intent = mux
                 .mark_resource_effect_executing(idempotency_key, "notification.create", fingerprint)
                 .map_err(resource_operation_error)?;
-            execute_notification_effect(mux, idempotency_key, fingerprint, &intent)
+            execute_notification_effect(mux, actor, idempotency_key, fingerprint, &intent)
         }
     }
 }
 
 fn execute_notification_effect(
     mux: &Mux,
+    actor: &crate::Actor,
     idempotency_key: &str,
     fingerprint: &Value,
     intent: &Value,
@@ -613,7 +621,7 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
-    mux.post_resource_notification(
+    let numeric_id = mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
         subtitle.clone(),
@@ -624,21 +632,18 @@ fn execute_notification_effect(
         created_at_ms,
         source,
     );
-    let value = mux.notification_snapshot_value(
-        &crate::ResourceNotification {
-            id: notification_id.clone(),
-            title: title.to_string(),
-            subtitle,
-            body: body.to_string(),
-            level,
-            terminal_id,
-            created_at_ms,
-            source,
-            surface,
-        },
-        &session_id,
-        &[],
-    );
+    let notification = crate::ResourceNotification {
+        id: notification_id.clone(),
+        title: title.to_string(),
+        subtitle,
+        body: body.to_string(),
+        level,
+        terminal_id,
+        created_at_ms,
+        source,
+        surface,
+    };
+    let value = mux.created_notification_value(&notification, &session_id);
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -647,12 +652,14 @@ fn execute_notification_effect(
         "id":notification_id,
         "value":value,
     }]);
-    let revision = match mux.commit_resource_effect(
+    let revision = match mux.commit_notification_effect(
+        actor,
         idempotency_key,
-        "notification.create",
         fingerprint,
         &outcome,
-        Some(&deltas),
+        &deltas,
+        &notification,
+        numeric_id,
     ) {
         Ok(revision) => revision,
         Err(_) => {

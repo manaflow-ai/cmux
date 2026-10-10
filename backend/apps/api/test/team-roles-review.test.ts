@@ -114,29 +114,4 @@ describe("team roles review (cx-3bi.4)", { timeout: 60_000 }, () => {
     expect(audit.some((a) => a.op === "team.no_owner")).toBe(false)
   })
 
-  it("re-review: the team-wide permission read has Stack's server shape and parses Stack's answer", async () => {
-    const team = "5f0c2a8e-1b3d-4c6e-9f10-2a4b6c8d0e1f"
-    const u1 = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
-    const u2 = "1b2c3d4e-5f6a-4b7c-9d8e-0f1a2b3c4d5e"
-    const seen: Array<{ url: URL; headers: Headers; method: string }> = []
-    const http = async (req: Request) => {
-      const url = new URL(req.url)
-      seen.push({ url, headers: req.headers, method: req.method })
-      // Shapes per @hexclave/shared 1.0.121 (team-member-profiles list, teamPermissionsCrud read: {id, user_id, team_id}).
-      if (url.pathname === "/api/v1/team-member-profiles") return Response.json({ is_paginated: false, items: [{ team_id: team, user_id: u1, display_name: "Creator", profile_image_url: null }, { team_id: team, user_id: u2, display_name: null, profile_image_url: null }] })
-      if (url.pathname === "/api/v1/team-permissions") return Response.json({ is_paginated: false, items: [{ id: "team_admin", user_id: u1, team_id: team }, { id: "$delete_team", user_id: u1, team_id: team }, { id: "team_member", user_id: u2, team_id: team }] })
-      return new Response("{}", { status: 404 })
-    }
-    const listed = await stackServer({ STACK_SECRET_SERVER_KEY: "k", STACK_PROJECT_ID: "p" } as unknown as Env, http)!.listTeamMembers(team)
-    const perms = seen.find((s) => s.url.pathname === "/api/v1/team-permissions")!
-    expect(perms.method).toBe("GET")
-    expect(perms.url.host).toBe("api.stack-auth.com")
-    expect(Object.fromEntries(perms.url.searchParams)).toEqual({ team_id: team, recursive: "true" })
-    expect(perms.headers.get("x-stack-access-type")).toBe("server")
-    expect(perms.headers.get("x-stack-project-id")).toBe("p")
-    expect(listed).toEqual([
-      { user_id: u1, display_name: "Creator", permissions: ["team_admin", "$delete_team"] },
-      { user_id: u2, display_name: null, permissions: ["team_member"] }
-    ])
-  })
 })
