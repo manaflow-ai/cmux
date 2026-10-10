@@ -156,7 +156,8 @@ export default componentEntry<Props>({
     },
     layoutShiftMax: {
       value: 0.05,
-      reason: "Expanding an in-flow transcript intentionally moves the disclosure and receipt below the newly revealed output.",
+      reason:
+        "Expanding an in-flow transcript intentionally moves the disclosure and receipt below the newly revealed output.",
     },
     longFrameFailMs: {
       value: 33,
