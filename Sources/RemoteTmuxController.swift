@@ -64,7 +64,7 @@ final class RemoteTmuxController {
     /// The request identity currently authorized to create a session in each window.
     /// A cancelled task may finish an SSH round trip after replacement, so the identity
     /// check must guard the attach transition as well as task cleanup.
-    private var newSessionRequestIDs: [ObjectIdentifier: UUID] = [:]
+    var newSessionRequestIDs: [ObjectIdentifier: UUID] = [:]
     /// Multiplexer requests remain current after their task queues the shared-stream
     /// command, until the reconcile admits (or rejects) that session.
     private var pendingMultiplexNewSessionRequests: [ObjectIdentifier: UUID] = [:]
