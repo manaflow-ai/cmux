@@ -136,9 +136,10 @@ def main():
         time.sleep(0.5)  # test harness: the drop settles
     workspace_rows = rows("workspace")
     if len(workspace_rows) >= 4:
-        # Dropped with the card's middle on another workspace's middle: the
-        # two make a group, whose name editor opens.
-        dragged, target = workspace_rows[1], workspace_rows[3]
+        # Dragged up with the card's middle onto the middle of a workspace
+        # above (rows above the start never move): the two make a group,
+        # whose name editor opens.
+        dragged, target = workspace_rows[3], workspace_rows[1]
         x, y = center(dragged)
         _, target_y = center(target)
         card = block_height(dragged)
