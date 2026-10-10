@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// cmux's header over Chromium's side panel (`CEFSidePanelState`): icon,
 /// title and the controls Chromium's header shows (pin to the toolbar, open
@@ -10,12 +11,12 @@ final class SidePanelHeaderView: NSView {
 
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
-    private lazy var pin = ChromeIconButton(symbol: "pin", label: Strings.sidePanelPin, action: #selector(pressPin), target: self)
-    private lazy var openInNewTab = ChromeIconButton(symbol: "arrow.up.forward.square", label: Strings.sidePanelOpenInNewTab,
+    private lazy var pin = ChromeIconButton(icon: .actionPin, label: Strings.sidePanelPin, action: #selector(pressPin), target: self)
+    private lazy var openInNewTab = ChromeIconButton(icon: .linkOpenNewtab, label: Strings.sidePanelOpenInNewTab,
                                                      action: #selector(pressOpenInNewTab), target: self)
-    private lazy var moreInfo = ChromeIconButton(symbol: "ellipsis", label: Strings.sidePanelMoreInfo,
+    private lazy var moreInfo = ChromeIconButton(icon: .actionMore, label: Strings.sidePanelMoreInfo,
                                                  action: #selector(pressMoreInfo), target: self)
-    private lazy var close = ChromeIconButton(symbol: "xmark", label: Strings.sidePanelClose, action: #selector(pressClose), target: self)
+    private lazy var close = ChromeIconButton(icon: .actionClose, label: Strings.sidePanelClose, action: #selector(pressClose), target: self)
     private let stack = NSStackView()
 
     override init(frame: NSRect) {
@@ -56,7 +57,7 @@ final class SidePanelHeaderView: NSView {
         icon.image = state.icon.flatMap(NSImage.init(data:))
         icon.isHidden = icon.image == nil
         pin.isHidden = !state.showsPin
-        pin.setSymbol(state.isPinned ? "pin.fill" : "pin", label: state.isPinned ? Strings.sidePanelUnpin : Strings.sidePanelPin)
+        pin.setIcon(state.isPinned ? .statePinned : .actionPin, label: state.isPinned ? Strings.sidePanelUnpin : Strings.sidePanelPin)
         openInNewTab.isHidden = !state.showsOpenInNewTab
         moreInfo.isHidden = !state.showsMoreInfo
     }
