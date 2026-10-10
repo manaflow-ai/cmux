@@ -21,6 +21,13 @@ name: cmux-tui tree request
 # publish credentials.
 
 on:
+  # GitHub dispatches only a workflow it knows, and it learns a file that is
+  # not on the default branch from a run. A push that changes this file starts
+  # one run whose job skips, and that registers it for dispatch on
+  # feat-cmux-next.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-tui-tree-request.yml]
   workflow_dispatch:
     inputs:
       commit:
@@ -39,7 +46,7 @@ permissions: {}
 jobs:
   request:
     name: request the cmux-tui tree publish
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
