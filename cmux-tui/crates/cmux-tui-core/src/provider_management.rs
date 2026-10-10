@@ -1,6 +1,6 @@
 //! Root-only management protocol for live provider-owned mux processes.
 
-#![cfg(any(target_os = "linux", test))]
+#![cfg(target_os = "linux")]
 
 use std::fmt;
 #[cfg(target_os = "linux")]
