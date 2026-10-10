@@ -25,7 +25,8 @@ enum ControlTopologyMapper {
     /// `selectedTab` answers the tab a window shows for a pane (app-local);
     /// `pages` what the app knows of page tabs (bd cx-5xsi).
     static func topology(store: DaemonStore, selectedTab: (PaneModel) -> String?,
-                         pages: ControlPageFacts = ControlPageFacts()) -> ControlTopology {
+                         pages: ControlPageFacts = ControlPageFacts(),
+                         cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
         var topology = ControlTopology()
         topology.isLoaded = store.isLoaded
         topology.daemonState = switch store.connectionState {
@@ -40,7 +41,10 @@ enum ControlTopologyMapper {
         topology.workspaceGroups = groups.map { group in
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
-        topology.workspaces = store.workspaces.map { workspace(from: $0, selectedTab: selectedTab, pages: pages) }
+        topology.workspaces = store.workspaces.map { model in
+            guard let cache else { return workspace(from: model, selectedTab: selectedTab, pages: pages) }
+            return cache.info(for: model) { workspace(from: $0, selectedTab: selectedTab, pages: pages) }
+        }
         return topology
     }
 
