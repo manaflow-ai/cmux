@@ -227,6 +227,13 @@ def main():
         # Show Tab Bar on that chat: the bar shows, and Cmd-T adds a tab there.
         print("Show Tab Bar:", action("pane.toggleTabBar", focus=True), flush=True)
         strip("Show Tab Bar shows a chat's tab bar", False, kind="agent", choice=True)
+        # A terminal tab on that lone chat stays beside it: no chat dock (one pane shown).
+        setting("tabs.newTabKind", "terminal")
+        NEEDS_PAGE[0] = False
+        press("t", "Cmd-T (terminal kind) on a lone chat that shows its tab bar opens a tab there", "tab")
+        NEEDS_PAGE[0] = True
+        strip("the chat did not move into a dock", False)
+        setting("tabs.newTabKind", "page")
         press("t", "Cmd-T on a chat that shows its tab bar opens a tab there", "tab")
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "pane-tab-bar-chat-shown.png")})
         # Hidden again (the pane now holds two tabs, which Automatic would show): Cmd-T opens a workspace.

@@ -60,7 +60,7 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting, and so
     /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
-    /// `inStrip` (New Horizontal Tab) opens the tab in the pane itself, whose tab bar it just turned on.
+    /// `inStrip` (New Horizontal Tab) adds a tab even where Cmd-T would open a workspace.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
                                  inStrip: Bool = false) {
         // A named tab or pane that resolves to nothing is refused by the
@@ -140,9 +140,8 @@ enum TabLifecycle {
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation)
         case .agent, .page:
-            // The docked agent chat gets no tabs unless its tab bar shows: a New Tab page in the strip
-            // (ChatColumnPlacement).
-            if user, !inStrip, let controller, controller.view.hidesStrip, let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services),
+            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
+            if user, let controller, let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services),
                strip !== controller {
                 return strip.newTabPage()
             }

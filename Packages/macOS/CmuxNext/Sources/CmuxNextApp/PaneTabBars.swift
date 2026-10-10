@@ -66,7 +66,7 @@ extension PaneController {
     /// The pane's kind for `tabs.tabBar.<kind>`.
     var tabBarKind: PaneTabBarKind {
         let agentTabs = services.agentTabs
-        let tabs = pane.tabs.map { tab in
+        let tabs = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab in
             (isChat: ChatColumnPlacement.isChat(tab, services: services), isBrowser: tab.kind == .browser,
              isPage: agentTabs.isNewTabPage(tab.id))
         } + (state?.localBrowserTabs[paneKey] ?? []).map { _ in (isChat: false, isBrowser: true, isPage: false) }
