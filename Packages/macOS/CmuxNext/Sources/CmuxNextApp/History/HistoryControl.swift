@@ -19,33 +19,48 @@ enum HistoryControl {
     }
 
     /// `debug.history_cookie_backups {action: show|hide|delete_all}` (DEBUG
-    /// builds): drives the History page's cookie backups sheet of the active
-    /// window's selected tab through the page model, the path the buttons use.
+    /// builds only; the router drops `debug.*` in Release): drives the
+    /// History page's cookie backups sheet of the active window's selected
+    /// tab through the page model. `delete_all` skips the sheet's
+    /// confirmation, so in a DEV build an agent with the debug socket could
+    /// delete backups; a Release build has no such path.
     static func debugMethods(services: AppServices) -> [ControlMethod] {
         #if DEBUG
-        [
+        return [
             .mainActor("debug.history_cookie_backups") { [weak services] call in
                 guard let services, let key = services.windows.active?.focusedPane?.selectedTab?.id,
                       let page = services.cache.existingBrowser(key)?.tab as? HistoryPageTab else {
                     throw ControlError.invalidParams("the active window's selected tab is not the History page")
                 }
                 let model = page.model
-                switch call.params["action"]?.stringValue ?? "show" {
-                case "show": model.showCookieBackups()
-                case "hide": model.showsCookieBackups = false
-                case "delete_all": model.deleteCookieBackups(model.cookieBackups.map(\.id))
-                default: throw ControlError.invalidParams("action must be show, hide or delete_all")
+                let action = call.params["action"]?.stringValue ?? "show"
+                guard ["show", "hide", "delete_all"].contains(action) else {
+                    throw ControlError.invalidParams("action must be show, hide or delete_all")
                 }
-                return .value(.object([
-                    "shown": .bool(model.showsCookieBackups),
-                    "backups": .array(model.cookieBackups.map { .object(["id": .string($0.id), "site": .string($0.site)]) }),
-                ]))
+                return .followUp { await debugCookieBackups(model, action: action) }
             },
         ]
         #else
-        []
+        return []
         #endif
     }
+
+    #if DEBUG
+    @MainActor
+    static func debugCookieBackups(_ model: HistoryPageModel, action: String) async -> JSONValue {
+        switch action {
+        case "show":
+            model.showsCookieBackups = true
+            await model.refreshCookieBackups()
+        case "hide": model.showsCookieBackups = false
+        default: await model.deleteCookieBackupsNow(await model.refreshCookieBackups().map(\.id))
+        }
+        return .object([
+            "shown": .bool(model.showsCookieBackups),
+            "backups": .array(model.cookieBackups.map { .object(["id": .string($0.id), "site": $0.site.map(JSONValue.string) ?? .null]) }),
+        ])
+    }
+    #endif
 
     static func query(from params: [String: JSONValue]) throws -> HistoryQuery {
         var query = HistoryQuery(limit: 100)

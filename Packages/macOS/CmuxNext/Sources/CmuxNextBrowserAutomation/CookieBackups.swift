@@ -100,7 +100,7 @@ public nonisolated struct CookieBackups: Sendable {
         guard let file = FileManager.default.contents(atPath: url.path) else {
             throw CookieBackupError("no cookie backup \(restoreID) (restored, purged or expired)")
         }
-        return try open(file, id: restoreID)
+        return try open(file, id: restoreID, key: keySource.key())
     }
 
     /// Deletes the backup of `restoreID`.
@@ -115,16 +115,14 @@ public nonisolated struct CookieBackups: Sendable {
 
     /// Deletes every backup whose cookies all passed their own expiry
     /// (`expires`, seconds; a cookie without one keeps the backup). A
-    /// backup that does not open is left for the person.
+    /// backup that does not open is left for the person (``summaries()``
+    /// lists it as unreadable). Reads the key once.
     @discardableResult
     public func pruneExpired(now: Date = Date()) -> Int {
+        guard let key = try? keySource.key() else { return 0 }
         var removed = 0
         for file in backupFiles() {
-            let id = Self.restorePrefix + file.url.deletingPathExtension().lastPathComponent
-            guard let data = FileManager.default.contents(atPath: file.url.path),
-                  let plain = try? open(data, id: id),
-                  let record = try? JSONSerialization.jsonObject(with: plain) as? [String: Any],
-                  let cookies = record["cookies"] as? [[String: Any]] else { continue }
+            guard let record = record(file.url, key: key), let cookies = record["cookies"] as? [[String: Any]] else { continue }
             if cookies.allSatisfy({ Self.expired($0, now: now) }) {
                 try? FileManager.default.removeItem(at: file.url)
                 removed += 1
@@ -133,17 +131,36 @@ public nonisolated struct CookieBackups: Sendable {
         return removed
     }
 
-    /// The backups that open with this Mac's key, newest first: restore
-    /// id, site and time, never a cookie value (the History page's list).
-    public func summaries() -> [(restoreID: String, site: String, createdAt: Date)] {
-        backupFiles().compactMap { file in
+    /// One backup on the History page's list: never a cookie value.
+    public struct Summary: Sendable {
+        public let restoreID: String
+        /// The host whose cookies were cleared; nil when the backup does not
+        /// open with this Mac's key (it still counts toward the bound, so
+        /// the person can delete it).
+        public let site: String?
+        public let createdAt: Date
+    }
+
+    /// Every backup, newest first (reads the key once). An unreadable one is
+    /// listed with no site and its file's date.
+    public func summaries() -> [Summary] {
+        let key = try? keySource.key()
+        return backupFiles().map { file in
             let id = Self.restorePrefix + file.url.deletingPathExtension().lastPathComponent
-            guard let data = FileManager.default.contents(atPath: file.url.path), let plain = try? open(data, id: id),
-                  let record = try? JSONSerialization.jsonObject(with: plain) as? [String: Any] else { return nil }
+            guard let key, let record = record(file.url, key: key) else {
+                let modified = (try? file.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return Summary(restoreID: id, site: nil, createdAt: modified)
+            }
             let created = ((record["createdAt"] as? NSNumber)?.doubleValue ?? 0) / 1000
-            return (id, record["site"] as? String ?? "", Date(timeIntervalSince1970: created))
+            return Summary(restoreID: id, site: record["site"] as? String ?? "", createdAt: Date(timeIntervalSince1970: created))
         }
         .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func record(_ url: URL, key: SymmetricKey) -> [String: Any]? {
+        let id = Self.restorePrefix + url.deletingPathExtension().lastPathComponent
+        guard let data = FileManager.default.contents(atPath: url.path), let plain = try? open(data, id: id, key: key) else { return nil }
+        return try? JSONSerialization.jsonObject(with: plain) as? [String: Any]
     }
 
     /// Whether a backed-up cookie (`expires` in seconds since 1970, -1 for a
@@ -153,9 +170,8 @@ public nonisolated struct CookieBackups: Sendable {
         return expires <= now.timeIntervalSince1970
     }
 
-    private func open(_ file: Data, id: String) throws(CookieBackupError) -> Data {
+    private func open(_ file: Data, id: String, key: SymmetricKey) throws(CookieBackupError) -> Data {
         guard file.starts(with: Self.magic) else { throw CookieBackupError("the backup \(id) is not a cookie backup") }
-        let key = try keySource.key()
         do {
             let box = try ChaChaPoly.SealedBox(combined: file.dropFirst(Self.magic.count))
             return try ChaChaPoly.open(box, using: key, authenticating: Data(id.utf8))

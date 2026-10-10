@@ -43,6 +43,7 @@ public final class HistoryPageModel {
     /// The cookie backups sheet (``showCookieBackups()``).
     public var showsCookieBackups = false
     public internal(set) var cookieBackups: [HistoryCookieBackup] = []
+    @ObservationIgnored var cookieBackupsGeneration = 0
 
     @ObservationIgnored public weak var source: (any HistoryPageSource)?
     @ObservationIgnored private var entries: [HistoryEntry] = []

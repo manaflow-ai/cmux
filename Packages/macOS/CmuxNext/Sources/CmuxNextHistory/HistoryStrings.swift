@@ -18,6 +18,7 @@ nonisolated enum HistoryStrings {
         t("cookieBackups.explanation", "When an agent clears cookies in a browser tab, cmux keeps an encrypted copy on this Mac so the agent can undo the clear. Only you can delete these copies.")
     }
     static var cookieBackupsEmpty: String { t("cookieBackups.empty", "No cookie backups") }
+    static var cookieBackupsUnreadable: String { t("cookieBackups.unreadable", "Backup this Mac can no longer open") }
     static var cookieBackupsDelete: String { t("cookieBackups.delete", "Delete") }
     static var cookieBackupsDeleteAll: String { t("cookieBackups.deleteAll", "Delete All…") }
     static var cookieBackupsDone: String { t("cookieBackups.done", "Done") }
