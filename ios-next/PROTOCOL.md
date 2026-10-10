@@ -63,8 +63,9 @@ else until the hello is accepted.
 | 1 `termOutput` | int | host -> phone | raw PTY bytes |
 | 2 `termInput` | int | phone -> host | raw input bytes (already encoded by Ghostty) |
 | 3 `browserFrame` | blk | host -> phone | `[u32 seq][u16 cssW][u16 cssH][u16 pxW][u16 pxH][u8 format 0=jpeg 1=png]` + image bytes. With `frameMeta` (below), format has bit 0x80 set and `[f32 scrollX][f32 scrollY][f32 pageScale][f32 offsetTop]` (CSS px, BE) follows the header |
+| 4 `fileChunk` | blk | phone -> host | `[u32 seq]` + file bytes; streamId is the `uploadId` from `fs.upload.begin`; seq starts at 0 and increases by 1 |
 
-Stream ids are allocated by the host and returned by the `*.attach` call.
+Stream ids are allocated by the host and returned by the `*.attach` call (or `fs.upload.begin`).
 
 ## 4. RPC methods
 
@@ -123,10 +124,18 @@ Terminal `{id, title, cwd, cols, rows, running, createdAt}`
 - events: `term.updated {terminal}`, `term.exited {terminalId, code}`
 
 ### files
-- `fs.upload {name, mimeType?, dataBase64}` -> `{path}`: writes the file to
+Uploads stream on the bulk lane so a large file never blocks control replies.
+- `fs.upload.begin {name, mimeType?, size}` -> `{uploadId}`; `size` at most 50 MB
+  (else `bad_request`). The phone then sends the bytes as `fileChunk` frames
+  (§3) on stream `uploadId`.
+- `fs.upload.end {uploadId}` -> `{path}`: waits until `size` bytes arrived (chunks
+  may still be in flight on the bulk lane), then writes
   `~/.cmux-next-host/uploads/<uuid>/<name>` (name reduced to one safe path
-  component; at most 50 MB decoded, else `bad_request`) and returns its absolute
-  path. The terminal composer types that path (shell-quoted) into the terminal.
+  component) and returns its absolute path. Out-of-order chunks, more bytes than
+  `size`, or 30 s without a chunk fail the upload (`bad_request`) and remove it.
+- `fs.upload.cancel {uploadId}` -> `{}`.
+- The host deletes uploads older than 7 days (at startup and daily). The terminal
+  composer types the returned path (shell-quoted) into the terminal.
   Capability: `fs.v1`.
 
 ### browser (tabs visible on the Mac)

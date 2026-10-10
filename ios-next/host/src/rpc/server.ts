@@ -16,7 +16,7 @@ export interface HostInfo {
 }
 
 export interface StreamSink {
-  kind: "term" | "browser";
+  kind: "term" | "browser" | "upload";
   /** Terminal id or tab id this stream belongs to. */
   target: string;
   onInput?(data: Uint8Array): void;
@@ -127,8 +127,11 @@ export class RpcServer extends EventEmitter<RpcServerEvents> {
     };
     peer.on("frame", (kind, streamId, payload) => {
       if (!session.helloed) return;
-      if (kind !== FrameKind.termInput) return;
-      session.streams.get(streamId)?.onInput?.(payload);
+      // Phone -> host frames go to the stream of the matching kind only.
+      const sink = session.streams.get(streamId);
+      if (!sink) return;
+      if (kind === FrameKind.termInput && sink.kind === "term") sink.onInput?.(payload);
+      else if (kind === FrameKind.fileChunk && sink.kind === "upload") sink.onInput?.(payload);
     });
     peer.on("closed", (reason) => {
       this.log(`client ${session.id} closed${reason ? `: ${reason}` : ""}`);

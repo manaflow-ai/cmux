@@ -14,6 +14,7 @@ export const FrameKind = {
   termOutput: 1,
   termInput: 2,
   browserFrame: 3,
+  fileChunk: 4,
 } as const;
 export type FrameKind = (typeof FrameKind)[keyof typeof FrameKind];
 

@@ -19,7 +19,7 @@ export function decodeFrame(data: Uint8Array): { kind: number; streamId: number;
 }
 
 export function laneForKind(kind: number): Lane {
-  return kind === FrameKind.browserFrame ? "blk" : "int";
+  return kind === FrameKind.browserFrame || kind === FrameKind.fileChunk ? "blk" : "int";
 }
 
 export interface BrowserFrameHeader {

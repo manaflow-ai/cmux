@@ -41,7 +41,7 @@ export class HostCore {
     this.agents = new AgentsProvider({ log, ...opts.agents });
     this.chief = new ChiefProvider(this.agents, { log, hostName: this.hostName, path: opts.conversationsPath });
     this.browser = new BrowserProvider({ log, ...opts.browser });
-    this.files = new FilesProvider(opts.files);
+    this.files = new FilesProvider({ log, ...opts.files });
     this.terminals.register(this.server);
     this.agents.register(this.server);
     this.chief.register(this.server);
@@ -70,5 +70,6 @@ export class HostCore {
     this.agents.shutdown();
     this.chief.flush();
     this.browser.close();
+    this.files.close();
   }
 }
