@@ -252,12 +252,16 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
     secrets.push(html(v), flat);
     if (flat.length > 12) secrets.push(flat.slice(0, 12));
   }
+  // A short value (1-3 characters) is replaced only as a whole string, or
+  // where HTML results (innerHTML, documentHTML) hold it as a value attribute.
+  const attributes = [...unique].filter((v) => v.length < 4).map((v) => `value="${html(v)}"`);
   for (let i = secrets.length - 1; i >= 0; i--) if (!secrets[i]) secrets.splice(i, 1);
   secrets.sort((x, y) => y.length - x.length);
   const scrub = (x) => {
     if (typeof x === "string") {
       let s = x;
       for (const k of secrets) s = k.length >= 4 ? s.split(k).join(MARK) : (s === k ? MARK : s);
+      for (const a of attributes) s = s.split(a).join(`value="${MARK}"`);
       return s;
     }
     if (Array.isArray(x)) return x.map(scrub);

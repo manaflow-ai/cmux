@@ -2487,14 +2487,14 @@
       if (!d || d._handled) return null;
       return new Error(`page is blocked by a JavaScript ${d.type()} dialog ${JSON.stringify(d.message())}; answer it with page.dialog().accept() or page.dialog().dismiss()`);
     }
-    // Settles when `promise` does, or when a dialog nobody listens for opens:
-    // input then counts as delivered, an evaluation fails with the way out.
     // A note for a page read the page-read budget cut.
     _printReadCut(title, cut, rest) {
       try {
         this._session.host.print("warn", `# ${title}: ${readCutNote("it", cut)}; ${rest}`);
       } catch {}
     }
+    // Settles when `promise` does, or when a dialog nobody listens for opens:
+    // input then counts as delivered, an evaluation fails with the way out.
     _raceDialog(promise, isEvaluation) {
       return new Promise((resolve, reject) => {
         let settled = false;
