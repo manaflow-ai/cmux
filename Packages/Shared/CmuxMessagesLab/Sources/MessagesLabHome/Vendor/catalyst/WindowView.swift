@@ -590,7 +590,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 MessagesWindowView.commitPhases = [:]
             }
         }
-        let begin = beginTime(t)
+        // A send's animations run at Messages' phase (Springs.sendPhase): the field shrinks when the
+        // draft had more than one line (or attachments).
+        let sendPhase: Double = {
+            guard case .send = action else { return 0 }
+            return Springs.sendPhase(fieldShrinks: compose.fieldRect.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
+        }()
+        let begin = beginTime(t) + sendPhase
         // My new tapback pops in its row's badge (RowCell.configureBadge).
         if case let .react(ref, _, nil) = action { RowCell.badgePop = (ref, begin) }
         defer { RowCell.badgePop = nil }
@@ -709,7 +715,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         newOffset = collection.contentOffset.y
 
         phase("layoutPass")
-        if animate && rowsChange || compose.fieldRect != oldField {
+        // A field height change from the draft (typing, an attachment) moves the rows at once, on
+        // the field's frame (Messages: one frame, no in-between frame); a send's collapse animates.
+        let fieldSteps: Bool = { switch action { case .setDraft, .attach, .removeDraftAttachment: return true; default: return false } }()
+        if animate && rowsChange || compose.fieldRect != oldField && !fieldSteps {
             animateRows(action, el, begin: begin, t: t, oldSnap: oldSnap, oldRowsTop: oldRowsTop, oldOffset: oldOffset,
                         newOffset: newOffset, state: state, old: old)
         }

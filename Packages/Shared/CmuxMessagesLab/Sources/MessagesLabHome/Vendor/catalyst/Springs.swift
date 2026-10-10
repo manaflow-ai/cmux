@@ -178,17 +178,42 @@ enum Springs {
     /// An outgoing message that arrives from outside the field (another
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
-    static var bubbleRight: SpringElement { element("bubble.right") }
-    /// The send morph's width and scale: macOS 27 fits (lossless takes), and the macOS 26 fits
-    /// (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    /// The send morph's right edge, width, center and scale: macOS 27 fits (lossless takes), and
+    /// the macOS 26 fits (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    static var bubbleRight: SpringElement { osElement("bubble.right") }
     static var bubbleWidth: SpringElement { osElement("bubble.width") }
-    static var bubbleCenterY: SpringElement { element("bubble.centerY") }
+    static var bubbleCenterY: SpringElement { osElement("bubble.centerY") }
     static var bubbleScale: SpringElement { osElement("bubble.scale") }
+    /// The send morph's elements for one send: after a draft that shrinks the field (macOS 27), the
+    /// `.fieldShrink` fits (refit3, cx-3cb.6); else the elements above.
+    struct Bubble {
+        var right, width, centerY, scale, opacity: SpringElement
+        init(fieldShrinks: Bool) {
+            func e(_ n: String, _ base: SpringElement) -> SpringElement {
+                fieldShrinks && !ComposeMetrics.macOS26 ? (Springs.all[n + ".fieldShrink"] ?? base) : base
+            }
+            right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
+            centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)
+            opacity = e("bubble.opacity", Springs.bubbleOpacity)
+        }
+    }
     static func osElement(_ name: String) -> SpringElement {
         ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
     }
     static var bubbleOpacity: SpringElement { osElement("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
+    /// The send's phase (s, added to the send transaction's begin time): how far into its curves
+    /// Messages' first send frame is, against ours. Messages' first send frame shows the send about
+    /// 10 ms into every curve after a 1-line draft, and one frame later in its curves (about 21 ms)
+    /// after a draft that shrinks the field; ours shows 14.3 ms (our first frame after the commit).
+    /// Measured on the seven lossless macOS 27 send takes, the same in the flying bubble's four
+    /// edges, the rows and the field top (tools/evidence/ANIMATIONS.md, section 1, "Send phase"):
+    /// the field's shrink costs Messages one more frame before its first send frame while its
+    /// animations' clock has started. macOS 26 (the original recording): none.
+    static func sendPhase(fieldShrinks: Bool) -> Double {
+        guard !ComposeMetrics.macOS26 else { return 0 }
+        return fieldShrinks ? -0.0066 : 0
+    }
     static var fieldOpacity: SpringElement { element("field.opacity") }
 
     /// A single-spring element for small effects that the recording does not

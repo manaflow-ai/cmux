@@ -43,6 +43,8 @@ final class MorphBubble {
     private let textLayout: TextLayout
     private let textSize: CGSize
     private let fieldRect: CGRect, flyingRect: CGRect
+    /// This send's elements (Springs.Bubble: the field-shrink fits after a multi-line draft).
+    private let springs: Springs.Bubble
 
     /// The background colour's alpha of `layer` from `e.from` to 1 with `e`'s timing: a keyframe
     /// animation sampled at 240 Hz (the layer's opacity would also fade its sublayers).
@@ -69,6 +71,8 @@ final class MorphBubble {
         textSize = size
         fieldRect = field
         flyingRect = target
+        let bs = Springs.Bubble(fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
+        springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]
         for l in [holder, bubble, body, text, blurred, tail, underlay] { l.actions = none; l.contentsScale = Fixture.renderScale }
@@ -94,7 +98,7 @@ final class MorphBubble {
         // a draft on more lines starts at the field's height (send-typed-take1).
         let w0 = field.width, h0 = max(field.height, h1)
         let y0 = field.minY + h0 / 2
-        let o = Springs.bubbleOpacity
+        let o = bs.opacity
         let images = MorphBubble.preparedImages(tl, size) ?? MorphBubble.textImages(tl, size)
         /// One bubble tree (the main one, or the sharp copy) with every spring.
         func build(_ bubble: CALayer, _ body: CALayer, _ text: CALayer, _ tail: CAShapeLayer, _ underlay: CALayer, in holder: CALayer, blurred: CALayer?) {
@@ -141,16 +145,16 @@ final class MorphBubble {
             bubble.opacity = 1
 
             // Springs (springs.json). Positions in points; the fits are in 2x px.
-            Animate.scalar(bubble, "position.x", from: Double(field.maxX), to: Double(target.maxX), Springs.bubbleRight, begin: begin)
-            Animate.scalar(bubble, "position.y", from: Double(y0), to: Double(target.midY), Springs.bubbleCenterY, begin: begin)
+            Animate.scalar(bubble, "position.x", from: Double(field.maxX), to: Double(target.maxX), bs.right, begin: begin)
+            Animate.scalar(bubble, "position.y", from: Double(y0), to: Double(target.midY), bs.centerY, begin: begin)
             for l in [body, underlay] {
-                Animate.scalar(l, "bounds.size.width", from: Double(w0), to: Double(w1), Springs.bubbleWidth, begin: begin)
-                Animate.scalar(l, "position.x", from: Double(-w0 / 2), to: Double(-w1 / 2), Springs.bubbleWidth, begin: begin)
-                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), Springs.bubbleWidth, begin: begin)
-                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), Springs.bubbleWidth, begin: begin)
+                Animate.scalar(l, "bounds.size.width", from: Double(w0), to: Double(w1), bs.width, begin: begin)
+                Animate.scalar(l, "position.x", from: Double(-w0 / 2), to: Double(-w1 / 2), bs.width, begin: begin)
+                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), bs.width, begin: begin)
+                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), bs.width, begin: begin)
             }
-            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), Springs.bubbleWidth, begin: begin)
-            Animate.pulse(bubble, "transform.scale", Springs.bubbleScale, begin: begin)
+            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), bs.width, begin: begin)
+            Animate.pulse(bubble, "transform.scale", bs.scale, begin: begin)
             // The blue fill is translucent at first, the text is not: Messages' text is white
             // (min channel > 215) from 75-92 ms, while its body is still translucent (lossless
             // send-typed-take1, send-2line-take2: body blue 186 of 247 at 75 ms). The body's
@@ -196,10 +200,10 @@ final class MorphBubble {
         // Land when every element is within 0.1 pt (opacity 0.01) of its final
         // value: then the overlay and the cell show the same pixels.
         let checks: [(SpringElement, Double, Double, Double)] = [
-            (Springs.bubbleRight, Double(field.maxX), Double(target.maxX), 0.1),
-            (Springs.bubbleCenterY, Double(y0), Double(target.midY), 0.1),
-            (Springs.bubbleWidth, Double(w0), Double(w1), 0.1),
-            (Springs.bubbleScale, 1, 1, 0.1 / Double(max(w1, h1))),
+            (bs.right, Double(field.maxX), Double(target.maxX), 0.1),
+            (bs.centerY, Double(y0), Double(target.midY), 0.1),
+            (bs.width, Double(w0), Double(w1), 0.1),
+            (bs.scale, 1, 1, 0.1 / Double(max(w1, h1))),
             (o, o.from, 1, 0.01), (Springs.textUnblur, 0, 1, 0.01)]
         // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
         // tolerance (each step's checks evaluated once; same result as testing
@@ -286,9 +290,9 @@ final class MorphBubble {
     /// (closed form of the same elements the layers run).
     func bottom(at tau: Double) -> Double {
         let h1 = Double(flyingRect.height), h0 = max(Double(fieldRect.height), h1)
-        let cy = Springs.bubbleCenterY.value(tau, from: Double(fieldRect.minY) + h0 / 2, to: Double(flyingRect.midY))
-        let s = Springs.bubbleScale.value(tau, from: 1, to: 1)
-        let h = Springs.bubbleWidth.value(tau, from: h0, to: h1)
+        let cy = springs.centerY.value(tau, from: Double(fieldRect.minY) + h0 / 2, to: Double(flyingRect.midY))
+        let s = springs.scale.value(tau, from: 1, to: 1)
+        let h = springs.width.value(tau, from: h0, to: h1)
         return cy + (h - h1 / 2) * s
     }
 
@@ -391,9 +395,10 @@ final class MorphBubble {
 
     /// The largest value of the fitted scale pulse (sampled at 240 Hz).
     static let peakScale: CGFloat = {
-        let e = Springs.bubbleScale
         var peak = 1.0
-        for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) } // at most 60 s of samples
+        for e in [Springs.Bubble(fieldShrinks: false).scale, Springs.Bubble(fieldShrinks: true).scale] {
+            for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) } // at most 60 s of samples
+        }
         return CGFloat((peak * 1000).rounded(.up) / 1000)
     }()
 
