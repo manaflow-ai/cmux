@@ -27,6 +27,7 @@ extension BrowserChromeView {
     public func hideNotice() {
         guard let notice = currentNotice else { return }
         notice.isDismissing = true
+        pageOverlays.release(notice)
         Motion.animate(.fadeOut, in: notice, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
             self?.pageOverlays.remove(notice)
         })
@@ -43,6 +44,10 @@ extension BrowserChromeView {
     public var noticePlacement: String? {
         currentNotice.map { $0.window is OverlayHostPanel ? "overlay_host" : $0.window == nil ? "offscreen" : "window" }
     }
+
+    /// Whether a click at the notice's center goes to the overlay host
+    /// (diagnostics); nil when no notice is presented.
+    public var noticeTakesMouse: Bool? { (pageOverlays.views.last { $0 is BrowserNoticeView }).flatMap(pageOverlays.takesMouse) }
 
     var currentNotice: BrowserNoticeView? {
         pageOverlays.views.lazy.compactMap { $0 as? BrowserNoticeView }.first { !$0.isDismissing }
