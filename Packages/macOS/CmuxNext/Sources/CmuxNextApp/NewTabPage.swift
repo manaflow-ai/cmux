@@ -105,7 +105,8 @@ enum NewTabPage {
                 let browser = tab.kind == .browser
                 tabs.append(AgentPaneOmnibar.Tab(
                     id: tab.id, kind: browser ? .browser : .terminal, title: tab.displayTitle,
-                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName
+                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName,
+                    icon: browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
                 ))
             }
             if workspace.id != current {
@@ -116,7 +117,7 @@ enum NewTabPage {
             }
         }
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
+            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]

@@ -2,12 +2,15 @@
 // the browser's request context (Chromium's HostContentSettingsMap, the
 // store Chromium's Page Info edits), the context's cookie manager, and the
 // visible navigation entry's SSL status, and clearing the context's
-// certificate error decisions (Page Info "Turn on warnings").
+// certificate error decisions (Page Info "Turn on warnings"), and tab
+// favicons downloaded through the tab's own request context.
 
 #include <cstdlib>
 #include <cstring>
 
 #include "include/cef_callback.h"
+#include "include/cef_browser.h"
+#include "include/cef_image.h"
 #include "include/cef_cookie.h"
 #include "include/cef_parser.h"
 #include "include/cef_ssl_status.h"
@@ -171,6 +174,31 @@ std::string Base64(CefRefPtr<CefBinaryValue> der) {
   return CefBase64Encode(bytes.data(), bytes.size()).ToString();
 }
 
+// A favicon CefBrowserHost::DownloadImage fetched: REPLY a = HTTP status,
+// s1 = the 1x representation as base64 PNG ("" when none decoded).
+class FaviconReply : public CefDownloadImageCallback {
+ public:
+  FaviconReply(int browser_id, int reply) : browser_id_(browser_id), reply_(reply) {}
+
+  void OnDownloadImageFinished(const CefString& image_url, int http_status_code, CefRefPtr<CefImage> image) override {
+    std::string png;
+    int width = 0;
+    int height = 0;
+    CefRefPtr<CefBinaryValue> data = image && !image->IsEmpty() ? image->GetAsPNG(1.0f, true, width, height) : nullptr;
+    if (data && data->GetSize() > 0) {
+      std::string bytes(data->GetSize(), '\0');
+      data->GetData(bytes.data(), bytes.size(), 0);
+      png = CefBase64Encode(bytes.data(), bytes.size()).ToString();
+    }
+    EmitOnUI(browser_id_, reply_, http_status_code, png);
+  }
+
+ private:
+  int browser_id_;
+  int reply_;
+  IMPLEMENT_REFCOUNTING(FaviconReply);
+};
+
 }  // namespace
 
 extern "C" {
@@ -211,6 +239,17 @@ int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const c
     return 0;
   }
   return manager->DeleteCookies(url, name ? name : "", new DeleteReply(browser_id, reply)) ? 1 : 0;
+}
+
+int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser || !url || !*url || max_size <= 0) {
+    return 0;
+  }
+  // As a favicon (Chromium's favicon request flags), from the cache when it
+  // has the icon, in the tab's request context: its cookies and profile.
+  browser->GetHost()->DownloadImage(url, true, static_cast<uint32_t>(max_size), false, new FaviconReply(browser_id, reply));
+  return 1;
 }
 
 int cmux_shim_clear_certificate_exceptions(int browser_id, int reply) {
