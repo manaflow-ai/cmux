@@ -564,8 +564,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
 
   const resolvePending = (requestId, value) => {
     if (!requestId || !pending.has(requestId)) return;
-    const resolver = pending.get(requestId);
-    resolver(value);
+    pending.get(requestId).finish(value);
   };
 
   const failPending = () => {
@@ -717,7 +716,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
         pending.delete(requestId);
         resolve(value);
       };
-      pending.set(requestId, finish);
+      pending.set(requestId, { finish, sessionId: event?.session_id || null });
     });
     const wrote = write({
       id: `opencode-${requestId}`,
@@ -732,6 +731,21 @@ const createCMUXFeed = async (ctx, options = {}) => {
       resolvePending(requestId, { status: "timed_out" });
     }
     return reply;
+  };
+
+  const hasPendingForSession = (sessionId) => {
+    if (!sessionId) return false;
+    for (const waiter of pending.values()) {
+      if (waiter.sessionId === sessionId) return true;
+    }
+    return false;
+  };
+
+  const cancelPendingForSession = (sessionId) => {
+    if (!sessionId) return;
+    for (const [requestId, waiter] of pending.entries()) {
+      if (waiter.sessionId === sessionId) resolvePending(requestId, { status: "timed_out" });
+    }
   };
 
   const pushTelemetry = (event) => {
@@ -791,6 +805,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           if (!sid) break;
           if (eventProperties(event).info?.time?.archived) {
             pushTelemetry(base(sid, { hook_event_name: "SessionEnd" }));
+            cancelPendingForSession(`opencode-${sid}`);
             sessions.delete(sid);
           } else {
             pushTelemetry(base(sid, { hook_event_name: "SessionStart" }));
@@ -812,6 +827,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           pushTelemetry(base(sid, {
             hook_event_name: "SessionEnd",
           }));
+          cancelPendingForSession(`opencode-${sid}`);
           break;
         }
         case "todo.updated": {
@@ -980,6 +996,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
     event: async ({ event, ownedSessionId }) => {
       if (!disposed) await handleEvent(event?.event || event, ownedSessionId || null);
     },
+    hasPendingForSession,
     dispose() {
       disposed = true;
       client?.destroy();

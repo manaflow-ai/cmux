@@ -140,7 +140,7 @@ When Codex is launched through `cmux codex-teams`, cmux owns the private Codex a
 
 Feed is advisory by default. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This preserves Vibe Island's "soft wait" model.
 
-Settings → Beta Features → **Keep Feed requests blocking** is off by default and is persisted in this Mac's UserDefaults. When enabled, actionable Feed questions and permission cards send an explicit blocking request and remain pending until Feed answers them or the agent process exits. The existing sidebar `Needs input` status stays attached for the lifetime of the pending card, so a request remains visible even when its terminal is not focused.
+Settings → Beta Features → **Keep Feed requests blocking** is off by default and is persisted in this Mac's UserDefaults. When enabled, actionable Feed questions and permission cards from a locally running agent send an explicit blocking request and remain pending until Feed answers them or that agent process exits. Relay-origin requests have no local process lifetime to watch, so they keep the existing soft deadline. The existing sidebar `Needs input` status stays attached for the lifetime of the pending card, so a request remains visible even when its terminal is not focused.
 
 The provider hook guard is longer than the default Feed wait so an opted-in request can remain connected. With the setting off, Feed still returns after the existing roughly 120-second soft wait. Codex Feed hooks stay non-blocking because Codex owns its own approval UI.
 

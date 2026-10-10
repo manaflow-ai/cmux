@@ -1396,7 +1396,16 @@ class TerminalController {
                         message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
                     )
                 }
-                guard waitTimeout == 0, request.params["wait_until_resolved"] as? Bool != true else {
+                let rawWaitUntilResolved = request.params["wait_until_resolved"]
+                if rawWaitUntilResolved != nil,
+                   Self.jsonBoolean(rawWaitUntilResolved) == nil {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push wait_until_resolved must be boolean"
+                    )
+                }
+                guard waitTimeout == 0, Self.jsonBoolean(rawWaitUntilResolved) != true else {
                     return v2Error(
                         id: request.id,
                         code: "invalid_params",
@@ -1595,6 +1604,15 @@ class TerminalController {
             return nil
         }
         return seconds
+    }
+
+    private nonisolated static func jsonBoolean(_ value: Any?) -> Bool? {
+        guard let value,
+              let number = value as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            return nil
+        }
+        return number.boolValue
     }
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
@@ -6299,7 +6317,7 @@ class TerminalController {
     ) -> V2CallResult {
         let requestedWaitUntilResolved: Bool
         if let rawWaitUntilResolved = params["wait_until_resolved"] {
-            guard let value = rawWaitUntilResolved as? Bool else {
+            guard let value = Self.jsonBoolean(rawWaitUntilResolved) else {
                 return .err(
                     code: "invalid_params",
                     message: "feed.push wait_until_resolved must be boolean",

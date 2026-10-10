@@ -193,8 +193,10 @@ function reportError(ctx, _error) {
 async function handleEvent(ctx, ownership, feed, details, environment) {
   const event = details?.event || details;
   const id = sessionID(event);
-  if (!id || !ownership.belongs(id)) return;
   const hook = sessionEventName(event);
+  const ownsCurrentSession = id && ownership.belongs(id);
+  const ownsPendingSession = hook === "session-end" && feed.hasPendingForSession?.(`opencode-${id}`);
+  if (!id || (!ownsCurrentSession && !ownsPendingSession)) return;
   if (hook) {
     dispatchSessionHook(hook, {
       session_id: id,
