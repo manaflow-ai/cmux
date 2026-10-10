@@ -65,7 +65,9 @@ struct CloudMachineCreateFlow {
         let key = newKey()
         var approved: String?
         var attempt = 0
-        while true {
+        // The first call, then at most `retries` same-key calls after the
+        // approval: every pass returns, throws, or counts one retry.
+        for _ in 0...max(retries, 0) {
             do {
                 let answer = try await run("cloud.machine.create", .object(args), key, .user)
                 return answer["machine"] ?? answer
@@ -88,6 +90,7 @@ struct CloudMachineCreateFlow {
                 attempt = 1
             }
         }
+        throw Failure.stillPending(request: approved ?? "")
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.
