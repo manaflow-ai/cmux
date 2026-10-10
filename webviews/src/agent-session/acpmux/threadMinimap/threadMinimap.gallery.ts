@@ -52,7 +52,7 @@ export default agentPaneEntry({
   title: "Thread minimap",
   area: "Agent pane",
   height: 640,
-  widths: { narrow: 820, normal: 960, wide: 1180 },
+  widths: { narrow: 880, normal: 1040, wide: 1240 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
     "agent-session/acpmux/App.tsx#VirtualTranscript",
