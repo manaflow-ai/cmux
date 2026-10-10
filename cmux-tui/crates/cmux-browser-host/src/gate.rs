@@ -733,7 +733,9 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
     let mut log = log.lock().unwrap_or_else(PoisonError::into_inner);
     let same = |last: &Value| {
         entry.get("blocked").is_some()
-            && ["url", "reason", "blocked", "targetId"].iter().all(|key| last.get(key) == entry.get(key))
+            && ["url", "reason", "blocked", "targetId"]
+                .iter()
+                .all(|key| last.get(key) == entry.get(key))
     };
     if let Some(last) = log.last_mut()
         && last.get("blocked").and_then(Value::as_str) != Some("dropped")
@@ -760,7 +762,7 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
                     "blocked": "dropped",
                     "count": 1,
                     "url": "",
-                    "reason": format!("older blocks past the newest {MAX_LOG} were dropped"),
+                    "reason": format!("older entries past the newest {MAX_LOG} were dropped"),
                 }),
             );
         }
