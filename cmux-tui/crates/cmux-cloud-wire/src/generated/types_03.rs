@@ -4,16 +4,15 @@
 #[allow(unused_imports)]
 use super::*;
 
-wire_enum! {
-    TeamPolicyValuesMcpServerValue {
-        UserChoice = "user_choice",
-        Disabled = "disabled",
-    }
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRepoScope {
+    pub value: TeamPolicyValuesGithubRepoScopeValue,
+    pub mode: PolicyMode,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesMcpServer {
-    pub value: TeamPolicyValuesMcpServerValue,
+pub struct TeamPolicyValuesGithubRequireOrgAdmin {
+    pub value: bool,
     pub mode: PolicyMode,
 }
 
