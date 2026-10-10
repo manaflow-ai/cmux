@@ -112,6 +112,18 @@ fn an_exited_terminal_shows_only_done_and_error() {
 }
 
 #[test]
+fn hook_envelope_hides_transient_records_for_exit_snapshot() {
+    let mut records = ProgramStatusRecords::default();
+    records.apply(report("running", ProgramStatusState::Working), 0);
+    let change = records.last_change_json().unwrap();
+    assert_eq!(
+        change["records"],
+        records.to_json(false).unwrap_or_else(|| json!([])),
+        "an exit hook must use the same filtered record view as the terminal snapshot"
+    );
+}
+
+#[test]
 fn the_record_updated_longest_ago_goes_first_at_the_limit() {
     let mut records = ProgramStatusRecords::default();
     for index in 0..MAX_RECORDS {
