@@ -291,6 +291,9 @@ class GeneratedClientMixin:
     def get_size_state(self, surface: Id) -> GetSizeStateResult:
         return self._invoke_command('get-size-state', GetSizeStateRequest(surface=surface))
 
+    def history_search(self, query: str, *, kinds: Union[List[str], MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> HistorySearchResult:
+        return self._invoke_command('history-search', HistorySearchRequest(query=query, kinds=kinds, limit=limit))
+
     def identify(self) -> IdentifyResult:
         return self._invoke_command('identify', IdentifyRequest())
 
@@ -832,6 +835,7 @@ GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixel
 GeneratedClientMixin.get_frontend_browser_history.__cmux_command__ = COMMANDS['get-frontend-browser-history']
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
+GeneratedClientMixin.history_search.__cmux_command__ = COMMANDS['history-search']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
 GeneratedClientMixin.import_bookmarks.__cmux_command__ = COMMANDS['import-bookmarks']

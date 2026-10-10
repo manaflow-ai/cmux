@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b8080659176dd2ad4dbe5462ac8964ca79ef766e909605a3badf1689087ac5a9.
+// cmux-tui mux protocol 12, IR e6659373670b304a54bc836c41332d90d2466b376974b392eb1a3c781a3042d7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1356,6 +1356,23 @@ pub type GetFrontendProjectionResult = T::FrontendProjection;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateRequest {
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySearchRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kinds: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    pub query: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySearchResult {
+    pub hits: Vec<T::HistorySearchHit>,
+    pub took_us: u64,
 }
 
 #[rustfmt::skip]
@@ -3860,6 +3877,10 @@ impl CmuxClient {
 
     pub fn get_size_state(&mut self, request: GetSizeStateRequest) -> Result<T::GetSizeStateResult> {
         self.execute(&GET_SIZE_STATE_METADATA, &request)
+    }
+
+    pub fn history_search(&mut self, request: HistorySearchRequest) -> Result<HistorySearchResult> {
+        self.execute(&HISTORY_SEARCH_METADATA, &request)
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {

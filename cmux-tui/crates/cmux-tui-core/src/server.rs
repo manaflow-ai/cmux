@@ -150,6 +150,7 @@ mod conversation_tabs_wire;
 mod conversations;
 mod feed_local;
 mod frontend_browser_history;
+mod history_search;
 mod home;
 mod launch_snapshot;
 mod new_screen;
@@ -172,6 +173,7 @@ mod cmd_server;
 use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
+use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -1006,7 +1008,6 @@ enum Command {
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
-    /// Restart a dead terminal tab under the same terminal id (`tab-restart-v1`).
     RestartTab(tab_restart::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
@@ -1582,6 +1583,8 @@ enum Command {
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
     ConversationSearch(conversations::SearchParams),
+    /// The history search index (`history-search-v1`, server/history_search.rs).
+    HistorySearch(history_search::HistorySearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
@@ -2795,22 +2798,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
-    cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
-}
-
-fn paired_surface_size(
-    command: &str,
-    cols: Option<u16>,
-    rows: Option<u16>,
-) -> anyhow::Result<Option<(u16, u16)>> {
-    match (cols, rows) {
-        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
-        (None, None) => Ok(None),
-        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
-    }
-}
-
 fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
@@ -3466,6 +3453,7 @@ fn handle_command_with_cancellation(
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
+        Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),

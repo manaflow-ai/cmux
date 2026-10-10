@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b8080659176dd2ad4dbe5462ac8964ca79ef766e909605a3badf1689087ac5a9. */
+/* cmux-tui mux protocol 12, IR e6659373670b304a54bc836c41332d90d2466b376974b392eb1a3c781a3042d7. */
 
 
 import type * as T from "./types.js";
@@ -947,6 +947,18 @@ export interface GetSizeStateRequest extends CmuxRequestBase {
   cmd: "get-size-state";
   "surface": T.Id;
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface HistorySearchRequest extends CmuxRequestBase {
+  cmd: "history-search";
+  "kinds"?: Array<string>;
+  "limit"?: (number) | null;
+  "query": string;
+}
+export type HistorySearchResult = {
+  "hits": Array<T.HistorySearchHit>;
+  "took_us": bigint;
+};
 
 /** Protocol v5; authority: control. */
 export interface IdentifyRequest extends CmuxRequestBase {
@@ -2470,6 +2482,7 @@ export type CmuxRequest =
   | GetFrontendBrowserHistoryRequest
   | GetFrontendProjectionRequest
   | GetSizeStateRequest
+  | HistorySearchRequest
   | IdentifyRequest
   | IdsRequest
   | ImportBookmarksRequest
@@ -3364,6 +3377,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "shared-sizing-v1";
+    stream: null;
+  };
+  "history-search": {
+    request: HistorySearchRequest;
+    result: HistorySearchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "history-search-v1";
     stream: null;
   };
   "identify": {
