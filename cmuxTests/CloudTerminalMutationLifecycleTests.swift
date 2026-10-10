@@ -51,7 +51,8 @@ struct CloudTerminalMutationLifecycleTests {
         let task = Task {
             try await queue.runCommitted {
                 started.resolve(true)
-                return await release.result ?? "missing"
+                let response = Task { await release.result ?? "missing" }
+                return await response.value
             }
         }
         try #require(await started.result == true)
