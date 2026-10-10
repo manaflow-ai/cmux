@@ -21,6 +21,15 @@ final class GlobalSearchPanelCaptureManager {
     var terminalCaptureFingerprints: [UUID: UInt64] = [:]
     /// What each agent-session panel last indexed, to skip unchanged upserts.
     private var agentSessionIndexStates: [UUID: AgentSessionIndexState] = [:]
+    /// Terminal panels with a refresh in flight. `cancelCaptures` bumps the
+    /// generation, and a refresh that sees it moved after an await writes no
+    /// document or state back for a pane that closed under it.
+    private var terminalRefreshEpochs: [UUID: TerminalRefreshEpoch] = [:]
+
+    private struct TerminalRefreshEpoch {
+        var generation = 0
+        var inFlight = 0
+    }
 
     private struct AgentSessionIndexState: Equatable {
         let sessionID: String
@@ -58,15 +67,46 @@ final class GlobalSearchPanelCaptureManager {
         } else if let browserPanel = context.panel as? BrowserPanel {
             captureBrowserPanel(browserPanel)
         } else if context.panel.panelType == .terminal {
-            if let source = agentSessionSource(context),
-               await indexAgentSession(source, context: context, index: index) {
-                return
-            }
-            await purgeAgentSessionDocument(forPanelID: context.panelID, index: index)
-            if let terminalPanel = context.panel as? TerminalPanel {
-                await indexTerminalPanel(terminalPanel, context: context, index: index)
-            }
+            await refreshTerminalContent(for: context, index: index)
         }
+    }
+
+    /// Indexes a terminal pane's open agent session, or else its scrollback.
+    private func refreshTerminalContent(for context: GlobalSearchPanelContext, index: SearchIndex) async {
+        let panelID = context.panelID
+        let generation = beginTerminalRefresh(forPanelID: panelID)
+        defer { endTerminalRefresh(forPanelID: panelID) }
+
+        if let source = agentSessionSource(context),
+           await indexAgentSession(source, context: context, index: index, generation: generation) {
+            return
+        }
+        guard isCurrentTerminalRefresh(panelID, generation: generation) else { return }
+        await purgeAgentSessionDocument(forPanelID: panelID, index: index)
+        guard isCurrentTerminalRefresh(panelID, generation: generation),
+              let terminalPanel = context.panel as? TerminalPanel else {
+            return
+        }
+        await indexTerminalPanel(terminalPanel, context: context, index: index, generation: generation)
+    }
+
+    private func beginTerminalRefresh(forPanelID panelID: UUID) -> Int {
+        var epoch = terminalRefreshEpochs[panelID] ?? TerminalRefreshEpoch()
+        epoch.inFlight += 1
+        terminalRefreshEpochs[panelID] = epoch
+        return epoch.generation
+    }
+
+    private func endTerminalRefresh(forPanelID panelID: UUID) {
+        guard var epoch = terminalRefreshEpochs[panelID] else { return }
+        epoch.inFlight -= 1
+        terminalRefreshEpochs[panelID] = epoch.inFlight > 0 ? epoch : nil
+    }
+
+    /// Whether a terminal refresh may still write: its task isn't cancelled
+    /// and the panel's captures weren't cancelled since it began.
+    private func isCurrentTerminalRefresh(_ panelID: UUID, generation: Int) -> Bool {
+        !Task.isCancelled && terminalRefreshEpochs[panelID]?.generation == generation
     }
 
     /// Drops transcript readers for sessions no panel indexes anymore.
@@ -198,6 +238,7 @@ final class GlobalSearchPanelCaptureManager {
         cancelMarkdownCapture(forPanelID: panelID)
         terminalCaptureFingerprints[panelID] = nil
         agentSessionIndexStates[panelID] = nil
+        terminalRefreshEpochs[panelID]?.generation += 1
     }
 
     private func cancelBrowserCapture(forPanelID panelID: UUID) {
@@ -236,14 +277,15 @@ final class GlobalSearchPanelCaptureManager {
     private func indexTerminalPanel(
         _ panel: TerminalPanel,
         context: GlobalSearchPanelContext,
-        index: SearchIndex
+        index: SearchIndex,
+        generation: Int
     ) async {
         let panelID = context.panelID
         let capturedVT = await panel.surface.boundedScreenTailVT(
             maxRows: GlobalSearchIndexingLimits.maxTerminalCaptureRows,
             maxBytes: GlobalSearchIndexingLimits.maxTerminalCaptureVTBytes
         )
-        guard !Task.isCancelled else { return }
+        guard isCurrentTerminalRefresh(panelID, generation: generation) else { return }
         guard let capturedVT else {
             // No snapshot available (hibernated or torn down): keep whatever is
             // indexed, since the hit still routes to the panel. close() purges.
@@ -254,7 +296,7 @@ final class GlobalSearchPanelCaptureManager {
             let text = GlobalSearchTerminalText.strippedVT(capturedVT)
             return (text: text, fingerprint: GlobalSearchTerminalText.fingerprint(text))
         }.value
-        guard !Task.isCancelled else { return }
+        guard isCurrentTerminalRefresh(panelID, generation: generation) else { return }
         guard terminalCaptureFingerprints[panelID] != prepared.fingerprint else { return }
 
         guard let document = GlobalSearchDocuments.terminalDocument(for: context, text: prepared.text) else {
@@ -265,6 +307,7 @@ final class GlobalSearchPanelCaptureManager {
 
         do {
             try await index.upsert(document)
+            guard isCurrentTerminalRefresh(panelID, generation: generation) else { return }
             terminalCaptureFingerprints[panelID] = prepared.fingerprint
         } catch {
 #if DEBUG
@@ -280,16 +323,18 @@ final class GlobalSearchPanelCaptureManager {
     /// The transcript is read and the document built off the main actor.
     ///
     /// - Returns: Whether the transcript represents the pane. False while it
-    ///   has no text yet or the upsert failed, so the scrollback is indexed.
+    ///   has no text yet or the upsert failed, so the scrollback is indexed;
+    ///   true once the pane's captures were cancelled, so nothing more is.
     private func indexAgentSession(
         _ source: AgentSessionSearchSource,
         context: GlobalSearchPanelContext,
-        index: SearchIndex
+        index: SearchIndex,
+        generation: Int
     ) async -> Bool {
         let panelID = context.panelID
         let previous = agentSessionIndexStates[panelID]
         let revision = await agentSessionTranscripts.refreshedRevision(for: source)
-        guard !Task.isCancelled else { return true }
+        guard isCurrentTerminalRefresh(panelID, generation: generation) else { return true }
         guard let revision else { return false }
         let title = GlobalSearchDocuments.agentSessionRowTitle(
             workspaceTitle: context.workspaceTitle,
@@ -306,7 +351,7 @@ final class GlobalSearchPanelCaptureManager {
         guard let transcriptText = await agentSessionTranscripts.text(forSessionID: source.sessionID) else {
             return false
         }
-        guard !Task.isCancelled else { return true }
+        guard isCurrentTerminalRefresh(panelID, generation: generation) else { return true }
         let windowID = context.windowID
         let workspaceID = context.workspaceID
         let location = context.location
@@ -321,9 +366,10 @@ final class GlobalSearchPanelCaptureManager {
                 transcriptText: transcriptText
             )
         }.value
-        guard !Task.isCancelled else { return true }
+        guard isCurrentTerminalRefresh(panelID, generation: generation) else { return true }
         do {
             try await index.upsert(document)
+            guard isCurrentTerminalRefresh(panelID, generation: generation) else { return true }
             agentSessionIndexStates[panelID] = next
         } catch {
 #if DEBUG
