@@ -216,7 +216,7 @@ extension CMUXCLI {
         hooks setup|uninstall [--agent <name>]
         hooks <agent> <install|uninstall|event> [options; opencode supports --project]
         hooks feed --source <agent> [--event <event>]
-        \(localizedCoderouterAliases())
+        \(Self.localizedCoderouterAliases())
         \(localizedCoderouterCommands())
         ai-accounts <list|upload|remove> [--team <id>] [--json]
         """
@@ -433,7 +433,7 @@ extension CMUXCLI {
         capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
         resize-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] (-L|-R|-U|-D) [--amount <n>]
         pipe-pane --command <shell-command> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-        wait-for [-S|--signal] <name> [--timeout <seconds>]
+        wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]
         swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
         break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
         join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
