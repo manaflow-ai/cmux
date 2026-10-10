@@ -40,9 +40,12 @@ const sys: ReduceContext = { principal: { identity: "system:user", kind: "system
 
 describe("old Mac grants lose execute once", () => {
 
-  it("is refused for a non-system caller", () => {
-    const session: ReduceContext = { ...sys, principal: { identity: `user:${OWNER}`, user: OWNER, kind: "session" } }
-    expect(userDomain.reduce(state, "install.mac_execute_narrow", {}, session)).toMatchObject({ ok: false })
+  it("is refused for a non-system caller: the public API does not run the internal op", async () => {
+    const session = await sessionToken("mac-narrow-public")
+    await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const r = await post("/v1/ops", session, { op: "install.mac_execute_narrow", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(r.status).toBe(400)
+    expect(r.body?.error?.code ?? r.body?.code).toBe("validation.invalid")
   })
 
   it("the per-request grant check (installGrant) narrows an old Mac grant first, so execute is gone at once", { timeout: 60_000 }, async () => {

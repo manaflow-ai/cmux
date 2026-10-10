@@ -1,7 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The shared Home core's `HomeSource` over the local daemon's conversation
 /// owner (`local-conversations-v1`, plans/cmux-next/home-mac.md 1). The owner

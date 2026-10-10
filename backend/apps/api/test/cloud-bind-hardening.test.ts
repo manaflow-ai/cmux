@@ -4,6 +4,13 @@ import linkVectors from "../../../../schemas/link-token/vectors.json"
 import { verifyLinkToken } from "../src/link-token.ts"
 import { bindFile, createdAndBound, DAEMON, ensureUser, frame, installOf, person, post, reply, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
+/** The VM's bind request through the API Worker (the token is the credential; no bearer). */
+const bindRoute = async (body: Record<string, unknown>) => {
+  const r = await post("/v1/cloud/bind", undefined, body)
+  return r.body.ok ? r.body : { ok: false, code: r.body?.error?.code ?? r.body?.code, status: r.status }
+}
+
+
 /** Security review of the bind branch (2026-10-04): P2-1, P2-2, P2-4, P3-1, P3-3, P3-4, P3-5. */
 
 const inDo = runInDurableObject as unknown as <T>(s: unknown, fn: (i: unknown, st: DurableObjectState) => Promise<T>) => Promise<T>
@@ -27,16 +34,16 @@ describe("link-token vectors catch a verifier that skips the signature, alg, typ
 })
 
 describe("a refused bind costs the team nothing", { timeout: 60_000 }, () => {
-  it("writes no ledger row for a wrong token, and the real token still binds afterwards", async () => {
+  it("POST /v1/cloud/bind writes no ledger row for a wrong token, and the real token still binds afterwards", async () => {
     const x = person()
     await ensureUser(x)
     const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
     const machine = created.value.machine.id as string
     const file = await bindFile(x.stub, machine)
     const before = await ledgerRows(x.stub)
-    for (let i = 0; i < 5; i++) expect(await x.stub.bindMachine(x.team, { team: x.team, machine, bind_token: "y".repeat(43), wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    for (let i = 0; i < 5; i++) expect(await bindRoute({ team: x.team, machine, bind_token: "y".repeat(43), wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(await ledgerRows(x.stub)).toBe(before)
-    expect(await x.stub.bindMachine(x.team, { team: x.team, machine, bind_token: file.json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).toMatchObject({ ok: true })
+    expect(await bindRoute({ team: x.team, machine, bind_token: file.json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).toMatchObject({ ok: true })
   })
 })
 
@@ -56,15 +63,15 @@ describe("bind request limits", { timeout: 60_000 }, () => {
     const r = await post("/v1/cloud/bind", undefined, { team: x.team, machine: "vm_00000000000000000001", bind_token: "z".repeat(43), wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk, pad: "p".repeat(5000) })
     expect([r.status, r.body.error?.code]).toEqual([400, "validation.invalid"])
   })
-  it("refuses a daemon version or capability that is not printable ASCII", async () => {
+  it("POST /v1/cloud/bind refuses a daemon version or capability that is not printable ASCII", async () => {
     const x = person()
     await ensureUser(x)
     const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
     const machine = created.value.machine.id as string
     const file = await bindFile(x.stub, machine)
     const body = { team: x.team, machine, bind_token: file.json.bind_token, wg_public_key: WG_KEY, install_public_jwk: (await vmKey()).jwk }
-    expect(await x.stub.bindMachine(x.team, { ...body, daemon: { version: "0.41.0\u001b[31m", capabilities: [] } })).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await x.stub.bindMachine(x.team, { ...body, daemon: { version: "0.41.0", capabilities: ["files\n"] } })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await bindRoute({ ...body, daemon: { version: "0.41.0\u001b[31m", capabilities: [] } })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await bindRoute({ ...body, daemon: { version: "0.41.0", capabilities: ["files\n"] } })).toMatchObject({ ok: false, code: "validation.invalid" })
   })
 })
 
