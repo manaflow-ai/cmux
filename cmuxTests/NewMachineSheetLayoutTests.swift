@@ -180,7 +180,7 @@ struct NewMachineSheetLayoutTests {
         host.frame = NSRect(origin: .zero, size: size)
         // SwiftUI can defer native menu creation until its host is visible.
         window.orderFrontRegardless()
-        for _ in 0..<3 {
+        for _ in 0..<30 {
             host.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
@@ -228,7 +228,7 @@ struct NewMachineSheetLayoutTests {
         host.frame = NSRect(origin: .zero, size: size)
         // SwiftUI can defer native menu creation until its host is visible.
         window.orderFrontRegardless()
-        for _ in 0..<3 {
+        for _ in 0..<30 {
             host.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))

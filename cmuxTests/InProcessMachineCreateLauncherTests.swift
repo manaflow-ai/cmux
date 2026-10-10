@@ -303,14 +303,19 @@ struct InProcessMachineCreateLauncherTests {
                 destination.attachWorkspace(detached, select: false)
                 #expect(Workspace.liveWorkspace(id: pending.id) === pending)
                 #expect(pending.owningTabManager === destination)
-                await #expect(throws: (any Error).self) {
+                var oldHostRefreshed = false
+                do {
                     try await InProcessMachineCreateLauncher.open(
                         try invocation(workspaceID: pending.id), provider: fixture.provider, catalog: fixture.catalog,
                         host: originalHost,
-                        refreshGraph: { _ in Issue.record("The old host must not follow a window move"); return false },
+                        refreshGraph: { _ in oldHostRefreshed = true; return false },
                         validateScope: {}
                     )
+                    Issue.record("The original in-flight host must reject the moved workspace")
+                } catch {
+                    #expect(error is CloudDiagnosticFailure)
                 }
+                #expect(!oldHostRefreshed)
             }
             graphAvailable = true
             let owner = move ? destination : source
