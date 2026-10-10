@@ -927,3 +927,125 @@ fn an_import_keeps_compaction_prefixes_stable_between_calls() {
         "{written} of {total} context bytes are new to the cache over {calls} calls"
     );
 }
+
+/// Soak at d12ad2ce42e8: the first turn after a 2,020-message import saw a
+/// 400 KB view (the budget is 128 KB) and wrote 179k tokens to the cache.
+/// The chat's view merged only when a message came, and an import appends
+/// every message before any node is built. The reference client fits both
+/// views after each node it stores, in whole batches. During an import the
+/// chat's view stays near its budget, and it is within it once the import
+/// is built.
+#[test]
+fn an_import_keeps_the_chats_view_near_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut running: std::collections::VecDeque<NodeId> = Default::default();
+    let (mut largest, mut completions) = (0usize, 0usize);
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => running.push_back(node),
+            }
+        }
+        let Some(node) = running.pop_front() else {
+            break;
+        };
+        let text = fake_summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete_in(node, &text, &store).unwrap();
+        completions += 1;
+        // Past the first budget's worth of lines, as a turn would see it.
+        if completions > 600 {
+            largest = largest.max(memory.view_size());
+        }
+    }
+    assert!(memory.settled());
+    eprintln!("largest view {largest}, final {}", memory.view_size());
+    assert!(
+        memory.view_size() <= VIEW,
+        "the built import's view is {} bytes",
+        memory.view_size()
+    );
+    assert!(
+        largest <= 2 * VIEW,
+        "a view of {largest} bytes during the import"
+    );
+}
+
+/// Kept memory of the 9f851bd1dfb9 import: merge 288+32 (two lines of about
+/// 500 bytes each) became "Tests fail on pool.rs", 21 bytes, and every
+/// fact of 32 messages was lost: a size retry answered with a fragment, and
+/// it fit. A model call only ever gets an input over the node size (a
+/// shorter one is a free node), so for a long input a line under an eighth
+/// of the limit is not a summary: it is retried, and it never wins over a
+/// real try.
+#[test]
+fn a_fragment_reply_is_retried_and_never_kept_over_a_real_try() {
+    // Two lines of about 500 bytes, as the merge had.
+    let input = format!("{}\n{}", "m".repeat(500), "h".repeat(500));
+    let fragment = "Tests fail on pool.rs".to_owned();
+    match size_check_for(std::slice::from_ref(&fragment), NODE, &input) {
+        SizeCheck::Retry(note) => assert!(note.starts_with("Too short"), "{note}"),
+        other => panic!("a fragment was kept: {other:?}"),
+    }
+    let long = "x".repeat(600);
+    let tries = vec![long.clone(), fragment.clone()];
+    assert!(
+        matches!(size_check_for(&tries, NODE, &input), SizeCheck::Retry(_)),
+        "a fragment after a long try is retried"
+    );
+    // The tries ran out: the shortest real try wins, never the fragment.
+    let real = "y".repeat(530);
+    let mut tries = vec![long, real.clone()];
+    while tries.len() < TRIES {
+        tries.push(fragment.clone());
+    }
+    assert_eq!(
+        size_check_for(&tries, NODE, &input),
+        SizeCheck::Accept(real)
+    );
+    // A line of fair size that fits is kept as before.
+    let fine = "z".repeat(300);
+    assert_eq!(
+        size_check_for(std::slice::from_ref(&fine), NODE, &input),
+        SizeCheck::Accept(fine)
+    );
+}
+
+/// When no try fits, the try that keeps the most of the input's words is
+/// kept, not the shortest (the shortest drops the most); when tries fit,
+/// the longest that fits.
+#[test]
+fn the_size_loop_keeps_the_try_that_keeps_the_most_of_its_input() {
+    let input = "user: note for later: the staging port for kestrel is 6143\nuser: parse_cache leaks a handle";
+    let keeps = format!(
+        "kestrel staging port 6143, parse_cache leaks handle {}",
+        "a".repeat(500)
+    );
+    let drops = format!("parse_cache leaks handle {}", "b".repeat(520));
+    let tries = vec![
+        keeps.clone(),
+        drops.clone(),
+        keeps.clone() + "c",
+        drops.clone() + "d",
+        drops.clone() + "e",
+    ];
+    assert_eq!(
+        size_check_for(&tries, NODE, input),
+        SizeCheck::Accept(keeps)
+    );
+    let short = "w".repeat(300);
+    let longer = "v".repeat(500);
+    let tries = vec!["x".repeat(600), longer.clone(), short];
+    assert_eq!(
+        size_check_for(&tries, NODE, input),
+        SizeCheck::Accept(longer)
+    );
+}

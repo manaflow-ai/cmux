@@ -10,8 +10,10 @@ export function showsFolderChoice(state: {
   quick: boolean;
   projectDraft?: string;
   sessionId?: string;
+  /// The chat opened without its folder and shows its own missing-folder line (with Choose Folder).
+  missingFolder?: boolean;
 }): boolean {
-  return state.offered && state.freshChat && !state.quick && !state.projectDraft;
+  return state.offered && state.freshChat && !state.quick && !state.projectDraft && !state.missingFolder;
 }
 
 /// A new chat in a workspace without a folder starts in the workspace's private agent-home folder

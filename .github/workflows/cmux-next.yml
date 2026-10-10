@@ -637,6 +637,13 @@ jobs:
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    # Style ratchets warn under a hard ceiling and fail over it: god files and
+    # types (GODFILES_WARN_SLACK: allowance + 20% of the budget, so a new type
+    # fails past 1200 lines), l10n style errors and custom scrollbars (by count).
+    # A warning is ratchet debt: an annotation here, and the ratchet-debt job
+    # keeps one issue of it for feat-cmux-next. Concurrency, notification
+    # centers and crash safety have no warning tier. Each ceiling is set on its
+    # own step only: the script tests below expect every hit to fail.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -653,26 +660,32 @@ jobs:
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GODFILES_WARN_SLACK: 20
         # A pull request fails only on what it grew (its merge commit's first
         # parent is the base), so a god file already on the base never blocks
         # it. A push checks every file.
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-swift.log"
 
       - name: God files (cmux-tui Rust)
         id: godfiles-rust
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GODFILES_WARN_SLACK: 20
         # A pull request fails only on what it grew (its merge commit's first
         # parent is the base), so a god file already on the base never blocks
         # it. A push checks every file.
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log"
 
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
         id: no-swift-cli
@@ -699,7 +712,12 @@ jobs:
       - name: String tables (21 languages)
         id: l10n
         continue-on-error: true
-        run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
+        env:
+          L10N_STYLE_WARN_MAX: 100
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/l10n.log"
 
       - name: Module resource bundles
         id: module-resources
@@ -711,7 +729,12 @@ jobs:
       - name: Scrollbars follow macOS
         id: scrollbars
         continue-on-error: true
-        run: scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE"
+        env:
+          SCROLLBARS_WARN_MAX: 10
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/scrollbars.log"
 
       # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
       # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
@@ -759,6 +782,7 @@ jobs:
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          node --test scripts/lib/reload-shim.test.mjs
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
@@ -766,6 +790,8 @@ jobs:
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
+          bash scripts/cmux-next/tests/ratchet-tiers.test.sh
+          bash scripts/cmux-next/tests/ratchet-debt-issue.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
@@ -876,6 +902,16 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
+      # The style ratchets' warnings, for the ratchet-debt job.
+      - name: Upload the ratchet debt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-ratchet-debt
+          path: ${{ runner.temp }}/ratchet-debt
+          if-no-files-found: ignore
+          retention-days: 7
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -921,6 +957,39 @@ jobs:
             echo "Each check's own step log has the details."
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1
+
+  # Keeps one open issue (label ratchet-debt) listing the style ratchets'
+  # warnings on the feat-cmux-next tip: the checks job's annotations, rewritten
+  # on each push, closed when the debt is paid. Only base code runs here, and
+  # only this job can write issues.
+  ratchet-debt:
+    needs: checks
+    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result != 'skipped' }}
+    name: ratchet debt issue
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: cmux-next-ratchet-debt
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/ratchet-debt-issue.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          name: cmux-next-ratchet-debt
+          path: ${{ runner.temp }}/ratchet-debt
+      - name: Rewrite the ratchet debt issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 -I scripts/cmux-next/ratchet-debt-issue.py --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --run-url "$RUN_URL" "$RUNNER_TEMP/ratchet-debt"
 
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # It waits for nothing: path routing probed the tree (tree_state=failed), or

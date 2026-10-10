@@ -37,7 +37,11 @@ extension AppControl {
                     let fields: [String: JSONValue] = [
                         "id": .string(session.machineID),
                         "title": .string(session.machine.title),
-                        "status": .string(session.machine.status.rawValue),
+                        // The record's status, except a connected daemon is running (cx-lu8f).
+                        "status": .string(session.effectiveStatus.rawValue),
+                        "api_status": .string(session.machine.status.rawValue),
+                        "stage": .string(session.stage.name),
+                        "stage_detail": session.stage.failure.map(JSONValue.string) ?? .null,
                         "daemon": .string(state),
                         // Capability negotiation per machine (DaemonCompatibility).
                         "session_id": compat?.sessionID.map(JSONValue.string) ?? .null,
@@ -52,7 +56,8 @@ extension AppControl {
                     ]
                     return .object(fields)
                 }
-                return .value(.object(["machines": .array(rows), "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
+                return .value(.object(["machines": .array(rows), "creations": .array(services.cloud.creations.controlRows),
+                                       "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
         ])
     }

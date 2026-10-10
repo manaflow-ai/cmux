@@ -12,6 +12,7 @@ mod colors;
 mod hosted;
 mod input;
 mod lifecycle;
+mod lock_order;
 mod render_geometry;
 mod stream_progress;
 use base64::Engine as _;

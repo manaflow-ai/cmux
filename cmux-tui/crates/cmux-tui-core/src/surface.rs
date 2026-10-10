@@ -18,14 +18,29 @@ mod geometry;
 mod input;
 mod metadata;
 mod mouse_input;
+mod options;
+mod pending_bells;
 mod pty_surface;
+mod render_tap;
 mod render_view;
 mod scrolling;
 mod shutdown;
 pub(crate) mod spawn;
+mod stream_progress;
+mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
 // Hosted (unix) code and the unit tests are the only callers.
+use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
+pub use clear_history::{
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
+    ClearHistoryFailure,
+};
+pub(crate) use clear_history::{
+    CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryTransition,
+    apply_clear_history_transition, write_clear_history_fallback,
+};
 #[cfg(any(unix, test))]
 use color_overrides::{
     terminal_color_override_delta, terminal_color_override_full_state,
@@ -35,7 +50,39 @@ use frame_producer::spawn_frame_producer;
 use scrolling::{
     broadcast_render_scroll_locked, set_terminal_scroll_offset, terminal_scroll_position,
 };
+#[cfg(unix)]
+mod hosted_stager;
+#[cfg(unix)]
+use hosted_stager::{HostedFrameStager, HostedTransition};
+#[cfg(test)]
+use options::child_term_for;
+use options::configure_agent_browser_session;
+pub(crate) use options::replace_ghostty_cursor_defaults;
+pub use options::{DefaultColors, SurfaceOptions, TerminalColors, default_child_term};
+use pending_bells::PendingBells;
+#[cfg(unix)]
+mod reconnect_backoff;
+#[cfg(unix)]
+use exit_state::mark_hosted_runtime_exited;
+use exit_state::{close_local_terminal_master_after_exit, publish_local_exit_if_ready};
+#[cfg(all(unix, test))]
+use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
+#[cfg(unix)]
+use reconnect_backoff::{
+    TERMINAL_HOST_HEALTHY_CONNECTION, TERMINAL_HOST_RECONNECT_MAX_DELAY,
+    TerminalHostReconnectBackoff, wait_for_reconnect_after_geometry_failure,
+};
+#[cfg(test)]
+use render_tap::FrameProducerTestHook;
+pub use render_tap::{
+    RenderAttachFrame, RenderAttachFrameReceiver, RenderAttachStream, SurfaceRenderFrame,
+};
+use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
+pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
+pub use terminal_runtime::PtyTerminalRuntime;
+pub(crate) use terminal_runtime::TerminalJournalGap;
+use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
 #[cfg(test)]
 mod test_pty;
 #[cfg(test)]
@@ -196,214 +243,6 @@ pub(crate) struct HostTermination {
     already_exited: bool,
 }
 
-/// How to spawn surface children.
-#[derive(Debug, Clone)]
-pub struct SurfaceOptions {
-    /// Command argv; defaults to the platform shell.
-    pub command: Option<Vec<String>>,
-    pub cwd: Option<String>,
-    /// TERM value for children: the outer terminal's xterm-ghostty when it
-    /// advertised that (see [`default_child_term`]), else the compatible
-    /// xterm-256color. CMUX_TUI_TERM/CMUX_MUX_TERM override.
-    pub term: String,
-    pub cols: u16,
-    pub rows: u16,
-    /// Maximum retained scrollback storage in bytes, matching Ghostty's
-    /// `max_scrollback` API. This is not a line count.
-    pub scrollback: usize,
-    /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
-    pub extra_env: Vec<(String, String)>,
-    /// The `claude` shim directory, kept first on every child's PATH.
-    pub claude_shim_dir: Option<String>,
-    /// The app's bundled CLI (`CMUX_BUNDLED_CLI_PATH` in the daemon's own
-    /// environment): its dir stays first on every child's PATH after the
-    /// shim, also over a caller PATH, and the value wins over a caller's.
-    pub bundled_cli: Option<String>,
-    /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
-    pub cdp_url: Option<String>,
-    /// Maximum browser capture size before downscaling, in megapixels.
-    pub browser_max_capture_megapixels: f64,
-    /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
-    pub browser_capture_scale: Option<f64>,
-    /// Durable per-terminal host records. When set, PTYs are created in a
-    /// dedicated process and this surface becomes an adoptable mirror.
-    pub terminal_host_root: Option<PathBuf>,
-    /// Adopt a live terminal host found under `terminal_host_root` into a
-    /// fresh registry (one with no workspaces) instead of terminating it.
-    ///
-    /// Cloud VM snapshots keep the first terminal's host process, and its
-    /// already-initialized shell, running while the daemon is parked and
-    /// every per-machine file (machine id, receipt pepper, session registry,
-    /// remote identity) is wiped. A clone's daemon then creates all of those
-    /// fresh and imports the warm host as its first terminal, so no identity
-    /// is shared between clones while the shell survives the snapshot.
-    pub adopt_template_terminal: bool,
-    /// Where to publish the adopted template terminal's new session and
-    /// terminal ids (`KEY=value` lines) once adoption commits.
-    pub template_bound_file: Option<PathBuf>,
-    /// Name of the workspace created for the adopted template terminal. The
-    /// template's own registry was wiped with the snapshot, so its name is
-    /// not recoverable from the host record. `None` uses the default name.
-    pub template_workspace_name: Option<String>,
-}
-
-/// Default TERM for child shells.
-///
-/// `xterm-ghostty` when the OUTER terminal advertised it (this process's
-/// own TERM), else the compatible `xterm-256color`. No terminfo probing:
-/// a Ghostty session that sets TERM=xterm-ghostty also exports TERMINFO
-/// pointing at its bundled database, and children inherit that variable
-/// through cmux-tui untouched, so the entry resolves for them exactly as
-/// it does for programs in the raw Ghostty pane. Children — local and
-/// remote (ssh forwards TERM, not terminfo) — therefore see precisely the
-/// TERM they would have seen without the multiplexer, never a less
-/// compatible one, and TERM-name-sniffing prompts (oh-my-zsh themes
-/// matching `*256color`) take the same branch inside cmux-tui as in raw
-/// Ghostty, so colors match. Only xterm-ghostty passes through: the inner
-/// terminal IS ghostty-vt, so that name is truthful regardless of which
-/// client later attaches; any other outer TERM would misdescribe it.
-/// Servers started outside a Ghostty session (launchd, ssh, cron) keep
-/// xterm-256color. CMUX_TUI_TERM, CMUX_MUX_TERM, and --term override.
-pub fn default_child_term() -> String {
-    child_term_for(std::env::var("TERM").ok().as_deref()).into()
-}
-
-/// Pure selection rule for [`default_child_term`].
-fn child_term_for(outer_term: Option<&str>) -> &'static str {
-    if outer_term == Some("xterm-ghostty") { "xterm-ghostty" } else { "xterm-256color" }
-}
-
-impl Default for SurfaceOptions {
-    fn default() -> Self {
-        SurfaceOptions {
-            command: None,
-            cwd: None,
-            term: std::env::var("CMUX_TUI_TERM")
-                .or_else(|_| std::env::var("CMUX_MUX_TERM"))
-                .unwrap_or_else(|_| default_child_term()),
-            cols: 80,
-            rows: 24,
-            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
-            extra_env: Vec::new(),
-            claude_shim_dir: None,
-            bundled_cli: None,
-            cdp_url: None,
-            browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
-            browser_capture_scale: None,
-            terminal_host_root: None,
-            adopt_template_terminal: false,
-            template_bound_file: None,
-            template_workspace_name: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DefaultColors {
-    pub fg: Option<Rgb>,
-    pub bg: Option<Rgb>,
-    pub cursor: Option<Rgb>,
-    pub selection_bg: Option<Rgb>,
-    pub selection_fg: Option<Rgb>,
-    pub cursor_style: Option<CursorShape>,
-    pub cursor_blink: Option<bool>,
-    pub palette: [Option<Rgb>; 256],
-}
-
-impl Default for DefaultColors {
-    fn default() -> Self {
-        Self {
-            fg: None,
-            bg: None,
-            cursor: None,
-            selection_bg: None,
-            selection_fg: None,
-            cursor_style: None,
-            cursor_blink: None,
-            palette: [None; 256],
-        }
-    }
-}
-
-/// Install Ghostty configuration cursor defaults without collapsing the
-/// nullable blink setting in [`DefaultColors`]. Ghostty starts an unspecified
-/// cursor blinking, while still allowing DEC mode 12 to change the live mode;
-/// the low-level VT engine needs that initial visual supplied explicitly.
-/// Explicit `true` and `false` values pass through unchanged.
-pub(crate) fn replace_ghostty_cursor_defaults(term: &mut Terminal, colors: DefaultColors) {
-    term.replace_default_cursor(colors.cursor_style, Some(colors.cursor_blink.unwrap_or(true)));
-}
-
-/// Effective colors exposed to attached terminal clients.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TerminalColors {
-    pub fg: Option<Rgb>,
-    pub bg: Option<Rgb>,
-    pub cursor: Option<Rgb>,
-    /// Application-authored special colors, separate from shared embedder
-    /// defaults so byte viewers can retain their own configured themes.
-    pub fg_override: Option<Rgb>,
-    pub bg_override: Option<Rgb>,
-    pub cursor_override: Option<Rgb>,
-    pub selection_bg: Option<Rgb>,
-    pub selection_fg: Option<Rgb>,
-    pub cursor_style: Option<CursorShape>,
-    pub cursor_blink: Option<bool>,
-    /// Palette entries actively authored by the PTY with OSC 4. Unauthored
-    /// entries stay `None` so an attached renderer can preserve its own
-    /// configured theme.
-    pub palette: [Option<Rgb>; 256],
-}
-
-impl Default for TerminalColors {
-    fn default() -> Self {
-        Self {
-            fg: None,
-            bg: None,
-            cursor: None,
-            fg_override: None,
-            bg_override: None,
-            cursor_override: None,
-            selection_bg: None,
-            selection_fg: None,
-            cursor_style: None,
-            cursor_blink: None,
-            palette: [None; 256],
-        }
-    }
-}
-
-impl TerminalColors {
-    fn from_terminal(term: &Terminal, defaults: DefaultColors) -> Self {
-        let (fg, bg, cursor) = term.effective_colors();
-        let overrides = term.color_overrides();
-        let cursor_visual = overrides.cursor_visual;
-        TerminalColors {
-            fg,
-            bg,
-            cursor,
-            fg_override: overrides.foreground,
-            bg_override: overrides.background,
-            cursor_override: overrides.cursor,
-            selection_bg: defaults.selection_bg,
-            selection_fg: defaults.selection_fg,
-            palette: overrides.palette,
-            cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
-            cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
-        }
-    }
-
-    /// Snapshot a live palette update without touching the shared renderer.
-    /// Palette OSC commands leave cursor state authoritative in the attached
-    /// frontend's existing xterm state.
-    fn from_pty_output(term: &Terminal, defaults: DefaultColors) -> Self {
-        let mut colors = Self::from_terminal(term, defaults);
-        colors.cursor_style = None;
-        colors.cursor_blink = None;
-        colors
-    }
-}
-
 /// Everything an attaching frontend needs to adopt a PTY surface: its
 /// size, a VT replay of the current state, and a live stream of every pty
 /// byte applied after the replay snapshot.
@@ -454,202 +293,6 @@ pub enum AttachFrame {
     ColorsChanged(Arc<TerminalColors>),
 }
 
-/// A host frame is not actionable until its wire-level atomicity contract is
-/// satisfied. In particular, a renderer must never expose output or a resize
-/// whose authoritative color state is still sitting in the socket.
-#[cfg(unix)]
-#[derive(Debug)]
-enum HostedTransition {
-    Output(Vec<u8>),
-    OutputWithColors {
-        output: Vec<u8>,
-        colors: TerminalColorOverrides,
-    },
-    Resized {
-        cols: u16,
-        rows: u16,
-        cell_pixels: Option<(u16, u16)>,
-    },
-    ResizedWithColors {
-        cols: u16,
-        rows: u16,
-        cell_pixels: (u16, u16),
-        replay: Vec<u8>,
-        kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
-        kitty_state: KittyReplayState,
-        colors: TerminalColorOverrides,
-    },
-    Metadata(MessageKind),
-    Exit(TerminalExit),
-    ResyncRequired,
-    /// A smart host's quota change that evicted nothing (host_kitty_limits.rs).
-    KittyGraphicsLimits(KittyGraphicsLimits),
-}
-
-#[cfg(unix)]
-#[derive(Debug)]
-enum PendingHostedTransition {
-    Output(Vec<u8>),
-    Resized {
-        cols: u16,
-        rows: u16,
-        cell_pixels: (u16, u16),
-        replay: Vec<u8>,
-        kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
-        kitty_state: KittyReplayState,
-    },
-}
-
-#[cfg(unix)]
-struct HostedFrameStager {
-    protocol_version: u16,
-    expected_sequence: u64,
-    smart_renderer: bool,
-    pending: Option<PendingHostedTransition>,
-}
-
-#[cfg(unix)]
-impl HostedFrameStager {
-    #[cfg(test)]
-    fn new(sequence_boundary: u64, smart_renderer: bool) -> Self {
-        Self::new_for_version(sequence_boundary, PROTOCOL_VERSION, smart_renderer)
-    }
-
-    fn new_for_version(
-        sequence_boundary: u64,
-        protocol_version: u16,
-        smart_renderer: bool,
-    ) -> Self {
-        Self {
-            protocol_version,
-            expected_sequence: sequence_boundary.wrapping_add(1),
-            smart_renderer,
-            pending: None,
-        }
-    }
-
-    fn push(&mut self, frame: Frame) -> Result<Option<HostedTransition>, &'static str> {
-        if frame.version != self.protocol_version || frame.request_id != 0 {
-            return Err("invalid live-frame envelope");
-        }
-        if frame.sequence != self.expected_sequence {
-            return Err("non-contiguous live-frame sequence");
-        }
-        self.expected_sequence = self.expected_sequence.wrapping_add(1);
-
-        if let Some(pending) = self.pending.take() {
-            if frame.kind != MessageKind::Colors || frame.flags != 0 {
-                return Err("coupled frame was not followed by Colors");
-            }
-            let colors =
-                crate::terminal_host_runtime::decode_terminal_color_overrides(&frame.payload)
-                    .map_err(|_| "invalid Colors payload")?;
-            return Ok(Some(match pending {
-                PendingHostedTransition::Output(output) => {
-                    HostedTransition::OutputWithColors { output, colors }
-                }
-                PendingHostedTransition::Resized {
-                    cols,
-                    rows,
-                    cell_pixels,
-                    replay,
-                    kitty_image_aliases,
-                    kitty_state,
-                } => HostedTransition::ResizedWithColors {
-                    cols,
-                    rows,
-                    cell_pixels,
-                    replay,
-                    kitty_image_aliases,
-                    kitty_state,
-                    colors,
-                },
-            }));
-        }
-
-        match frame.kind {
-            MessageKind::Output => match frame.flags {
-                0 => Ok(Some(HostedTransition::Output(frame.payload))),
-                FLAG_COLORS_FOLLOW => {
-                    self.pending = Some(PendingHostedTransition::Output(frame.payload));
-                    Ok(None)
-                }
-                _ => Err("unknown Output flags"),
-            },
-            MessageKind::Resized => {
-                let valid_smart =
-                    self.smart_renderer && frame.flags == 0 && matches!(frame.payload.len(), 4 | 8);
-                let valid_legacy = !self.smart_renderer
-                    && frame.flags == FLAG_COLORS_FOLLOW
-                    && frame.payload.len() >= 4
-                    && frame.payload.len() - 4 <= VT_REPLAY_MAX_BYTES;
-                if !valid_smart && !valid_legacy {
-                    return Err("invalid Resized frame");
-                }
-                if valid_smart {
-                    let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
-                    let (cols, rows) =
-                        crate::terminal_host_runtime::normalize_terminal_geometry(cols, rows)
-                            .map_err(|_| "invalid Resized geometry")?;
-                    let cell_pixels = (frame.payload.len() == 8).then(|| {
-                        (
-                            u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
-                            u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
-                        )
-                    });
-                    return Ok(Some(HostedTransition::Resized { cols, rows, cell_pixels }));
-                }
-                let crate::terminal_host_runtime::DecodedHostResize {
-                    cols,
-                    rows,
-                    cell_pixels,
-                    replay,
-                    kitty_image_aliases,
-                    kitty_state,
-                } = crate::terminal_host_runtime::decode_host_resize_payload_for_version(
-                    &frame.payload,
-                    self.protocol_version,
-                )
-                .map_err(|_| "invalid Resized geometry")?;
-                self.pending = Some(PendingHostedTransition::Resized {
-                    cols,
-                    rows,
-                    cell_pixels,
-                    replay,
-                    kitty_image_aliases,
-                    kitty_state,
-                });
-                Ok(None)
-            }
-            MessageKind::Title | MessageKind::Pwd | MessageKind::Bell if frame.flags == 0 => {
-                Ok(Some(HostedTransition::Metadata(frame.kind)))
-            }
-            MessageKind::Exit if frame.flags == 0 => {
-                let exit = if frame.payload.is_empty() {
-                    TerminalExit::unknown("terminal host omitted exit status")
-                } else {
-                    decode_terminal_exit(&frame.payload).map_err(|_| "invalid Exit payload")?
-                };
-                Ok(Some(HostedTransition::Exit(exit)))
-            }
-            MessageKind::ResyncRequired if frame.flags == 0 => Ok(Some(
-                match crate::terminal_host_runtime::decode_resync_kitty_graphics_limits(
-                    &frame.payload,
-                ) {
-                    Some(limits) if self.smart_renderer => {
-                        HostedTransition::KittyGraphicsLimits(limits)
-                    }
-                    _ => HostedTransition::ResyncRequired,
-                },
-            )),
-            MessageKind::Colors => Err("unpaired Colors frame"),
-            _ if frame.flags != 0 => Err("flags are not valid for this message kind"),
-            _ => Err("message kind is not valid on the live stream"),
-        }
-    }
-}
-
 const ATTACH_STREAM_CAPACITY: usize = 256;
 const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 // Preserve every valid upload prefix plus enough recent text while fitting
@@ -672,336 +315,6 @@ pub(crate) use attach_tap::AttachLifecycle;
 use attach_tap::AttachTap;
 pub(crate) use attach_tap::ViewerEvent;
 pub(crate) mod snapshot_attach;
-
-/// One immutable terminal frame plus retained-history metadata captured with it.
-#[derive(Debug, Clone)]
-pub struct SurfaceRenderFrame {
-    pub frame: RenderFrame,
-    pub content_generation: u64,
-    pub scrollback_rows: u32,
-    pub history_epoch: u64,
-    pub pointer_semantics: TerminalPointerSemanticSnapshot,
-    pub palette_colors: [Rgb; 256],
-    pub palette_overridden: [bool; 256],
-}
-
-/// Live events delivered to one protocol-v7 render attachment.
-#[derive(Debug, Clone)]
-pub enum RenderAttachFrame {
-    Frame(Arc<SurfaceRenderFrame>),
-    ScrollChanged { offset: u64, at_bottom: bool },
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PendingRenderKind {
-    Frame,
-    Scroll,
-}
-
-struct RenderTapQueue {
-    pending_frame: Option<PendingRenderFrame>,
-    pending_scroll: Option<(u64, bool)>,
-    latest_kind: Option<PendingRenderKind>,
-    sender_alive: bool,
-    receiver_alive: bool,
-}
-
-struct PendingRenderFrame {
-    latest: Arc<SurfaceRenderFrame>,
-    dirty: Dirty,
-    dirty_rows: Vec<u16>,
-}
-
-impl PendingRenderFrame {
-    fn new(latest: Arc<SurfaceRenderFrame>) -> Self {
-        Self { dirty: latest.frame.dirty, dirty_rows: latest.frame.dirty_rows.clone(), latest }
-    }
-
-    /// Replace the immutable snapshot while retaining every row damaged since
-    /// the tap last drained. Only damage metadata is copied on this hot path.
-    fn coalesce(&mut self, latest: Arc<SurfaceRenderFrame>) {
-        if self.dirty == Dirty::Full
-            || latest.frame.dirty == Dirty::Full
-            || self.latest.frame.size != latest.frame.size
-        {
-            self.dirty = Dirty::Full;
-            self.dirty_rows = (0..latest.frame.size.1).collect();
-        } else {
-            self.dirty_rows.extend(latest.frame.dirty_rows.iter().copied());
-            self.dirty_rows.sort_unstable();
-            self.dirty_rows.dedup();
-            self.dirty =
-                if self.dirty_rows.is_empty() { latest.frame.dirty } else { Dirty::Partial };
-        }
-        self.latest = latest;
-    }
-
-    /// Materialize one coalesced frame when the receiver drains. A tap that
-    /// keeps up returns the original shared frame without cloning row state.
-    fn into_frame(self) -> Arc<SurfaceRenderFrame> {
-        if self.dirty == self.latest.frame.dirty && self.dirty_rows == self.latest.frame.dirty_rows
-        {
-            return self.latest;
-        }
-        let mut combined = (*self.latest).clone();
-        combined.frame.dirty = self.dirty;
-        combined.frame.dirty_rows = self.dirty_rows;
-        Arc::new(combined)
-    }
-}
-
-impl RenderTapQueue {
-    fn push(&mut self, event: RenderAttachFrame) {
-        match event {
-            RenderAttachFrame::Frame(frame) => {
-                match &mut self.pending_frame {
-                    Some(pending) => pending.coalesce(frame),
-                    None => self.pending_frame = Some(PendingRenderFrame::new(frame)),
-                }
-                self.latest_kind = Some(PendingRenderKind::Frame);
-            }
-            RenderAttachFrame::ScrollChanged { offset, at_bottom } => {
-                self.pending_scroll = Some((offset, at_bottom));
-                self.latest_kind = Some(PendingRenderKind::Scroll);
-            }
-        }
-    }
-
-    fn pop(&mut self) -> Option<RenderAttachFrame> {
-        let next =
-            match (self.pending_frame.is_some(), self.pending_scroll.is_some(), self.latest_kind) {
-                (true, true, Some(PendingRenderKind::Frame)) => {
-                    let (offset, at_bottom) = self.pending_scroll.take().unwrap();
-                    RenderAttachFrame::ScrollChanged { offset, at_bottom }
-                }
-                (true, true, Some(PendingRenderKind::Scroll)) => {
-                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap().into_frame())
-                }
-                (true, true, None) => unreachable!("pending render events have an ordering"),
-                (true, false, _) => {
-                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap().into_frame())
-                }
-                (false, true, _) => {
-                    let (offset, at_bottom) = self.pending_scroll.take().unwrap();
-                    RenderAttachFrame::ScrollChanged { offset, at_bottom }
-                }
-                (false, false, _) => return None,
-            };
-        if self.pending_frame.is_none() && self.pending_scroll.is_none() {
-            self.latest_kind = None;
-        }
-        Some(next)
-    }
-}
-
-struct RenderTapState {
-    queue: Mutex<RenderTapQueue>,
-    ready: Condvar,
-}
-
-struct RenderTap {
-    state: Arc<RenderTapState>,
-}
-
-impl RenderTap {
-    fn pair(render: &Arc<Mutex<RenderHub>>) -> (Self, RenderAttachFrameReceiver) {
-        let state = Arc::new(RenderTapState {
-            queue: Mutex::new(RenderTapQueue {
-                pending_frame: None,
-                pending_scroll: None,
-                latest_kind: None,
-                sender_alive: true,
-                receiver_alive: true,
-            }),
-            ready: Condvar::new(),
-        });
-        (
-            Self { state: state.clone() },
-            RenderAttachFrameReceiver { state, render: Arc::downgrade(render) },
-        )
-    }
-
-    fn send(&self, event: RenderAttachFrame) -> bool {
-        let mut queue = self.state.queue.lock().unwrap();
-        if !queue.receiver_alive {
-            return false;
-        }
-        queue.push(event);
-        drop(queue);
-        self.state.ready.notify_one();
-        true
-    }
-}
-
-impl Drop for RenderTap {
-    fn drop(&mut self) {
-        self.state.queue.lock().unwrap().sender_alive = false;
-        self.state.ready.notify_all();
-    }
-}
-
-/// Bounded receiver for one render attachment.
-pub struct RenderAttachFrameReceiver {
-    state: Arc<RenderTapState>,
-    render: Weak<Mutex<RenderHub>>,
-}
-
-impl RenderAttachFrameReceiver {
-    pub fn recv(&self) -> Result<RenderAttachFrame, RecvError> {
-        let mut queue = self.state.queue.lock().unwrap();
-        loop {
-            if let Some(event) = queue.pop() {
-                return Ok(event);
-            }
-            if !queue.sender_alive {
-                return Err(RecvError);
-            }
-            queue = self.state.ready.wait(queue).unwrap();
-        }
-    }
-
-    pub fn recv_timeout(&self, timeout: Duration) -> Result<RenderAttachFrame, RecvTimeoutError> {
-        let started = Instant::now();
-        let mut queue = self.state.queue.lock().unwrap();
-        loop {
-            if let Some(event) = queue.pop() {
-                return Ok(event);
-            }
-            if !queue.sender_alive {
-                return Err(RecvTimeoutError::Disconnected);
-            }
-            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
-                return Err(RecvTimeoutError::Timeout);
-            };
-            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
-            queue = next;
-            if result.timed_out() && queue.pending_frame.is_none() && queue.pending_scroll.is_none()
-            {
-                return Err(RecvTimeoutError::Timeout);
-            }
-        }
-    }
-
-    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
-    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
-        let state = Arc::downgrade(&self.state);
-        interrupt.on_fire(move || {
-            if let Some(state) = state.upgrade() {
-                let _queue = state.queue.lock().unwrap_or_else(|error| error.into_inner());
-                state.ready.notify_all();
-            }
-        });
-    }
-
-    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
-    /// and nothing is queued.
-    pub(crate) fn recv_until_interrupted(
-        &self,
-        interrupt: &crate::stream_interrupt::StreamInterrupt,
-    ) -> Result<RenderAttachFrame, RecvTimeoutError> {
-        let mut queue = self.state.queue.lock().unwrap();
-        loop {
-            if let Some(event) = queue.pop() {
-                return Ok(event);
-            }
-            if !queue.sender_alive {
-                return Err(RecvTimeoutError::Disconnected);
-            }
-            if interrupt.is_fired() {
-                return Err(RecvTimeoutError::Timeout);
-            }
-            queue = self.state.ready.wait(queue).unwrap();
-        }
-    }
-
-    pub fn try_recv(&self) -> Result<RenderAttachFrame, TryRecvError> {
-        let mut queue = self.state.queue.lock().unwrap();
-        if let Some(event) = queue.pop() {
-            Ok(event)
-        } else if queue.sender_alive {
-            Err(TryRecvError::Empty)
-        } else {
-            Err(TryRecvError::Disconnected)
-        }
-    }
-}
-
-impl Drop for RenderAttachFrameReceiver {
-    fn drop(&mut self) {
-        // Frame fan-out holds the hub before this queue. Release the queue
-        // before taking the hub so receiver teardown cannot invert that order.
-        {
-            let mut queue = self.state.queue.lock().unwrap();
-            queue.receiver_alive = false;
-            queue.pending_frame = None;
-            queue.pending_scroll = None;
-        }
-        if let Some(render) = self.render.upgrade() {
-            render.lock().unwrap().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
-        }
-    }
-}
-
-/// Initial render snapshot and the ordered live stream registered with it.
-pub struct RenderAttachStream {
-    pub initial: Arc<SurfaceRenderFrame>,
-    pub stream: RenderAttachFrameReceiver,
-    _permit: Option<crate::mux::RenderAttachmentPermit>,
-}
-
-struct RenderHub {
-    state: Box<RenderState>,
-    built_generation: u64,
-    latest: Option<Arc<SurfaceRenderFrame>>,
-    initial_graphics: Option<InitialGraphicsSnapshot>,
-    final_initial: Option<Arc<SurfaceRenderFrame>>,
-    taps: Vec<RenderTap>,
-}
-
-impl RenderHub {
-    fn build_attach_initial(
-        &mut self,
-        term: &Terminal,
-    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
-        let shared = self.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
-        let initial_graphics = match self.initial_graphics.as_ref() {
-            Some(cached) if Arc::ptr_eq(&cached.source, &shared.frame.kitty_graphics) => {
-                cached.snapshot.clone()
-            }
-            _ => {
-                let snapshot = self.state.snapshot_kitty_graphics(term, true)?;
-                self.initial_graphics = Some(InitialGraphicsSnapshot {
-                    source: shared.frame.kitty_graphics.clone(),
-                    snapshot: snapshot.clone(),
-                });
-                snapshot
-            }
-        };
-        let mut initial = (*shared).clone();
-        initial.frame.kitty_graphics = initial_graphics;
-        Ok(Arc::new(initial))
-    }
-
-    fn final_attach_initial(
-        &mut self,
-        term: &Terminal,
-    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
-        if let Some(initial) = self.final_initial.as_ref() {
-            return Ok(initial.clone());
-        }
-        let initial = self.build_attach_initial(term)?;
-        self.final_initial = Some(initial.clone());
-        Ok(initial)
-    }
-}
-
-struct InitialGraphicsSnapshot {
-    source: Arc<ghostty_vt::KittyGraphicsSnapshot>,
-    snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
-}
-
-#[cfg(test)]
-type FrameProducerTestHook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceKind {
@@ -1027,58 +340,6 @@ impl TerminalHostConnectionState {
             _ => Self::Connected,
         }
     }
-}
-
-#[cfg(unix)]
-const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
-#[cfg(unix)]
-const TERMINAL_HOST_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(1);
-/// A host connection that lasted this long was healthy: the next loss starts
-/// its reconnect spacing from zero again.
-#[cfg(unix)]
-const TERMINAL_HOST_HEALTHY_CONNECTION: Duration = Duration::from_secs(10);
-
-#[cfg(unix)]
-#[derive(Default)]
-struct TerminalHostReconnectBackoff {
-    failures: u8,
-}
-
-#[cfg(unix)]
-impl TerminalHostReconnectBackoff {
-    fn next_delay(&mut self) -> Option<Duration> {
-        if self.failures >= TERMINAL_HOST_RECONNECT_MAX_FAILURES {
-            return None;
-        }
-        let multiplier = 1_u32 << self.failures.min(6);
-        self.failures += 1;
-        Some((Duration::from_millis(25) * multiplier).min(TERMINAL_HOST_RECONNECT_MAX_DELAY))
-    }
-
-    fn wait_or_fail(&mut self, pty: &PtySurface) -> bool {
-        let Some(delay) = self.next_delay() else {
-            pty.host_connection_state
-                .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
-            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
-                host.disconnect();
-            }
-            return false;
-        };
-        #[cfg(test)]
-        pty.run_geometry_test_hook(PtyGeometryTestStep::ReconnectBackoffStarted);
-        std::thread::sleep(delay);
-        true
-    }
-}
-
-#[cfg(unix)]
-fn wait_for_reconnect_after_geometry_failure(
-    retry: &mut TerminalHostReconnectBackoff,
-    pty: &PtySurface,
-    geometry: std::sync::MutexGuard<'_, PtyGeometry>,
-) -> bool {
-    drop(geometry);
-    retry.wait_or_fail(pty)
 }
 
 impl SurfaceKind {
@@ -1227,318 +488,6 @@ impl Drop for TerminalJournalUpdateGuard<'_> {
     }
 }
 
-#[derive(Default)]
-struct ReaderCompletion {
-    finished: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl ReaderCompletion {
-    fn reset(&self) {
-        *self.finished.lock().unwrap() = false;
-    }
-
-    fn complete(&self) {
-        let mut finished = self.finished.lock().unwrap();
-        *finished = true;
-        self.changed.notify_all();
-    }
-
-    fn wait_until(&self, deadline: Instant) -> bool {
-        let mut finished = self.finished.lock().unwrap();
-        while !*finished {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return false;
-            }
-            let (next, result) = self.changed.wait_timeout(finished, remaining).unwrap();
-            finished = next;
-            if result.timed_out() && !*finished {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-struct ReaderCompletionGuard(Arc<ReaderCompletion>);
-
-impl Drop for ReaderCompletionGuard {
-    fn drop(&mut self) {
-        self.0.complete();
-    }
-}
-
-impl PtyTerminalRuntime {
-    /// Feed raw child output to the generic terminal metadata parser. The
-    /// parser has no knowledge of agents or plugins and keeps only bounded
-    /// terminal protocol state. Returns the desktop notifications (OSC 9,
-    /// OSC 777, OSC 99) the output asked for that pass Ghostty's rate limit;
-    /// the caller posts them after it releases the terminal lock.
-    fn observe_terminal_output(
-        &self,
-        bytes: &[u8],
-    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
-        let mut metadata = self.terminal_metadata.lock().unwrap();
-        metadata.observe_output(bytes);
-        metadata.take_admitted_notifications(Instant::now())
-    }
-
-    /// Applies the OSC 133 marks of the output just written to `term`. With
-    /// `recording` false (the default) marks are dropped, any running command
-    /// is forgotten, and nothing is read from the screen. The command line
-    /// comes from Ghostty's semantic input cells, so a command typed before
-    /// recording turned on is still read whole at `C`.
-    fn observe_shell_marks(
-        &self,
-        term: &mut Terminal,
-        recording: impl FnOnce() -> bool,
-    ) -> Vec<crate::shell_history::FinishedCommand> {
-        let marks = self.terminal_metadata.lock().unwrap().take_shell_marks();
-        if marks.is_empty() {
-            return Vec::new();
-        }
-        let mut tracker = self.command_tracker.lock().unwrap();
-        if !recording() {
-            tracker.reset();
-            return Vec::new();
-        }
-        let mut screen = crate::shell_history::TerminalCommandScreen(term);
-        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
-    }
-
-    fn terminal_osc_progress(&self) -> String {
-        self.terminal_metadata.lock().unwrap().osc_progress().to_string()
-    }
-
-    fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
-        let _gate = self.journal_capture_gate.lock().unwrap();
-        if !self.journal_capture_open.load(Ordering::Acquire) {
-            return None;
-        }
-        let reserved = self.journal_capture_reserved.swap(true, Ordering::AcqRel);
-        debug_assert!(!reserved, "terminal journal reads must not overlap");
-        Some(TerminalJournalUpdateGuard { owner: self })
-    }
-
-    fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) -> bool {
-        let mut gate = self.journal_capture_gate.lock().unwrap();
-        let active_deadline = deadline + Duration::from_secs(2);
-        loop {
-            if !self.journal_capture_reserved.load(Ordering::Acquire)
-                && self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0
-            {
-                self.journal_capture_open.store(false, Ordering::Release);
-                return false;
-            }
-            if Instant::now() >= deadline {
-                if !self.journal_capture_active.load(Ordering::Acquire) {
-                    // A read is still blocked or has not started terminal
-                    // mutation. Revoke its reservation. The reader checks the
-                    // gate before parsing and exits without changing state.
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    return false;
-                }
-                let remaining = active_deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    // Keep shutdown bounded if a source-owned parser or
-                    // callback violates the active-update time contract. The
-                    // closed gate prevents a late journal insert after the
-                    // final barrier, and the daemon is already stopping.
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    eprintln!(
-                        "cmux-tui: active terminal journal update exceeded shutdown grace; closing capture and recording an output gap"
-                    );
-                    return true;
-                }
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-                gate = next;
-            } else {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-                gate = next;
-            }
-        }
-    }
-}
-
-/// Content runtime shared by every view placement of one terminal.
-///
-/// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
-/// This object owns the process, terminal emulator, ordered input/output, and
-/// canonical geometry. Keeping the two identities distinct makes a terminal
-/// projectable into any number of panes without cloning its PTY or VT state.
-pub struct PtyTerminalRuntime {
-    event_surface_id: SurfaceId,
-    /// Stable public content identity. This belongs to the terminal runtime,
-    /// while `SurfaceMeta::resource_identity` belongs to one view placement.
-    terminal_public_id: Option<Arc<TerminalPublicId>>,
-    journal_generation: Arc<str>,
-    /// Legacy terminal hosts remain attachable, but cannot source-fence
-    /// output at daemon shutdown and therefore never enter journal capture.
-    journal_capture_supported: bool,
-    /// Even while the emulator and terminal journal agree, odd while one
-    /// output frame has updated one side but not yet reached the other.
-    journal_capture_epoch: AtomicU64,
-    journal_capture_gate: Mutex<()>,
-    journal_capture_idle: Condvar,
-    journal_capture_open: AtomicBool,
-    journal_capture_reserved: AtomicBool,
-    journal_capture_active: AtomicBool,
-    /// Owned reader join fence. Shutdown gives this reader a bounded drain
-    /// interval, then closes journal capture before it inserts the final
-    /// journal barrier.
-    reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    reader_completion: Arc<ReaderCompletion>,
-    /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
-    /// as the reader so the child wait cannot outlive terminal teardown.
-    reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    reaper_completion: Arc<ReaderCompletion>,
-    term: Mutex<Box<Terminal>>,
-    stream_progress: Box<TerminalStreamProgress>,
-    /// Generic metadata parsed from raw PTY output. This field has no agent
-    /// or roster knowledge, so userland plugins can consume it through the
-    /// resource API without moving detection policy into core.
-    terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
-    /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
-    /// the daemon records terminal commands.
-    command_tracker: Mutex<crate::shell_history::CommandTracker>,
-    mouse_encoders: Mutex<Box<MouseEncoders>>,
-    runtime: Mutex<PtyRuntime>,
-    /// Explicit lifecycle authority for this process. Session content may
-    /// survive a daemon replacement through a durable host; daemon-owned
-    /// auxiliaries must terminate with the backend that created them.
-    lifetime: PtyLifetime,
-    supports_clear_history_key_fallback: AtomicBool,
-    host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
-    #[cfg(unix)]
-    pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
-    #[cfg(unix)]
-    host_exit_record_path: Option<PathBuf>,
-    pid: Option<u32>,
-    command: Vec<String>,
-    cwd: Option<String>,
-    /// How this incarnation ended, with its provenance (process end versus
-    /// host loss); see [`TerminalEnd`].
-    exit: Mutex<Option<TerminalEnd>>,
-    local_pty_drained: AtomicBool,
-    exit_notified: AtomicBool,
-    dead: AtomicBool,
-    /// The daemon is intentionally dropping its compatibility proxy while
-    /// leaving the terminal host alive for a later daemon to adopt.
-    owner_detaching: AtomicBool,
-    /// The host socket ended without a sequenced Exit. Closing this proxy
-    /// must retain the host record so a fresh snapshot can recover it.
-    host_connection_state: AtomicU8,
-    /// Set when output arrived since the last render; cleared by the
-    /// frontend when it draws.
-    dirty: AtomicBool,
-    title: Mutex<String>,
-    pwd: Mutex<Option<String>>,
-    published_directory: Mutex<PublishedDirectory>,
-    directory_pending: AtomicBool,
-    /// A shell has reported a directory at least once; only then is a later
-    /// absent report a clear rather than the still-unreported launch directory.
-    directory_reported: AtomicBool,
-    geometry: Mutex<PtyGeometry>,
-    kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
-    #[cfg(test)]
-    geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
-    #[cfg(test)]
-    deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
-    #[cfg(test)]
-    test_master_control: Option<Arc<TestMasterPtyControl>>,
-    #[cfg(test)]
-    vt_replay_builds: AtomicUsize,
-    mux: Weak<Mux>,
-    /// Live output subscribers (attach streams). Guarded by the terminal
-    /// lock ordering: the reader thread broadcasts while holding the
-    /// terminal lock, and [`Surface::attach_stream`] registers taps under
-    /// the same lock, so a subscriber sees exactly the bytes applied
-    /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<AttachTap>>,
-    /// A PTY color mutation awaiting bounded attach-stream fan-out.
-    attach_colors_pending: AtomicBool,
-    /// A reset or cursor-semantic transition requires reapplying equal state:
-    /// byte frontends may reset palettes or switch per-screen cursor storage
-    /// even when the final effective values compare equal.
-    attach_colors_force_pending: AtomicBool,
-    /// Published byte offset and grid generation for snapshot viewers.
-    snapshot_position: snapshot_attach::SnapshotStreamPosition,
-    /// Last effective color state emitted to attach streams. This suppresses
-    /// repeated OSC sets that advance Ghostty's revision without changing the
-    /// frontend-visible state.
-    last_attach_colors: Mutex<Option<Box<TerminalColors>>>,
-    /// Single consume-once Ghostty render state shared by the local TUI and
-    /// every protocol-v7 render attachment.
-    render: Arc<Mutex<RenderHub>>,
-    render_generation: AtomicU64,
-    frame_requests: SyncSender<u64>,
-    #[cfg(test)]
-    frame_producer_before_upgrade: FrameProducerTestHook,
-}
-
-pub(crate) struct TerminalJournalGap {
-    pub(crate) terminal_id: Arc<TerminalPublicId>,
-    pub(crate) generation: Arc<str>,
-    pub(crate) reason: &'static str,
-}
-
-enum PtyRuntime {
-    Local {
-        writer: Box<dyn Write + Send>,
-        master: Option<Box<dyn MasterPty + Send>>,
-        killer: Box<dyn ChildKiller + Send>,
-    },
-    #[cfg(unix)]
-    Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
-    #[cfg(unix)]
-    ExitedHosted,
-}
-
-/// Owns a freshly spawned PTY child until the child reaper has taken over.
-///
-/// `portable_pty::Child` does not stop or reap a process when its handle is
-/// dropped. Startup performs several fallible operations after spawning, so a
-/// guard keeps every error path terminating and reaping the child. The guard
-/// moves into the reaper closure; if thread creation fails, dropping that
-/// closure runs this cleanup instead.
-struct PtyChildStartupGuard {
-    child: Box<dyn cmux_pty::Child + Send + Sync>,
-    reaped: bool,
-}
-
-impl PtyChildStartupGuard {
-    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
-        Self { child, reaped: false }
-    }
-
-    fn process_id(&self) -> Option<u32> {
-        self.child.process_id()
-    }
-
-    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        self.child.clone_killer()
-    }
-
-    fn wait_for_exit(&mut self) -> TerminalExit {
-        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
-        self.reaped = reaped;
-        exit
-    }
-}
-
-impl Drop for PtyChildStartupGuard {
-    fn drop(&mut self) {
-        if self.reaped {
-            return;
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PtyLifetime {
     SessionOwned,
@@ -1593,338 +542,6 @@ struct HostedSurfaceLaunch {
     resource_identity: Option<TabResourceIdentity>,
 }
 
-pub const CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR: &str =
-    "terminal keyboard mode cannot encode clear-history fallback key";
-pub const CLEAR_HISTORY_PRESERVATION_ERROR: &str =
-    "active terminal input extends into retained history";
-pub const CLEAR_HISTORY_STREAM_TIMEOUT_ERROR: &str =
-    "terminal output did not reach a safe clear-history boundary";
-pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
-    "terminal input did not accept clear-history fallback before timeout";
-pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
-pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
-const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
-const LOCAL_PASTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
-// Kitty associated-text encoding can expand each ASCII input byte to a
-// three-digit codepoint plus one separator. The extra key-text budget covers
-// the fixed CSI-u fields without making fallback writes unbounded.
-const CLEAR_HISTORY_FALLBACK_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES * 5;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClearHistoryDelivery {
-    KnownNotDelivered,
-    Ambiguous,
-}
-
-#[derive(Debug)]
-pub struct ClearHistoryFailure {
-    error: anyhow::Error,
-    delivery: ClearHistoryDelivery,
-}
-
-impl ClearHistoryFailure {
-    pub fn known_not_delivered(error: anyhow::Error) -> Self {
-        Self { error, delivery: ClearHistoryDelivery::KnownNotDelivered }
-    }
-
-    pub fn ambiguous(error: anyhow::Error) -> Self {
-        Self { error, delivery: ClearHistoryDelivery::Ambiguous }
-    }
-
-    pub fn delivery(&self) -> ClearHistoryDelivery {
-        self.delivery
-    }
-
-    pub fn error(&self) -> &anyhow::Error {
-        &self.error
-    }
-
-    pub fn into_error(self) -> anyhow::Error {
-        self.error
-    }
-}
-
-#[cfg(unix)]
-fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
-    let error = anyhow::Error::from(error);
-    if delivered == 0 {
-        ClearHistoryFailure::known_not_delivered(error)
-    } else {
-        ClearHistoryFailure::ambiguous(error)
-    }
-}
-
-pub(crate) fn write_clear_history_fallback(
-    master: &dyn MasterPty,
-    writer: &mut dyn Write,
-    bytes: &[u8],
-) -> Result<(), ClearHistoryFailure> {
-    if bytes.len() > CLEAR_HISTORY_FALLBACK_MAX_BYTES {
-        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-            "encoded clear-history fallback exceeds {CLEAR_HISTORY_FALLBACK_MAX_BYTES} bytes"
-        )));
-    }
-
-    #[cfg(unix)]
-    if let Some(fd) = master.as_raw_fd() {
-        return crate::pty_write::write_bounded(
-            fd,
-            bytes,
-            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
-            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
-        )
-        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
-    }
-
-    #[cfg(test)]
-    {
-        writer
-            .write_all(bytes)
-            .and_then(|()| writer.flush())
-            .map_err(anyhow::Error::from)
-            .map_err(ClearHistoryFailure::ambiguous)
-    }
-
-    #[cfg(not(test))]
-    {
-        let _ = writer;
-        Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-            "bounded clear-history fallback writes are unavailable for this PTY"
-        )))
-    }
-}
-
-pub(crate) enum ClearHistoryTransition {
-    Cleared(Vec<u8>),
-    Blocked,
-    EncodedFallback(Vec<u8>),
-    Noop,
-}
-
-pub(crate) fn apply_clear_history_transition(
-    term: &mut Terminal,
-    fallback_key: Option<&KeyInput>,
-) -> anyhow::Result<ClearHistoryTransition> {
-    if term.active_screen() != Screen::Alternate {
-        return Ok(match term.clear_history_preserving_prompt() {
-            ClearHistoryOutcome::Cleared(clear) => ClearHistoryTransition::Cleared(clear),
-            ClearHistoryOutcome::Blocked => ClearHistoryTransition::Blocked,
-            ClearHistoryOutcome::Unchanged => {
-                anyhow::bail!(CLEAR_HISTORY_PRESERVATION_ERROR)
-            }
-        });
-    }
-    let Some(input) = fallback_key else {
-        return Ok(ClearHistoryTransition::Noop);
-    };
-    let encoded = encode_key_from_terminal(term, input)?;
-    Ok(ClearHistoryTransition::EncodedFallback(encoded))
-}
-
-pub(crate) struct TerminalStreamProgress {
-    next_resource_waiter_id: AtomicU64,
-    state: Mutex<TerminalStreamProgressState>,
-    changed: Condvar,
-    #[cfg(test)]
-    test_before_notify: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
-}
-
-#[derive(Default)]
-struct TerminalStreamProgressState {
-    revision: u64,
-    waiters: usize,
-    resource_waiters: HashMap<u64, Weak<ResourceWaitWake>>,
-    #[cfg(test)]
-    resource_subscriptions: u64,
-    clear_history_wait: Option<ClearHistoryWaitState>,
-}
-
-struct ClearHistoryWaitState {
-    deadline: Instant,
-    revision: u64,
-    // Timed-out waits leave this state latched at zero only while the stream
-    // revision is unchanged. Queued repeats then fail without restarting the
-    // full timeout, while concurrent callers share one deadline.
-    waiters: usize,
-}
-
-pub(crate) struct ClearHistoryWaitLease<'a> {
-    progress: &'a TerminalStreamProgress,
-    deadline: Instant,
-    timed_out: bool,
-}
-
-/// One-shot terminal-stream wakeup. Registering before reading the viewport
-/// closes the read/wait race, while cancellation and writer shutdown can wake
-/// the same blocking primitive without a polling deadline.
-pub(crate) struct TerminalStreamSubscription<'a> {
-    progress: &'a TerminalStreamProgress,
-    waiter_id: u64,
-    wake: Arc<ResourceWaitWake>,
-}
-
-impl ClearHistoryWaitLease<'_> {
-    pub(crate) fn deadline(&self) -> Instant {
-        self.deadline
-    }
-
-    pub(crate) fn mark_timed_out(&mut self) {
-        self.timed_out = true;
-    }
-}
-
-impl Drop for ClearHistoryWaitLease<'_> {
-    fn drop(&mut self) {
-        self.progress.finish_clear_history_wait(self.timed_out);
-    }
-}
-
-impl Default for TerminalStreamProgress {
-    fn default() -> Self {
-        Self {
-            next_resource_waiter_id: AtomicU64::new(1),
-            state: Mutex::new(TerminalStreamProgressState::default()),
-            changed: Condvar::new(),
-            #[cfg(test)]
-            test_before_notify: Mutex::new(None),
-        }
-    }
-}
-
-impl TerminalStreamProgress {
-    pub(crate) fn revision(&self) -> u64 {
-        self.state.lock().unwrap().revision
-    }
-
-    pub(crate) fn notify(&self) {
-        #[cfg(test)]
-        if let Some(hook) = self.test_before_notify.lock().unwrap().clone() {
-            hook();
-        }
-        let mut state = self.state.lock().unwrap();
-        state.revision = state.revision.wrapping_add(1);
-        // An expired budget is retained only while the stream is unchanged.
-        // Active waiters keep their original deadline across fragmented output.
-        if state.clear_history_wait.as_ref().is_some_and(|wait| wait.waiters == 0) {
-            state.clear_history_wait = None;
-        }
-        let resource_waiters = std::mem::take(&mut state.resource_waiters);
-        self.changed.notify_all();
-        drop(state);
-        for wake in resource_waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
-            wake.notify();
-        }
-    }
-
-    #[cfg(test)]
-    fn set_before_notify_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
-        *self.test_before_notify.lock().unwrap() = hook;
-    }
-
-    fn notify_reconnect(&self) {
-        self.notify();
-    }
-
-    pub(crate) fn subscribe(&self) -> TerminalStreamSubscription<'_> {
-        let waiter_id = self.next_resource_waiter_id.fetch_add(1, Ordering::Relaxed);
-        let wake = Arc::new(ResourceWaitWake::default());
-        let mut state = self.state.lock().unwrap();
-        state.resource_waiters.insert(waiter_id, Arc::downgrade(&wake));
-        #[cfg(test)]
-        {
-            state.resource_subscriptions = state.resource_subscriptions.wrapping_add(1);
-        }
-        TerminalStreamSubscription { progress: self, waiter_id, wake }
-    }
-
-    pub(crate) fn begin_clear_history_wait(&self, timeout: Duration) -> ClearHistoryWaitLease<'_> {
-        let mut state = self.state.lock().unwrap();
-        let revision = state.revision;
-        let wait = state.clear_history_wait.get_or_insert_with(|| ClearHistoryWaitState {
-            deadline: Instant::now() + timeout,
-            revision,
-            waiters: 0,
-        });
-        wait.waiters += 1;
-        ClearHistoryWaitLease { progress: self, deadline: wait.deadline, timed_out: false }
-    }
-
-    fn finish_clear_history_wait(&self, timed_out: bool) {
-        let mut state = self.state.lock().unwrap();
-        let current_revision = state.revision;
-        let clear_wait = {
-            let Some(wait) = state.clear_history_wait.as_mut() else {
-                return;
-            };
-            debug_assert!(wait.waiters > 0);
-            wait.waiters -= 1;
-            wait.waiters == 0 && (!timed_out || wait.revision != current_revision)
-        };
-        if clear_wait {
-            state.clear_history_wait = None;
-        }
-    }
-
-    pub(crate) fn wait_for_change(&self, observed: u64, deadline: Instant) -> Option<u64> {
-        self.wait_for_change_until(observed, Some(deadline))
-    }
-
-    fn wait_for_change_until(&self, observed: u64, deadline: Option<Instant>) -> Option<u64> {
-        let mut state = self.state.lock().unwrap();
-        if state.revision != observed {
-            return Some(state.revision);
-        }
-        state.waiters += 1;
-        while state.revision == observed {
-            match deadline {
-                Some(deadline) => {
-                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                        state.waiters -= 1;
-                        return None;
-                    };
-                    let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
-                    state = next;
-                    if timeout.timed_out() && state.revision == observed {
-                        state.waiters -= 1;
-                        return None;
-                    }
-                }
-                None => state = self.changed.wait(state).unwrap(),
-            }
-        }
-        let revision = state.revision;
-        state.waiters -= 1;
-        Some(revision)
-    }
-
-    #[cfg(test)]
-    fn waiter_count(&self) -> usize {
-        let state = self.state.lock().unwrap();
-        state.waiters + state.resource_waiters.len()
-    }
-
-    #[cfg(test)]
-    fn resource_subscription_count(&self) -> u64 {
-        self.state.lock().unwrap().resource_subscriptions
-    }
-}
-
-impl TerminalStreamSubscription<'_> {
-    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
-        self.wake.clone()
-    }
-
-    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
-        self.wake.wait_until(deadline)
-    }
-}
-
-impl Drop for TerminalStreamSubscription<'_> {
-    fn drop(&mut self) {
-        self.progress.state.lock().unwrap().resource_waiters.remove(&self.waiter_id);
-    }
-}
-
 fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
     let mut encoder = KeyEncoder::new()?;
     let mut encoded = Vec::new();
@@ -1935,59 +552,6 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
     }
     Ok(encoded)
 }
-
-#[cfg(unix)]
-fn mark_hosted_runtime_exited(
-    pty: &PtySurface,
-    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
-) {
-    let mut runtime = pty.runtime.lock().unwrap();
-    let matches = match &*runtime {
-        PtyRuntime::Hosted(host) => host.identity() == *identity,
-        PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => false,
-    };
-    if matches {
-        if let PtyRuntime::Hosted(host) = &*runtime {
-            host.disconnect();
-        }
-        *runtime = PtyRuntime::ExitedHosted;
-        pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
-        drop(runtime);
-        pty.finish_hosted_exit();
-    }
-}
-
-fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
-    let Some(pty) = surface.as_pty() else { return };
-    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
-        return;
-    }
-    if pty.exit_notified.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
-    {
-        return;
-    }
-    pty.dead.store(true, Ordering::Release);
-    if let Some(mux) = pty.mux.upgrade() {
-        mux.surface_exited(surface.id);
-    }
-}
-
-#[cfg(windows)]
-fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
-    let Some(pty) = surface.as_pty() else { return };
-    let master = {
-        let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { master, .. } = &mut *runtime;
-        master.take()
-    };
-    // portable-pty's ConPTY reader keeps a separate output handle. Closing
-    // the master closes the pseudoconsole, which lets that reader drain the
-    // final bytes and then observe EOF.
-    drop(master);
-}
-
-#[cfg(not(windows))]
-fn close_local_terminal_master_after_exit(_surface: &Arc<Surface>) {}
 
 fn terminal_public_id_from_resource_identity(
     identity: &TabResourceIdentity,
@@ -2110,9 +674,10 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
+        let pending_bells = PendingBells::default();
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         let records = terminal_metadata.program_status();
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone(), records);
+        let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed.clone(), records);
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         anyhow::ensure!(
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
@@ -2571,8 +1136,7 @@ impl Surface {
                                     .unwrap_or_default();
                                 let records = pty.program_status_records();
                                 let callbacks = hosted_terminal_callbacks(
-                                    id,
-                                    mux.clone(),
+                                    &pending_bells,
                                     title_changed.clone(),
                                     records,
                                 );
@@ -2686,6 +1250,9 @@ impl Surface {
                         }
                         drop(journal_update.take());
                         journal_target = None;
+                        // Bells rung by this transition's parser work, emitted
+                        // with neither the terminal nor the geometry lock held.
+                        pending_bells.publish(&mux, surface.id);
                     }
                     frames.abandon();
                     let Some(pty) = surface.as_pty() else { return };
@@ -2867,8 +1434,7 @@ impl Surface {
                         };
                         let records = pty.program_status_records();
                         let callbacks = hosted_terminal_callbacks(
-                            id,
-                            mux.clone(),
+                            &pending_bells,
                             title_changed.clone(),
                             records.clone(),
                         );
@@ -3096,19 +1662,6 @@ impl Surface {
     }
 }
 
-fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {
-    let enabled = options
-        .extra_env
-        .iter()
-        .any(|(key, value)| key == "CMUX_TUI_AGENT_BROWSER_PROVIDER" && value == "1");
-    if enabled {
-        // agent-browser daemons are keyed by session. A distinct caller
-        // session prevents a command from another workspace from silently
-        // reusing the first workspace's page-scoped CDP connection.
-        set_env(&mut options.extra_env, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
-    }
-}
-
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyGeometryTestStep {
@@ -3117,6 +1670,8 @@ enum PtyGeometryTestStep {
     CellPixelStarted,
     CellPixelCommitBoundary,
     ReconnectBackoffStarted,
+    /// `mark_output_dirty` is about to publish `SurfaceOutput` to the mux.
+    OutputEventStarted,
 }
 
 #[cfg(test)]

@@ -17,6 +17,19 @@ use crate::turn::Orphan;
 /// logged as `user`; the cut turn's messages are in the log before it.
 pub(super) const RESUMED: &str = "The server restarted, cutting the turn; nothing was lost: go on.";
 
+/// The resume turn's new messages: the note, then the cut requests' full
+/// text in order (the reference client re-queues them into the next call's
+/// new messages), before any newer message. Only the note is logged.
+pub(super) fn resume_prompt(cut: &[String]) -> String {
+    if cut.is_empty() {
+        return RESUMED.to_owned();
+    }
+    format!(
+        "{RESUMED} These are the cut turn's requests, in order: finish them first, then any newer message.\n\n{}",
+        cut.join("\n\n")
+    )
+}
+
 /// Finishes the pending turn's bookkeeping in `state` and clears it.
 /// Returns the names of acpmux turn sessions to remove whose id was never
 /// saved; a session whose id is known becomes an orphan instead, so what it
@@ -39,16 +52,27 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
     }
     let mut human = false;
     let mut remote = false;
-    for (at, items, done) in &batches {
+    // The cut messages' full text, in log order (the resume turn's).
+    let mut cut: Vec<String> = Vec::new();
+    for (k, (at, items, done)) in batches.iter().enumerate() {
+        // A pre-`first_id` host's opening batch has no known log position.
+        let positioned = k > 0 || turn.first_id.is_some();
         let logged = if *done {
             items.len()
         } else {
             (messages.saturating_sub(*at) as usize).min(items.len())
         };
-        for item in &items[..logged] {
+        for (j, item) in items[..logged].iter().enumerate() {
             // A logged resume note is a cut turn's too: it resumes again.
             human |= item.resume;
             remote |= item.remote;
+            cut.extend(item.cut.iter().cloned());
+            if item.seq.is_some()
+                && positioned
+                && let Some((_, text)) = chat.message(at + j as u64)
+            {
+                cut.push(text);
+            }
             // A logged image keeps its description pending until the note is
             // written (the save after the describe may have been lost).
             for image in &item.images {
@@ -85,10 +109,14 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
         let side =
             (state.conversation.as_deref() != Some(conversation)).then(|| conversation.to_owned());
         match state.resumes.iter_mut().find(|r| r.conversation == side) {
-            Some(r) => r.remote |= remote,
+            Some(r) => {
+                r.remote |= remote;
+                r.messages.extend(cut);
+            }
             None => state.resumes.push(Resume {
                 conversation: side,
                 remote,
+                messages: cut,
             }),
         }
     }
