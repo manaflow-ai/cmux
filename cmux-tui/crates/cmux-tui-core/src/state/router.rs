@@ -92,6 +92,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::PaletteUsageHide
             | Op::PaletteUsageForget
             | Op::WorkspaceEnsureHome
+            | Op::WorkspaceEnsureApp
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
             | Op::WorkspaceStatusClear
@@ -705,6 +706,15 @@ pub(crate) fn dispatch(
                 home.revision,
                 home.replayed,
             )
+        }
+        // app-screens-v1: the one workspace of an installed app.
+        Op::WorkspaceEnsureApp => {
+            ensure_session(mux, selectors)?;
+            let app = string(fields, "app").unwrap_or_default();
+            let route = string(fields, "route");
+            let name = string(fields, "name");
+            let ensured = mux.state_ensure_app(&app, route, name, &mutation(&request)?)?;
+            mutation_result(mux, ensured.result, ensured.revision, ensured.replayed)
         }
         // B4: workspace status
         Op::WorkspaceStatusList => mux.workspace_status_snapshots(selectors).map(Value::Array),
