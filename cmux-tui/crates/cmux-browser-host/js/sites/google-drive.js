@@ -23,6 +23,8 @@
             await page.keyboard.press("Escape").catch(() => {});
             await t.sleep(1500);
           }
+          // The editor must still be this file when Move to trash is pressed.
+          if (!String(page.url()).includes(`/d/${ref.id}/`)) throw new S.SiteError("target_mismatch", `googleDrive.trash: the editor left file ${ref.id}; nothing was moved to the trash`);
           await item.click();
           await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
           created.delete(ref.id);

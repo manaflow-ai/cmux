@@ -8,7 +8,7 @@ impl Mux {
     /// leak an entry forever and `list-agents` would keep reporting dead
     /// surfaces as live agents.
     pub(super) fn purge_surface_side_tables(&self, surface: SurfaceId) {
-        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
@@ -43,8 +43,11 @@ impl Mux {
         }
         drop(sizing);
         self.publish_size_states();
-        self.placement_notifications.lock().unwrap().remove(&surface);
         self.control_clients.forget_surface_attach_epoch(surface);
+        drop(lifecycle);
+        // After the sizing lifecycle lock: the feed lock comes before the
+        // registry and state locks, never after another lock.
+        self.close_placement_feed_items(surface);
     }
 
     pub(super) fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
@@ -78,7 +81,8 @@ impl Mux {
         {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
-        self.terminal_notifications.lock().unwrap().remove(terminal_id);
+        // Read the terminal's open local items and drop its ring together.
+        self.close_terminal_feed_items(terminal_id);
     }
 
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
@@ -105,6 +109,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.begin_session_shutdown();
+        self.terminal_respawns.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(
@@ -246,6 +251,7 @@ impl Mux {
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.begin_session_shutdown();
+        self.terminal_respawns.wake_all();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {

@@ -16,7 +16,8 @@ final class MachineBadgeView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = Typography.caption
         label.lineBreakMode = .byTruncatingTail
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Beats the URL field (250) beside it: a long URL truncates, not the chip (cx-k9mc).
+        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
@@ -31,6 +32,16 @@ final class MachineBadgeView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The chip's menu (the host's machine actions); nil: no menu.
+    var makeMenu: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let menu = makeMenu?() else { return super.mouseDown(with: event) }
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 4), in: self)
+    }
 
     func show(text: String, help: String) {
         label.stringValue = text

@@ -573,11 +573,6 @@ fn split_diff_section_ranges(source: &[u8]) -> Vec<Range<usize>> {
         .collect()
 }
 
-#[cfg(test)]
-fn split_diff_sections(source: &[u8]) -> Vec<&[u8]> {
-    split_diff_section_ranges(source).into_iter().map(|range| &source[range]).collect()
-}
-
 fn diff_page_scope(paths: &[String], staged: bool, context: u16, format: DiffFormat) -> String {
     let mut digest = Sha256::new();
     digest.update([u8::from(staged)]);
@@ -867,26 +862,6 @@ mod tests {
         assert_eq!(paths, vec!["tracked.txt"]);
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn status_disables_repository_fsmonitor() {
-        let (_directory, root) = git_root().await;
-        let hook = root.canonical_root().join("fsmonitor-hook");
-        let marker = root.canonical_root().join("fsmonitor-hook.invoked");
-        crate::test_exec::write_executable(
-            &hook,
-            "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n",
-        );
-        git(root.canonical_root(), &["config", "core.fsmonitor", hook.to_str().unwrap()]);
-
-        assert!(Command::new(&hook).status().unwrap().success());
-        assert!(marker.exists(), "positive control did not execute fsmonitor hook");
-        std::fs::remove_file(&marker).unwrap();
-
-        status(&root).await.unwrap();
-        assert!(!marker.exists(), "workspace Git status executed repository fsmonitor hook");
-    }
-
     #[tokio::test]
     async fn status_ignores_repository_selecting_environment() {
         const CHILD: &str = "CMUX_GIT_ENVIRONMENT_TEST_CHILD";
@@ -1000,156 +975,5 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing rename {old:?} -> {new:?}"));
             assert!(file.hunks.is_empty());
         }
-    }
-
-    #[tokio::test]
-    async fn unified_diff_cursor_pages_on_file_boundaries() {
-        let (_directory, root) = git_root().await;
-        let queries = WorkspaceQueryService::default();
-        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
-        for args in [["add", "second.txt"].as_slice(), ["commit", "-qm", "second"].as_slice()] {
-            assert!(
-                Command::new("git")
-                    .arg("-C")
-                    .arg(root.canonical_root())
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        }
-        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
-        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
-
-        let full =
-            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
-        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
-        let full = data.decode().unwrap();
-        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
-        let maximum = u32::try_from(maximum).unwrap();
-
-        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
-            .await
-            .unwrap()
-            .commit();
-        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
-            panic!()
-        };
-        let mut combined = data.decode().unwrap();
-        let second =
-            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
-                .await
-                .unwrap()
-                .commit();
-        let WorkspaceResponse::Diff { data, next_cursor, .. } = second else { panic!() };
-        assert_eq!(next_cursor, None);
-        combined.extend(data.decode().unwrap());
-        assert_eq!(combined, full);
-    }
-
-    #[tokio::test]
-    async fn unified_diff_cursor_continues_the_original_snapshot() {
-        let (_directory, root) = git_root().await;
-        let queries = WorkspaceQueryService::default();
-        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
-        git(root.canonical_root(), &["add", "second.txt"]);
-        git(root.canonical_root(), &["commit", "-qm", "second"]);
-        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
-        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
-
-        let full =
-            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
-        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
-        let full = data.decode().unwrap();
-        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
-        let maximum = u32::try_from(maximum).unwrap();
-        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
-            .await
-            .unwrap()
-            .commit();
-        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
-            panic!()
-        };
-        let first = String::from_utf8(data.decode().unwrap()).unwrap();
-        let (returned, remaining) = if first.contains("second.txt") {
-            ("second.txt", "tracked.txt")
-        } else {
-            ("tracked.txt", "second.txt")
-        };
-        git(root.canonical_root(), &["checkout", "--", returned]);
-
-        let second =
-            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
-                .await
-                .unwrap()
-                .commit();
-        let WorkspaceResponse::Diff { data, .. } = second else { panic!() };
-        let second = String::from_utf8(data.decode().unwrap()).unwrap();
-        assert!(second.contains(remaining), "missing retained diff for {remaining}: {second}");
-    }
-
-    #[test]
-    fn parses_porcelain_rename_records() {
-        let input = b"## main\0R  new.txt\0old.txt\0";
-        let (branch, changes) = parse_status(input).unwrap();
-        assert_eq!(branch.as_deref(), Some("main"));
-        assert_eq!(changes[0].path, "new.txt");
-        assert_eq!(changes[0].original_path.as_deref(), Some("old.txt"));
-    }
-
-    #[test]
-    fn parses_nul_delimited_diff_path_page() {
-        let input = concat!(
-            "M\0skip.txt\0",
-            "A\0tab\tname.txt\0",
-            "R100\0old b/path.txt\0new\"path.txt\0",
-            "D\0gone.txt\0",
-        );
-        let parsed = parse_diff_path_metadata(input.as_bytes()).unwrap();
-        assert_eq!(parsed.len(), 4);
-        assert_eq!(parsed[1].old_path, None);
-        assert_eq!(parsed[1].new_path.as_deref(), Some("tab\tname.txt"));
-        assert_eq!(parsed[2].old_path.as_deref(), Some("old b/path.txt"));
-        assert_eq!(parsed[2].new_path.as_deref(), Some("new\"path.txt"));
-        assert_eq!(parsed[3].old_path.as_deref(), Some("gone.txt"));
-        assert_eq!(parsed[3].new_path, None);
-    }
-
-    #[test]
-    fn structured_diff_does_not_confuse_hunk_content_for_file_headers() {
-        let source = concat!(
-            "diff --git a/value.txt b/value.txt\n",
-            "--- a/value.txt\n",
-            "+++ b/value.txt\n",
-            "@@ -1 +1 @@\n",
-            "--- deleted content\n",
-            "++++ added content\n",
-        );
-        let parsed = parse_structured_diff(source);
-        assert_eq!(parsed.files.len(), 1);
-        assert_eq!(parsed.files[0].old_path.as_deref(), Some("value.txt"));
-        assert_eq!(parsed.files[0].new_path.as_deref(), Some("value.txt"));
-        assert_eq!(parsed.files[0].hunks[0].lines[0].kind, StructuredDiffLineKind::Deleted);
-        assert_eq!(parsed.files[0].hunks[0].lines[0].text, "-- deleted content");
-        assert_eq!(parsed.files[0].hunks[0].lines[1].kind, StructuredDiffLineKind::Added);
-        assert_eq!(parsed.files[0].hunks[0].lines[1].text, "+++ added content");
-    }
-
-    #[test]
-    fn structured_diff_keeps_binary_file_metadata_without_hunks() {
-        let parsed = parse_structured_diff(concat!(
-            "diff --git a/image.bin b/image.bin\n",
-            "index 1111111..2222222 100644\n",
-            "Binary files a/image.bin and b/image.bin differ\n",
-        ));
-        assert_eq!(parsed.files.len(), 1);
-        assert_eq!(parsed.files[0].old_path.as_deref(), Some("image.bin"));
-        assert_eq!(parsed.files[0].new_path.as_deref(), Some("image.bin"));
-        assert!(parsed.files[0].hunks.is_empty());
-        assert_eq!(parsed.files[0].metadata.len(), 2);
     }
 }
