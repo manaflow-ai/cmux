@@ -22,22 +22,6 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_resource_close_after_commit_hook_for_test(
-        &self,
-        hook: Option<Arc<dyn Fn() + Send + Sync>>,
-    ) {
-        *self.resource_close_after_commit.lock().unwrap() = hook;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_resource_close_cleanup_hook_for_test(
-        &self,
-        hook: Option<Arc<dyn Fn() + Send + Sync>>,
-    ) {
-        *self.resource_close_cleanup.lock().unwrap() = hook;
-    }
-
-    #[cfg(test)]
     pub(crate) fn resource_terminal_lifecycle_for_test(
         &self,
         terminal_id: &str,

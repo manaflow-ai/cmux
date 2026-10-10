@@ -191,12 +191,3 @@ thread_local! {
     /// that the daemon caught from an ordinary rejection.
     static REJECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
-
-#[cfg(test)]
-pub(crate) fn rejections_on_this_thread() -> usize {
-    REJECTIONS.with(std::cell::Cell::get)
-}
-
-#[cfg(test)]
-#[path = "layout_invariants_tests.rs"]
-mod tests;

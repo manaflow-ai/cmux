@@ -139,24 +139,6 @@ impl Surface {
     }
 
     #[cfg(all(unix, test))]
-    pub(crate) fn exited_terminal_placeholder_with_terminal_public_id(
-        id: SurfaceId,
-        opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        identity: crate::terminal_host_runtime::TerminalHostIdentity,
-        terminal_public_id: TerminalPublicId,
-    ) -> anyhow::Result<Arc<Surface>> {
-        Self::exited_terminal_placeholder_with_identities(
-            id,
-            opts,
-            mux,
-            identity,
-            terminal_public_id,
-            None,
-        )
-    }
-
-    #[cfg(all(unix, test))]
     pub(super) fn exited_terminal_placeholder_with_identities(
         id: SurfaceId,
         opts: SurfaceOptions,

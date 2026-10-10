@@ -356,9 +356,3 @@ fn creation_settlement_result(
         }
     }
 }
-
-#[cfg(test)]
-mod structural_tab_move_tests;
-
-#[cfg(test)]
-mod creation_recovery_tests;

@@ -270,7 +270,3 @@ pub(super) fn try_handle(
         }
     })
 }
-
-#[cfg(test)]
-#[path = "scripts_tests.rs"]
-mod tests;

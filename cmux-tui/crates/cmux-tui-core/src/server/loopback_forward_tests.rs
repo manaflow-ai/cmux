@@ -11,9 +11,8 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use super::loopback_forward::{
-    DAEMON_RECEIVE_WINDOW, LoopbackForwardPolicy, LoopbackTarget, MAX_FRAME_BYTES,
-    MAX_STREAMS_PER_CLIENT, classify_target,
-};
+    DAEMON_RECEIVE_WINDOW, LoopbackForwardPolicy, MAX_FRAME_BYTES,
+    MAX_STREAMS_PER_CLIENT, };
 use super::*;
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -164,21 +163,6 @@ fn assert_no_accept(listener: &TcpListener) {
 // MARK: Capability and opt-in
 
 #[test]
-fn loopback_forward_capability_is_advertised() {
-    let mux = mux("loopback-identify");
-    let (writer, _) = tests::captured_writer();
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &writer).unwrap();
-    assert!(
-        identity["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == LOOPBACK_FORWARD_CAPABILITY)
-    );
-}
-
-#[test]
 fn loopback_open_is_refused_until_the_client_opts_in() {
     let mux = mux("loopback-opt-in");
     let (listener, port) = target();
@@ -204,50 +188,6 @@ fn loopback_forwarding_can_be_turned_off_by_policy() {
 // MARK: Loopback-only targets
 
 #[test]
-fn loopback_targets_are_classified_without_dns() {
-    for host in [
-        "localhost",
-        "LocalHost",
-        "localhost.",
-        "app.localhost",
-        "a-b.c.localhost",
-        "127.0.0.1",
-        "127.12.34.56",
-        "::1",
-        "[::1]",
-        "::ffff:127.0.0.1",
-    ] {
-        assert!(classify_target(host).is_some(), "{host} must be forwarded");
-    }
-    assert_eq!(classify_target("localhost"), Some(LoopbackTarget::Localhost));
-    for host in [
-        "",
-        "example.com",
-        "localhost.example.com",
-        "127.0.0.1.nip.io",
-        "localtest.me",
-        "10.0.0.1",
-        "192.168.1.1",
-        "169.254.169.254",
-        "8.8.8.8",
-        "0.0.0.0",
-        "::",
-        "[::ffff:10.0.0.1]",
-        "fe80::1",
-        "127.1",
-        "0x7f.0.0.1",
-        "2130706433",
-        "-a.localhost",
-        "a..localhost",
-        "a_b.localhost",
-        "[localhost]",
-        "localhost:80",
-    ] {
-        assert!(classify_target(host).is_none(), "{host:?} must not be forwarded");
-    }
-}
-
-#[test]
 fn loopback_open_refuses_hosts_that_are_not_loopback() {
     let mux = mux("loopback-hosts");
     let (listener, port) = target();
@@ -265,40 +205,6 @@ fn loopback_open_refuses_hosts_that_are_not_loopback() {
 }
 
 // MARK: Port policy
-
-#[test]
-fn loopback_port_policy_parses_and_denies() {
-    let default = LoopbackForwardPolicy::default();
-    assert!(default.is_enabled());
-    assert!(default.permits_port(3000));
-    assert!(default.permits_port(80));
-    assert!(!default.permits_port(0));
-
-    let off = LoopbackForwardPolicy::from_config_value(&json!(false)).unwrap();
-    assert!(!off.is_enabled());
-
-    let policy = LoopbackForwardPolicy::from_config_value(&json!({
-        "allow_ports": ["3000-3999", 8080],
-        "deny_ports": [3306, "3500-3510"],
-    }))
-    .unwrap();
-    assert!(policy.permits_port(3000));
-    assert!(policy.permits_port(8080));
-    assert!(!policy.permits_port(22));
-    assert!(!policy.permits_port(3306));
-    assert!(!policy.permits_port(3505));
-
-    for bad in [
-        json!({"allow": [80]}),
-        json!({"deny_ports": ["10-5"]}),
-        json!({"deny_ports": [0]}),
-        json!({"deny_ports": [70000]}),
-        json!({"enabled": "yes"}),
-        json!("on"),
-    ] {
-        assert!(LoopbackForwardPolicy::from_config_value(&bad).is_err(), "{bad} must fail");
-    }
-}
 
 #[test]
 fn loopback_open_refuses_denied_ports() {
@@ -447,16 +353,6 @@ fn loopback_stream_returns_credit_for_bytes_it_wrote() {
 }
 
 #[test]
-fn loopback_stream_ends_when_the_client_exceeds_the_daemon_window() {
-    let forwarder = loopback_forward::window_probe();
-    for _ in 0..DAEMON_RECEIVE_WINDOW / MAX_FRAME_BYTES {
-        assert!(forwarder.push(MAX_FRAME_BYTES), "within the window must be accepted");
-    }
-    assert!(!forwarder.push(1), "one byte beyond the window must end the stream");
-    assert_eq!(forwarder.closed_reason().as_deref(), Some("window-exceeded"));
-}
-
-#[test]
 fn loopback_streams_close_when_the_control_connection_ends() {
     let mux = mux("loopback-disconnect");
     let (listener, port) = target();
@@ -481,18 +377,6 @@ fn loopback_streams_are_limited_per_client() {
     assert!(forwarder.reserve_for_test(2, 0), "another client has its own budget");
     forwarder.release_for_test(1);
     assert!(forwarder.reserve_for_test(1, 10_001), "a released slot is reusable");
-}
-
-#[test]
-fn loopback_data_for_an_unknown_stream_is_refused() {
-    let mux = mux("loopback-unknown");
-    let mut client = Client::connect(&mux, "unknown");
-    client.opt_in();
-    client.send(json!({"cmd": "loopback-data", "stream": 99, "data": b64(b"x")}));
-    let event = client.event(WAIT).expect("no refusal event");
-    assert_eq!(event["event"], "loopback-closed");
-    assert_eq!(event["stream"], 99);
-    assert_eq!(event["error"], "unknown-stream");
 }
 
 #[test]

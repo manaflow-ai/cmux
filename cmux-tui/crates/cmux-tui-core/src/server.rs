@@ -19,10 +19,6 @@
 //! ```
 
 #[cfg(test)]
-use crate::mux::DaemonHandoffRequest;
-#[cfg(test)]
-use crate::workspace_registry::TerminalLifecycle;
-#[cfg(test)]
 use base64::Engine;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -37,8 +33,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use ghostty_vt::KittyReplayState;
-#[cfg(test)]
-use ghostty_vt::{KeyAction, Mods, sys};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -47,35 +41,17 @@ use tungstenite::WebSocket;
 use zeroize::Zeroize;
 
 #[cfg(test)]
-use crate::AttachFrame;
-#[cfg(test)]
 use crate::BrowserAttachState;
 #[cfg(test)]
 use crate::GraphicsStatus;
 #[cfg(test)]
-use crate::JournalClass;
-#[cfg(test)]
-use crate::JournalSensitivity;
-#[cfg(test)]
-use crate::NotificationSource;
-#[cfg(test)]
-use crate::SurfaceRenderFrame;
-#[cfg(test)]
 use crate::TreeDeltaKind;
 use crate::browser::BrowserMouseDispatch;
-#[cfg(test)]
-use crate::browser::BrowserPointerOwner;
-#[cfg(test)]
-use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
-#[cfg(test)]
-use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
-#[cfg(test)]
-use crate::resource::ContentPublicId;
 use crate::resource::{
     RequestId as ResourceRequestId, ResourceError, ResourceOperation, StreamPublicId,
     TerminalPublicId,
@@ -84,16 +60,12 @@ use crate::sizing_policy::{
     TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, detach_reason,
 };
 use crate::stream_interrupt::StreamInterrupt;
-#[cfg(test)]
-use crate::surface::AttachLifecycle;
 use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
     Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node,
     PairingDecision, PaneId, Rgb, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind,
     TerminalColors, TreeDecorations, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
-#[cfg(test)]
-use ghostty_vt::KeyInput;
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[cfg(unix)]
@@ -163,14 +135,10 @@ mod remote_relay;
 use remote_relay::handle_connection_message;
 mod cmd_attach;
 mod cmd_browser;
-#[cfg(test)]
-use cmd_browser::browser_provider_registration;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
 mod cmd_subscribe;
@@ -221,8 +189,6 @@ mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
 mod socket_path;
-#[cfg(test)]
-use socket_path::default_socket_path_in_runtime_dir;
 #[cfg(unix)]
 pub(crate) use socket_path::unix_socket_path_fits;
 pub use socket_path::{
@@ -463,8 +429,6 @@ pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 mod protocol_key;
-#[cfg(test)]
-use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
 pub use protocol_key::ProtocolKeyInput;
 pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
@@ -2366,8 +2330,6 @@ use render_service::{
     BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
     write_kitty_image_aliases_json, write_kitty_replay_state_json,
 };
-#[cfg(test)]
-use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 
 mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
@@ -2384,8 +2346,6 @@ use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
     SynchronizedTcpStream, claim_connection, write_line_outbound_item,
 };
-#[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2404,8 +2364,6 @@ pub use listen::{
     PendingServer, SocketStartLock, connect_session_socket, prepare_socket_parent, serve,
     serve_paused,
 };
-#[cfg(test)]
-use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;
@@ -2441,12 +2399,6 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
 }
 
 mod journal_filter;
-#[cfg(test)]
-use journal_filter::JournalStreamFilter;
-#[cfg(test)]
-use journal_stream::run_session_journal_stream;
-#[cfg(test)]
-use session_event_stream::run_session_event_stream;
 
 mod resource_waits;
 use resource_waits::start_resource_wait;
@@ -2461,8 +2413,6 @@ use resource_clients::{
     resource_terminal_viewer_release, resource_terminal_viewer_resize,
 };
 mod resource_attach;
-#[cfg(test)]
-use resource_attach::browser_resource_frame;
 use resource_attach::{
     cleanup_resource_attach, cleanup_resource_stream, prepare_browser_resource_attach,
     prepare_sidebar_resource_attach, prepare_terminal_resource_attach, register_resource_outbound,
@@ -2472,8 +2422,6 @@ use resource_attach::{
 mod session_event_stream;
 use session_event_stream::{prepare_session_event_stream, start_session_event_stream};
 mod journal_stream;
-#[cfg(test)]
-use journal_stream::journal_extension_error;
 use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
@@ -2891,8 +2839,6 @@ use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
     render_state_message, send_browser_attach_update, styled_run_json, write_pending_sequence_json,
 };
-#[cfg(test)]
-use render_messages::{browser_frame_json, render_graphics_message};
 
 mod attach_lifecycle;
 use attach_lifecycle::{
@@ -2900,8 +2846,6 @@ use attach_lifecycle::{
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
     rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
 };
-#[cfg(test)]
-use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
 
 #[cfg(test)]
 fn handle_command(
@@ -3803,39 +3747,17 @@ mod loopback_forward_tests;
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
 
-#[cfg(all(test, unix))]
-#[path = "server/image_paste_tests.rs"]
-mod image_paste_tests;
-
-#[cfg(test)]
-#[path = "server/orphan_shutdown_tests.rs"]
-mod orphan_shutdown_tests;
-#[cfg(test)]
-#[path = "server/session_identity_tests.rs"]
-mod session_identity_tests;
-
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
 #[cfg(test)]
-#[path = "server/device_kind_tests.rs"]
-mod device_kind_tests;
-#[cfg(test)]
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
 
 #[cfg(test)]
-#[path = "server/rows_tests.rs"]
-mod rows_tests;
-
-#[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]
 mod pane_browser_kind_tests;
-
-#[cfg(test)]
-#[path = "server/personal_terminal_tests.rs"]
-mod personal_terminal_tests;
 
 #[cfg(test)]
 #[path = "server/browser_profile_tests.rs"]

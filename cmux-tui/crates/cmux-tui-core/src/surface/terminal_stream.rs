@@ -197,11 +197,6 @@ impl Surface {
         Some(self.as_pty()?.stream_progress.waiter_count())
     }
 
-    #[cfg(test)]
-    pub(crate) fn terminal_stream_subscription_count_for_test(&self) -> Option<u64> {
-        Some(self.as_pty()?.stream_progress.resource_subscription_count())
-    }
-
     pub fn try_with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> anyhow::Result<R> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");

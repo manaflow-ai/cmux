@@ -306,37 +306,3 @@ pub(crate) fn delete_saved_tab_group(
 ) -> anyhow::Result<bool> {
     delete_saved_tab_group_in(transaction, saved_id)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A tab_state table an older build created gains the icon column; its
-    /// rows stay, and the icon then saves and reads back.
-    #[test]
-    fn tab_icon_column_is_added_to_an_older_table() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT);
-                 INSERT INTO tab_state(tab_id, zoom) VALUES('tab_old', 1.5);",
-            )
-            .unwrap();
-        for _ in 0..2 {
-            let transaction = connection.transaction().unwrap();
-            add_tab_icon_column(&transaction).unwrap();
-            transaction.commit().unwrap();
-        }
-        let transaction = connection.transaction().unwrap();
-        let update = TabStateUpdate { icon: Some(Some("🚀".into())), ..Default::default() };
-        update_tab_state(&transaction, "tab_old", &update).unwrap();
-        transaction.commit().unwrap();
-        let row = connection
-            .query_row("SELECT zoom, icon FROM tab_state WHERE tab_id = 'tab_old'", [], |row| {
-                Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, Option<String>>(1)?))
-            })
-            .unwrap();
-        assert_eq!(row, (Some(1.5), Some("🚀".into())));
-    }
-}

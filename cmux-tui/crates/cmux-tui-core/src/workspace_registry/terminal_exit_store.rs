@@ -386,20 +386,4 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok((terminal, next_terminal_revision, next_resource_revision, false, workspace_revision))
     }
-
-    #[cfg(test)]
-    pub(crate) fn set_terminal_exit_failure(&self, enabled: bool) -> anyhow::Result<()> {
-        if enabled {
-            self.connection.get().execute_batch(
-                "CREATE TEMP TRIGGER cmux_test_fail_terminal_exit
-                 BEFORE INSERT ON terminal_mutations
-                 BEGIN SELECT RAISE(ABORT, 'forced terminal exit failure'); END;",
-            )?;
-        } else {
-            self.connection
-                .get()
-                .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_exit")?;
-        }
-        Ok(())
-    }
 }

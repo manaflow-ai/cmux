@@ -379,15 +379,6 @@ impl WorkspaceRegistry {
         Ok(notifications)
     }
 
-    /// Read marks stored for one notification, for tests that verify pruning.
-    #[cfg(test)]
-    pub(crate) fn durable_notification_read_clients(
-        &self,
-        notification_id: &str,
-    ) -> anyhow::Result<Vec<String>> {
-        Ok(self.durable_notification_reads()?.remove(notification_id).unwrap_or_default())
-    }
-
     /// Per-client read marks keyed by notification id, each list sorted and
     /// unique. Rows for notifications the ledger evicted are pruned at the
     /// next acknowledgement, so this stays bounded.
@@ -672,24 +663,6 @@ impl WorkspaceRegistry {
                 })
             })
             .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn insert_corrupt_terminal_defaults_for_test(&self) {
-        self.connection
-            .get()
-            .execute(
-                "INSERT INTO resource_mutations(
-                   idempotency_key, origin, operation, fingerprint, result_json,
-                   committed_revision
-                 ) VALUES(
-                   'corrupt-terminal-defaults', 'test',
-                   'session.terminal_defaults.update', '{}',
-                   '{\"foreground\":\"red\"}', 9223372036854775807
-                 )",
-                [],
-            )
-            .unwrap();
     }
 
     #[cfg(test)]

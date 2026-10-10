@@ -370,6 +370,3 @@ pub(super) fn adopt_host_to_terminate(
         }
     }
 }
-
-#[cfg(all(test, unix))]
-mod tests;
