@@ -169,7 +169,15 @@
             category: "[9] edit content others can see",
             summary: s.summary,
             preview: { ...s.preview, title, sharing: label || "unknown" },
-            run: () => editors.inEditor(name, ref, (p) => s.run(p)),
+            // At confirm time the editor must still be this file, with the
+            // title and sharing the draft showed.
+            run: () =>
+              editors.inEditor(name, ref, async (p) => {
+                if (!String(p.url()).includes(`/d/${ref.id}/`)) throw new S.SiteError("target_mismatch", `${name}: the editor left file ${ref.id}; nothing was changed`);
+                const now = { title: await p.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; }), sharing: (await editors.sharing(p)) || "unknown" };
+                t.checkFields(name, now, { title, sharing: label || "unknown" }, { what: "changed" });
+                return s.run(p);
+              }),
           }));
         });
       },
@@ -187,6 +195,9 @@
         const inputs = dialog.locator('input[type="text"], input:not([type])');
         await inputs.nth(0).fill(find);
         await inputs.nth(1).fill(replacement);
+        // The dialog must hold exactly the find and replace text before
+        // Replace all (which changes every match at once).
+        t.checkFields("find and replace", { find: await inputs.nth(0).inputValue(), replacement: await inputs.nth(1).inputValue() }, { find, replacement }, { what: "replaced" });
         await dialog.getByRole("button", { name: "Replace all" }).click();
         await t.sleep(500);
         await page.keyboard.press("Escape").catch(() => {});
