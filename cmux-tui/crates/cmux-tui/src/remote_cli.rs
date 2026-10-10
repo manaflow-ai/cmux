@@ -2066,7 +2066,7 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy", "cloud-browser-network"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -5487,6 +5487,28 @@ mod tests {
         assert!(
             remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn cloud_browser_proxy_keeps_remote_hosts_on_guest_network() {
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_options(
+                "example.com:443",
+                true,
+                true,
+            )
+            .unwrap(),
+            ("example.com".into(), 443)
+        );
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_options(
+                "cmux-loopback.localtest.me:3000",
+                true,
+                true,
+            )
+            .unwrap(),
+            ("127.0.0.1".into(), 3000)
         );
     }
 }

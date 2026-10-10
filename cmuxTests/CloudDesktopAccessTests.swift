@@ -428,7 +428,7 @@ struct CloudDesktopAccessTests {
     func daemonBrowserRetainsOwnershipAcrossHostsAndAboutBlank() throws {
         let model = CloudPortAccessModel(
             target: .init(host: "10.0.0.7", port: 3000), coordinator: nil,
-            wake: {}, startForward: { _ in 47000 }, stopForward: {}, route: .direct
+            wake: {}, startForward: { _ in 47000 }, stopForward: {}, route: .remoteBrowser
         )
         let state = CloudBrowserAccessState()
         state.configure(

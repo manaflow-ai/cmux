@@ -133,31 +133,19 @@ extension CmuxTuiSurfaceProvider {
             && resourceID.kind == .browser
             && catalog.resources[resourceID]?.remoteViews?.isEmpty == false
             && !isCloudLoopback
-        let isCloudBrowserPrivateOrigin = isCloudBrowserOrigin && {
-            guard let host = url.host else { return false }
-            return host == info.privateAddress
-                || CloudPortRoutePolicy().privateURL(url.absoluteString, address: host) != nil
-        }()
-        let isCloudBrowserPublicOrigin = isCloudBrowserOrigin && !isCloudBrowserPrivateOrigin
         let address = if isCloudLoopback {
-            "127.0.0.1"
+            RemoteLoopbackProxyAlias.aliasHost
         } else if isCloudBrowserOrigin {
             url.host
         } else {
             info.privateAddress
         }
         let isHTTPSLoopback = isCloudLoopback && url.scheme?.lowercased() == "https"
-        let route: CloudPortAccessRoute = if isCloudBrowserPublicOrigin {
-            .direct
-        } else if isHTTPSLoopback {
-            .browserProxy
-        } else if isCloudLoopback {
-            .loopback
-        } else {
-            .browserProxy
-        }
+        let route: CloudPortAccessRoute = isCloudLoopback || isCloudBrowserOrigin ? .remoteBrowser : .browserProxy
         let routedURL: URL?
-        if isCloudBrowserOrigin {
+        if isCloudLoopback {
+            routedURL = url
+        } else if isCloudBrowserOrigin {
             let validScheme = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
             routedURL = validScheme && url.host?.isEmpty == false ? url : nil
         } else {
@@ -187,10 +175,10 @@ extension CmuxTuiSurfaceProvider {
         let model = accessModel(
             port: port,
             address: address,
-            targetHost: isHTTPSLoopback || isCloudBrowserOrigin ? url.host : nil,
+            targetHost: isCloudBrowserOrigin ? url.host : address,
             scheme: privateURL.scheme ?? "http",
             route: route,
-            preservesRemoteHost: isHTTPSLoopback || isCloudBrowserOrigin
+            preservesRemoteHost: isCloudLoopback || isHTTPSLoopback || isCloudBrowserOrigin
         )
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
@@ -206,6 +194,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private static func port(for resource: SurfaceResourceID, catalog: SurfaceCatalog) -> Int? {
+        if resource.kind == .browser, !resource.key.hasPrefix("port:") { return nil }
         if let port = catalog.resources[resource]?.port { return port }
         if resource.kind == .display,
            let number = Int(resource.key.split(separator: ":").last ?? ""), (1...16).contains(number) {
@@ -262,7 +251,7 @@ extension CmuxTuiSurfaceProvider {
         preservesRemoteHost: Bool = false
     ) -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: targetHost ?? address, port: port)
-        let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = if route == .browserProxy {
+        let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = if route == .browserProxy || route == .remoteBrowser {
             { [weak self] in
                 guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
                 let generation = self.currentLifecycleGeneration
@@ -270,7 +259,7 @@ extension CmuxTuiSurfaceProvider {
                 let desktopStartedAt = Date()
                 cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
 #endif
-                let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+                let endpoint = try await self.links.browserProxy(machineID: self.machineID, remoteNetwork: route == .remoteBrowser)
 #if DEBUG
                 cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
 #endif

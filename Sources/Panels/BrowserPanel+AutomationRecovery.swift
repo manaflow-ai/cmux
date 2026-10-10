@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxCloud
 import AppKit
 import CmuxBrowser
@@ -192,7 +193,7 @@ extension BrowserPanel {
             if let endpoint = cloudAccess.model?.browserProxy,
                let address = cloudAccess.model?.target.host {
                 websiteDataStore.proxyConfigurations = [
-                    CloudBrowserRouting.configuration(endpoint: endpoint, address: address)
+                    CloudBrowserRouting.configuration(endpoint: endpoint, address: address, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)
                 ]
                 replacementStore = websiteDataStore
             } else {
@@ -210,13 +211,16 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
-        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
+        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.model?.target.host {
             replacement.configuration.userContentController.addUserScript(WKUserScript(
-                source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
+                source: RemoteLoopbackRuntimeBridge.scriptSource(
+                    aliasHost: cloudAccess.model?.usesRemoteNetwork == true ? RemoteLoopbackProxyAlias.aliasHost : host,
+                    preservesSubdomains: false, allOrigins: cloudAccess.model?.usesRemoteNetwork == true
+                ),
                 injectionTime: .atDocumentStart, forMainFrameOnly: false
             ))
             if let endpoint = cloudAccess.model?.browserProxy {
-                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement)
+                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)
             }
         }
         return replacement

@@ -184,7 +184,39 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
-    @Test("Cloud daemon browsers keep a public origin without machine proxy routing")
+    @Test("Cloud HTTP localhost uses the guest browser carrier instead of a Mac listener")
+    func cloudHTTPLoopbackUsesAuthenticatedBrowserCarrier() async throws {
+        let endpoint = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 46_905, username: "fixture", password: "secret"
+        )
+        let model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "cmux-loopback.localtest.me", port: 3000),
+            coordinator: nil,
+            wake: {},
+            startForward: { _ in Issue.record("Cloud HTTP localhost must not create a Mac listener"); return 46_906 },
+            stopForward: {},
+            route: .remoteBrowser,
+            startBrowserProxy: { endpoint },
+            preservesRemoteHost: true
+        )
+        let state = CloudBrowserAccessState()
+        let remote = try #require(URL(string: "http://localhost:3000/"))
+        state.configure(model: model, url: remote, resourceID: SurfaceResourceID(
+            machine: .cloud("cloud-http-fixture"), kind: .browser, key: "browser-session"
+        ))
+        model.connect()
+        #expect(await wait { model.phase == .proxied(endpoint) })
+        #expect(model.usesRemoteNetwork)
+        let wireURL = try #require(state.nextURL())
+        #expect(wireURL.host == "cmux-loopback.localtest.me")
+        #expect(state.owns(wireURL))
+        state.didCommit(url: wireURL)
+        state.didFinish(url: wireURL)
+        #expect(state.sessionURL(currentURL: wireURL) == remote)
+        await model.retire()
+    }
+
+    @Test("Cloud daemon browsers keep a public origin through the machine carrier")
     func cloudDaemonBrowserKeepsPublicOrigin() async throws {
         let model = CloudPortAccessModel(
             target: CloudPortForwardTarget(host: "example.com", port: 4312),
@@ -192,14 +224,14 @@ struct CloudPortRoutePlanTests {
             wake: {},
             startForward: { _ in Issue.record("Daemon browser must not use a local forward"); return 46_906 },
             stopForward: {},
-            route: .direct,
+            route: .remoteBrowser,
             preservesRemoteHost: true
         )
         let remote = try #require(URL(string: "http://example.com:4312/health"))
         let state = CloudBrowserAccessState()
         state.configure(model: model, url: remote)
         model.connect()
-        #expect(await wait { model.phase == .direct })
+        #expect(await wait { model.isReady })
         #expect(state.nextURL() == remote)
         await model.retire()
     }

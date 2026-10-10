@@ -302,6 +302,7 @@ final class CloudBrowserAccessState {
     func sessionURL(currentURL: URL?) -> URL? {
         guard let remoteURL else { return nil }
         guard let currentURL, currentURL.scheme != "about" else { return remoteURL }
+        if model?.usesRemoteNetwork == true { return displayURL(currentURL) ?? currentURL }
         guard owns(currentURL) else { return navigationURL == nil ? remoteURL : nil }
         guard var parts = URLComponents(url: currentURL, resolvingAgainstBaseURL: false) else { return remoteURL }
         parts.host = remoteURL.host
@@ -313,7 +314,14 @@ final class CloudBrowserAccessState {
     /// A bootstrap document belongs to WebKit, not to the user's navigation.
     /// Keep the requested Cloud origin until a real service document commits.
     func displayURL(_ observedURL: URL?) -> URL? {
-        guard let remoteURL, !hasCommittedNavigation,
+        guard let remoteURL else { return nil }
+        if let observedURL, Self.isLoopbackAliasHost(observedURL.host ?? ""),
+           remoteURL.scheme?.lowercased() == "http",
+           var components = URLComponents(url: observedURL, resolvingAgainstBaseURL: false) {
+            components.host = remoteURL.host
+            return components.url
+        }
+        guard !hasCommittedNavigation,
               observedURL == nil || observedURL?.scheme == "about" else { return nil }
         return remoteURL
     }
@@ -397,7 +405,7 @@ final class CloudBrowserAccessState {
             return
         }
         if model?.usesBrowserProxy == true {
-            remoteURL = url
+            remoteURL = displayURL(url) ?? url
             navigationURL = url
         }
         hasCommittedNavigation = true
@@ -458,7 +466,6 @@ final class CloudBrowserAccessState {
     }
 
     func owns(_ url: URL) -> Bool {
-        guard let remoteURL else { return false }
         // A daemon browser owns its entire document session on the machine,
         // rather than one preview port. Redirects and an explicit about:blank
         // navigation therefore keep the Cloud resource attached to this pane;
@@ -470,9 +477,10 @@ final class CloudBrowserAccessState {
         if ownsDaemonBrowserDocument {
             return true
         }
+        guard let remoteURL else { return false }
         if model?.usesBrowserProxy == true {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-                  url.host?.lowercased() == remoteURL.host?.lowercased() else { return false }
+                  Self.browserRouteHostsMatch(url.host, remoteURL.host) else { return false }
             if let resourceID, let expectedPort = Self.resourcePort(for: resourceID) {
                 let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
                 return requestedPort == expectedPort
@@ -491,7 +499,12 @@ final class CloudBrowserAccessState {
     func rewrittenLoopbackURL(_ url: URL) -> URL? {
         guard model?.usesBrowserProxy == true, let remoteURL,
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
-              let address = remoteURL.host else { return nil }
+              let address = model?.target.host else { return nil }
+        if model?.usesRemoteNetwork == true, url.scheme?.lowercased() == "http" {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.host = RemoteLoopbackProxyAlias.aliasHost
+            return components?.url
+        }
         if model?.route == .browserProxy,
            RemoteLoopbackProxyAlias.isLoopbackHost(address) {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -536,6 +549,18 @@ final class CloudBrowserAccessState {
     private static func sameService(_ a: URL, _ b: URL) -> Bool {
         a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
             && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
+    }
+
+    private static func isLoopbackAliasHost(_ host: String) -> Bool {
+        host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            == "cmux-loopback.localtest.me"
+    }
+
+    private static func browserRouteHostsMatch(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        if lhs.caseInsensitiveCompare(rhs) == .orderedSame { return true }
+        return isLoopbackAliasHost(lhs) && RemoteLoopbackProxyAlias.isLoopbackHost(rhs)
+            || isLoopbackAliasHost(rhs) && RemoteLoopbackProxyAlias.isLoopbackHost(lhs)
     }
 
     private static func resourcePort(for resource: SurfaceResourceID) -> Int? {
