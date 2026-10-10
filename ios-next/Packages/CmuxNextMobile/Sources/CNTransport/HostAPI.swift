@@ -41,6 +41,8 @@ public enum HostPush: Sendable, Hashable {
         case .browserDetached: self = .other(topic: event.topic)
         // Like browser.detached: subscribe to the topic and decode `LayoutResult`.
         case .layoutChanged: self = .other(topic: event.topic)
+        // Subscribe to the topic and decode `BrowserMacStatus`.
+        case .browserMacStatus: self = .other(topic: event.topic)
         case nil: self = .other(topic: event.topic)
         }
     }
@@ -239,6 +241,11 @@ extension HostClient {
     }
 
     // browser
+    /// Whether browser.* serves the Mac's own tabs (`browser.mac.v1`).
+    public func browserMacStatus() async throws -> BrowserMacStatus {
+        try await request(HostMethod.browserMacStatus.rawValue, as: BrowserMacStatus.self)
+    }
+
     public func listTabs() async throws -> [BrowserTab] {
         try await request(HostMethod.browserList.rawValue, as: BrowserTabList.self).tabs
     }

@@ -49,6 +49,8 @@ public enum HostCapability: String, Sendable, CaseIterable {
     case terminalMirror = "term.mirror.v1"
     /// The Mac's workspace and pane layout (PROTOCOL §4 layout).
     case layout = "layout.v1"
+    /// The host can mirror the Mac app's own browser tabs (PROTOCOL §4 browser).
+    case browserMac = "browser.mac.v1"
 }
 
 public struct PingResult: Codable, Sendable, Hashable {

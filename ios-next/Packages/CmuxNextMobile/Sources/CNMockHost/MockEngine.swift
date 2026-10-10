@@ -336,6 +336,8 @@ actor MockEngine {
             let p = try decode(params, LayoutFocusParams.self)
             try focusLayoutTab(p)
             return Self.empty
+        case .browserMacStatus:
+            return try encode(browserMacStatus())
         }
     }
 

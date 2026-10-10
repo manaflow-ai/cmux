@@ -56,4 +56,12 @@ extension MockEngine {
         layoutActivePane[ws.id] = p.paneId
         broadcast(.layoutChanged, LayoutResult(layout: currentLayout()))
     }
+
+    /// The demo Mac's browser access: off unless `CMUX_NEXT_MOCK_BROWSER_MAC`
+    /// names another state (`on`, `unsupported`, `unavailable`, `restart`).
+    func browserMacStatus() -> BrowserMacStatus {
+        let raw = ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_BROWSER_MAC"] ?? "off"
+        if raw == "restart" { return BrowserMacStatus(state: .off, restartRequired: true, hostName: "Demo Mac") }
+        return BrowserMacStatus(state: BrowserMacState(rawValue: raw) ?? .off, hostName: "Demo Mac")
+    }
 }

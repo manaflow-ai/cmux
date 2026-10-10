@@ -17,7 +17,7 @@ public enum HostMethod: String, Sendable, CaseIterable {
     case browserBack = "browser.back", browserForward = "browser.forward", browserReload = "browser.reload"
     case browserStop = "browser.stop", browserPointer = "browser.pointer", browserTouch = "browser.touch"
     case browserScroll = "browser.scroll", browserKey = "browser.key", browserText = "browser.text"
-    case browserScreenshot = "browser.screenshot"
+    case browserScreenshot = "browser.screenshot", browserMacStatus = "browser.macStatus"
     case fsUploadBegin = "fs.upload.begin", fsUploadEnd = "fs.upload.end", fsUploadCancel = "fs.upload.cancel"
     case layoutGet = "layout.get", layoutFocusTab = "layout.focusTab"
 }
@@ -29,4 +29,5 @@ public enum HostTopic: String, Sendable, CaseIterable {
     case termUpdated = "term.updated", termExited = "term.exited"
     case browserTab = "browser.tab", browserClosed = "browser.closed", browserDetached = "browser.detached"
     case layoutChanged = "layout.changed"
+    case browserMacStatus = "browser.macStatus"
 }

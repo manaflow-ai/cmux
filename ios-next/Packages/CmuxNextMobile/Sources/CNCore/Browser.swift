@@ -136,3 +136,27 @@ public struct BrowserDetachedEvent: Codable, Sendable, Hashable {
 
 /// `browser.closed` event.
 public struct BrowserClosedEvent: Codable, Sendable, Hashable { public var tabId: String; public init(tabId: String) { self.tabId = tabId } }
+
+/// `browser.macStatus` state: whether browser.* serves the Mac's own tabs.
+public enum BrowserMacState: String, OpenStringEnum {
+    /// browser.* serves the Mac's browser tabs.
+    case on
+    /// The Mac's "Allow cmux on iPhone to view browser tabs" setting is off.
+    case off
+    /// The Mac's cmux build has no such setting.
+    case unsupported
+    /// On, but the Mac's endpoint failed validation (`reason`).
+    case unavailable
+    public static var unknownFallback: Self { .unavailable }
+}
+
+/// `browser.macStatus {}` result and event (`browser.mac.v1`).
+public struct BrowserMacStatus: Codable, Sendable, Hashable {
+    public var state: BrowserMacState
+    public var reason: String?
+    public var restartRequired: Bool?
+    public var hostName: String?
+    public init(state: BrowserMacState, reason: String? = nil, restartRequired: Bool? = nil, hostName: String? = nil) {
+        self.state = state; self.reason = reason; self.restartRequired = restartRequired; self.hostName = hostName
+    }
+}
