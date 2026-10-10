@@ -14,6 +14,8 @@ pub(super) enum OperationOwner {
     Git,
     Credential,
     Connection,
+    /// Settings (the settings file): the config owner (resource_router/config.rs).
+    Config,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -244,6 +246,13 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ConversationDraft
         | ResourceOperation::ConversationEvents
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
+        ResourceOperation::SettingsSchema
+        | ResourceOperation::SettingsList
+        | ResourceOperation::SettingsGet
+        | ResourceOperation::SettingsSnapshot
+        | ResourceOperation::SettingsSet
+        | ResourceOperation::SettingsReset
+        | ResourceOperation::SettingsResetAll => OperationOwner::Config,
     }
 }
 

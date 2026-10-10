@@ -1205,6 +1205,22 @@
       "scope": "session:write",
       "class": "mutation"
     },
+    "settings.get": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.list": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.schema": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.snapshot": {
+      "scope": "settings:read",
+      "class": "read"
+    },
     "sidebar_layout.get": {
       "scope": "sidebar_layout:read",
       "class": "read"
@@ -1695,6 +1711,9 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.set",
     "sidebar_view.attach",
     "sso.connection.activate",
     "sso.connection.create",

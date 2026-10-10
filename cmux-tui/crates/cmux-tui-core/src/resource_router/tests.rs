@@ -117,7 +117,8 @@ fn every_catalog_operation_has_one_concrete_owner() {
             OperationOwner::Machine
             | OperationOwner::Snapshot
             | OperationOwner::Credential
-            | OperationOwner::Connection => {}
+            | OperationOwner::Connection
+            | OperationOwner::Config => {}
         }
     }
 }
