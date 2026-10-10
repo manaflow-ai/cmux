@@ -1591,7 +1591,10 @@ function AcpmuxPane() {
         forkSeq,
       }),
       ...(connected && {
-        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+        retry: (rowId: string, prompt: string) =>
+          void callNative("chat.send", { text: prompt, attachments: client.retryAttachmentsFor(rowId) }).catch(
+            () => undefined,
+          ),
       }),
       ...(connected &&
         loginCommand &&
