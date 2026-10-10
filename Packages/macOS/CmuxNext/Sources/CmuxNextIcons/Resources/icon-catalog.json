@@ -386,6 +386,18 @@
    "denseStyle": "solid"
   },
   {
+   "name": "checkbox.off",
+   "meaning": "Unchecked box in a multiple-choice list",
+   "sf": "square",
+   "family": "checkbox"
+  },
+  {
+   "name": "checkbox.on",
+   "meaning": "Checked box in a multiple-choice list",
+   "sf": "checkmark.square.fill",
+   "family": "checkbox"
+  },
+  {
    "name": "cloud",
    "meaning": "cmux Cloud / cloud machine / cloud provider",
    "sf": "cloud",
