@@ -46,6 +46,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             // drag belongs to the transcript's scroll pan (send times).
             return velocity.x > 0 && replySwipeCell(at: pan.location(in: collectionView), velocity: velocity) != nil
         }
+        if gestureRecognizer.name == Self.composerSwipeDownName {
+            return composerSwipeDownShouldBegin()
+        }
         if gestureRecognizer is UILongPressGestureRecognizer {
             return !isSelecting && !touchBelongsToTextSelection(gestureRecognizer.location(in: collectionView))
                 && messageCell(at: gestureRecognizer.location(in: collectionView), requireContentHit: true) != nil
@@ -54,7 +57,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        gestureRecognizer is UITapGestureRecognizer
+        gestureRecognizer is UITapGestureRecognizer || gestureRecognizer.name == Self.composerSwipeDownName
     }
 
     func messageCell(at point: CGPoint, requireContentHit: Bool) -> MessageCell? {

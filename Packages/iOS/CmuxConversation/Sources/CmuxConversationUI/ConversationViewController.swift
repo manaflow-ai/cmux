@@ -251,6 +251,7 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        installComposerSwipeDown()
         installTimestampDrawer()
         installMentions()
         installAudio()
