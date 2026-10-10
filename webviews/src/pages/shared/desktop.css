@@ -106,8 +106,11 @@ input[type="submit"] {
 }
 
 /* Keep focus keyboard-only and consistent across pages, including controls with local focus
-   rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow. */
-:focus-visible {
+   rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow.
+   A borderless field inside a box that shows focus itself (`data-focus-ring="none"`, the New Tab
+   field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
+   inside the box. */
+:focus-visible:not([data-focus-ring="none"]) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;

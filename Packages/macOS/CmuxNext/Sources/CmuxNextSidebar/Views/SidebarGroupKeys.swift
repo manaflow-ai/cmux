@@ -6,8 +6,11 @@ import AppKit
 /// (SIDEBAR-SELECTION-ONE-MODEL); a workspace stop selects and activates it.
 /// Left on a member goes to its header, Left on an open header collapses
 /// it; Right opens a closed header, then enters its first member; Return on
-/// a focused header renames the group. A namespace beside the list (not an
-/// extension) keeps the list type under the god-file limit.
+/// a focused header renames the group. Tab moves focus into and between
+/// the group headers (Shift-Tab back, to the workspaces before the first);
+/// Space on a focused header toggles it as a click on its bar does. A
+/// namespace beside the list (not an extension) keeps the list type under
+/// the god-file limit.
 @MainActor struct SidebarGroupKeys {
     enum Stop: Equatable {
         case group(GroupID)
@@ -28,10 +31,16 @@ import AppKit
         }
     }
 
-    /// Handles a plain arrow or Return for group headers. False leaves the
-    /// key to the workspace-only behavior.
-    func handle(_ event: NSEvent) -> Bool {
+    /// Handles a plain arrow, Return, Tab or Space for group headers, and
+    /// Shift-Tab (`flags`: the event's command, option, shift and control).
+    /// False leaves the key to the workspace-only behavior and the window.
+    func handle(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        if event.specialKey == .backTab || event.specialKey == .tab, flags == .shift { return tab(forward: false) }
+        guard flags.isEmpty else { return false }
+        if event.keyCode == 49 { return space() } // Space
         switch event.specialKey {
+        case .tab?:
+            return tab(forward: true)
         case .upArrow?, .downArrow?:
             let stops = stops
             let current = list.focusedGroup.map(Stop.group) ?? model.activeWorkspaceID.map(Stop.workspace)
@@ -91,6 +100,42 @@ import AppKit
         for key in [old, group].compactMap({ $0 }) {
             (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = list.showsFocusRing && key == group
         }
+    }
+
+    /// Tab: the next group header (the first from the workspaces); past
+    /// the last one focus goes back to the workspaces and the window's key
+    /// loop moves on. Shift-Tab: the previous header; before the first, the
+    /// workspaces. False when the key is not the list's.
+    private func tab(forward: Bool) -> Bool {
+        let headers = stops.compactMap { if case let .group(group) = $0 { group } else { nil } }
+        guard let current = list.focusedGroup, let index = headers.firstIndex(of: current) else {
+            guard forward, let first = headers.first else { return false }
+            focus(.group(first))
+            return true
+        }
+        let next = index + (forward ? 1 : -1)
+        if headers.indices.contains(next) {
+            focus(.group(headers[next]))
+            return true
+        }
+        setFocus(nil)
+        list.reload(animated: true)
+        return !forward
+    }
+
+    /// Space on a focused header: what a click on its bar does (an empty
+    /// saved group reopens, any other group folds or opens).
+    private func space() -> Bool {
+        // Only a header the keyboard focused (ring shown): a click focuses
+        // without a ring and already toggled.
+        guard let id = list.focusedGroup, list.showsFocusRing else { return false }
+        if let group = model.group(id), group.isPinned, group.workspaces.isEmpty {
+            model.send(.openGroup(id))
+            list.reload(animated: true)
+        } else {
+            toggle(id)
+        }
+        return true
     }
 
     private func toggle(_ group: GroupID) {

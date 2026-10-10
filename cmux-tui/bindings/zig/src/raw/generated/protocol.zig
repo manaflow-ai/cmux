@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d08fb8ad05419ffb0f30683b53e991609337ffc725c45318617a9c34545c13b4";
+pub const ir_sha256 = "872d0e0169a941a1136c977ef1b87b426fd8d88c11c15ca378fbde9f7ff29ab8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1640,6 +1640,7 @@ pub const SetTerminalIdlePolicyResult = struct {
 pub const SetTerminalKeepResult = struct {
     keep: bool,
     terminal_id: []const u8,
+    terminal_resource_id: wire.Field([]const u8) = .absent,
 };
 
 pub const ShutdownDaemonResult = struct {
@@ -2601,8 +2602,13 @@ pub const TerminalPlacement = struct {
     surface: wire.Nullable(Id),
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "terminal_resource_id",
+    };
 };
 
 pub const TerminalReadRangeResult = struct {
@@ -4429,6 +4435,7 @@ pub const CreateTerminalRequest = struct {
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    detached: ?bool = null,
     env: wire.Field(wire.Map([]const u8)) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
@@ -4443,6 +4450,7 @@ pub const CreateTerminalRequest = struct {
     workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "detached",
         "keep",
     };
 };
@@ -4458,6 +4466,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
@@ -6089,6 +6098,31 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
     );
 }
 
+pub const NewRemoteTerminalTabRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    pane: wire.Field(Id) = .absent,
+    rows: wire.Field(u16) = .absent,
+    session_id: []const u8,
+    session_name: []const u8,
+    terminal_id: []const u8,
+    title: wire.Field([]const u8) = .absent,
+};
+
+pub const NewRemoteTerminalTabResult = JsonValue;
+
+pub fn newRemoteTerminalTab(client: anytype, request: NewRemoteTerminalTabRequest) !wire.Decoded(NewRemoteTerminalTabResult) {
+    return client.callTyped(
+        NewRemoteTerminalTabResult,
+        .{
+            .name = "new-remote-terminal-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "remote-terminal-tabs-v1",
+        },
+        request,
+    );
+}
+
 pub const NewRowRequest = struct {
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
@@ -6563,6 +6597,25 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const RemoteTerminalSnapshotRequest = struct {
+    surface: Id,
+};
+
+pub const RemoteTerminalSnapshotResult = JsonValue;
+
+pub fn remoteTerminalSnapshot(client: anytype, request: RemoteTerminalSnapshotRequest) !wire.Decoded(RemoteTerminalSnapshotResult) {
+    return client.callTyped(
+        RemoteTerminalSnapshotResult,
+        .{
+            .name = "remote-terminal-snapshot",
+            .authority = "control",
+            .since = 12,
+            .capability = "remote-terminal-tabs-v1",
         },
         request,
     );
@@ -8227,6 +8280,28 @@ pub fn updateProfile(client: anytype, request: UpdateProfileRequest) !wire.Decod
     );
 }
 
+pub const UpdateRemoteTerminalTabRequest = struct {
+    session_name: wire.Field([]const u8) = .absent,
+    snapshot: wire.Field([]const u8) = .absent,
+    surface: Id,
+    title: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateRemoteTerminalTabResult = JsonValue;
+
+pub fn updateRemoteTerminalTab(client: anytype, request: UpdateRemoteTerminalTabRequest) !wire.Decoded(UpdateRemoteTerminalTabResult) {
+    return client.callTyped(
+        UpdateRemoteTerminalTabResult,
+        .{
+            .name = "update-remote-terminal-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "remote-terminal-tabs-v1",
+        },
+        request,
+    );
+}
+
 pub const UpdateScreenGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
@@ -9656,7 +9731,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 243;
+pub const command_count: usize = 246;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9797,6 +9872,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
+    .{ .name = "new-remote-terminal-tab", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "new-row", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -9818,6 +9894,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "rename-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -9891,6 +9968,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "update-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "update-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "update-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "update-remote-terminal-tab", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "update-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "update-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "update-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },

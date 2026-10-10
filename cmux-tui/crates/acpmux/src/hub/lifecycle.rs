@@ -277,6 +277,56 @@ impl Hub {
             }
         }
 
+        // A cold start is bounded (cx-m5up): an agent that stays alive but
+        // never answers `initialize`, `session/load` or `session/new` would
+        // otherwise hold `spawn_lock`, and every later request of this
+        // session, forever. Re-adoption and pool adoption above keep their
+        // own bounds: they serve agents that may be mid-turn.
+        let budget = self.config.read().await.agent_start_timeout();
+        match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
+            Ok(result) => result,
+            Err(_) => {
+                self.abandon_cold_start(session, budget).await;
+                Err(RpcError::deadline_exceeded("agent_start", budget))
+            }
+        }
+    }
+
+    /// End what a cold start that missed its budget left: the agent it
+    /// spawned (in `session.child` or only as a live host record) and its
+    /// half-way flags. The session stays open and idle; a later request
+    /// starts the agent again.
+    async fn abandon_cold_start(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        budget: std::time::Duration,
+    ) {
+        let started = session.child.lock().await.take();
+        if let Some(child) = &started {
+            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        session.loading.store(false, Ordering::SeqCst);
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Idle);
+        }
+        self.append(
+            session,
+            "mux",
+            "agent_start_timed_out",
+            json!({"timeoutMs": u64::try_from(budget.as_millis()).unwrap_or(u64::MAX)}),
+        );
+    }
+
+    /// The cold-start half of `ensure_child`, under `spawn_lock`: spawn the
+    /// agent, initialize it, load or create its session, replay its config.
+    async fn cold_start(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &HarnessProfile,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
@@ -519,7 +569,10 @@ impl Hub {
             Some(sid) if supports_load => {
                 session.loading.store(true, Ordering::SeqCst);
                 let res = child
-                    .request(method::SESSION_LOAD, self.acp_params(&meta, profile, Some(&sid)))
+                    .request(
+                        method::SESSION_LOAD,
+                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
+                    )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 match res {
@@ -540,8 +593,9 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res =
-                child.request(method::SESSION_NEW, self.acp_params(&meta, profile, None)).await?;
+            let res = child
+                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
+                .await?;
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)

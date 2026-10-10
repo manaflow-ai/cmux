@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
@@ -182,7 +183,7 @@ final class AgentTabStore {
         shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
         shortcutObservation = Task { [weak self] in
-            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+            for await value in ObservationStream({ AgentPaneShortcuts.read(registry) }) {
                 guard let self else { return }
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
@@ -337,11 +338,6 @@ final class AgentTabStore {
         model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
         model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
-        model.onImportAndSync = { [weak self] in
-            guard let self else { return }
-            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
-            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
-        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)

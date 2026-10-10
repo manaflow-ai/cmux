@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSettings
 import CmuxNextRemoteView
 
 /// The live part of a `remote_view` tab: the pane and its stream source.
@@ -36,6 +37,25 @@ final class RemoteViewPageSession {
 
     var view: NSView { pane.view }
     var focusTarget: NSView { pane.view.focusView }
+
+    /// `debug.remote_view` state of this session: the source, the session
+    /// state and the decode counters.
+    func debugState() async -> JSONValue {
+        let stats = await pane.decodeStats()
+        let state = pane.state
+        return .object([
+            "source": "mock",
+            "host": .string(state.hostName),
+            "state": .string(String(describing: state.sessionState)),
+            "visible": .bool(visible),
+            "decoded": stats.map { .number(Double($0.decoded)) } ?? .null,
+            "skipped": stats.map { .number(Double($0.skipped)) } ?? .null,
+            "gaps": stats.map { .number(Double($0.gaps)) } ?? .null,
+            "decode_errors": stats.map { .number(Double($0.decodeErrors)) } ?? .null,
+            "hardware": stats.map { .bool($0.hardware) } ?? .null,
+            "upstream_offered": .bool(state.status?.upstream.offered ?? false),
+        ])
+    }
 
     /// Starts the stream while the tab is shown. Idempotent.
     func resume() {

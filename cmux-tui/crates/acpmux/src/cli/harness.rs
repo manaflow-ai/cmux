@@ -337,10 +337,14 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
             path.display()
         );
     }
+    #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
     }
+    // Windows port: owner-only is an ACL there (a later landing).
+    #[cfg(not(unix))]
+    std::fs::DirBuilder::new().recursive(true).create(&dir)?;
     crate::config::write_atomic(&path, text.as_bytes())?;
     let diagnostics =
         match profiles::parse_profile_toml(&text, &path, Some(&id), ProfileSource::UserFile) {
@@ -790,6 +794,7 @@ async fn acp_steps(
     let outcome = handshake(r, &mut wire, folder, opts).await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
+    #[cfg(unix)]
     if let Some(pid) = pid {
         unsafe {
             libc::killpg(pid as libc::pid_t, libc::SIGKILL);
@@ -922,6 +927,6 @@ async fn handshake(r: &mut Report, wire: &mut Wire, folder: &Path, opts: &Doctor
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "harness_tests.rs"]
 mod tests;

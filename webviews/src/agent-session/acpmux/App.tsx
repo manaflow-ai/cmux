@@ -1592,9 +1592,10 @@ function AcpmuxPane() {
       }),
       ...(connected && {
         retry: (rowId: string, prompt: string) =>
-          void callNative("chat.send", { text: prompt, attachments: client.retryAttachmentsFor(rowId) }).catch(
-            () => undefined,
-          ),
+          void callNative("chat.send", {
+            text: prompt,
+            attachments: directClient.current?.retryAttachmentsFor(rowId) ?? [],
+          }).catch(() => undefined),
       }),
       ...(connected &&
         loginCommand &&
@@ -2263,10 +2264,18 @@ function AcpmuxPane() {
           "chat.effort": async ({ configId, value }) => {
             const summary = snapshotRef.current?.summary;
             const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
-            if (!harnessSwitch.pickConfig(String(configId), String(value), summary?.sessionId ? {
-              sessionId: summary.sessionId,
-              current,
-            } : undefined))
+            if (
+              !harnessSwitch.pickConfig(
+                String(configId),
+                String(value),
+                summary?.sessionId
+                  ? {
+                      sessionId: summary.sessionId,
+                      current,
+                    }
+                  : undefined,
+              )
+            )
               await client.setConfig(String(configId), String(value));
           },
           "chat.select": async ({ sessionId }) => {
@@ -3111,7 +3120,11 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={showAllChats}
-              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() =>
+                callNative<{ cwd?: string }>("project.browse")
+                  .then((result) => result?.cwd)
+                  .catch(() => undefined)
+              }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}

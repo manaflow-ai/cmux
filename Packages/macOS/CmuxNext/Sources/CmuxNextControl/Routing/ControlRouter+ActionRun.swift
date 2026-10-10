@@ -7,7 +7,9 @@ import os
 ///
 /// Params: `action` (id or CLI name; with `cli: true` only a CLI name of an
 /// action marked for the CLI), `target`, `args`, `wait` (default true),
-/// `idempotency_key`, `confirm` via args, `after` (read barrier).
+/// `idempotency_key`, `confirm` via args, `after` (read barrier), `caller`
+/// (the agent session or terminal that sent it: an agent's browser or diff
+/// with no target opens beside its chat, ControlCaller).
 ///
 /// With `wait`, the reply comes after every daemon command the action sent
 /// has replied, the store applied their echoes, and the control snapshot
@@ -22,8 +24,11 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+        var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
+        // The caller is part of the fingerprint; where it places is resolved
+        // per run (`execute`), so a retry with the key replays, never conflicts.
+        given.callerAgentSession = try ControlCaller(call.params)?.agentSession
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -74,7 +79,9 @@ extension ControlRouter {
     }
 
     private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall) async throws -> JSONValue {
-        let request = try await resolvedTargets(given, snapshot: call.snapshot, deadline: call.deadline)
+        var placed = given
+        Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),

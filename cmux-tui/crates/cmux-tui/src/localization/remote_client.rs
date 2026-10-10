@@ -19,6 +19,7 @@ pub(crate) struct RemoteClientMessages {
     pub(super) option_must_be_positive: &'static str,
     pub(super) unknown_option: &'static str,
     pub(super) unknown_option_for_command: &'static str,
+    pub(super) remote_link_unknown_option: &'static str,
     pub(super) option_once: &'static str,
     pub(super) unknown_action: &'static str,
     pub(super) enroll_arity: &'static str,
@@ -141,6 +142,12 @@ impl RemoteClientMessages {
         self.unknown_option_for_command
             .replace("{option}", &format!("{option:?}"))
             .replace("{command}", command)
+    }
+
+    /// `remote-link` met a flag it does not know: the client that started
+    /// it is newer than this host's cmux-tui (cx-z3zh).
+    pub(crate) fn remote_link_unknown_option(&self, option: &str) -> String {
+        self.remote_link_unknown_option.replace("{option}", &format!("{option:?}"))
     }
 
     pub(crate) fn option_once(&self, option: &str) -> String {
@@ -322,7 +329,7 @@ for up to two relay fallbacks
 "#,
     known_daemons_help: "USAGE: cmux remote known-daemons [list] [--state-dir PATH] [--json]\n       cmux remote known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
     remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
-    remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
+    remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH] [--mux-socket PATH] [--link-socket PATH] [--agent-hooks PROVIDERS]\n",
     install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
     command_help: "USAGE: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
     remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
@@ -331,6 +338,7 @@ for up to two relay fallbacks
     option_must_be_positive: "{option} must be positive",
     unknown_option: "unknown option {option}",
     unknown_option_for_command: "unknown option {option} for {command}",
+    remote_link_unknown_option: "remote-link does not know option {option}: the client is newer than this cmux-tui; update cmux-tui on this host [remote-protocol-older]",
     option_once: "{option} may only be specified once",
     unknown_action: "unknown {command} action {action}",
     enroll_arity: "enroll {action} expects exactly {expected} positional arguments",
@@ -494,7 +502,7 @@ ID とセッション:
 "#,
     known_daemons_help: "使用方法: cmux remote known-daemons [list] [--state-dir パス] [--json]\n          cmux remote known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
     remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
-    remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
+    remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス] [--mux-socket パス] [--link-socket パス] [--agent-hooks プロバイダー]\n",
     install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
     command_help: "使用方法: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
     remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
@@ -503,6 +511,7 @@ ID とセッション:
     option_must_be_positive: "{option} には正の値を指定してください",
     unknown_option: "不明なオプションです: {option}",
     unknown_option_for_command: "{command} の不明なオプションです: {option}",
+    remote_link_unknown_option: "remote-link はオプション {option} を知りません。クライアントがこの cmux-tui より新しいので、このホストの cmux-tui を更新してください [remote-protocol-older]",
     option_once: "{option} は 1 回だけ指定できます",
     unknown_action: "不明な {command} 操作です: {action}",
     enroll_arity: "enroll {action} には位置引数をちょうど {expected} 個指定してください",

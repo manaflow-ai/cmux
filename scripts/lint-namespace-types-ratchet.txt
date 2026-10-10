@@ -88,7 +88,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayGeom
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:DropOverlayTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:LayoutTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ExternalOpenRoute.swift:ShellQuote
-Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Theme/GhosttyThemeFile.swift:GhosttyThemeFile
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchPlan.swift:TabSearchPlan
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift:PaletteTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift:HealthOrdering
