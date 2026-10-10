@@ -62,4 +62,27 @@ import Testing
         trip.step(frameDuration: Self.frame)
         #expect(abs(trip.offsetX - (30 - 6 * ReplyTrip.firstStepFrames)) < 0.001)
     }
+
+    /// Once landed, a row rides its container: as the reply draft grows a
+    /// line, the thread moves up with the field (Messages keeps the bottom
+    /// bubble 16.7 pt above the field's top) instead of holding its place
+    /// on screen and sliding under the field.
+    @Test func restingRowRidesItsContainer() {
+        var trip = ReplyTrip(startY: 0, targetY: 100, initialOffsetX: 0, easing: 0.5, snapDistance: 0.25 / 3)
+        while !trip.isResting { trip.step(frameDuration: Self.frame) }
+        trip.containerMoved(by: -24)
+        #expect(trip.y == 100)
+        #expect(trip.isResting)
+    }
+
+    /// Still travelling, a row keeps its place on screen when the container
+    /// jumps (ChatKit lays the thread out for the risen keyboard at once).
+    @Test func travellingRowKeepsItsScreenPlaceWhenTheContainerMoves() {
+        var trip = ReplyTrip(startY: 0, targetY: 100, initialOffsetX: 0, easing: 0.5, snapDistance: 0.25 / 3)
+        trip.step(frameDuration: Self.frame)
+        let y = trip.y
+        trip.containerMoved(by: -24)
+        #expect(trip.y == y + 24)
+        #expect(trip.targetY == 100)
+    }
 }
