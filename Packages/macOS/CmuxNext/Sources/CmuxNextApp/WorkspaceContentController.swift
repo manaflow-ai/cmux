@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -101,7 +102,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let workspace = workspace
         apply(LayoutMapping.shared.map(workspace))
         observation = Task { [weak self] in
-            for await result in Observations({ LayoutMapping.shared.map(workspace) }) {
+            for await result in ObservationStream({ LayoutMapping.shared.map(workspace) }) {
                 self?.apply(result)
             }
         }
@@ -110,7 +111,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // is live, even if the tree itself does not change.
         let store = daemon.store
         connectionObservation = Task { [weak self] in
-            for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
+            for await _ in ObservationStream({ (String(describing: store.connectionState), store.isLoaded) }) {
                 self?.repairIfEmpty()
             }
         }
@@ -118,14 +119,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // workspace is empty decides whether it shows its title.
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+            for await _ in ObservationStream({ workspace.key.map { repair.isSettling($0) } ?? false }) {
                 self?.updateEmptyState()
             }
         }
         // Panes with an unread notification draw the attention ring.
         let notifications = services.notifications
         attentionObservation = Task { [weak self] in
-            for await marks in Observations({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
                 if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
             }

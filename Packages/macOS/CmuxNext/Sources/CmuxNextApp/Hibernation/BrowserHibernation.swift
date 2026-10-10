@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -69,7 +70,7 @@ final class BrowserHibernation {
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
         settingsObservation = Task { [weak self] in
-            for await setting in Observations({ settings.snapshot.browserHibernation }) {
+            for await setting in ObservationStream({ settings.snapshot.browserHibernation }) {
                 self?.apply(setting)
             }
         }

@@ -73,7 +73,10 @@ export default componentEntry<Props>({
       props: { selection: "browser" },
     },
     search: { note: "A search across every section.", props: { query: "omnibar" } },
-    "nothing-changed": { note: "The Changed list when every tunable has its default.", props: { selection: "changed" } },
+    "nothing-changed": {
+      note: "The Changed list when every tunable has its default.",
+      props: { selection: "changed" },
+    },
     disconnected: { note: "The app does not answer.", props: { offline: true } },
     "toggle-live": {
       note: "A switch click applies at once: the row shows as changed and Reset All turns on.",
@@ -84,7 +87,9 @@ export default componentEntry<Props>({
         await ctx.waitFor(() =>
           ctx.document.querySelector('[data-testid="ds.row.browser.omnibar.glass.shadow"][data-changed="true"]'),
         );
-        await ctx.waitFor(() => !ctx.document.querySelector<HTMLButtonElement>('[data-testid="ds.resetAll"]')?.disabled);
+        await ctx.waitFor(
+          () => !ctx.document.querySelector<HTMLButtonElement>('[data-testid="ds.resetAll"]')?.disabled,
+        );
       },
     },
   },
