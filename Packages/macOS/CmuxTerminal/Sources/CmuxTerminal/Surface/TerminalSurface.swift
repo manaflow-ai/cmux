@@ -227,6 +227,32 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public var allowsAutomaticClipboardWrite: Bool {
         (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
+    private let clipboardWritePermitLock = NSLock()
+    private var clipboardWritePermitDeadline: UInt64?
+
+    /// Allows one asynchronous clipboard write caused by a user pointer
+    /// selection on a manual mirror surface.
+    public func permitClipboardWriteForUserGesture() {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        clipboardWritePermitDeadline = DispatchTime.now().uptimeNanoseconds + 15_000_000_000
+    }
+
+    /// Consumes the bounded permit for the next matching remote clipboard write.
+    public func consumeClipboardWritePermit() -> Bool {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        guard let deadline = clipboardWritePermitDeadline else { return false }
+        clipboardWritePermitDeadline = nil
+        return DispatchTime.now().uptimeNanoseconds <= deadline
+    }
+
+    /// Cancels a pending pointer-selection clipboard permit.
+    public func cancelClipboardWritePermit() {
+        clipboardWritePermitLock.lock()
+        clipboardWritePermitDeadline = nil
+        clipboardWritePermitLock.unlock()
+    }
     /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
     /// remain denied by the runtime policy regardless of this flag.
     public let allowsRemoteClipboardWrites: Bool

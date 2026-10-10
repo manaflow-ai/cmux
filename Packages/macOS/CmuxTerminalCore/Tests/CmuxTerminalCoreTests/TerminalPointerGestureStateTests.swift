@@ -9,6 +9,7 @@ import Testing
         let completion = try #require(rawCompletion)
         #expect(completion.modifierFlagsRawValue == 0x0010_0000)
         #expect(completion.permitsLinkActivation)
+        #expect(!completion.isDrag)
         #expect(!state.hasPendingRelease)
         let repeatedCompletion = state.complete(windowNumber: 7, timestamp: 12)
         #expect(repeatedCompletion == nil)
@@ -46,6 +47,16 @@ import Testing
         let rawCompletion = state.complete(windowNumber: 7, timestamp: 11)
         let completion = try #require(rawCompletion)
         #expect(!completion.permitsLinkActivation)
+    }
+
+    @Test func dragCompletionRecordsSelectionGesture() throws {
+        var state = TerminalPointerGestureState()
+        state.begin(windowNumber: 7, timestamp: 10, modifierFlagsRawValue: 0, permitsLinkActivation: false)
+        state.markDragged()
+        #expect(state.isDrag)
+        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        #expect(completion.isDrag)
+        #expect(!state.isDrag)
     }
 
     @Test func newerPressReplacesUnfinishedPress() throws {

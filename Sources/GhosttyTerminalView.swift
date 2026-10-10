@@ -885,7 +885,9 @@ class GhosttyApp {
             // Mac's clipboard without a user gesture or confirmation.
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let terminalSurface = callbackContext.terminalSurface,
-                  terminalSurface.allowsAutomaticClipboardWrite,
+                  (terminalSurface.allowsAutomaticClipboardWrite
+                      || (terminalSurface.ioMode == .manualMirror
+                          && terminalSurface.consumeClipboardWritePermit())),
                   let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
@@ -8563,6 +8565,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                   for: .left,
                   on: currentGhosttyMouseSurfaceIdentity
               ) else { return false }
+        terminalPointerGesture.markDragged()
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
@@ -8608,6 +8611,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
             && !codexActionHandled
+        if completion?.isDrag == true,
+           terminalSurface?.ioMode == .manualMirror,
+           terminalSurface?.allowsAutomaticClipboardWrite == false {
+            terminalSurface?.permitClipboardWriteForUserGesture()
+        }
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
@@ -9830,6 +9838,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pressedCodexActionCommand = nil
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
+        terminalPointerGesture.markDragged()
         let mouseState = rememberGhosttyMouseState(from: event)
         copySelectionMayBeRectangular = event.modifierFlags.contains(.option)
         let eventPoint = mouseState.localPoint
