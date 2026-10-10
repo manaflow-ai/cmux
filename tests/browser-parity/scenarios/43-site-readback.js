@@ -16,6 +16,8 @@ Page.goto = function (url, options) {
   if (u.host === "mail.google.com" && u.searchParams.get("view") === "cm") local = `site=gmail&${u.searchParams}`;
   else if (u.host === "mail.google.com" && u.hash.startsWith("#all/")) local = "site=gmail-thread";
   else if (u.host === "calendar.google.com" && u.pathname === "/calendar/render") local = `site=calendar&${u.searchParams}`;
+  // The helper reads the browser's time zone on Calendar's origin first.
+  else if (u.host === "calendar.google.com") return realGoto.call(this, `${PRIMARY}/index.html`, options);
   if (local) url = `${PRIMARY}/site-forms.html?${local}${tamper ? `&tamper=${tamper}` : ""}`;
   return realGoto.call(this, url, options);
 };
@@ -39,6 +41,9 @@ try {
   emitCmux("gmail-reply", await run((...a) => sites.gmail.send(...a), { threadId: "thread-f:1784000000000000000", body: "Thanks, see you then." }, ["", "cc"]));
   const event = { title: "Planning", start: "2026-10-01T15:00:00Z", end: "2026-10-01T16:00:00Z", timeZone: "Europe/Berlin", guests: ["Guest@Example.com"] };
   emitCmux("calendar-create", await run((...a) => sites.googleCalendar.create(...a), event, ["", "title", "time", "guest", "late"]));
+  // No drafted time zone: the editor and the check both use the browser's.
+  const { timeZone, ...local } = event;
+  emitCmux("calendar-browser-zone", await run((...a) => sites.googleCalendar.create(...a), local, ["", "time"]));
 } finally {
   Page.goto = realGoto;
 }

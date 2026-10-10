@@ -18,6 +18,10 @@
       "time": "compose_mismatch: start",
       "guest": "compose_mismatch: guests",
       "late": "compose_mismatch: guests"
+    },
+    "calendar-browser-zone": {
+      "honest": "saved",
+      "time": "compose_mismatch: start"
     }
   }
 }
