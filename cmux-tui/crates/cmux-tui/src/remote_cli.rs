@@ -2799,7 +2799,17 @@ where
         copy(&mut socket_read, &mut stdout).await?;
         stdout.shutdown().await
     };
-    tokio::try_join!(upload, download)?;
+    // The SSH carrier is the link: when stdin ends (the client or sshd went
+    // away), nothing reads stdout anymore either. Waiting for the sidecar to
+    // close its side kept this process alive, re-parented to pid 1, with the
+    // link socket open, so the daemon never started the resume lease and the
+    // browser runtimes of the link's streams lived on (cx-bj1o). Either side
+    // ending now ends the relay; dropping the socket closes the link, and the
+    // daemon keeps terminals and resumable streams for its resume lease.
+    tokio::select! {
+        result = upload => result?,
+        result = download => result?,
+    }
     Ok(())
 }
 
