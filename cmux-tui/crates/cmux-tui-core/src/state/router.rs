@@ -19,8 +19,8 @@ use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_query, palette_usage_store, personal_state_store, screen_state_store,
-    sidebar_layout_store, tab_state_store, window_record_store,
+    closed_history_query, palette_usage_store, personal_state_store, projects_store,
+    screen_state_store, sidebar_layout_store, tab_state_store, window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -79,6 +79,12 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::ProjectList
+            | Op::ProjectObserve
+            | Op::ProjectAdd
+            | Op::ProjectUpdate
+            | Op::ProjectRemove
+            | Op::ProjectSync
             | Op::PaletteUsageGet
             | Op::PaletteUsageRecord
             | Op::PaletteUsageImport
@@ -567,6 +573,61 @@ pub(crate) fn dispatch(
             let op = fields.get("op").cloned().unwrap_or_default();
             let commit =
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // The project list (project-list-v1, plans/cmux-next/projects.md)
+        Op::ProjectList => {
+            ensure_session(mux, selectors)?;
+            let include_hidden =
+                fields.get("include_hidden").and_then(Value::as_bool).unwrap_or(false);
+            let query = string(fields, "query");
+            let limit = index(fields, "limit");
+            read(mux, |connection| {
+                projects_store::list_value(connection, include_hidden, query.as_deref(), limit)
+            })
+        }
+        Op::ProjectObserve => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            let entries = fields.get("entries").cloned().unwrap_or_else(|| json!([]));
+            let complete = fields.get("complete").and_then(Value::as_bool).unwrap_or(false);
+            let commit = mux
+                .state_project_observe(&mutation(&request)?, &source, &entries, complete)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectAdd => {
+            ensure_session(mux, selectors)?;
+            let path = string(fields, "path").unwrap_or_default();
+            let commit = mux.state_project_add(&mutation(&request)?, &path).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectUpdate => {
+            ensure_session(mux, selectors)?;
+            let path = string(fields, "path").unwrap_or_default();
+            let mut edit = fields.clone();
+            edit.remove("path");
+            let commit = mux
+                .state_project_update(&mutation(&request)?, &path, &Value::Object(edit))
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectRemove => {
+            ensure_session(mux, selectors)?;
+            let path = string(fields, "path").unwrap_or_default();
+            let commit =
+                mux.state_project_remove(&mutation(&request)?, &path).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectSync => {
+            ensure_session(mux, selectors)?;
+            let commit = mux
+                .state_project_sync(
+                    &mutation(&request)?,
+                    &strings(fields, "existing"),
+                    &strings(fields, "gone"),
+                )
+                .map_err(state_error)?;
             state_result(mux, commit)
         }
         // Palette usage history (personal, palette-usage-v1): the daemon is

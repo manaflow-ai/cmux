@@ -985,6 +985,30 @@
       "scope": "participants:write",
       "class": "mutation"
     },
+    "project.add": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.list": {
+      "scope": "project:read",
+      "class": "read"
+    },
+    "project.observe": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.remove": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.sync": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.update": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
     "push.target.register": {
       "scope": "push:write",
       "class": "mutation"
@@ -1738,6 +1762,9 @@
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
     "conversation.events",
+    "credential.mint",
+    "credential.rotate",
+    "credential.verify",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",
