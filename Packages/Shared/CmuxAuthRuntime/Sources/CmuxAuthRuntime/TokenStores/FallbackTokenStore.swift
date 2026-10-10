@@ -42,27 +42,23 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     public func getStoredAccessToken() async -> String? {
-        if keychainWorks, let value = await keychain.getStoredAccessToken() {
-            return value
+        if keychainWorks {
+            if let value = await keychain.getStoredAccessToken() {
+                return value
+            }
+            return await recoverFileFallbackIfPossible().accessToken
         }
-        let fallbackValue = await file.getStoredAccessToken()
-        if keychainWorks, fallbackValue != nil {
-            keychainWorks = false
-            log.log("keychain read missed file fallback token; switching to file fallback for this session")
-        }
-        return fallbackValue
+        return await file.getStoredAccessToken()
     }
 
     public func getStoredRefreshToken() async -> String? {
-        if keychainWorks, let value = await keychain.getStoredRefreshToken() {
-            return value
+        if keychainWorks {
+            if let value = await keychain.getStoredRefreshToken() {
+                return value
+            }
+            return await recoverFileFallbackIfPossible().refreshToken
         }
-        let fallbackValue = await file.getStoredRefreshToken()
-        if keychainWorks, fallbackValue != nil {
-            keychainWorks = false
-            log.log("keychain read missed file fallback token; switching to file fallback for this session")
-        }
-        return fallbackValue
+        return await file.getStoredRefreshToken()
     }
 
     public func setTokens(accessToken: String?, refreshToken: String?) async {
@@ -146,5 +142,43 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
             newRefreshToken: newRefreshToken,
             newAccessToken: newAccessToken
         )
+    }
+
+    private struct FallbackSnapshot: Sendable {
+        let accessToken: String?
+        let refreshToken: String?
+    }
+
+    /// Rehomes a session written while Keychain was unavailable once the
+    /// signed app can read its protected store again. This keeps a temporary
+    /// file fallback from becoming the permanent storage location after a
+    /// signing or entitlement repair.
+    private func recoverFileFallbackIfPossible() async -> FallbackSnapshot {
+        let snapshot = FallbackSnapshot(
+            accessToken: await file.getStoredAccessToken(),
+            refreshToken: await file.getStoredRefreshToken()
+        )
+        guard snapshot.accessToken != nil || snapshot.refreshToken != nil else {
+            return snapshot
+        }
+
+        guard await keychain.isStorageAvailable() else {
+            keychainWorks = false
+            log.log("keychain read missed file fallback token; switching to file fallback for this session")
+            return snapshot
+        }
+
+        guard await keychain.trySetTokens(
+            accessToken: snapshot.accessToken,
+            refreshToken: snapshot.refreshToken
+        ) else {
+            keychainWorks = false
+            log.log("keychain migration failed; switching to file fallback for this session")
+            return snapshot
+        }
+
+        await file.clearTokens()
+        log.log("keychain recovered; migrated file fallback session")
+        return snapshot
     }
 }
