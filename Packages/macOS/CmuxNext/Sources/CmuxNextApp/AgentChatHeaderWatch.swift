@@ -29,7 +29,8 @@ final class AgentChatHeaderWatch {
     private func arm() {
         generation += 1
         let armed = generation
-        current = withObservationTracking(state) onChange: { [weak self] in
+        let state = state
+        current = withObservationTracking { state() } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the watch
             Task { @MainActor [weak self] in
                 guard let self, generation == armed else { return }
