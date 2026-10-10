@@ -117,13 +117,16 @@ def tab_rows():
     if not wait(lambda: any(str(r.get("key", "")).startswith("tab(") for r in sidebar().get("rows") or []), 15):
         row("tab rows listed", "Show Tabs Under Workspaces lists tab rows", "no tab rows", False)
         return
-    action("selectWorkspaceByNumber", {"index": 2})
-    wait(lambda: focused_pane().get("selected_tab"), 15)
+    action("workspace.selectFirst")
+    wait(lambda: selected() and not selected()[0].startswith("itm_"), 15)
+    home = selected()
+    action("nextSidebarTab")
+    wait(lambda: selected() and selected() != home, 15)
     split = selected()
     print("splitRight:", action("splitRight"), flush=True)
     wait(lambda: len([r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("tab(")]) >= 4, 15)
-    action("selectWorkspaceByNumber", {"index": 1})
-    wait(lambda: selected() and selected() != split, 15)
+    action("workspace.selectFirst")
+    wait(lambda: selected() == home, 15)
     time.sleep(1)  # test harness: focus lands in the shown pane
     reply = key("}", ["cmd"])
     first = (selected(), focused_pane().get("selected_tab"))
@@ -139,7 +142,7 @@ def main():
     setup()
     if opts.tab_rows:
         tab_rows()
-        action("selectWorkspaceByNumber", {"index": 1})
+        action("workspace.selectFirst")
         time.sleep(1)  # test harness: focus lands in the shown pane
     start = selected()
     reply = key("}", ["cmd"])
