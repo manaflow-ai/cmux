@@ -13,6 +13,17 @@
    ]
   },
   {
+   "name": "action.share",
+   "meaning": "Share (a link, the app)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.5 10H7a2 2 0 0 0-2 2v6.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V12a2 2 0 0 0-2-2h-1.5'/><path d='M12 3.5v10M8.75 6.75L12 3.5l3.25 3.25'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8.5 10H7a2 2 0 0 0-2 2v6.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V12a2 2 0 0 0-2-2h-1.5'/><path d='M12 3.5v10M8.75 6.75L12 3.5l3.25 3.25'/></svg>",
+   "alts": [],
+   "note": "Open tray with an arrow leaving it upward, rx 2. Open shape, so Solid is the same drawing at stroke 2.",
+   "replaces": [
+    "square.and.arrow.up"
+   ]
+  },
+  {
    "name": "action.close",
    "meaning": "Close / dismiss / stop loading",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
