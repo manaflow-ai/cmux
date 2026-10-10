@@ -45,13 +45,13 @@ enum DebugHomeAPI {
     /// {conversation, message, emoji, part?}, read {conversation, seq},
     /// create_group {title, participants}.
     static func op(_ json: JSONValue) -> HomeOp? {
-        let conversation = json["conversation"]?.stringValue.map(ConversationID.init) ?? ConversationID("")
-        let message = json["message"]?.stringValue.map(MessageID.init) ?? MessageID("")
+        let conversation = json["conversation"]?.stringValue.map { ConversationID($0) } ?? ConversationID("")
+        let message = json["message"]?.stringValue.map { MessageID($0) } ?? MessageID("")
         let text = json["text"]?.stringValue ?? ""
         switch json["kind"]?.stringValue {
         case "send":
             return .sendMessage(conversation: conversation, parts: [.text(text)],
-                                threadRoot: json["thread_root"]?.stringValue.map(MessageID.init))
+                                threadRoot: json["thread_root"]?.stringValue.map { MessageID($0) })
         case "edit":
             return .editMessage(message: message, conversation: conversation, parts: [.text(text)])
         case "retract":
@@ -65,7 +65,7 @@ enum DebugHomeAPI {
         case "read":
             return .setReadCursor(conversation: conversation, seq: Seq(json["seq"]?.intValue ?? 0))
         case "create_group":
-            let ids = json["participants"]?.arrayValue?.compactMap(\.stringValue).map(ParticipantID.init) ?? []
+            let ids = json["participants"]?.arrayValue?.compactMap(\.stringValue).map { ParticipantID($0) } ?? []
             return .createGroup(title: json["title"]?.stringValue ?? "", participants: ids)
         default:
             return nil
