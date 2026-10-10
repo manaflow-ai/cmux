@@ -1,0 +1,54 @@
+public import AppKit
+
+/// Open and close of a popup window that a control opened (cx-f6i7): the
+/// group editors under a tab group chip or a sidebar group header. It fades
+/// in while its content grows from `Motion.panelOpenScale` about the middle
+/// of its edge that faces the control, so it reads as coming out of that
+/// control; it closes faster, fading and shrinking toward the same point.
+/// A reopen during the close continues from what is on screen. Reduce
+/// Motion keeps the fades only (`Motion.set` snaps the scale).
+@MainActor
+public enum PopupMotion {
+    /// The point the popup grows from, in `panel`'s content view: the middle
+    /// of the content edge nearest `anchor` (screen coordinates), at the
+    /// anchor's horizontal center when that falls inside the popup.
+    public static func pivot(toward anchor: CGRect, in panel: NSWindow) -> CGPoint {
+        let frame = panel.frame
+        let bounds = panel.contentView?.bounds ?? CGRect(origin: .zero, size: frame.size)
+        let x = min(max(anchor.midX - frame.minX, bounds.minX), bounds.maxX)
+        // Window content is y-up: an anchor above the popup pivots on its top edge.
+        let y = anchor.midY >= frame.midY ? bounds.maxY : bounds.minY
+        return CGPoint(x: x, y: y)
+    }
+
+    /// Fades `panel` in (its alpha must start at 0 on a fresh open) and grows
+    /// its content about `pivot`.
+    public static func open(_ panel: NSWindow, pivot: CGPoint) {
+        guard let content = panel.contentView else { return }
+        content.wantsLayer = true
+        if let layer = content.layer {
+            let closing = layer.animation(forKey: "sublayerTransform") != nil
+            Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                       from: closing ? nil : NSValue(caTransform3D: Motion.scale(Motion.panelOpenScale, about: pivot, in: layer)))
+        }
+        Motion.animateTimed(.fadeIn, in: content) { panel.animator().alphaValue = 1 }
+    }
+
+    /// Fades `panel` out while its content shrinks toward `pivot`, then runs
+    /// `completion` (which orders it out).
+    public static func close(_ panel: NSWindow, pivot: CGPoint, completion: @escaping @MainActor () -> Void) {
+        guard let content = panel.contentView else { return completion() }
+        if let layer = content.layer {
+            Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: Motion.scale(Motion.panelCloseScale, about: pivot, in: layer)),
+                       movementFade: .fadeOut)
+        }
+        Motion.animateTimed(.fadeOut, in: content, { panel.animator().alphaValue = 0 }, completion: completion)
+    }
+
+    /// Clears a finished close's scale so the next open starts clean.
+    public static func reset(_ panel: NSWindow) {
+        guard let layer = panel.contentView?.layer else { return }
+        layer.removeAnimation(forKey: "sublayerTransform")
+        layer.sublayerTransform = CATransform3DIdentity
+    }
+}

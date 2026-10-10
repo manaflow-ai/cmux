@@ -142,6 +142,8 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var name = ""
     private var fieldWidth: NSLayoutConstraint?
     private var dismissing = false
+    /// The header the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
     /// The bubble's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
     /// Shown (on screen, or laid out in a test) and not yet dismissed.
@@ -298,8 +300,11 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow, ordersFront: Bool = true) {
+        let reopening = dismissing && isVisible
         dismissing = false
         isPresented = true
+        ignoresMouseEvents = false
+        self.anchor = anchor
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -315,12 +320,12 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         }
         setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
         guard ordersFront else { return }
-        alphaValue = 0
+        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+        PopupMotion.open(self, pivot: PopupMotion.pivot(toward: anchor, in: self))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -337,9 +342,15 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismissing = true
         isPresented = false
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
         onClose?()
+        PopupMotion.close(self, pivot: PopupMotion.pivot(toward: anchor, in: self)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            PopupMotion.reset(self)
+        }
     }
 
     override func resignKey() {

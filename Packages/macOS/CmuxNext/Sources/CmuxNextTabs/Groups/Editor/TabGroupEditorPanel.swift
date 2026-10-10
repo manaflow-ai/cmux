@@ -48,6 +48,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
     private var dismissing = false
+    /// The chip the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -166,7 +168,10 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
+        let reopening = dismissing && isVisible
         dismissing = false
+        ignoresMouseEvents = false
+        self.anchor = anchor
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -180,11 +185,11 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             origin.y = max(origin.y, visible.minY + Metrics.space2)
         }
         setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
-        alphaValue = 0
+        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+        PopupMotion.open(self, pivot: PopupMotion.pivot(toward: anchor, in: self))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -200,9 +205,15 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard !dismissing, isVisible else { return }
         dismissing = true
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
         onClose?()
+        PopupMotion.close(self, pivot: PopupMotion.pivot(toward: anchor, in: self)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            PopupMotion.reset(self)
+        }
     }
 
     override func resignKey() {
