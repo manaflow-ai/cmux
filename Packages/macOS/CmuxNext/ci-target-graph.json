@@ -62,6 +62,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -234,7 +235,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },

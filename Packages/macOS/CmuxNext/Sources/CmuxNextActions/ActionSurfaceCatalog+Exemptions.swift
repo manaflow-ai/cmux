@@ -44,7 +44,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
         "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
-        "newTab.sameKind", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "openBrowser.webkit",
+        "newTab.default", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "openBrowser.webkit",
         "openBrowser.chromium", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight",
         "renameTab", "palette.clearTabName",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
@@ -239,6 +239,8 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.copyPaneLink", "palette.copySurfaceID", "palette.copySurfaceLink", "cloudCopyLink",
             "cloudCopyPort", "cloudCopyMachineID",
         ],
+        // `tab new` (newTab.default) already gives scripts the selected tab's kind.
+        .duplicateOfDefault: ["newTab.ofKind"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],
