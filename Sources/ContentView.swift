@@ -1830,6 +1830,7 @@ struct ContentView: View {
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
         terminalContent(appearance: appearance)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) { SidebarJumpToUnreadButton.windowBottom(isMinimalMode: workspacePresentationModeRuntimeCache.isMinimalMode) }
             .layoutPriority(1)
     }
 

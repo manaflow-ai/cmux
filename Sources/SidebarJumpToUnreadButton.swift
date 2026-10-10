@@ -49,9 +49,9 @@ extension View {
     }
 }
 
-/// The on-screen ⇧⌘U at the trailing end of the sidebar footer, shown only
-/// while something is unread: the unread count, the configured shortcut (to
-/// teach it) and a × that hides it for good. The jump runs
+/// The on-screen ⇧⌘U, shown only while something is unread: "Jump to Unread"
+/// with the unread count, which turns into the configured shortcut on hover
+/// (to teach it), and a × that hides it for good. The jump runs
 /// `AppDelegate.jumpToLatestUnread()`, the same path as the Notifications menu
 /// item, the command palette and the shortcut.
 ///
@@ -60,25 +60,27 @@ extension View {
 /// notification churn re-renders only this view, and only when the count
 /// changes.
 struct SidebarJumpToUnreadButton: View {
-    /// Design variations under review; `s` ships. Debug builds switch them
+    /// Design variations under review; `sCentered` ships. Debug builds switch them
     /// from the control's context menu.
     enum Style: String, CaseIterable {
-        /// Bordered button: count, arrow, shortcut, × inline.
-        case a
-        /// Bordered button: count and shortcut, × on the corner on hover.
-        case n
-        /// Plain text count and shortcut (not clickable), × always inline.
-        case p
-        /// Glass capsule on its own row above the footer, leading:
+        /// Glass capsule centered on its own row above the sidebar footer:
         /// "Jump to Unread (3)"; on hover the count turns into the shortcut.
-        case s
-        /// `s`, centered in the sidebar.
         case sCentered
+        /// The same capsule floating at the bottom center of the window,
+        /// over the terminal area.
+        case windowBottom
 
         var placement: Placement {
             switch self {
-            case .a, .n, .p: return .footerRow
-            case .s, .sCentered: return .aboveFooter
+            case .sCentered: return .aboveFooter
+            case .windowBottom: return .windowBottom
+            }
+        }
+
+        var debugTitle: String {
+            switch self {
+            case .sCentered: return "Debug: Style Sidebar Bottom Center"
+            case .windowBottom: return "Debug: Style Window Bottom Center"
             }
         }
     }
@@ -87,6 +89,12 @@ struct SidebarJumpToUnreadButton: View {
     enum Placement {
         case footerRow
         case aboveFooter
+        case windowBottom
+    }
+
+    /// The instance the main content area overlays at its bottom center.
+    static func windowBottom(isMinimalMode: Bool) -> SidebarJumpToUnreadButton {
+        SidebarJumpToUnreadButton(presentationMode: isMinimalMode ? .minimal : .standard, placement: .windowBottom)
     }
 
     static let hiddenDefaultsKey = "sidebar.jumpToUnreadButton.hidden"
@@ -102,7 +110,7 @@ struct SidebarJumpToUnreadButton: View {
     @State private var isHovered = false
     @State private var showsHiddenNote = false
     @AppStorage(SidebarJumpToUnreadButton.hiddenDefaultsKey) private var isHiddenByUser = false
-    @AppStorage(SidebarJumpToUnreadButton.styleDefaultsKey) private var styleRawValue = Style.s.rawValue
+    @AppStorage(SidebarJumpToUnreadButton.styleDefaultsKey) private var styleRawValue = Style.sCentered.rawValue
 
     init(presentationMode: WorkspacePresentationModeSettings.Mode, placement: Placement = .footerRow) {
         self.presentationMode = presentationMode
@@ -114,9 +122,9 @@ struct SidebarJumpToUnreadButton: View {
 
     private var style: Style {
 #if DEBUG
-        Style(rawValue: styleRawValue) ?? .s
+        Style(rawValue: styleRawValue) ?? .sCentered
 #else
-        .s
+        .sCentered
 #endif
     }
 
@@ -136,16 +144,13 @@ struct SidebarJumpToUnreadButton: View {
                 control(resolved)
                     .onHover { isHovered = $0 }
                     .contextMenu { contextMenuItems }
-                    .frame(
-                        maxWidth: placement == .aboveFooter ? .infinity : nil,
-                        alignment: style == .sCentered ? .center : .leading
-                    )
-                    .padding(.bottom, placement == .aboveFooter ? 8 : 0)
+                    .frame(maxWidth: placement == .aboveFooter ? .infinity : nil, alignment: .center)
+                    .padding(.bottom, placement == .windowBottom ? 16 : placement == .aboveFooter ? 8 : 0)
             } else {
                 Color.clear.frame(width: 0, height: placement == .footerRow ? 22 : 0)
             }
         }
-        .overlay(alignment: .bottomTrailing) {
+        .overlay(alignment: .bottom) {
             if showsHiddenNote {
                 Text(String(
                     localized: "sidebar.jumpToUnread.hiddenNote",
@@ -154,7 +159,7 @@ struct SidebarJumpToUnreadButton: View {
                 .cmuxFont(size: 11)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .fixedSize()
-                .offset(y: -28)
+                .offset(y: placement == .windowBottom ? -16 : -8)
                 .transition(.opacity)
             }
         }
@@ -177,39 +182,7 @@ struct SidebarJumpToUnreadButton: View {
     @ViewBuilder
     private func control(_ resolved: SidebarJumpToUnreadButtonPresentation) -> some View {
         switch style {
-        case .a:
-            jumpButton(resolved) {
-                HStack(spacing: 5) {
-                    badge(resolved)
-                    CmuxSystemSymbolImage(
-                        systemName: SidebarJumpToUnreadButtonPresentation.systemName,
-                        pointSize: 11,
-                        weight: .semibold,
-                        tint: cmuxAccent.color
-                    )
-                    shortcut(resolved)
-                    closeButton(corner: false)
-                }
-                .padding(.leading, 3)
-                .padding(.trailing, 4)
-            }
-        case .n:
-            jumpButton(resolved) {
-                HStack(spacing: 5) {
-                    badge(resolved)
-                    shortcut(resolved)
-                }
-                .padding(.leading, 3)
-                .padding(.trailing, 8)
-            }
-            .overlay(alignment: .topTrailing) {
-                closeButton(corner: true)
-                    .offset(x: 6, y: -6)
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .animation(.easeOut(duration: 0.15), value: isHovered)
-            }
-        case .s, .sCentered:
+        case .sCentered, .windowBottom:
             Button {
                 AppDelegate.shared?.jumpToLatestUnread()
             } label: {
@@ -252,46 +225,7 @@ struct SidebarJumpToUnreadButton: View {
                     .allowsHitTesting(isHovered)
                     .animation(.easeOut(duration: 0.15), value: isHovered)
             }
-        case .p:
-            HStack(spacing: 6) {
-                if let countText = resolved.countText {
-                    Text(countText)
-                        .cmuxFont(size: 12, weight: .semibold)
-                        .monospacedDigit()
-                        .foregroundStyle(cmuxAccent.color)
-                }
-                shortcut(resolved)
-                closeButton(corner: false)
-            }
-            .padding(.leading, 7)
-            .padding(.trailing, 2)
-            .frame(height: 22)
-            .fixedSize()
-            .safeHelp(resolved.helpText)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(resolved.label)
-            .accessibilityValue(resolved.countText ?? "")
-            .accessibilityIdentifier("SidebarJumpToUnreadButton")
         }
-    }
-
-    private func jumpButton(
-        _ resolved: SidebarJumpToUnreadButtonPresentation,
-        @ViewBuilder label: () -> some View
-    ) -> some View {
-        Button {
-            AppDelegate.shared?.jumpToLatestUnread()
-        } label: {
-            label()
-                .frame(height: 22)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(SidebarJumpToUnreadGlassButtonStyle())
-        .fixedSize()
-        .safeHelp(resolved.helpText)
-        .accessibilityLabel(resolved.label)
-        .accessibilityValue(resolved.countText ?? "")
-        .accessibilityIdentifier("SidebarJumpToUnreadButton")
     }
 
     @ViewBuilder
@@ -349,7 +283,7 @@ struct SidebarJumpToUnreadButton: View {
 #if DEBUG
         Divider()
         ForEach(Style.allCases, id: \.self) { candidate in
-            Button("Debug: Style \(candidate == .sCentered ? "S Centered" : candidate.rawValue.uppercased())") { styleRawValue = candidate.rawValue }
+            Button(candidate.debugTitle) { styleRawValue = candidate.rawValue }
         }
 #endif
     }
