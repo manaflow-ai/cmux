@@ -31,7 +31,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
       "targets": [
         "CmuxNextCodeRouter",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxAgentBrands"
@@ -117,7 +118,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxAgentQuestion"
@@ -436,7 +438,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistory",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxAgentBrands"
@@ -515,7 +518,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
       "targets": [
         "CmuxNextBrowserImport",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -676,6 +680,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -729,6 +734,7 @@
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
@@ -756,6 +762,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
