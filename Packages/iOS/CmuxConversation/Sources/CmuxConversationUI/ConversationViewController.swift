@@ -82,6 +82,8 @@ public final class ConversationViewController: UIViewController {
     /// The typer's avatar (frame in the transcript, initials) leaving with the indicator.
     var typingAvatarHandoff: (frame: CGRect, initials: String)?
     private(set) var hasPositionedInitially = false
+    /// Rows already prefetched (see +Prefetch); reset when rows change.
+    var prefetchedRange: Range<Int> = 0..<0
     /// The catch-up arrow (see +CatchUp).
     let catchUpButton = UIButton(type: .custom)
     /// Between viewDidAppear and viewWillDisappear.
@@ -555,6 +557,7 @@ public final class ConversationViewController: UIViewController {
     private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange) {
         let oldIDs = rowIDs
         let newIDs = newRows.map(\.id)
+        prefetchedRange = 0..<0
         let oldIndex = rowIndex
         var newIndex: [String: Int] = [:]
         newIndex.reserveCapacity(newIDs.count)
@@ -1088,6 +1091,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         maybeLoadOlder()
         for case let cell as MessageCell in collectionView.visibleCells { cell.updateScreenGradients() }
+        prefetchAroundVisibleRows()
         // Reading follows viewing (see +CatchUp), not scroll position:
         // Messages reads the whole conversation on open.
         updateCatchUp()
@@ -1195,6 +1199,54 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance {
         appearances[rows[index].id] ?? .none
     }
+}
+
+// MARK: - Prefetch
+
+/// Rows about to scroll on screen get their expensive pieces ready off the
+/// main thread: photos fetched and decoded at display size, and send-effect
+/// text glyphs rendered into the shared cache. The cell then finds both
+/// ready instead of doing that work in the frame it appears. Driven from
+/// scrolling (a screen above and below the visible rows), so it runs for
+/// drags, flings and programmatic scrolls alike.
+extension ConversationViewController {
+    func prefetchAroundVisibleRows() {
+        let bounds = collectionView.bounds
+        guard bounds.width > 0, bounds.height > 0, !rows.isEmpty else { return }
+        let range = layout.itemRange(in: bounds.insetBy(dx: 0, dy: -bounds.height))
+        guard range != prefetchedRange else { return }
+        let previous = prefetchedRange
+        prefetchedRange = range
+        for index in range where !previous.contains(index) {
+            prefetch(index: index)
+        }
+    }
+
+    private func prefetch(index: Int) {
+        guard index < rows.count, case let .message(model) = rows[index] else { return }
+        let width = collectionView.bounds.width
+        let scale = view.window?.screen.scale ?? traitCollection.displayScale
+        let cellLayout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
+        for (index, frame) in cellLayout.imageFrames.enumerated() where index < model.message.imageAttachments.count {
+            let attachment = model.message.imageAttachments[index]
+            let pixelWidth = frame.width * scale
+            guard ConversationImageLoader.shared.cachedImage(for: attachment, pixelWidth: pixelWidth) == nil else { continue }
+            Task { _ = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth) }
+        }
+        guard !model.message.isScheduled, let size = cellLayout.textFrame?.size else { return }
+        let text = layoutCache.attributedText(for: model)
+        guard ConversationRichTextStyler.hasEffects(text) else { return }
+        let resolved = PrefetchText(text.resolvingDynamicColors(with: collectionView.traitCollection))
+        Task.detached(priority: .userInitiated) {
+            ConversationTextEffectLayer.prepare(text: resolved.value, textSize: size, scale: max(1, scale), cacheToken: ConversationEffectLabel.resolvedCacheToken)
+        }
+    }
+}
+
+/// An immutable attributed string handed to a prefetch task.
+private struct PrefetchText: @unchecked Sendable {
+    let value: NSAttributedString
+    init(_ value: NSAttributedString) { self.value = value }
 }
 
 /// The transcript reports the composer band (and keyboard) as its bottom

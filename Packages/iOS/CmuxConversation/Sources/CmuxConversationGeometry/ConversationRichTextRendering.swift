@@ -115,13 +115,120 @@ public enum ConversationRichTextStyler {
 /// Sits exactly over the text view that drew everything else; its own
 /// coordinate space is top-left-origin with the text at `textOrigin`.
 public final class ConversationTextEffectLayer: CALayer {
-    private struct Unit {
+    fileprivate struct Unit {
         var range: NSRange
         var rect: CGRect
         var effect: ConversationTextEffect
         var index: Int
         var count: Int
     }
+
+    /// One effect glyph, rendered: its image, its box in text coordinates,
+    /// and what drives its loop.
+    fileprivate struct Glyph {
+        var image: CGImage
+        var box: CGRect
+        var unit: Unit
+        var fontSize: CGFloat
+    }
+
+    /// The rendered glyphs of one string at one size and scale. Shared by
+    /// every layer showing that string (a cell scrolled back in, a reused
+    /// cell) and safe to build off the main thread, so a transcript can
+    /// render a row's effects before the row scrolls on screen.
+    public final class Rendering: @unchecked Sendable {
+        fileprivate let glyphs: [Glyph]
+        private let lock = NSLock()
+        private var loops: [UInt64: [CAAnimation]] = [:]
+
+        fileprivate init(glyphs: [Glyph]) {
+            self.glyphs = glyphs
+        }
+
+        /// The glyphs' loop animations for `seed` (built once, copied per use).
+        fileprivate func animations(seed: UInt64) -> [CAAnimation] {
+            lock.lock()
+            defer { lock.unlock() }
+            if let cached = loops[seed] { return cached }
+            let built = glyphs.map { ConversationTextEffectLayer.animation($0.unit, fontSize: $0.fontSize, seed: seed, begin: 0) }
+            loops[seed] = built
+            return built
+        }
+    }
+
+    private final class RenderingKey: NSObject {
+        let text: NSAttributedString
+        let size: CGSize
+        let scale: CGFloat
+        let token: String
+
+        init(text: NSAttributedString, size: CGSize, scale: CGFloat, token: String) {
+            self.text = text
+            self.size = size
+            self.scale = scale
+            self.token = token
+        }
+
+        override var hash: Int {
+            var hasher = Hasher()
+            hasher.combine(text.string)
+            hasher.combine(size.width)
+            hasher.combine(size.height)
+            hasher.combine(scale)
+            hasher.combine(token)
+            return hasher.finalize()
+        }
+
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? RenderingKey else { return false }
+            return size == other.size && scale == other.scale && token == other.token && text.isEqual(to: other.text)
+        }
+    }
+
+    nonisolated(unsafe) private static let renderings: NSCache<RenderingKey, Rendering> = {
+        let cache = NSCache<RenderingKey, Rendering>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    /// Renders (or finds) the effect glyphs of `text` laid out in `textSize`.
+    /// `cacheToken` names everything outside the string that changes its
+    /// pixels (the appearance its dynamic colors resolve in); `renderText`,
+    /// when given, is `text` with those colors already resolved, for
+    /// rendering away from the main thread. Thread-safe. Nil when `text`
+    /// has no effects.
+    @discardableResult
+    public static func prepare(
+        text: NSAttributedString,
+        renderText: NSAttributedString? = nil,
+        textSize: CGSize,
+        scale: CGFloat,
+        cacheToken: String
+    ) -> Rendering? {
+        guard textSize.width > 0, ConversationRichTextStyler.hasEffects(text) else { return nil }
+        let key = RenderingKey(text: NSAttributedString(attributedString: text), size: textSize, scale: scale, token: cacheToken)
+        if let cached = renderings.object(forKey: key) { return cached }
+        let rendering = render(renderText ?? text, textSize: textSize, scale: scale)
+        renderings.setObject(rendering, forKey: key)
+        return rendering
+    }
+
+    private static func render(_ text: NSAttributedString, textSize: CGSize, scale: CGFloat) -> Rendering {
+        let units = Self.units(in: text, size: textSize, maximumGlyphUnits: defaultMaximumGlyphUnits)
+        var glyphs: [Glyph] = []
+        glyphs.reserveCapacity(units.count)
+        for unit in units {
+            guard let font = text.attribute(.font, at: unit.range.location, effectiveRange: nil) as? ConversationPlatformFont else { continue }
+            // Generous padding: italics overhang and motion scales the glyph.
+            let pad = ceil(font.pointSize * 0.35)
+            let box = unit.rect.insetBy(dx: -pad, dy: -pad).integral
+            guard let image = Self.render(text, unit: unit.range, textSize: textSize, box: box, scale: scale) else { continue }
+            glyphs.append(Glyph(image: image, box: box, unit: unit, fontSize: font.pointSize))
+        }
+        return Rendering(glyphs: glyphs)
+    }
+
+    private static let defaultMaximumGlyphUnits = 80
 
     private var signature: (text: NSAttributedString, size: CGSize, origin: CGPoint, scale: CGFloat, animated: Bool)?
     /// Above this many characters in one run, words move instead of letters.
@@ -159,7 +266,9 @@ public final class ConversationTextEffectLayer: CALayer {
     /// `textSize` with line fragment padding 0) and starts their loop.
     /// `seed` keys explode/jitter randomness. Re-calls with the same input keep
     /// the running animation.
-    public func update(text: NSAttributedString, textSize: CGSize, textOrigin: CGPoint = .zero, scale: CGFloat, animated: Bool, seed: UInt64, restart: Bool = false) {
+    /// With `cacheToken`, the rendered glyphs come from (and go to) a cache
+    /// shared with `prepare`; see there for what the token must name.
+    public func update(text: NSAttributedString, textSize: CGSize, textOrigin: CGPoint = .zero, scale: CGFloat, animated: Bool, seed: UInt64, restart: Bool = false, cacheToken: String? = nil) {
         if !restart, let signature, signature.size == textSize, signature.origin == textOrigin, signature.scale == scale,
            signature.animated == animated, signature.text.isEqual(to: text) {
             return
@@ -168,22 +277,35 @@ public final class ConversationTextEffectLayer: CALayer {
         orientTopLeft()
         sublayers?.forEach { $0.removeFromSuperlayer() }
         guard ConversationRichTextStyler.hasEffects(text), textSize.width > 0 else { return }
-        let units = Self.units(in: text, size: textSize, maximumGlyphUnits: maximumGlyphUnits)
+        let rendering: Rendering
+        if let cacheToken, maximumGlyphUnits == Self.defaultMaximumGlyphUnits {
+            guard let prepared = Self.prepare(text: text, textSize: textSize, scale: scale, cacheToken: cacheToken) else { return }
+            rendering = prepared
+        } else {
+            let units = Self.units(in: text, size: textSize, maximumGlyphUnits: maximumGlyphUnits)
+            var glyphs: [Glyph] = []
+            for unit in units {
+                guard let font = text.attribute(.font, at: unit.range.location, effectiveRange: nil) as? ConversationPlatformFont else { continue }
+                // Generous padding: italics overhang and motion scales the glyph.
+                let pad = ceil(font.pointSize * 0.35)
+                let box = unit.rect.insetBy(dx: -pad, dy: -pad).integral
+                guard let image = Self.render(text, unit: unit.range, textSize: textSize, box: box, scale: scale) else { continue }
+                glyphs.append(Glyph(image: image, box: box, unit: unit, fontSize: font.pointSize))
+            }
+            rendering = Rendering(glyphs: glyphs)
+        }
         let begin = CACurrentMediaTime()
-        for unit in units {
-            guard let font = text.attribute(.font, at: unit.range.location, effectiveRange: nil) as? ConversationPlatformFont else { continue }
-            // Generous padding: italics overhang and motion scales the glyph.
-            let pad = ceil(font.pointSize * 0.35)
-            let box = unit.rect.insetBy(dx: -pad, dy: -pad).integral
-            guard let image = Self.render(text, unit: unit.range, textSize: textSize, box: box, scale: scale) else { continue }
+        let loops = animated ? rendering.animations(seed: seed) : []
+        for (index, item) in rendering.glyphs.enumerated() {
             let glyph = CALayer()
-            glyph.contents = image
+            glyph.contents = item.image
             glyph.contentsScale = scale
-            glyph.frame = box.offsetBy(dx: textOrigin.x, dy: textOrigin.y)
+            glyph.frame = item.box.offsetBy(dx: textOrigin.x, dy: textOrigin.y)
             glyph.actions = ["position": NSNull(), "bounds": NSNull(), "transform": NSNull(), "opacity": NSNull()]
             addSublayer(glyph)
-            if animated {
-                glyph.add(Self.animation(unit, fontSize: font.pointSize, seed: seed, begin: begin), forKey: "cmux.textEffect")
+            if animated, let loop = loops[index].copy() as? CAAnimation {
+                loop.beginTime = begin
+                glyph.add(loop, forKey: "cmux.textEffect")
             }
         }
     }
@@ -258,7 +380,7 @@ public final class ConversationTextEffectLayer: CALayer {
         return context.makeImage()
     }
 
-    private static func animation(_ unit: Unit, fontSize: CGFloat, seed: UInt64, begin: CFTimeInterval) -> CAAnimation {
+    fileprivate static func animation(_ unit: Unit, fontSize: CGFloat, seed: UInt64, begin: CFTimeInterval) -> CAAnimation {
         let cycle = ConversationTextEffectMotion.cycle
         let fps = 60.0
         let frames = Int(cycle * fps)

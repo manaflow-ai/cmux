@@ -120,6 +120,19 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         return attributes
     }
 
+    /// Items whose frames intersect `rect` (a binary search, no attributes).
+    func itemRange(in rect: CGRect) -> Range<Int> {
+        guard !frames.isEmpty else { return 0..<0 }
+        var low = 0, high = frames.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if frames[mid].maxY < rect.minY { low = mid + 1 } else { high = mid }
+        }
+        var end = low
+        while end < frames.count, frames[end].minY <= rect.maxY { end += 1 }
+        return low..<end
+    }
+
     func frame(at index: Int) -> CGRect? {
         index < frames.count ? frames[index] : nil
     }

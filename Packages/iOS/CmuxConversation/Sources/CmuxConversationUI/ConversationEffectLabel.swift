@@ -52,17 +52,41 @@ final class ConversationEffectLabel: UILabel {
             return
         }
         let scale = window?.screen.scale ?? traitCollection.displayScale
-        // Dynamic colors resolve while rendering the glyph images.
+        // Effect glyphs render from their dynamic colors resolved for this
+        // appearance, which also keys the shared rendering cache (a row
+        // scrolling back in, or rendered ahead by the transcript's prefetch,
+        // reuses its glyphs).
+        let hasEffects = ConversationRichTextStyler.hasEffects(text)
+        let input = hasEffects ? text.resolvingDynamicColors(with: traitCollection) : text
         traitCollection.performAsCurrent {
             effectLayer.update(
-                text: text,
+                text: input,
                 textSize: bounds.size,
                 scale: max(1, scale),
                 animated: !UIAccessibility.isReduceMotionEnabled,
                 seed: effectSeed,
-                restart: restart
+                restart: restart,
+                cacheToken: hasEffects ? Self.resolvedCacheToken : nil
             )
         }
+    }
+
+    /// Cache token for text whose colors are already resolved.
+    nonisolated static let resolvedCacheToken = "resolved"
+}
+
+extension NSAttributedString {
+    /// A copy with every dynamic color attribute resolved for `traits`, so
+    /// the string draws the same on any thread.
+    func resolvingDynamicColors(with traits: UITraitCollection) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: self)
+        enumerateAttributes(in: NSRange(location: 0, length: length)) { attributes, range, _ in
+            for (key, value) in attributes {
+                guard let color = value as? UIColor else { continue }
+                result.addAttribute(key, value: color.resolvedColor(with: traits), range: range)
+            }
+        }
+        return result
     }
 }
 #endif
