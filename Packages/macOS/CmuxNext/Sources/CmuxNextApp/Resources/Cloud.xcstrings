@@ -10742,6 +10742,399 @@
           }
         }
       }
+    },
+    "cloud.create.confirm.size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size: %1$d vCPU, %2$d GB memory, %3$d GB disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ: %1$d vCPU、メモリ %2$d GB、ディスク %3$d GB"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحجم: %1$d vCPU، ذاكرة %2$d غيغابايت، قرص %3$d غيغابايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina: %1$d vCPU, %2$d GB memorije, %3$d GB diska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelse: %1$d vCPU, %2$d GB hukommelse, %3$d GB disk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Größe: %1$d vCPU, %2$d GB Arbeitsspeicher, %3$d GB Speicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño: %1$d vCPU, %2$d GB de memoria, %3$d GB de disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille : %1$d vCPU, %2$d Go de mémoire, %3$d Go de disque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione: %1$d vCPU, %2$d GB di memoria, %3$d GB di disco"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំ: %1$d vCPU, អង្គចងចាំ %2$d GB, ថាស %3$d GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "크기: vCPU %1$d개, 메모리 %2$d GB, 디스크 %3$d GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelse: %1$d vCPU, %2$d GB minne, %3$d GB disk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar: %1$d vCPU, %2$d GB pamięci, %3$d GB dysku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho: %1$d vCPU, %2$d GB de memória, %3$d GB de disco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер: %1$d vCPU, память %2$d ГБ, диск %3$d ГБ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาด: %1$d vCPU, หน่วยความจำ %2$d GB, ดิสก์ %3$d GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boyut: %1$d vCPU, %2$d GB bellek, %3$d GB disk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір: %1$d vCPU, пам’ять %2$d ГБ, диск %3$d ГБ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kích thước: %1$d vCPU, bộ nhớ %2$d GB, ổ đĩa %3$d GB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "大小:%1$d 个 vCPU,%2$d GB 内存,%3$d GB 磁盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "大小:%1$d 個 vCPU,%2$d GB 記憶體,%3$d GB 磁碟"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاسم: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naziv: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navn: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombre: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nom : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navn: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazwa: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Имя: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชื่อ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ad: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назва: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tên: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名称:%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名稱:%@"
+          }
+        }
+      }
+    },
+    "cloud.create.approvalMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The approval request does not match the machine you confirmed, so cmux did not approve it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認リクエストが確認したマシンと一致しないため、cmux は承認しませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلب الموافقة لا يطابق الجهاز الذي أكدته، لذلك لم يوافق cmux عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zahtjev za odobrenje ne odgovara mašini koju ste potvrdili, pa ga cmux nije odobrio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkendelsesanmodningen passer ikke til den maskine, du bekræftede, så cmux godkendte den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Genehmigungsanfrage passt nicht zu der bestätigten Maschine, daher hat cmux sie nicht genehmigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La solicitud de aprobación no coincide con la máquina que confirmaste, así que cmux no la aprobó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La demande d’approbation ne correspond pas à la machine que vous avez confirmée, donc cmux ne l’a pas approuvée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La richiesta di approvazione non corrisponde alla macchina che hai confermato, quindi cmux non l’ha approvata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណើអនុម័តមិនត្រូវនឹងម៉ាស៊ីនដែលអ្នកបានបញ្ជាក់ទេ ដូច្នេះ cmux មិនបានអនុម័តវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "승인 요청이 확인한 머신과 일치하지 않아 cmux가 승인하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjenningsforespørselen samsvarer ikke med maskinen du bekreftet, så cmux godkjente den ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba o zatwierdzenie nie pasuje do potwierdzonej maszyny, więc cmux jej nie zatwierdził."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A solicitação de aprovação não corresponde à máquina que você confirmou, então o cmux não a aprovou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрос на подтверждение не совпадает с подтверждённой вами машиной, поэтому cmux его не подтвердил."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำขออนุมัติไม่ตรงกับเครื่องที่คุณยืนยัน cmux จึงไม่ได้อนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onay isteği onayladığınız makineyle eşleşmiyor, bu yüzden cmux onaylamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запит на схвалення не збігається з машиною, яку ви підтвердили, тому cmux його не схвалив."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yêu cầu phê duyệt không khớp với máy bạn đã xác nhận, nên cmux không phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "批准请求与你确认的机器不一致,因此 cmux 没有批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "核准請求與你確認的機器不一致,因此 cmux 沒有核准。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

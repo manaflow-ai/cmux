@@ -98,6 +98,12 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("project.list", PROJECT_REASON),
+    ("project.observe", PROJECT_REASON),
+    ("project.add", PROJECT_REASON),
+    ("project.update", PROJECT_REASON),
+    ("project.remove", PROJECT_REASON),
+    ("project.sync", PROJECT_REASON),
     ("palette_usage.get", PALETTE_USAGE_REASON),
     ("palette_usage.record", PALETTE_USAGE_REASON),
     ("palette_usage.import", PALETTE_USAGE_REASON),
@@ -107,6 +113,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
 ];
 
+const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
     "Machine and session plumbing in the cmux-tui-only scopes; the curated cmux CLI omits it.";
 const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
