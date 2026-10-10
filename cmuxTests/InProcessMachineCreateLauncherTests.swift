@@ -18,13 +18,19 @@ struct InProcessMachineCreateLauncherTests {
             "vm", "new", "--workspace", workspace.uuidString, "--focus", "false"
         ]))
         let upstreamMessage = "upstream-diagnostic-fixture-7b912"
+        let testCatalog = SurfaceCatalog()
+        let testProvider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1),
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: testCatalog
+        )
         let dependencies = InProcessMachineCreateLauncher.Dependencies(
             create: { _, _ in
                 if !created { throw VMClientError.httpStatus(503, "{\"message\":\"\(upstreamMessage)\"}") }
                 return VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1)
             },
-            record: { _, _ in nil },
-            provider: { _ in nil },
+            record: { _, _ in created ? testProvider : nil },
+            provider: { _ in created ? testProvider : nil },
+            refresh: {},
             open: { _, _ in throw VMClientError.httpStatus(503, "{\"message\":\"\(upstreamMessage)\"}") }
         )
         let completion = await InProcessMachineCreateLauncher.run(

@@ -67,16 +67,44 @@ enum InProcessMachineCreateLauncher {
                     throw CloudDiagnosticFailure.sessionRefresh
                 }
                 let catalog = SurfaceCatalog.shared
-                await provider.refresh()
-                guard scope == registry.creationScope else {
-                    throw CloudDiagnosticFailure.sessionRefresh
-                }
                 guard let workspace = Workspace.liveWorkspace(id: invocation.workspaceID),
                       let manager = workspace.owningTabManager else {
                     throw SurfaceCatalogError.destinationNotFound(invocation.workspaceID.uuidString)
                 }
+                let openingHost: CloudWorkspaceCreationHost
+                if let host, host.manager === manager, host.isAvailable {
+                    openingHost = host
+                } else {
+                    openingHost = CloudWorkspaceCreationHost(
+                        manager: manager, reservedWorkspaceID: invocation.workspaceID
+                    )
+                }
+                guard openingHost.isAvailable else {
+                    throw SurfaceCatalogError.destinationNotFound(invocation.workspaceID.uuidString)
+                }
+
+                guard await provider.refreshCurrentGraph(force: false),
+                      scope == registry.creationScope,
+                      let refreshedWorkspace = Workspace.liveWorkspace(id: invocation.workspaceID),
+                      refreshedWorkspace.owningTabManager === manager,
+                      openingHost.isAvailable else {
+                    guard scope == registry.creationScope,
+                          let refreshedWorkspace = Workspace.liveWorkspace(id: invocation.workspaceID),
+                          refreshedWorkspace.owningTabManager === manager,
+                          openingHost.isAvailable,
+                          await provider.refreshCurrentGraph(force: true) else {
+                        throw CloudDiagnosticFailure.sessionRefresh
+                    }
+                }
+                try Task.checkCancellation()
+                guard scope == registry.creationScope,
+                      let currentWorkspace = Workspace.liveWorkspace(id: invocation.workspaceID),
+                      currentWorkspace.owningTabManager === manager,
+                      openingHost.isAvailable else {
+                    throw CloudDiagnosticFailure.sessionRefresh
+                }
                 let machineInfo = catalog.snapshot.machines.first { $0.id == provider.machine }
-                let boundRemoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID
+                let boundRemoteWorkspaceID = currentWorkspace.cloudVMBinding?.remoteWorkspaceID
                 let remoteWorkspace: SurfaceRemoteWorkspace?
                 switch resolveRemoteWorkspace(in: machineInfo, boundID: boundRemoteWorkspaceID) {
                 case .selected(let selected):
@@ -118,7 +146,7 @@ enum InProcessMachineCreateLauncher {
                     existingWorkspace: remoteWorkspace,
                     existingTerminal: terminal,
                     existingRemoteView: remoteView,
-                    host: host,
+                    host: openingHost,
                     validateOperation: { try Task.checkCancellation() }
                 )
             }
@@ -258,14 +286,14 @@ enum InProcessMachineCreateLauncher {
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)?
     ) -> Bool {
-        guard let invocation = parse(arguments: arguments), let client = VMClient.shared else { return false }
+        guard let invocation = parse(arguments: arguments), let client = VMClient.shared,
+              let workspace = Workspace.liveWorkspace(id: invocation.workspaceID),
+              let manager = workspace.owningTabManager,
+              !manager.isFinalizedForWindowClose else { return false }
         let registry = CmuxTuiSurfaceProviderRegistry.shared
         guard registry.creationScope != nil else { return false }
-        let host = Workspace.liveWorkspace(id: invocation.workspaceID).flatMap { workspace in
-            workspace.owningTabManager.map {
-                CloudWorkspaceCreationHost(manager: $0, reservedWorkspaceID: invocation.workspaceID)
-            }
-        }
+        let host = CloudWorkspaceCreationHost(manager: manager, reservedWorkspaceID: invocation.workspaceID)
+        guard host.isAvailable else { return false }
         let deps = dependencies(client: client, registry: registry, host: host)
         let task = Task { @MainActor in
             let completion = await run(invocation, operationID: operationID, dependencies: deps, onOutput: { onOutput?($0) })

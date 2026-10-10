@@ -123,7 +123,7 @@ struct MachineCreateCoordinatorTests {
     @Test func awaitingCreateReturnsItsExactWorkspaceReceipt() async {
         let (coordinator, _, _, _, _) = makeCoordinator()
         let receipt = UUID()
-        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, completion in
+        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _, completion in
             completion(CloudVMActionLauncher.Completion(
                 terminationStatus: 0, output: "", workspaceId: receipt, machineId: "created"
             ))
@@ -151,7 +151,7 @@ struct MachineCreateCoordinatorTests {
 
     @Test func refusedAwaitedCreateReturnsWithoutPendingRow() async {
         let (coordinator, _, _, _, _) = makeCoordinator()
-        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _ in nil }
+        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _, _ in nil }
         #expect(result == nil)
         #expect(coordinator.operations.isEmpty)
     }
@@ -162,8 +162,8 @@ struct MachineCreateCoordinatorTests {
         let unrelatedID = try #require(coordinator.operations.first?.id)
         let (started, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let waiting = Task { @MainActor in
-            await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest(name: "cancelled")) { arguments, progress, completion in
-                let handle = launches.cancellableLaunch(arguments, progress, completion)
+            await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest(name: "cancelled")) { operationID, arguments, progress, completion in
+                let handle = launches.cancellableLaunch(operationID, arguments, progress, completion)
                 signal.yield(())
                 signal.finish()
                 return handle
