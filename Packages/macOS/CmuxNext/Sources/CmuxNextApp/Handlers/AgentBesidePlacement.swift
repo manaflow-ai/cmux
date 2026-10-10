@@ -12,7 +12,7 @@ import Observation
 /// never shows it.
 enum AgentBesidePlacement {
     /// How long the move waits for the new tab: its open, then the store's echo.
-    static let openLimit: Duration = .seconds(20)
+    static let openLimit: Duration = .seconds(30)
 
     /// The `then` of a tab an agent opens in `controller` beside its chat;
     /// `then` runs first. Call it while the handler runs: the move into a
@@ -29,12 +29,25 @@ enum AgentBesidePlacement {
         let services = controller.services, anchor = controller.pane
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in
-            guard let surface = await within(openLimit, { await surfaces.first { _ in true } }) ?? nil else {
-                return "beside-caller: the new tab did not open"
+            // The tab's surface, then the store listing it; a bounded wait, so a tab
+            // that never opens cannot hold the run.
+            let listed = Task { @MainActor () -> SurfaceID? in
+                var opened = surfaces.makeAsyncIterator()
+                guard let surface = await opened.next() else { return nil }
+                for await found in Observations({ services.locateTab(surface: surface) != nil }) where found {
+                    return surface
+                }
+                return nil
             }
-            guard await within(openLimit, { await reported(surface, services: services) }) == true,
-                  let tab = services.locateTab(surface: surface) else {
-                return "beside-caller: the new tab was never listed"
+            let bound = Task { @MainActor in
+                try? await Task.sleep(for: openLimit)
+                listed.cancel()
+                sink.finish()
+            }
+            let surface = await listed.value
+            bound.cancel()
+            guard let surface, let tab = services.locateTab(surface: surface) else {
+                return "beside-caller: the new tab did not open"
             }
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewColumn(tab, anchor: anchor, services: services) { done.resume(returning: $0) }
@@ -45,29 +58,6 @@ enum AgentBesidePlacement {
             then?(surface)
             sink.yield(surface)
             sink.finish()
-        }
-    }
-
-    /// The tab on `surface` once the store lists it (the daemon's reply can come before its echo).
-    @MainActor private static func reported(_ surface: SurfaceID, services: AppServices) async -> Bool {
-        for await listed in Observations({ services.locateTab(surface: surface) != nil }) where listed {
-            return true
-        }
-        return false
-    }
-
-    /// `body`'s value, or nil when `limit` passes first (an intentional bound,
-    /// so a tab that never opens cannot hold the run).
-    @MainActor private static func within<T: Sendable>(_ limit: Duration, _ body: @escaping @MainActor () async -> T) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask { @MainActor in await body() }
-            group.addTask {
-                try? await Task.sleep(for: limit)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
         }
     }
 }
