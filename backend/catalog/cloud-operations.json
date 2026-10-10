@@ -3316,7 +3316,7 @@
                 "kind": "primitive",
                 "name": "string",
                 "min_length": 1,
-                "max_length": 300
+                "max_length": 600
               }
             },
             "site": {
@@ -3325,7 +3325,7 @@
                 "kind": "primitive",
                 "name": "string",
                 "min_length": 1,
-                "max_length": 253
+                "max_length": 506
               }
             },
             "image": {
@@ -21703,12 +21703,12 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 300
+                    "maxLength": 600
                   },
                   "site": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 253
+                    "maxLength": 506
                   },
                   "image": {
                     "$ref": "#/$defs/HomeLinkPreviewImage"
@@ -22544,12 +22544,12 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 300
+                    "maxLength": 600
                   },
                   "site": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 253
+                    "maxLength": 506
                   },
                   "image": {
                     "$ref": "#/$defs/HomeLinkPreviewImage"
@@ -23826,12 +23826,12 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 300
+                    "maxLength": 600
                   },
                   "site": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 253
+                    "maxLength": 506
                   },
                   "image": {
                     "$ref": "#/$defs/HomeLinkPreviewImage"
@@ -24749,12 +24749,12 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 300
+                    "maxLength": 600
                   },
                   "site": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 253
+                    "maxLength": 506
                   },
                   "image": {
                     "$ref": "#/$defs/HomeLinkPreviewImage"
@@ -42229,12 +42229,12 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 300
+                    "maxLength": 600
                   },
                   "site": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 253
+                    "maxLength": 506
                   },
                   "image": {
                     "$ref": "#/$defs/HomeLinkPreviewImage"
@@ -42821,12 +42821,12 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 300
+                    "maxLength": 600
                   },
                   "site": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 253
+                    "maxLength": 506
                   },
                   "image": {
                     "$ref": "#/$defs/HomeLinkPreviewImage"
