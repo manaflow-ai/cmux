@@ -116,7 +116,7 @@ struct SidebarJumpToUnreadButton: View {
                     .padding(.bottom, placement == .aboveFooter ? 8 : 0)
             } else if placement == .windowBottom, showsHiddenNote {
                 // The window capsule stays up with the note in it, then goes.
-                hiddenNote.padding(.horizontal, 12).frame(height: 28)
+                hiddenNote.padding(.horizontal, 12).frame(height: 28).sidebarJumpToUnreadFloatingGlass(hovered: false, drawsGlass: true)
             } else {
                 // Zero size also tells `WindowOverlay` to hide the capsule.
                 Color.clear.frame(width: 0, height: 0)
@@ -187,7 +187,7 @@ struct SidebarJumpToUnreadButton: View {
             }
         }
         .fixedSize()
-        .sidebarJumpToUnreadFloatingGlass(hovered: isHovered, drawsGlass: placement == .aboveFooter)
+        .sidebarJumpToUnreadFloatingGlass(hovered: isHovered, drawsGlass: true)
         .onHover { hovering in
             isHovered = hovering
             if !hovering { isConfirmingHide = false }
@@ -286,193 +286,12 @@ extension SidebarJumpToUnreadButton {
             if let content { next?.show(content) }
         }
     }
-
-    /// One per window: the capsule's hosting view, sized to it, on a glass or
-    /// material backdrop 16 pt above the window content's bottom center, in the
-    /// portal's overlay container right above every terminal and browser host
-    /// (later overlays such as the command palette stay above it).
-    @MainActor
-    final class WindowOverlay {
-        private static var associationKey: UInt8 = 0
-        private static let bottomInset: CGFloat = 16
-
-        static func controller(for window: NSWindow) -> WindowOverlay {
-            if let existing = objc_getAssociatedObject(window, &associationKey) as? WindowOverlay { return existing }
-            let created = WindowOverlay(window: window)
-            objc_setAssociatedObject(window, &associationKey, created, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            return created
-        }
-
-        private weak var window: NSWindow?
-        private let chromeComposition = AppWindowChromeComposition()
-        private let root = NSView()
-        private let backdrop = WindowOverlay.makeBackdrop()
-        private let clip = NSView()
-        private var host: Host?
-        private var unreadSubscription: AnyCancellable?
-        private weak var observedReference: NSView?
-        private var referenceObserver: NSObjectProtocol?
-        private var isLayoutScheduled = false
-
-        private init(window: NSWindow) {
-            self.window = window
-            root.wantsLayer = true
-            root.layer?.shadowColor = NSColor.black.cgColor
-            root.layer?.shadowOpacity = 0.24
-            root.layer?.shadowRadius = 6
-            root.layer?.shadowOffset = CGSize(width: 0, height: -2)
-            clip.wantsLayer = true
-            clip.clipsToBounds = true
-            clip.layer?.masksToBounds = true
-            clip.layer?.borderWidth = 0.5
-            clip.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
-            for view in [backdrop, clip] {
-                view.autoresizingMask = [.width, .height]
-                root.addSubview(view)
-            }
-        }
-
-        deinit { if let referenceObserver { NotificationCenter.default.removeObserver(referenceObserver) } }
-
-        func show(_ content: SidebarJumpToUnreadButton) {
-            // Leading-aligned, so content wider than a not-yet-resized host
-            // grows out of the trailing edge, under the clip.
-            let rootView = AnyView(content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .cmuxAccentColorEnvironment().cmuxFontMagnificationEnvironment())
-            if let host {
-                host.rootView = rootView
-            } else {
-                let host = Host(rootView: rootView)
-                host.sizingOptions = [.intrinsicContentSize]
-                host.onIntrinsicSizeChange = { [weak self] in self?.scheduleLayout() }
-                clip.addSubview(host)
-                self.host = host
-            }
-            // A new count re-promotes even when the capsule's size holds.
-            unreadSubscription = unreadSubscription ?? TerminalNotificationStore.shared.$notificationMenuSnapshot
-                .map(\.unreadCount)
-                .removeDuplicates()
-                .sink { [weak self] _ in MainActor.assumeIsolated { self?.scheduleLayout() } }
-            scheduleLayout()
-        }
-
-        func remove() {
-            unreadSubscription = nil
-            host?.removeFromSuperview()
-            host = nil
-            root.removeFromSuperview()
-            observeReference(nil)
-        }
-
-        /// SwiftUI reports size changes mid-update; lay out once, next turn.
-        private func scheduleLayout() {
-            guard !isLayoutScheduled else { return }
-            isLayoutScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                self?.isLayoutScheduled = false
-                self?.layout(animated: true)
-            }
-        }
-
-        private func layout(animated: Bool) {
-            guard let window, let host, let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window)
-            else { return root.removeFromSuperview() }
-            let container = target.container
-            let wasVisible = root.superview === container && !root.frame.isEmpty
-            promoteAbovePortals(in: container, reference: target.reference)
-            observeReference(target.reference)
-            let size = host.intrinsicContentSize
-            guard size.width > 0, size.height > 0 else {
-                root.frame = .zero // Nothing to show: takes no clicks, draws nothing.
-                return
-            }
-            let area = container.convert(target.reference.bounds, from: target.reference)
-            let width = ceil(size.width), height = ceil(size.height)
-            let frame = NSRect(
-                x: (area.midX - width / 2).rounded(),
-                y: container.isFlipped ? area.maxY - Self.bottomInset - height : area.minY + Self.bottomInset,
-                width: width, height: height
-            )
-            host.frame = NSRect(origin: .zero, size: frame.size)
-            let radius = height / 2
-            clip.layer?.cornerRadius = radius
-            backdrop.layer?.cornerRadius = radius
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) { (backdrop as? NSGlassEffectView)?.cornerRadius = radius }
-#endif
-            root.layer?.shadowPath = CGPath(roundedRect: host.frame, cornerWidth: min(radius, width / 2), cornerHeight: radius, transform: nil)
-            guard root.frame != frame else { return }
-            guard animated, wasVisible else { root.frame = frame; return }
-            // The capsule eases to its new width; the host is already there.
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.15
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                context.allowsImplicitAnimation = true
-                self.root.frame = frame
-            }
-        }
-
-        /// Portal hosts install just above the content view and can be
-        /// re-added as splits and workspaces change; stay above the topmost.
-        private func promoteAbovePortals(in container: NSView, reference: NSView) {
-            let siblings = container.subviews
-            let portal = siblings.last { $0 is WindowTerminalHostView || $0 is WindowBrowserHostView }
-                ?? (reference.superview === container ? reference : nil)
-            let portalIndex = portal.flatMap { candidate in siblings.firstIndex { $0 === candidate } } ?? -1
-            if let rootIndex = siblings.firstIndex(where: { $0 === root }), rootIndex > portalIndex { return }
-            container.addSubview(root, positioned: .above, relativeTo: portal)
-        }
-
-        private func observeReference(_ reference: NSView?) {
-            guard observedReference !== reference else { return }
-            if let referenceObserver { NotificationCenter.default.removeObserver(referenceObserver) }
-            referenceObserver = nil
-            observedReference = reference
-            guard let reference else { return }
-            reference.postsFrameChangedNotifications = true
-            referenceObserver = NotificationCenter.default.addObserver(
-                forName: NSView.frameDidChangeNotification, object: reference, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.layout(animated: false) }
-            }
-        }
-
-        /// Liquid Glass on macOS 26, a popover material before; both blur
-        /// the terminal beneath now that they sit above it.
-        private static func makeBackdrop() -> NSView {
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) { return NSGlassEffectView() }
-#endif
-            let effect = NSVisualEffectView()
-            effect.material = .popover
-            effect.blendingMode = .withinWindow
-            effect.state = .active
-            effect.wantsLayer = true
-            effect.layer?.masksToBounds = true
-            return effect
-        }
-
-        /// Never takes keyboard focus (the terminal stays first responder),
-        /// takes the first click in an inactive window, and owns the cursor
-        /// over the capsule: an arrow, not the terminal's I-beam beneath.
-        private final class Host: NSHostingView<AnyView> {
-            var onIntrinsicSizeChange: (() -> Void)?
-            override var acceptsFirstResponder: Bool { false }
-            override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-            override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
-            override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
-            override func invalidateIntrinsicContentSize() {
-                super.invalidateIntrinsicContentSize()
-                onIntrinsicSizeChange?()
-            }
-        }
-    }
 }
 
 private extension View {
     /// Liquid Glass on macOS 26 (a material capsule before), hairline rim,
-    /// soft shadow, brighter on hover. The window style's AppKit host draws
-    /// its own glass, rim and shadow, so it only gets the hover fill here.
+    /// soft shadow, brighter on hover. The window style's capsule sits in an
+    /// AppKit host above the terminals, so its glass samples them too.
     @ViewBuilder
     func sidebarJumpToUnreadFloatingGlass(hovered: Bool, drawsGlass: Bool) -> some View {
         let hoverFill = Capsule().fill(Color.white.opacity(hovered ? 0.06 : 0)).allowsHitTesting(false)
