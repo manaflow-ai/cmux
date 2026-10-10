@@ -28,8 +28,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: PageWKWebView
-    /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
-    /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
@@ -40,6 +38,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
+    public var additionalZoom: Double = 1 {
+        didSet { if additionalZoom != oldValue { applyUIScale() } }
+    }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -240,8 +241,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Keeps first-party pages proportional to native chrome as the live
     /// interface scale changes.
-    private func applyUIScale() {
-        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+    func applyUIScale() {
+        webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -376,25 +377,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         case .cancel:
             return .cancel
         }
-    }
-
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
-        // A new document: the old one's subscriptions and host calls end with it, and it has not
-        // painted yet.
-        router.reset()
-        _ = claimState.end()
-        loaded = false
-        paintedUptime = nil
-        let bridge = bridge
-        router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
-    }
-
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        loaded = true
-        applyUIScale()
-        applyTheme(force: true)
-        applyLiveDocumentAttributes()
-        resumeLoadWaiters()
     }
 
 }
