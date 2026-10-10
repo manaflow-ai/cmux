@@ -73,6 +73,7 @@ struct AgentActivityDetailHeader: View {
                 Icon(.actionMore, size: 16)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help(AgentActivityStrings.more).accessibilityLabel(AgentActivityStrings.more)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
