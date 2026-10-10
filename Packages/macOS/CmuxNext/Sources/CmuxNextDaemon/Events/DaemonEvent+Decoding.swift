@@ -63,6 +63,9 @@ extension DaemonEvent {
             case "bookmarks-changed":
                 let e = try d(EventPayload.BookmarksChanged.self)
                 return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
+            case "history-changed":
+                let e = try d(EventPayload.HistoryChanged.self)
+                return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
@@ -90,6 +93,11 @@ extension DaemonEvent {
 
 /// Minimal payload shapes for events whose fields map onto enum cases.
 private enum EventPayload {
+    struct HistoryChanged: Decodable {
+        var revision: UInt64
+        var kinds: [String]?
+    }
+
     struct BookmarksChanged: Decodable {
         var browserProfileID: String
         var revision: UInt64?

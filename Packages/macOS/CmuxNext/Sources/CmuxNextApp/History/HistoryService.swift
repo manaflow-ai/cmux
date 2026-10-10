@@ -8,11 +8,13 @@ import Foundation
 /// `history.list`. Owns the per-profile visit logs; never a second copy of
 /// a fact another owner keeps.
 final class HistoryService {
-    private unowned let services: AppServices
+    unowned let services: AppServices
     /// `<Application Support>/<bundle id>`, set at launch; nil keeps page
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
+    private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
     let agents: AgentHistory
     let commands: CommandHistory
@@ -47,7 +49,12 @@ final class HistoryService {
     /// from the profile's log.
     func attach(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
         let sink = sink(for: profile)
-        history.persistence = sink
+        let route = routes[profile] ?? RoutingVisitSink(local: sink, profile: BrowserProfileRecord.wireID(for: profile)) { [weak self] in
+            self?.daemonHistory
+        }
+        routes[profile] = route
+        history.persistence = route
+        if let daemon = daemonHistory { return seedFromDaemon(history, profile: profile, daemon) }
         let log = sink.log
         // task-owner: one-shot launch read of the profile's visit log
         Task { [weak history] in
@@ -81,6 +88,7 @@ final class HistoryService {
 
     /// Every entry matching `query`, newest first.
     func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
+        if let daemon = daemonHistory { return await daemonEntries(query, daemon) }
         let wants = { (kind: HistoryEntry.Kind) in query.kinds.isEmpty || query.kinds.contains(kind) }
         var all: [HistoryEntry] = []
         if wants(.location) { all += locationEntries() }
@@ -109,7 +117,8 @@ final class HistoryService {
 
     /// The entry with `id` among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
-        await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
+        if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
+        return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
     }
 
     func locationEntries() -> [HistoryEntry] {
@@ -190,6 +199,20 @@ final class HistoryService {
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
+        if daemonHistory != nil {
+            // The daemon removes page visits and hides agents and commands; closed items age out
+            // in their owners; the trail is the app's.
+            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting([.location]) : kinds.subtracting([.location])
+            if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
+            if wants(.page) {
+                for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
+                    services.cache.history(for: profile).forget(since: since)
+                }
+            }
+            if wants(.location) { services.locationTrail.clear(since: since) }
+            onChange?()
+            return
+        }
         if wants(.page) {
             for (profile, _) in profileLogs {
                 guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
@@ -211,6 +234,13 @@ final class HistoryService {
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
         let since = range.start(now: Date())
+        if daemonHistory != nil {
+            let wireID = BrowserProfileRecord.wireID(for: profile)
+            daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }
+            services.cache.history(for: profile).forget(since: since)
+            onChange?()
+            return
+        }
         sink(for: profile).clear(since: since)
         services.cache.history(for: profile).forget(since: since)
         onChange?()
@@ -218,6 +248,14 @@ final class HistoryService {
 
     /// Removes one entry (the page's Remove from History).
     func remove(_ entry: HistoryEntry) {
+        // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
+        // it serves history-v1) removes every visit of it.
+        if daemonHistory != nil, entry.kind != .location, entry.kind != .page {
+            let id = entry.id
+            daemonMutation { try await $0.remove(ids: [id]) }
+            onChange?()
+            return
+        }
         switch entry.payload {
         case .page(let url, let profile):
             let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
@@ -242,6 +280,15 @@ final class HistoryService {
 
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
+        if daemonHistory != nil {
+            // One site removal on the daemon (one backup); memory forgets without persistence.
+            daemonMutation { try await $0.removeSite(host: host, profile: nil) }
+            for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
+                services.cache.history(for: profile).forget(host: host)
+            }
+            onChange?()
+            return
+        }
         for (profile, _) in profileLogs {
             guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
             sink(for: engine).remove(host: host)
@@ -251,8 +298,12 @@ final class HistoryService {
         onChange?()
     }
 
-    /// A deleted browser profile: its log file goes too.
+    /// A deleted browser profile: its page history goes too, on the daemon and in the app-local log.
     func forget(profile: BrowserProfileID) {
+        if daemonHistory != nil {
+            let wireID = BrowserProfileRecord.wireID(for: profile)
+            daemonMutation { try await $0.clear(kinds: [.page], range: .all, profile: wireID) }
+        }
         sinks[profile]?.clear(since: nil)
         sinks[profile] = nil
     }
