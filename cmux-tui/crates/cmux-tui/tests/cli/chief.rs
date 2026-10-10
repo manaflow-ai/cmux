@@ -4,6 +4,7 @@
 
 use super::*;
 use serde_json::{Value, json};
+use std::os::fd::FromRawFd;
 
 #[path = "chief_autostart.rs"]
 mod autostart;
@@ -88,6 +89,17 @@ fn fake_brain(
     token: String,
     busy: bool,
 ) -> std::thread::JoinHandle<()> {
+    fake_brain_saying(socket, conversation, token, busy, |text| format!("echo: {text}"))
+}
+
+/// `fake_brain` whose reply to a message is `reply(text)`.
+fn fake_brain_saying(
+    socket: PathBuf,
+    conversation: String,
+    token: String,
+    busy: bool,
+    reply: fn(&str) -> String,
+) -> std::thread::JoinHandle<()> {
     let (ready_tx, ready_rx) = mpsc::channel();
     let brain = std::thread::spawn(move || {
         let mut brain = Conn::open(&socket);
@@ -123,7 +135,7 @@ fn fake_brain(
             let key = format!("turn:optchat:{seq}");
             brain.request(
                 "conversation-op",
-                op(json!({"kind": "message.send", "client_msg_id": key, "parts": [{"type": "text", "text": format!("echo: {text}")}]}), key),
+                op(json!({"kind": "message.send", "client_msg_id": key, "parts": [{"type": "text", "text": reply(&text)}]}), key),
             );
             typing(&mut brain, false);
             return;
@@ -207,4 +219,99 @@ fn chief_without_a_chief_conversation_says_how_to_get_one() {
     let output = chief_cli(&server, &["-p", "hi"], "");
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("no Chief conversation"));
+}
+
+/// The Chief's posted reply names its subagents as `[a1](cmux://chief/<home id>/session/<id>)`
+/// (optchat-chief `link_subagents`). Lawrence 2026-10-10: a Cmd-click in any terminal opens the
+/// subagent. On a terminal, `cmux chief -p` writes each one as an OSC 8 hyperlink on its label;
+/// on a pipe it writes the reply as it is, with no escape bytes.
+const SUBAGENT_LINK: &str = "cmux://chief/0a1b2c3d/session/01a12318-9c7f-7000-beab-7686172b0ca3";
+
+fn linked_reply(_: &str) -> String {
+    format!("a1 counts lines: [a1]({SUBAGENT_LINK}) and [docs](https://cmux.com/docs)")
+}
+
+/// One `cmux chief -p hi` turn against a brain that replies with a subagent link; stdout is a
+/// pseudo-terminal when `tty`, else a pipe. Returns stdout's bytes.
+fn linked_turn(tty: bool, env: &[(&str, &str)]) -> Vec<u8> {
+    let server = HeadlessServer::start(if tty { "chief-osc8-tty" } else { "chief-osc8-pipe" });
+    let mut home = Conn::open(&server.socket);
+    let conversation = chief_conversation(&mut home);
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let brain = fake_brain_saying(server.socket.clone(), conversation, token, false, linked_reply);
+    let mut command = Command::new(bin());
+    command
+        .arg("--socket")
+        .arg(&server.socket)
+        .args(["chief", "-p", "hi"])
+        .env("LC_ALL", "C")
+        .env("TERM", "xterm-256color")
+        .env_remove("NO_COLOR")
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped());
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let bytes = if tty {
+        let (mut primary, mut secondary) = (0, 0);
+        // SAFETY: openpty writes two descriptors it opened into the two out pointers.
+        let opened = unsafe {
+            libc::openpty(&mut primary, &mut secondary, std::ptr::null_mut(), std::ptr::null(), std::ptr::null())
+        };
+        assert_eq!(opened, 0, "openpty");
+        // SAFETY: the descriptors are fresh and owned here; each File closes its own.
+        let (primary, secondary) =
+            unsafe { (fs::File::from_raw_fd(primary), fs::File::from_raw_fd(secondary)) };
+        command.stdout(Stdio::from(secondary));
+        let mut child = command.spawn().unwrap();
+        drop(command);
+        let (tx, rx) = mpsc::channel();
+        let mut reader = primary;
+        std::thread::spawn(move || {
+            let mut all = Vec::new();
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                all.extend_from_slice(&buf[..n]);
+                let _ = tx.send(all.clone());
+            }
+        });
+        let status = child.wait().unwrap();
+        assert!(status.success(), "cmux chief -p on a tty: {status}");
+        let mut last = Vec::new();
+        while let Ok(bytes) = rx.recv_timeout(Duration::from_secs(2)) {
+            last = bytes;
+        }
+        last
+    } else {
+        command.stdout(Stdio::piped());
+        let output = command.output().unwrap();
+        assert_success(&output);
+        output.stdout
+    };
+    brain.join().unwrap();
+    bytes
+}
+
+#[test]
+fn chief_pipe_writes_subagent_links_as_terminal_hyperlinks_on_a_tty_only() {
+    let osc8 = format!("\x1b]8;;{SUBAGENT_LINK}\x1b\\a1\x1b]8;;\x1b\\");
+    let tty = String::from_utf8_lossy(&linked_turn(true, &[])).into_owned();
+    assert!(tty.contains(&osc8), "no OSC 8 hyperlink on a tty: {tty:?}");
+    assert!(!tty.contains(&format!("({SUBAGENT_LINK})")), "the Markdown link stays on a tty: {tty:?}");
+    // Only this Chief's subagent form is a hyperlink; other links print as written.
+    assert!(tty.contains("[docs](https://cmux.com/docs)"), "{tty:?}");
+    // A pipe, NO_COLOR and TERM=dumb get the reply as it is, with no escape bytes.
+    for (tty, env) in [(false, &[][..]), (true, &[("NO_COLOR", "1")][..]), (true, &[("TERM", "dumb")][..])] {
+        let out = String::from_utf8_lossy(&linked_turn(tty, env)).into_owned();
+        assert!(!out.contains("\x1b]8;"), "escape bytes with tty={tty} {env:?}: {out:?}");
+        assert!(out.contains(&format!("[a1]({SUBAGENT_LINK})")), "{out:?}");
+    }
 }
