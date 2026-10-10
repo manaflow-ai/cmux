@@ -7,5 +7,7 @@
   min-height: 18px;
   padding: 0 12px 4px 26px;
   color: var(--cv-text-muted);
-  font: 11px/18px var(--cv-font);
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  line-height: 18px;
 }
