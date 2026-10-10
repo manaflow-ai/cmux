@@ -125,7 +125,6 @@
       }
 
       async function sendNow(msg) {
-        const bodyStart = msg.body.trim().slice(0, 40);
         if (msg.threadId) {
           const key = threadKey(msg.threadId);
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
@@ -136,7 +135,7 @@
             await box.waitFor({ timeout: 20000 });
             await box.click();
             await page.keyboard.insertText(msg.body);
-            return finishSend(page, box, bodyStart, msg);
+            return finishSend(page, box, msg);
           });
         }
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
@@ -147,13 +146,16 @@
           t.assertSignedIn("gmail.send", page, SIGN_IN);
           const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
           await box.waitFor({ timeout: 30000 });
-          return finishSend(page, box, bodyStart, msg);
+          return finishSend(page, box, msg);
         });
       }
 
-      async function finishSend(page, box, bodyStart, msg) {
-        const shown = (await box.innerText()).replace(/\s+/g, " ");
-        if (bodyStart && !shown.includes(bodyStart.replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body; nothing was sent");
+      // Gmail's own additions to a compose window, which are not the draft.
+      const GMAIL_OWN = ".gmail_signature, .gmail_signature_prefix, [data-smartmail=\"gmail_signature\"], .gmail_quote";
+      async function finishSend(page, box, msg) {
+        // The whole body the compose window holds, right before Send,
+        // without Gmail's own signature and quoted text.
+        await t.checkComposer("gmail.send", box, msg.body, { exclude: GMAIL_OWN, what: "sent" });
         await page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last().click();
         await t.waitIn(page, () => /Message sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "gmail", timeout: 30000, what: "Gmail to confirm the message was sent" });
         // Gmail holds a sent message for its undo window in this page; keep

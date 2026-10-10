@@ -17,10 +17,15 @@ export function SummaryButton({
   rows,
   onOpenOutput,
   onOpenImage,
+  changes,
+  onOpenChanges,
 }: {
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  /// The last turn that edited files, with its counts; the popover's Changes row opens it.
+  changes?: { additions: number; deletions: number };
+  onOpenChanges?: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -71,7 +76,11 @@ export function SummaryButton({
       {summary ? (
         <Popover
           open={open}
-          onOpenChange={setOpen}
+          // This popover has no Base UI trigger. Opening is owned by the button and
+          // automation; Base UI only reports dismissals (Escape and outside press).
+          onOpenChange={(next) => {
+            if (!next) setOpen(false);
+          }}
           anchor={button.current}
           label={label}
           className="acpmux-summary-popover"
@@ -83,6 +92,15 @@ export function SummaryButton({
             onOpenGallery={() => {
               setOpen(false);
               setGallery(true);
+            }}
+            changes={changes}
+            onOpenChanges={() => {
+              // Diff review restores focus to its opener after closing. Keep the
+              // persistent Sources button as that opener before unmounting this
+              // popover, rather than handing it a detached Changes row.
+              button.current?.focus();
+              setOpen(false);
+              onOpenChanges?.();
             }}
             onFollow={() => setOpen(false)}
             onOpenOutput={

@@ -2,6 +2,8 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
+import { AddProjectDialog } from "./AddProjectPanel";
+import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
@@ -18,6 +20,7 @@ export function ProjectChooser({
   icon,
   onPick,
   onBrowse,
+  projectHost,
   side = "top",
 }: {
   projects: Project[];
@@ -26,11 +29,13 @@ export function ProjectChooser({
   icon: React.ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  projectHost?: ProjectDirectoryHost;
   /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
   side?: "top" | "bottom";
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.
   const [active, setActive] = useState<string | undefined>(undefined);
@@ -206,14 +211,24 @@ export function ProjectChooser({
               onMouseDown={(event) => {
                 event.preventDefault();
                 close(false);
-                onBrowse();
+                setAdding(true);
               }}
             >
-              {t("project.browse")}
+              {t("project.add")}
             </button>
           )}
         </div>
       </Popover>
+      <AddProjectDialog
+        open={adding}
+        host={projectHost}
+        onBrowse={onBrowse}
+        onClose={() => setAdding(false)}
+        onPick={(cwd) => {
+          setAdding(false);
+          onPick(cwd);
+        }}
+      />
     </span>
   );
 }
