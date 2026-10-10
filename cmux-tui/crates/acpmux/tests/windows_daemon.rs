@@ -513,3 +513,40 @@ fn a_profile_another_user_can_change_is_refused() {
     );
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// Two `acpmux daemon start` at once on a new home: both succeed and name
+/// the same daemon (the second start's daemon loses the lock and exits;
+/// its client must still open the shared daemon.log and connect).
+#[test]
+fn two_starts_at_once_share_one_daemon() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("twostart");
+    let start = || {
+        acpmux(&exe, &home)
+            .args(["daemon", "start"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn acpmux daemon start")
+    };
+    let (first, second) = (start(), start());
+    let outs = [first.wait_with_output().unwrap(), second.wait_with_output().unwrap()];
+    let pids: Vec<String> = outs
+        .iter()
+        .map(|out| {
+            assert!(out.status.success(), "a concurrent daemon start failed: {}", text(out));
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            stdout
+                .split(" pid ")
+                .nth(1)
+                .and_then(|r| r.split_whitespace().next())
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect();
+    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    assert!(!pids[0].is_empty() && pids[0] == pids[1], "two daemons answered: {pids:?}");
+    let _ = std::fs::remove_dir_all(&home);
+}

@@ -32,8 +32,9 @@ use windows_sys::Win32::Security::{
     PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_SHARE_READ, OPEN_ALWAYS,
+    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    OPEN_ALWAYS,
 };
 
 /// SIDs whose rights do not make a file shared: SYSTEM, Administrators and
@@ -116,21 +117,37 @@ fn attributes(sd: &Local) -> SECURITY_ATTRIBUTES {
 /// Creates `path` (which must not exist) owner-only for writing, never
 /// through a link (O_EXCL | O_NOFOLLOW, mode 0600 on Unix).
 pub(crate) fn create_new(path: &Path) -> io::Result<File> {
-    open_owner_only(path, CREATE_NEW, GENERIC_WRITE)
+    open_owner_only(path, CREATE_NEW, GENERIC_WRITE, FILE_SHARE_READ)
 }
 
 /// Opens `path` for appending, creating it owner-only when missing; an
 /// existing file that is wider is narrowed (the daemon log; 0600 on Unix).
 pub(crate) fn open_append(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::MetadataExt;
     // FILE_APPEND_DATA | SYNCHRONIZE, plus read attributes for metadata.
-    let file = open_owner_only(path, OPEN_ALWAYS, 0x4 | 0x10_0000 | 0x80)?;
+    // Shared like std's opens: a running daemon holds the log as its stdout
+    // and stderr, and a second start must still open it (it then loses the
+    // start lock and exits).
+    let file = open_owner_only(
+        path,
+        OPEN_ALWAYS,
+        0x4 | 0x10_0000 | 0x80,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    )?;
+    // The checks below go by path, so the path must be the file itself.
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is a link, not a log file", path.display()),
+        ));
+    }
     if !only_owner_reads(path)? {
         restrict(path)?;
     }
     Ok(file)
 }
 
-fn open_owner_only(path: &Path, disposition: u32, access: u32) -> io::Result<File> {
+fn open_owner_only(path: &Path, disposition: u32, access: u32, share: u32) -> io::Result<File> {
     let sd = descriptor(&user_sid()?, false)?;
     let attrs = attributes(&sd);
     let name = wide(path);
@@ -139,7 +156,7 @@ fn open_owner_only(path: &Path, disposition: u32, access: u32) -> io::Result<Fil
         CreateFileW(
             name.as_ptr(),
             access,
-            FILE_SHARE_READ,
+            share,
             &attrs,
             disposition,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
