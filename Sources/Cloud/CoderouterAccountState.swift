@@ -42,6 +42,18 @@ struct CoderouterAccountState: Equatable {
         isLoadingScope = newScope != nil
     }
 
+    /// Drops the snapshot before the auth coordinator publishes the next
+    /// confirmed team. The scope observer can run before SwiftUI observes the
+    /// new team ID, so selecting the current scope here would otherwise leave
+    /// the previous team's rows visible through that gap.
+    mutating func resetForTeamScopeChange() {
+        scope = nil
+        accounts = []
+        destination = nil
+        pendingRemovalIDs = []
+        isLoadingScope = false
+    }
+
     mutating func invalidateDestination(for refreshScope: CoderouterAccountScope) {
         guard refreshScope == scope else { return }
         destination = nil

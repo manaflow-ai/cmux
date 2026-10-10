@@ -143,6 +143,15 @@ struct MachinesPanelView: View {
             coderouterState.select(currentCoderouterScope)
             viewModel.refreshAccountScope()
         }
+        // The scope observer posts this before every team/account transition.
+        // Clear the snapshot even when SwiftUI has not observed the new
+        // confirmed team yet; otherwise the previous team's Codex rows can
+        // remain visible while the replacement read is queued.
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxCloudTeamScopeDidChange)) { _ in
+            coderouterState.resetForTeamScopeChange()
+            coderouterIsRefreshing = true
+            coderouterRefreshRequest += 1
+        }
         .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
             viewModel.refreshLocalWorkspaces(selectedWorkspaceID: selectedWorkspaceID)
         }
