@@ -151,7 +151,8 @@ pub(crate) fn terminal_replay_blob(
                     terminal
                         .vt_replay_bounded(budget)
                         .map(|replay| (terminal.cols(), terminal.rows(), replay))
-                })?;
+                })
+                .with_context(|| format!("terminal {terminal_id} replay capture"))?;
             match result {
                 Ok(value) => {
                     captured = Some(value);
