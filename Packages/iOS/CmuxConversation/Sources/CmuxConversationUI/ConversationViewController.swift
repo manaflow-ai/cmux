@@ -722,8 +722,12 @@ public final class ConversationViewController: UIViewController {
             UIView.performWithoutAnimation {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
-                self.collectionView.layoutIfNeeded()
+                // The batch already prepared the new layout, so the anchor is
+                // restored first: laying out at the stale offset would build
+                // a screenful of cells (a page landing above shifts every
+                // row) only to throw them away.
                 self.restore(anchor)
+                self.collectionView.layoutIfNeeded()
             }
             glideRegrouped(from: screenBefore)
         }
