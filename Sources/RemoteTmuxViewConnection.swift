@@ -802,8 +802,7 @@ final class RemoteTmuxViewConnection {
                 // remaining link: tmux refuses a plain `unlink-window` there ("window
                 // only linked to one session") and logs a commandError. With `-k` tmux
                 // unlinks normally when other links exist, and unlinks+destroys the
-                // already-orphaned window when the view is the last link — the correct
-                // cleanup either way.
+                // already-orphaned window when the view is the last link — the correct cleanup either way.
                 if let idx = snapshot.windows.first(where: {
                     $0.sessionName == view.sessionName && $0.windowId == windowId
                 })?.windowIndex {
@@ -812,6 +811,7 @@ final class RemoteTmuxViewConnection {
                 ownedWindowIds.remove(windowId)
             }
         }
+        adoptViewOnlyWindows(plan.adoptions, over: conn)
 
         if plan.workspaces != workspaces {
             workspaces = plan.workspaces
