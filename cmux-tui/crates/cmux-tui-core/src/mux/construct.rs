@@ -417,6 +417,10 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         mux.close_ephemeral_workspaces()?;
+        // cx-6so.49: host losses whose respawn an earlier owner never ran
+        // (it shut down first, or a session shutdown ended the shell).
+        #[cfg(unix)]
+        mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         crate::state::project_watch::start(&mux);

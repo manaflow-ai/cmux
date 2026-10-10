@@ -1,23 +1,34 @@
 /// Copies `text`: the async clipboard where the page may use it, else a selection copy
 /// (a WKWebView page loaded from a file is not always allowed the async clipboard).
-export async function copyText(text: string): Promise<void> {
+export async function copyTextResult(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
-  } catch {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const field = document.createElement("textarea");
+    return true;
+  } catch {}
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const field = document.createElement("textarea");
+  try {
     field.value = text;
     field.style.position = "fixed";
     field.style.opacity = "0";
     document.body.append(field);
     field.select();
-    document.execCommand("copy");
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
     field.remove();
     // The fallback briefly focuses its textarea. Restore the element that was active when the
     // fallback began, while still respecting a field the user focused while the clipboard write
     // was pending.
     if (previousFocus?.isConnected) previousFocus.focus();
   }
+}
+
+/// Copies `text`: the async clipboard where the page may use it, else a selection copy
+/// (a WKWebView page loaded from a file is not always allowed the async clipboard).
+export async function copyText(text: string): Promise<void> {
+  await copyTextResult(text);
 }
 
 /// Copies an image as PNG (an SVG or JPEG source is drawn to a canvas first). The blob is handed
