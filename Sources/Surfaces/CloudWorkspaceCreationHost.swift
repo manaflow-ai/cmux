@@ -7,27 +7,22 @@ import Foundation
 
 /// Captures the initiating window before creation suspends; completion never reselects it.
 @MainActor
-struct CloudWorkspaceCreationHost {
-    /// The manager that owned the workspace when the request began. A reserved
-    /// workspace can move between windows while remote creation is in flight;
-    /// resolve its current owner at each admission boundary instead of keeping
-    /// a stale placement manager.
-    private weak var initialManager: TabManager?
+final class CloudWorkspaceCreationHost {
+    private(set) weak var manager: TabManager?
     let selectedWorkspaceID: UUID?
     let reservedWorkspaceID: UUID?
 
     init(manager: TabManager, reservedWorkspaceID: UUID? = nil) {
-        self.initialManager = manager
+        self.manager = manager
         selectedWorkspaceID = manager.selectedTabId
         self.reservedWorkspaceID = reservedWorkspaceID
     }
 
-    var manager: TabManager? {
-        if let reservedWorkspaceID,
-           let owner = Workspace.liveWorkspace(id: reservedWorkspaceID)?.owningTabManager {
-            return owner
-        }
-        return initialManager
+    /// Rebinds this host only after an explicit retry has proven the same pane
+    /// is still live. Validation closures share this host, so a retry can
+    /// validate the current owner without retaining the closed window.
+    func rebind(manager: TabManager) {
+        self.manager = manager
     }
 
     var isAvailable: Bool { manager?.isFinalizedForWindowClose == false }

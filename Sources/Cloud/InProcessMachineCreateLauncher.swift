@@ -185,11 +185,9 @@ enum InProcessMachineCreateLauncher {
         in machineInfo: SurfaceMachineInfo?,
         boundID: String?
     ) -> RemoteWorkspaceResolution {
-        // A freshly registered provider may not have a graph yet. Let the
-        // creation coordinator create the daemon's initial workspace once the
-        // link is ready; treating an unknown graph as unavailable strands the
-        // machine after a successful allocation.
-        guard let workspaces = machineInfo?.remoteWorkspaces else { return .empty }
+        guard let workspaces = machineInfo?.remoteWorkspaces else {
+            return boundID == nil ? .empty : .unavailable
+        }
         if let boundID, !boundID.isEmpty {
             let matches = workspaces.filter { $0.id == boundID }
             return matches.count == 1 ? .selected(matches[0]) : (matches.isEmpty ? .unavailable : .ambiguous)

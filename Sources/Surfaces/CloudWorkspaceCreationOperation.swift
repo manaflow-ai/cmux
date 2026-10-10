@@ -12,7 +12,7 @@ final class CloudWorkspaceCreationOperation {
 
     let id = UUID()
     let provider: any SurfaceProvider
-    let host: CloudWorkspaceCreationHost?
+    var host: CloudWorkspaceCreationHost?
     let allowsActionRetry: Bool
     var validateOperation: @MainActor () throws -> Void
     /// Discovery runs after local admission and repeats on retry until a receipt is retained.
