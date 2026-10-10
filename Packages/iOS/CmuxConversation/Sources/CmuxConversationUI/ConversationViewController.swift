@@ -1283,8 +1283,12 @@ extension ConversationViewController {
         let text = layoutCache.attributedText(for: model)
         guard ConversationRichTextStyler.hasEffects(text) else { return }
         let resolved = PrefetchText(text.resolvingDynamicColors(with: collectionView.traitCollection))
+        let seed = ConversationTextEffectMotion.seed(model.rowID)
         Task.detached(priority: .userInitiated) {
-            ConversationTextEffectLayer.prepare(text: resolved.value, textSize: size, scale: max(1, scale), cacheToken: ConversationEffectLabel.resolvedCacheToken)
+            ConversationTextEffectLayer.prepare(
+                text: resolved.value, textSize: size, scale: max(1, scale),
+                cacheToken: ConversationEffectLabel.resolvedCacheToken, warmingSeed: seed
+            )
         }
     }
 }

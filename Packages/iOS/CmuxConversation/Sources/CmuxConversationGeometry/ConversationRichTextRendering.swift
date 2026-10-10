@@ -203,13 +203,20 @@ public final class ConversationTextEffectLayer: CALayer {
         renderText: NSAttributedString? = nil,
         textSize: CGSize,
         scale: CGFloat,
-        cacheToken: String
+        cacheToken: String,
+        warmingSeed seed: UInt64? = nil
     ) -> Rendering? {
         guard textSize.width > 0, ConversationRichTextStyler.hasEffects(text) else { return nil }
         let key = RenderingKey(text: NSAttributedString(attributedString: text), size: textSize, scale: scale, token: cacheToken)
-        if let cached = renderings.object(forKey: key) { return cached }
-        let rendering = render(renderText ?? text, textSize: textSize, scale: scale)
-        renderings.setObject(rendering, forKey: key)
+        let rendering: Rendering
+        if let cached = renderings.object(forKey: key) {
+            rendering = cached
+        } else {
+            rendering = render(renderText ?? text, textSize: textSize, scale: scale)
+            renderings.setObject(rendering, forKey: key)
+        }
+        // Loops for `seed` are built now too, so showing the row only copies them.
+        if let seed { _ = rendering.animations(seed: seed) }
         return rendering
     }
 
