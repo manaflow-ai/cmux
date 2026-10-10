@@ -23,6 +23,10 @@ async function main(): Promise<void> {
       timeout: { type: "string", default: "45" },
       duration: { type: "string", default: "0" },
       agent: { type: "string" },
+      "attach-terminal": { type: "string" },
+      type: { type: "string" },
+      "agent-history": { type: "string" },
+      "skip-echo": { type: "boolean", default: false },
       "agent-prompt": { type: "string" },
     },
   });
@@ -93,9 +97,37 @@ async function main(): Promise<void> {
   report.hello = hello;
   log(`hello: ${JSON.stringify(hello)}`);
 
-  const echo = await client.terminalEcho();
-  report.terminalEcho = echo;
-  log(`terminal echo ok in ${echo.ms} ms`);
+  if (!values["skip-echo"]) {
+    const echo = await client.terminalEcho();
+    report.terminalEcho = echo;
+    log(`terminal echo ok in ${echo.ms} ms`);
+  }
+
+  // Bridge checks: list the Mac's terminals and agent sessions; optionally
+  // attach an existing terminal, type into it and print what it shows.
+  const { terminals } = await client.request("term.list");
+  report.terminals = terminals;
+  log(`terminals: ${JSON.stringify(terminals.map((t: any) => ({ id: t.id, title: t.title, grid: `${t.cols}x${t.rows}` })))}`);
+  if (values["attach-terminal"]) {
+    const { streamId, terminal } = await client.request("term.attach", { terminalId: values["attach-terminal"], cols: 50, rows: 20 });
+    let screen = "";
+    client.onStream(streamId, (p) => (screen += new TextDecoder().decode(p)));
+    await new Promise((r) => setTimeout(r, 1000));
+    const replayBytes = screen.length;
+    if (values.type) client.sendInput(streamId, values.type);
+    await new Promise((r) => setTimeout(r, 2500));
+    const plain = screen.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[=>c]|\r/g, "");
+    report.attached = { terminal, replayBytes, tail: plain.slice(-600) };
+    log(`attached ${terminal.id} at ${terminal.cols}x${terminal.rows}; replay ${replayBytes} bytes; screen tail:\n${plain.trim().split("\n").filter(Boolean).slice(-8).join("\n")}`);
+    await client.request("term.detach", { streamId });
+  }
+  const { sessions } = await client.request("agent.list");
+  report.sessions = sessions;
+  log(`agent sessions: ${JSON.stringify(sessions.map((x: any) => ({ id: x.id, title: x.title, harness: x.harness, status: x.status })))}`);
+  if (values["agent-history"]) {
+    const h = await client.request("agent.history", { sessionId: values["agent-history"] }, 60_000);
+    log(`history ${values["agent-history"]}: ${JSON.stringify(h.items.map((i: any) => [i.kind, (i.text ?? i.title ?? i.stopReason ?? "").slice(0, 80), i.output ? i.output.slice(0, 40) : undefined].filter((x) => x !== undefined)))}`);
+  }
 
   const { harnesses } = await client.request("agent.harnesses");
   report.harnesses = harnesses.map((h: any) => ({ id: h.id, available: h.available }));

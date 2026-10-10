@@ -317,6 +317,15 @@ describe("acpmux agents bridge", () => {
     expect(newCall.params).toEqual({ cwd: expect.stringMatching(/^\//), mcpServers: [], _meta: { acpmux: { harness: "codex", model: "gpt-x" } } });
     expect(session.harness).toBe("codex");
     await waitFor(() => sessionsSeen.some((s) => s.id === session.id));
+    // A session created with a first prompt streams that turn without agent.history.
+    const items: any[] = [];
+    client.peer.on("event", (t, p) => t === "agent.item" && items.push(p));
+    const { session: s2 } = await client.request("agent.create", { harness: "codex", prompt: "first" });
+    await waitFor(() => items.some((i) => i.sessionId === s2.id && i.item.kind === "turnEnd"));
+    const attachIdx = a.calls.findIndex((c) => c.method === "_acpmux/attach" && c.params.sessionId === s2.id);
+    const promptIdx = a.calls.findIndex((c) => c.method === "session/prompt" && c.params.sessionId === s2.id);
+    expect(attachIdx).toBeGreaterThan(-1);
+    expect(attachIdx).toBeLessThan(promptIdx);
   });
 });
 

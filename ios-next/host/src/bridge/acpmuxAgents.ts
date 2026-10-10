@@ -166,6 +166,9 @@ export class AcpmuxAgents extends EventEmitter<AcpmuxAgentsEvents> {
       mcpServers: [],
       _meta: { acpmux: { harness: p.harness, ...(p.model ? { model: p.model } : {}) } },
     }, 120_000);
+    // Attach before the first prompt so its records stream to the phone live
+    // (the phone may not open the chat before the turn ends).
+    await this.history(res.sessionId).catch((err) => this.log(`attach ${res.sessionId} failed: ${(err as Error).message}`));
     if (p.prompt) this.sendPrompt(rpc, res.sessionId, p.prompt);
     const { sessions } = await checked<{ sessions: SessionSummary[] }>(rpc, "_acpmux/sessions");
     const s = sessions.find((x) => x.sessionId === res.sessionId);
