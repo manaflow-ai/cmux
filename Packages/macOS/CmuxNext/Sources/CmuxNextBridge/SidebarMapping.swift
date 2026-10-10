@@ -93,7 +93,9 @@ public struct SidebarMapping {
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
-            isClosable: workspace.kind != Self.homeKind
+            isClosable: workspace.kind != Self.homeKind,
+            // Group by Folder's bucket: the front tab's folder, else any tab's.
+            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(abbreviate)
         )
     }
 

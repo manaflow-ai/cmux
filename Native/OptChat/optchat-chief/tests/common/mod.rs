@@ -418,6 +418,8 @@ pub struct Agents {
     pub prompt_sets: Vec<(String, String)>,
     /// Each turn's prompt blocks.
     pub prompts: Vec<Vec<Value>>,
+    /// Every `probe_models` request, in order.
+    pub probed: Vec<String>,
     pub prompt_ids: Vec<String>,
     pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
     pub ended: Vec<String>,
@@ -724,6 +726,11 @@ impl AgentPort for FakeAgents {
         Ok(None)
     }
 
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        self.inner.lock().unwrap().probed.push(harness.to_owned());
+        Ok(())
+    }
+
     fn harness_catalog(&self) -> Result<Value, String> {
         Ok(self
             .inner
@@ -950,6 +957,18 @@ impl Harness {
         log: optchat_chief::brain::Log,
     ) -> Harness {
         let chat = open_chat(&dir.path().join("chat"));
+        Harness::over_chat(dir, script, owner, settings, log, chat)
+    }
+
+    /// `configured` over a chat the test opened (its own compactor model).
+    pub fn over_chat(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+        chat: Arc<OptChat>,
+    ) -> Harness {
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(

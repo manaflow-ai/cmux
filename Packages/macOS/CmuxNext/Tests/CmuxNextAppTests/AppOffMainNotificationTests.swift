@@ -47,7 +47,8 @@ private func waitOnMain(_ done: () -> Bool) async {
 struct AppOffMainNotificationTests {
     /// A scroller style change posted off main restyles the notifications
     /// list on main.
-    @Test func aScrollerStyleChangeOffMainRestylesTheNotificationsListOnMain() async throws {
+    @Test(.disabled("posts a scroll notice off main on NotificationCenter.default, where AppKit's own NSScrollView observer re-tiles off main and a main-actor document view traps the whole run (SIGTRAP, run 37906639937); post on an injected center instead"))
+    func aScrollerStyleChangeOffMainRestylesTheNotificationsListOnMain() async throws {
         let saved = SystemScrollers.preferredStyleOverride
         defer { SystemScrollers.preferredStyleOverride = saved }
         let panel = NotificationsPanelView(frame: NSRect(x: 0, y: 0, width: 380, height: 300))

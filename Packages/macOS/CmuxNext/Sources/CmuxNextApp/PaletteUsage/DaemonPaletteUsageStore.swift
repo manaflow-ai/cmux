@@ -24,6 +24,10 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private var revision: UInt64 = 0
     private var fetching: Task<Void, Never>?
     private var fetchAgain = false
+    /// Runs waiting to be recorded, oldest first, and the one task that
+    /// records them in order (cancelled with the store).
+    private var pendingRuns: [(key: String, query: String, idempotencyKey: String)] = []
+    private var recorder: Task<Void, Never>?
     private(set) var history: FrecencyStore
     var onChange: (@MainActor () -> Void)?
 
@@ -33,6 +37,11 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         self.local = local
         self.preferences = preferences
         history = local.history
+    }
+
+    isolated deinit {
+        recorder?.cancel()
+        fetching?.cancel()
     }
 
     private enum Owner {
@@ -77,12 +86,12 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         do {
             var snapshot = try PaletteUsageWire.history(try await client.get())
             if importedOn != id {
-                let legacy = await Task.detached { [preferences] in PaletteUsageWire.legacyHistories(preferences: preferences) }.value
                 var importedAny = false
-                for (source, former) in legacy where !snapshot.imported.contains(source) {
+                for former in await PaletteUsageLegacyHistory.read(preferences: preferences)
+                where !snapshot.imported.contains(former.source) && !Task.isCancelled {
                     do {
-                        _ = try await client.importHistory(source: source, entries: PaletteUsageWire.importRows(former),
-                                                           idempotencyKey: "palette-usage-import:\(source)")
+                        _ = try await client.importHistory(source: former.source, entries: former.rows,
+                                                           idempotencyKey: "palette-usage-import:\(former.source)")
                         importedAny = true
                     } catch {
                         Self.logger.error("palette usage import of one former history failed: \(String(describing: error), privacy: .public)")
@@ -107,16 +116,31 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             history = local.history
         case .away:
             Self.logger.info("palette usage: daemon away, one run not recorded")
-        case .daemon(let client, _):
-            let idempotencyKey = "palette-usage:\(UUID().uuidString)"
-            Task { [weak self] in
-                do {
-                    _ = try await client.record(key: key, query: query, idempotencyKey: idempotencyKey)
-                    self?.fetch()
-                } catch {
-                    Self.logger.error("palette usage record failed: \(String(describing: error), privacy: .public)")
-                }
+        case .daemon:
+            pendingRuns.append((key, query, "palette-usage:\(UUID().uuidString)"))
+            guard recorder == nil else { return }
+            recorder = Task { [weak self] in
+                await self?.recordPending()
+                self?.recorder = nil
             }
         }
+    }
+
+    /// Records the waiting runs in order, then rereads the history once. A
+    /// run whose daemon went away is dropped (never written elsewhere).
+    private func recordPending() async {
+        while !pendingRuns.isEmpty, !Task.isCancelled {
+            let run = pendingRuns.removeFirst()
+            guard case .daemon(let client, _) = owner else {
+                pendingRuns.removeAll()
+                return
+            }
+            do {
+                _ = try await client.record(key: run.key, query: run.query, idempotencyKey: run.idempotencyKey)
+            } catch {
+                Self.logger.error("palette usage record failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        if !Task.isCancelled { fetch() }
     }
 }

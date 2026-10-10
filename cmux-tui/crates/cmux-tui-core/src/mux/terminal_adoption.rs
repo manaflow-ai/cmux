@@ -752,6 +752,7 @@ impl Mux {
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
                 let mut delay = Duration::from_millis(100);
+                let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
@@ -875,6 +876,16 @@ impl Mux {
                         &record,
                         &record_path,
                     );
+                    if mux.refused_all(
+                        &mut refusals,
+                        Instant::now(),
+                        &adopted,
+                        &options,
+                        &record_path,
+                        &record,
+                    ) {
+                        break;
+                    }
                     if let Ok(surface) = adopted {
                         if mux
                             .finish_terminal_adoption(

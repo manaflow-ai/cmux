@@ -5,6 +5,16 @@ import Foundation
 /// main run loop turn, which still returns to the run loop between batches.
 public protocol ControlFrameSource: Sendable {
     func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void)
+    /// Runs `work` as soon as the main thread is free, without waiting for
+    /// a display frame: the work queue uses it for the first request after
+    /// idle (cx-asb1). Defaults to ``scheduleFrame(_:)``.
+    func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void)
+}
+
+extension ControlFrameSource {
+    public func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
+        scheduleFrame(work)
+    }
 }
 
 /// Default frame source: one main run loop turn per frame. Each turn

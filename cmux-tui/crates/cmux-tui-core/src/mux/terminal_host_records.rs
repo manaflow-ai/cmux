@@ -31,8 +31,7 @@ pub(super) fn terminate_host_record(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
 ) -> bool {
-    let Ok(mut host) = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)
-    else {
+    let Some(mut host) = pending_terminals::adopt_host_to_terminate(record, record_path) else {
         return false;
     };
     let exit_path = host.exit_record_path();
