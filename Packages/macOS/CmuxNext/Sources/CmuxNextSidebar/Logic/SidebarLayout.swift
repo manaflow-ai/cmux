@@ -61,22 +61,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let filtering = o.filterMatches != nil
         // One machine needs no machine header: its name adds nothing.
         let machineCount = sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
-        // A computer that cannot connect until the person acts keeps its own
-        // header in the one list (cx-zdh8): its status, error and menu, even
-        // with no workspaces or under a collapsed list. Never this Mac.
-        func flagged(_ section: SidebarSection) -> Bool {
-            guard o.flattensMachines, !filtering, let machine = section.machine else { return false }
-            return machine.kind != .local && machine.status.needsAttention
-        }
-        // One list: an empty computer shows nothing, unless no computer has a
-        // row (the first one keeps its empty placeholder, a drop target).
-        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty && !flagged($0) }
+        // One list (cx-mdo0, Lawrence 2026-10-10: "just have linear list of
+        // workspaces", like a browser): no "Projects" header and no computer
+        // header or status row. A computer that cannot connect says so on its
+        // workspaces' second line; the computer itself lives in Cloud/machines.
+        // An empty computer shows nothing, unless no computer has a row (the
+        // first one keeps its empty placeholder, a drop target).
+        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
         var previousWasMachine = false
         var shownEmptyMachine = false
-        // One list sits under one "Projects" header (the first computer's),
-        // which collapses the whole list.
-        var machineShown = false
-        var listCollapsed = false
 
         func visible(_ ws: SidebarWorkspace) -> Bool {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
@@ -124,35 +117,32 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
 
             let flat = o.flattensMachines && section.machine != nil
-            let flagged = flagged(section)
-            if flat && !flagged && (listCollapsed || nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine)) { continue }
-            let leadsList = flat && !flagged && !machineShown
-            if section.machine != nil && !flagged { machineShown = true }
-            if flat && !flagged && nodes.isEmpty { shownEmptyMachine = true }
+            if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
+            if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap.
-            if !firstSection && !(flat && !flagged && previousWasMachine) { y += m.sectionSpacing }
+            if !firstSection && !(flat && previousWasMachine) { y += m.sectionSpacing }
             firstSection = false
-            previousWasMachine = section.machine != nil && !flagged
-            let showsHeader = section.machine == nil || flagged
-                || (flat ? leadsList && o.showsSoleMachineHeader : machineCount > 1 || o.showsSoleMachineHeader)
-            // The computer a row names in one list (never this Mac; a flagged
-            // computer's header names it).
-            let machineLabel = flat && !flagged && section.machine?.kind != .local ? section.machine?.name : nil
-            // Without a header there is nothing to expand it from.
+            previousWasMachine = section.machine != nil
+            // Headers stay for the pinned area and for one section per
+            // computer (`sidebar.groupByComputer`, opt-in), never in one list.
+            let showsHeader = section.machine == nil
+                || (!flat && (machineCount > 1 || o.showsSoleMachineHeader))
+            // The computer a row names in one list (never this Mac), with its
+            // status when it cannot connect.
+            let machineLabel = flat && section.machine?.kind != .local ? section.machine.map(Self.rowMachineLabel) : nil
+            // Without a header there is nothing to expand it from: a list the
+            // old "Projects" header folded shows again.
             let collapsed = showsHeader && section.isCollapsed && !filtering
-            if flat && !flagged && collapsed { listCollapsed = true }
             if showsHeader {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && !flagged && (machineCount == 1 || flat)
+                    titlesProjects: section.machine != nil && machineCount == 1
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
-            if collapsed || flagged && listCollapsed { continue }
-            // A flagged computer's header says it all: no empty drop row.
-            if flagged && nodes.isEmpty && !gapHere { continue }
+            if collapsed { continue }
 
             if nodes.isEmpty {
                 if gapHere {
@@ -271,5 +261,19 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             gapHeight: gapY == nil ? 0 : o.gapHeight,
             gapShift: gapY == nil ? 0 : o.gapHeight + m.rowSpacing
         )
+    }
+
+    /// A computer's name on its workspaces' second line in one list, then
+    /// its status when it cannot connect until the person acts (cx-mdo0).
+    static func rowMachineLabel(_ machine: SidebarMachine) -> String {
+        let status: String? = switch machine.status {
+        case .authFailed: Strings.statusAuthFailed
+        case .unreachable: Strings.statusUnreachable
+        case .installRequired: Strings.statusInstallRequired
+        case .updateRequired: Strings.statusUpdateRequired
+        case .failed: Strings.statusFailed
+        case .connected, .connecting, .offline, .updateAvailable, .installing: nil
+        }
+        return status.map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }
 }
