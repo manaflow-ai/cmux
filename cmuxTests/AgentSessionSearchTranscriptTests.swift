@@ -236,10 +236,6 @@ struct AgentSessionSearchTranscriptTests {
         let text = await transcripts.text(forSessionID: newRecord.sessionID)
         #expect(text?.contains("the newly recorded transcript") == true)
         #expect(text?.contains("the old transcript") == false)
-
-        #expect(
-            AgentSessionSearchTranscripts.transcriptPath(for: newSource, cachedPath: oldURL.path) == newURL.path
-        )
     }
 
     @Test

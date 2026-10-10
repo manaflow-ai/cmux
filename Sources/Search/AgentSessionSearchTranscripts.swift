@@ -153,29 +153,6 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
         return Read(reader: reader, changed: changed || reusable == nil)
     }
 
-    /// The path to read. A Codex rollout keeps the path last read while that
-    /// file exists, so libproc and the directory listing run once per session
-    /// rather than on every palette open.
-    static func transcriptPath(for source: AgentSessionSearchSource, cachedPath: String?) -> String? {
-        switch source.transcript {
-        case .path(let path):
-            return path
-        case .codexRollout(let lookup):
-            if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
-                return cachedPath
-            }
-            return lookup.livePath()
-        case .lookup(let lookup):
-            if let path = lookup.path() {
-                return path
-            }
-            if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
-                return cachedPath
-            }
-            return nil
-        }
-    }
-
     private static func transcriptPath(
         for source: AgentSessionSearchSource,
         cachedPath: String?,
