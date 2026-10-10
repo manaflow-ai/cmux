@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// Fans one "tree changed" signal out to every subscriber. Each subscriber
 /// buffers at most one pending signal: a burst of daemon deltas becomes one

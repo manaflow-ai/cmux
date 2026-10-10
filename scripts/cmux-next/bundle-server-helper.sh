@@ -37,7 +37,8 @@
 # `server.agent.allowRegister` (off by default) until the server stack ships.
 #
 # The helper is compiled with swiftc from Packages/macOS/CmuxNext/Sources/
-# CmuxNextServerHelper (no package dependencies) and CmuxNextServerHelperDaemon/
+# CmuxNextServerHelper (its only package dependency, CmuxNextCompat, is compiled
+# first the same way) and CmuxNextServerHelperDaemon/
 # main.swift, one slice per arch in $ARCHS: resolving the whole CmuxNext package
 # for one small executable would fetch every remote dependency inside the phase.
 # scripts/sign-cmux-bundle-helpers.sh signs it for Developer ID with no
@@ -176,11 +177,16 @@ for arch in $archs; do
   mkdir -p "$out"
   target="$arch-apple-macos$min_macos"
   xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
+    -module-name CmuxNextCompat -emit-module -emit-module-path "$out/CmuxNextCompat.swiftmodule" \
+    -emit-library -static -o "$out/libCmuxNextCompat.a" \
+    "$sources"/CmuxNextCompat/*.swift
+  xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
+    -I "$out" \
     -module-name CmuxNextServerHelper -emit-module -emit-module-path "$out/CmuxNextServerHelper.swiftmodule" \
     -emit-library -static -o "$out/libCmuxNextServerHelper.a" \
     "$sources"/CmuxNextServerHelper/*.swift
   xcrun swiftc "${swift_flags[@]}" -target "$target" -module-name cmux_server_helper \
-    -I "$out" -L "$out" -lCmuxNextServerHelper \
+    -I "$out" -L "$out" -lCmuxNextServerHelper -lCmuxNextCompat \
     -o "$out/cmux-server-helper" "$sources/CmuxNextServerHelperDaemon/main.swift"
   slices+=("$out/cmux-server-helper")
 done
