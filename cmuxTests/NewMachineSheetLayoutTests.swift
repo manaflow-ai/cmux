@@ -145,7 +145,10 @@ struct NewMachineSheetLayoutTests {
             submit: { _ in true }
         )
         model.applyNetworkCatalog(CloudNetworkPresetCatalog(presets: [], requiredDomains: []))
-        let (host, window) = Self.render(NewMachineSheet(model: model, layout: .grid))
+        let (host, window) = Self.render(
+            NewMachineSheet(model: model, layout: .grid)
+                .environment(\.accessibilityEnabled, true)
+        )
         defer {
             window.contentView = nil
             window.close()
@@ -214,7 +217,10 @@ struct NewMachineSheetLayoutTests {
 
     private func assertControlsInsideSheet(model: NewMachineModel, layout: NewMachineSheetLayout, label: String) {
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: NewMachineSheet(model: model, layout: layout))
+        let host = NSHostingView(
+            rootView: NewMachineSheet(model: model, layout: layout)
+                .environment(\.accessibilityEnabled, true)
+        )
         let size = host.fittingSize
 
         let window = NSWindow(

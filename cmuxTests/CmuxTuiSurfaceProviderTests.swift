@@ -1092,7 +1092,7 @@ import Testing
         let cliPath = try harness.bundledCLIPath()
         // The pane helper enters through the CLI's app-socket connection gate.
         let socketPath = "/tmp/cmux-tui-argv-\(UUID().uuidString.prefix(8)).sock"
-        let responder = try UnixSocketResponder(path: socketPath, response: "OK\n")
+        let responder = try UnixSocketResponder(path: socketPath, response: "OK")
         defer { responder.stop() }
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-tui-argv-\(UUID().uuidString)", isDirectory: true)
@@ -1107,10 +1107,12 @@ import Testing
             "session": "cloud", "carrier": true, "clientPath": client.path,
             "stateDir": root.path, "deviceName": "cmux-mac",
         ]).write(to: configURL)
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
+        environment["CMUX_SOCKET_PATH"] = socketPath
         let result = harness.runProcess(
             executablePath: cliPath,
-            arguments: ["--socket", socketPath, "vm-tui-connect", "--config", configURL.path],
-            environment: BundledCLITestSupport.hermeticCLIEnvironment(home: root)
+            arguments: ["vm-tui-connect", "--config", configURL.path],
+            environment: environment
         )
         #expect(!result.timedOut, "\(result.stderr)")
         #expect(result.status == 0, "\(result.stderr)")
