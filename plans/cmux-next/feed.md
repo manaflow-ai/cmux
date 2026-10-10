@@ -492,3 +492,4 @@ Known issues: in light appearance the demo's glass backdrop over a dark desktop 
 - Whole-state commits bound the feed size (section 4).
 - Push needs the APNs sender (iOS lane) and presence frames on the DO gateway.
 - Cloud items are read-only on an offline Mac; the native prompt is the fallback.
+- Mirror loss since c46d8eb35293: notifications from remote daemons and from older daemons without `feed-local-owner-v1` no longer reach the feed (the deleted `FeedNotificationBridge.swift` covered them). Bead: cx-ebm.53.

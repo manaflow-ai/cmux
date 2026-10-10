@@ -49,7 +49,8 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
-    if !m.starts_with(PREFIX) {
+    // A chat's route (`routes.rs`) is a session method, not the chat index.
+    if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
         return super::requests::handle_request(hub, conn, m, params).await;
     }
     if conn.origin != Origin::Local {
