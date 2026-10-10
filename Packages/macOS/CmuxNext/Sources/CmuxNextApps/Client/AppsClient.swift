@@ -36,6 +36,9 @@ public final class AppsClient {
     /// An `apps-list` of the current connection landed: until then no app is
     /// known, and surfaces show why instead of "not installed".
     public private(set) var hasList = false
+    /// The bundled package directory per app id (``AppPlatformResources/bundledDirectories(using:)``):
+    /// where icons and scene images are when the supervisor sent no `bundle_dir`.
+    public private(set) var bundledDirectories: [String: URL] = [:]
     @ObservationIgnored let transport: any AppsTransport
     @ObservationIgnored var mounts: [String: AppMount] = [:]
     @ObservationIgnored private var nextKey = 0
@@ -66,8 +69,26 @@ public final class AppsClient {
     func setLogs(_ app: String, _ lines: [AppLogLine]) { logs[app] = lines }
 
     /// Visible records (mirror + pending intents), in the owner's order.
-    public var apps: [AppRecord] { projection.visible }
-    public func app(_ id: String) -> AppRecord? { projection.visible(id) }
+    public var apps: [AppRecord] { projection.visible.map(withBundledDirectory) }
+    public func app(_ id: String) -> AppRecord? { projection.visible(id).map(withBundledDirectory) }
+
+    /// Adds bundled package directories (loaded once off the main actor at
+    /// launch); a directory already known for an app stays.
+    public func useBundledDirectories(_ directories: [String: URL]) {
+        bundledDirectories.merge(directories) { current, _ in current }
+    }
+
+    /// Where `app`'s bundle files are: the supervisor's `bundle_dir`, else the bundled package.
+    public func bundleDirectory(for app: String) -> URL? {
+        self.app(app)?.bundleDirectory ?? bundledDirectories[app]
+    }
+
+    private func withBundledDirectory(_ record: AppRecord) -> AppRecord {
+        guard record.bundleDirectory == nil, let directory = bundledDirectories[record.id] else { return record }
+        var record = record
+        record.bundleDirectory = directory
+        return record
+    }
     public var isAvailable: Bool { availability.isAvailable }
     public var unavailableReason: AppsUnavailableReason? {
         if case .unavailable(let reason) = availability { reason } else { nil }
