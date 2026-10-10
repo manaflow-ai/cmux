@@ -76,25 +76,30 @@ def center(row):
     return frame.get("x", 0) + frame.get("width", 0) / 2, frame.get("y", 0) + frame.get("height", 0) / 2
 
 
-def block_height(row):
-    """A workspace row plus its tab rows: the height of its lifted drag card."""
-    key = str(row.get("key", ""))
-    owner = key[len("workspace("):-1]
-    frames = [r.get("window_frame") or {} for r in sidebar().get("rows") or []
-              if str(r.get("key", "")) == key or str(r.get("key", "")).startswith(f"tab({owner},")]
-    top = min(f.get("y", 0) for f in frames)
-    return max(f.get("y", 0) + f.get("height", 0) for f in frames) - top
+def drag_onto(dragged, target):
+    x, y = center(dragged)
+    _, target_y = center(target)
+    to = target_y + 24
+    rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to, "steps": 20, "release": False})
+    for _ in range(40):
+        drop = (sidebar().get("drop") or {}).get("target") or ""
+        if "onto" in drop:
+            break
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": to, "to_x": x, "to_y": to - 2, "steps": 1, "press": False, "release": False})
+        to -= 2
+    return rpc("debug.mouse", {"action": "up", "x": x, "y": to})
 
 
-def record(name, trigger):
+def record(name, trigger, seconds=None):
+    seconds = seconds or opts.seconds
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, name)
     os.makedirs(directory, exist_ok=True)
-    started = rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
+    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
     time.sleep(0.15)  # test harness: a few still frames before the change
     reply = trigger()
-    time.sleep(opts.seconds + 0.6)  # test harness: the recording stops by itself
+    time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{name}: {frames} frames; record={json.dumps(started)[:120]} reply={json.dumps(reply)[:160]}", flush=True)
     time.sleep(0.5)  # test harness: let the list settle before the next scenario
@@ -136,15 +141,9 @@ def main():
         time.sleep(0.5)  # test harness: the drop settles
     workspace_rows = rows("workspace")
     if len(workspace_rows) >= 4:
-        # Dragged up with the card's middle onto the middle of a workspace
-        # above (rows above the start never move): the two make a group,
-        # whose name editor opens.
-        dragged, target = workspace_rows[3], workspace_rows[1]
-        x, y = center(dragged)
-        _, target_y = center(target)
-        card = block_height(dragged)
-        to_y = target_y - card / 2 + (dragged.get("window_frame") or {}).get("height", 0) / 2
-        record("drag-onto", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
+        # Dragged up until the drop probe reads onto the workspace above,
+        # then released: the two make a group, whose name editor opens.
+        record("drag-onto", lambda: drag_onto(workspace_rows[3], workspace_rows[1]), seconds=3)
     print("\nRESULT PASS (recorded)")
 
 
