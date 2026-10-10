@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextSettings
+import Observation
 
 /// Where a new tab the user opens goes (cx-d0d.58). As in Chrome and Edge,
 /// Cmd-T and the strip's + append it; `tabs.newTabPosition: afterCurrent`
