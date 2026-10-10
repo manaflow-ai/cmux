@@ -3022,9 +3022,11 @@ jobs:
           # The standalone CLI finds bundled resources beside its executable,
           # as it does inside the app's Resources. Without this it falls back
           # to its compile-time #filePath, which a consumer runner lacks.
-          if [ ! -e "$(dirname "$cli")/opencode-plugin.js" ]; then
-            cp Resources/opencode-plugin.js "$(dirname "$cli")/opencode-plugin.js"
-          fi
+          for resource in opencode-plugin.js opencode-tui-plugin.js; do
+            if [ ! -e "$(dirname "$cli")/$resource" ]; then
+              cp "Resources/$resource" "$(dirname "$cli")/$resource"
+            fi
+          done
           echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
           echo "Testing $cli"
 
