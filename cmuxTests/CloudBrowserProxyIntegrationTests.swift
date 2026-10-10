@@ -217,18 +217,24 @@ struct CloudBrowserProxyIntegrationTests {
         let unrelatedLoopbackURLs = try await panel.webView.evaluateJavaScript("""
         [
           window.__cmuxRewriteRemoteLoopbackURL('http://127.0.0.1:\(Int(clientService.port) + 1)/other'),
-          window.__cmuxRewriteRemoteLoopbackURL('http://[::1]:\(clientService.port)/other')
+          window.__cmuxRewriteRemoteLoopbackURL('http://localhost:\(clientService.port)/mixed-localhost'),
+          window.__cmuxRewriteRemoteLoopbackURL('http://[::1]:\(clientService.port)/mixed-ipv6')
         ]
         """) as? [String]
         #expect(unrelatedLoopbackURLs == [
             "http://127.0.0.1:\(Int(clientService.port) + 1)/other",
-            "http://[::1]:\(clientService.port)/other"
-        ], "Other ports and explicit IPv6 loopback must keep their selected destinations")
+            "http://127.0.0.1:\(remoteService.port)/mixed-localhost",
+            "http://127.0.0.1:\(remoteService.port)/mixed-ipv6"
+        ], "Only the owned service port may rewrite localhost aliases to the SSH listener")
         let blockedImageResults = try await panel.webView.callAsyncJavaScript("""
         return await Promise.all([
+          'http://localhost:\(clientService.port)',
           'http://localhost:\(clientService.port)/echo?from=image',
+          'http://localhost.:\(clientService.port)',
           'http://localhost.:\(clientService.port)/echo?from=trailing-dot',
+          'http://0.0.0.0:\(clientService.port)',
           'http://0.0.0.0:\(clientService.port)/echo?from=unspecified',
+          'http://[::ffff:127.0.0.1]:\(clientService.port)',
           'http://[::ffff:127.0.0.1]:\(clientService.port)/echo?from=mapped-ipv6'
         ].map(url => new Promise(resolve => {
           const image = new Image();
@@ -238,9 +244,19 @@ struct CloudBrowserProxyIntegrationTests {
           document.body.append(image);
         })))
         """, arguments: [:], in: nil, contentWorld: .page) as? [String]
-        #expect(blockedImageResults == ["blocked", "blocked", "blocked", "blocked"])
+        #expect(blockedImageResults == Array(repeating: "blocked", count: 8))
         #expect(clientService.requests.isEmpty,
                 "Unrewritten parser-style localhost resources must be blocked instead of reaching a local service")
+        let rootURL = try #require(URL(string: "http://127.0.0.1:\(clientService.port)"))
+        #expect(panel.navigate(to: rootURL) != nil)
+        let rootDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !remoteService.requests.contains(where: { $0.method == "GET" && $0.target == "/" }),
+              ContinuousClock.now < rootDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(remoteService.requests.contains { $0.method == "GET" && $0.target == "/" },
+                "The slashless managed listener URL must remain allowed through the protection rules")
+        #expect(clientService.requests.isEmpty)
         let secondURL = try #require(URL(string: "http://127.0.0.1:\(clientService.port)/next"))
         #expect(panel.navigate(to: secondURL) != nil)
         let nextDeadline = ContinuousClock.now.advanced(by: .seconds(10))

@@ -43,6 +43,15 @@ enum RemoteLoopbackRuntimeBridge {
             }
             return value;
           };
+          const canonicalServiceHost = (host) => {
+            const normalized = normalizeHost(host);
+            if (exactLoopbackHosts.has(normalized)) return canonicalLoopbackHost;
+            const suffix = `.${canonicalLoopbackHost}`;
+            if (normalized.endsWith(suffix) && normalized.length > suffix.length) {
+              return normalized;
+            }
+            return normalized;
+          };
           const normalizedAliasHost = normalizeHost(window.__cmuxRemoteLoopbackBridgeConfig.aliasHost);
           const initialHost = normalizeHost(window.location.hostname);
           // Preserve the original no-wrapper path for ordinary non-loopback
@@ -112,10 +121,15 @@ enum RemoteLoopbackRuntimeBridge {
               return input;
             }
             if (configuration.aliasPort !== null) {
-              const expectedHost = normalizeHost(configuration.remoteHost);
+              // SSH loopback services may advertise any localhost-family
+              // alias. Compare their canonical service identity before
+              // rebinding so localhost, 127.0.0.1, and ::1 cannot bypass the
+              // managed forward merely by changing the spelling in a page.
+              const expectedHost = canonicalServiceHost(configuration.remoteHost);
+              const actualHost = canonicalServiceHost(parsed.hostname);
               const expectedPort = configuration.remotePort ?? (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? 443 : 80);
               const actualPort = Number(parsed.port || (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? 443 : 80));
-              if (normalizeHost(parsed.hostname) !== expectedHost || actualPort !== expectedPort) return input;
+              if (actualHost !== expectedHost || actualPort !== expectedPort) return input;
             }
             parsed.hostname = rewrittenHost;
             if (configuration.aliasPort !== null) parsed.port = String(configuration.aliasPort);

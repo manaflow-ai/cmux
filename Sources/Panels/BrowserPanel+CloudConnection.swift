@@ -63,20 +63,37 @@ extension BrowserPanel {
         var rules: [[String: Any]] = []
         for scheme in schemes {
             for (host, needsPortAndPath) in blockedHosts {
-                let suffix = needsPortAndPath ? "(:[0-9]+)?/" : ""
-                rules.append([
-                    "trigger": ["url-filter": "^\(scheme)://\(host)\(suffix)"],
-                    "action": ["type": "block"]
-                ])
+                if needsPortAndPath {
+                    // WebKit's content-rule regex dialect does not support
+                    // disjunctions. Keep both the path/query form and the
+                    // slashless origin form as separate rules so every
+                    // loopback URL stays blocked without overmatching a
+                    // public hostname that merely starts with `localhost`.
+                    let hostWithPort = "\(host)(:[0-9]+)?"
+                    for suffix in ["[/?#]", "$"] {
+                        rules.append([
+                            "trigger": ["url-filter": "^\(scheme)://\(hostWithPort)\(suffix)"],
+                            "action": ["type": "block"]
+                        ])
+                    }
+                } else {
+                    rules.append([
+                        "trigger": ["url-filter": "^\(scheme)://\(host)"],
+                        "action": ["type": "block"]
+                    ])
+                }
             }
         }
         for scheme in ["http", "ws"] {
             rules.append([
                 // WebKit may represent the root URL without a trailing slash.
-                // Match both forms so the allow rule cannot leave the valid
-                // listener endpoint blocked while still requiring the exact
-                // managed port.
-                "trigger": ["url-filter": "^\(scheme)://127\\.0\\.0\\.1:\(port)(?:/|$)"],
+                // Match path/query/hash and the exact slashless origin as
+                // separate rules because WebKit does not support disjunctions.
+                "trigger": ["url-filter": "^\(scheme)://127\\.0\\.0\\.1:\(port)[/?#]"],
+                "action": ["type": "ignore-previous-rules"]
+            ])
+            rules.append([
+                "trigger": ["url-filter": "^\(scheme)://127\\.0\\.0\\.1:\(port)$"],
                 "action": ["type": "ignore-previous-rules"]
             ])
         }
