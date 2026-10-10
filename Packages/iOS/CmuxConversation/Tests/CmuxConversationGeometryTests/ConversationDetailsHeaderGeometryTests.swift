@@ -78,3 +78,32 @@ struct ConversationDetailsHeaderGeometryTests {
         #expect(rect == CGRect(x: 116, y: -2, width: 208, height: 208))
     }
 }
+
+/// Messages' Info / Backgrounds selection, from the user's 60 fps recording
+/// of real Messages (iPhone 17 Pro Max, dark): the capsule's center follows
+/// a spring with damping 0.85-0.86 and response 0.435 s both ways (max
+/// error 0.5-0.7 % of the move), after a touch lifts it about 8 pt a side
+/// within 5 frames.
+struct ConversationDetailsTabGeometryTests {
+    @Test func selectionSpringMatchesMessages() {
+        let spring = ConversationDetailsTabGeometry.selectionSpring
+        #expect(abs(spring.dampingRatio - 0.85) < 0.005)
+        // Measured progress of the capsule's center, Info -> Backgrounds,
+        // frames after the release (t0 -0.3 frame).
+        let measured: [CGFloat] = [0.105, 0.195, 0.303, 0.393, 0.484, 0.571, 0.647, 0.717, 0.778, 0.824, 0.865, 0.902, 0.927, 0.948, 0.964, 0.979]
+        for (index, value) in measured.enumerated() {
+            let t = (Double(index + 2) + 0.3) / 60
+            #expect(abs(spring.progress(at: t) - value) < 0.02)
+        }
+    }
+
+    @Test func liftGrowsTheCapsule() {
+        let rest = CGRect(x: 134.7, y: 268, width: 53.79, height: 33.9)
+        let lifted = ConversationDetailsTabGeometry.capsule(rest, lift: 1)
+        #expect(lifted.width == rest.width + 16)
+        #expect(abs(lifted.midX - rest.midX) < 1e-9)
+        #expect(ConversationDetailsTabGeometry.capsule(rest, lift: 0) == rest)
+        // The lift is nearly done in 5 frames (Messages: 89 % at frame 5).
+        #expect(ConversationDetailsTabGeometry.liftSpring.progress(at: 5.0 / 60) > 0.85)
+    }
+}

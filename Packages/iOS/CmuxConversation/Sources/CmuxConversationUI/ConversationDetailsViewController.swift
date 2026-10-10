@@ -215,7 +215,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         header.apply(layout)
         if let tabBar {
             tabBar.frame = layout.tabBar
-            tabBar.selection = pageFraction
+            tabBar.followPages(pageFraction)
         }
 
     }
@@ -249,7 +249,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     }
 
     func showPage(_ index: Int, animated: Bool) {
-        tabBar?.selectedIndex = index
+        tabBar?.select(index, animated: animated)
         pages.setContentOffset(CGPoint(x: CGFloat(index) * pages.bounds.width, y: 0), animated: animated)
         UIAccessibility.post(notification: .layoutChanged, argument: index == 0 ? infoPage.table : backgroundsPage?.scroll)
     }
@@ -401,7 +401,12 @@ final class ConversationDetailsTabBar: UIView {
     private var buttons: [UIButton] = []
     var onSelect: ((Int) -> Void)?
     /// 0 is the first tab, 1 the second; fractions follow a swipe.
-    var selection: CGFloat = 0 { didSet { setNeedsLayout() } }
+    private(set) var selection: CGFloat = 0 { didSet { setNeedsLayout() } }
+    /// How far a touch has lifted the capsule (0 at rest).
+    private var lift: CGFloat = 0 { didSet { setNeedsLayout() } }
+    private var link: CADisplayLink?
+    private var selectionMove: (from: CGFloat, to: CGFloat, start: CFTimeInterval)?
+    private var liftMove: (from: CGFloat, to: CGFloat, start: CFTimeInterval, spring: SendMenuGeometry.Spring)?
     var selectedIndex = 0 {
         didSet {
             for (index, button) in buttons.enumerated() {
@@ -412,8 +417,9 @@ final class ConversationDetailsTabBar: UIView {
 
     static let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     static let selectedFont = UIFont.systemFont(ofSize: 15, weight: .semibold)
-    /// Each tab is its title plus 13 pt a side ("Info" is 53.79 pt wide).
-    static let padding: CGFloat = 13
+    /// Each tab is its regular-weight title plus 14 pt a side ("Info" is
+    /// 25.79 + 28 = 53.79 pt wide in Messages).
+    static let padding: CGFloat = 14
     static let capsuleHeight: CGFloat = 33.9
 
     init(titles: [String]) {
@@ -447,6 +453,8 @@ final class ConversationDetailsTabBar: UIView {
             button.accessibilityLabel = title
             button.accessibilityIdentifier = "conversation.details.tab.\(index)"
             button.addAction(UIAction { [weak self] _ in self?.onSelect?(index) }, for: .touchUpInside)
+            button.addAction(UIAction { [weak self] _ in self?.moveLift(to: 1, spring: ConversationDetailsTabGeometry.liftSpring) }, for: .touchDown)
+            button.addAction(UIAction { [weak self] _ in self?.moveLift(to: 0, spring: ConversationDetailsTabGeometry.selectionSpring) }, for: [.touchUpOutside, .touchCancel])
             addSubview(button)
             buttons.append(button)
         }
@@ -460,7 +468,7 @@ final class ConversationDetailsTabBar: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     private var tabFrames: [CGRect] {
-        let widths = titles.map { ($0 as NSString).size(withAttributes: [.font: Self.selectedFont]).width + 2 * Self.padding }
+        let widths = titles.map { ($0 as NSString).size(withAttributes: [.font: Self.font]).width + 2 * Self.padding }
         var x = (bounds.width - widths.reduce(0, +)) / 2
         let y: CGFloat = 0
         return widths.map { width in
@@ -481,22 +489,90 @@ final class ConversationDetailsTabBar: UIView {
         }
         guard let first = frames.first else { return }
         let last = frames[min(frames.count - 1, 1)]
-        let t = max(0, min(1, selection))
-        let capsuleFrame = CGRect(
-            x: first.minX + (last.minX - first.minX) * t,
-            y: first.minY,
-            width: first.width + (last.width - first.width) * t,
-            height: first.height
-        )
+        let capsuleFrame = ConversationDetailsTabGeometry.capsule(SendMenuGeometry.interpolate(first, last, selection), lift: lift)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         capsule.frame = capsuleFrame
         let pill = UIBezierPath(roundedRect: capsuleFrame, cornerRadius: capsuleFrame.height / 2)
         boldMask.path = pill.cgPath
-        let outside = UIBezierPath(rect: bounds)
+        let outside = UIBezierPath(rect: bounds.insetBy(dx: 0, dy: -20))
         outside.append(pill)
         plainMask.path = outside.cgPath
         CATransaction.commit()
+    }
+
+    // MARK: Motion
+
+    /// Follows a page swipe, unless a tap's spring is running.
+    func followPages(_ fraction: CGFloat) {
+        guard selectionMove == nil else { return }
+        selection = fraction
+    }
+
+    /// A tap: the capsule springs to the tab (Messages: damping 0.85,
+    /// response 0.435 s) and settles from its lift on the same spring.
+    func select(_ index: Int, animated: Bool) {
+        selectedIndex = index
+        guard animated, window != nil else {
+            selectionMove = nil
+            liftMove = nil
+            selection = CGFloat(index)
+            lift = 0
+            return
+        }
+        selectionMove = (selection, CGFloat(index), CACurrentMediaTime())
+        moveLift(to: 0, spring: ConversationDetailsTabGeometry.selectionSpring)
+    }
+
+    private func moveLift(to target: CGFloat, spring: SendMenuGeometry.Spring) {
+        liftMove = (lift, target, CACurrentMediaTime(), spring)
+        startLink()
+    }
+
+    private func startLink() {
+        guard link == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(step(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        let now = link.targetTimestamp
+        var running = false
+        if let move = selectionMove {
+            let spring = ConversationDetailsTabGeometry.selectionSpring
+            let t = now - move.start
+            selection = move.from + (move.to - move.from) * spring.progress(at: t)
+            if t >= spring.settlingDuration * 2 {
+                selection = move.to
+                selectionMove = nil
+            } else {
+                running = true
+            }
+        }
+        if let move = liftMove {
+            let t = now - move.start
+            lift = move.from + (move.to - move.from) * move.spring.progress(at: t)
+            if t >= move.spring.settlingDuration * 2 {
+                lift = move.to
+                liftMove = nil
+            } else {
+                running = true
+            }
+        }
+        if !running {
+            link.invalidate()
+            self.link = nil
+        }
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil {
+            link?.invalidate()
+            link = nil
+        }
     }
 }
 #endif
