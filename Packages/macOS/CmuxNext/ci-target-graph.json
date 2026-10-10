@@ -714,6 +714,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
