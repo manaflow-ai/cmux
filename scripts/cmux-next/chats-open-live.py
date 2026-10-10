@@ -190,7 +190,8 @@ try:
                 transcript_ms = now
             time.sleep(0.02)
         chat_state = rpc("debug.agent_pane", {"action": "chat_state"}, timeout=10)
-        opens = (rpc("debug.timings") or {}).get("chat_opens") or []
+        timings = rpc("debug.timings") or {}
+        opens = timings.get("chat_opens") if "error" not in timings else timings
         result = {"chat": name, "session": session, "click": reply, "pane_ms": pane_ms, "transcript_ms": transcript_ms,
                   "app": opens, "session_shown": session in json.dumps(chat_state), "readiness": readiness()}
         say("CLICK", json.dumps(result)[:2500])
