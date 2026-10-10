@@ -7,13 +7,13 @@ import Foundation
 /// `refresh()` reads only the bytes appended since the previous call and
 /// parses the complete lines with the agent's own transcript parser. A file
 /// that shrank or was replaced (new inode) restarts the read from the top.
-/// The first read covers at most the last `initialReadByteLimit` bytes, so a
+/// The first read covers at most the last `readByteLimit` bytes, so a
 /// very long session costs one bounded read.
 ///
 /// `refresh()` does blocking file I/O; `AgentSessionSearchTranscripts` runs
 /// it on a dedicated queue, never on the main actor.
 struct AgentSessionSearchTranscript: Sendable {
-    static let initialReadByteLimit: UInt64 = 32 * 1024 * 1024
+    static let defaultReadByteLimit: UInt64 = 32 * 1024 * 1024
     /// Lines handed to the parser per call, to keep one batch's strings bounded.
     static let parseBatchLineCount = 2_000
     /// Longer lines are skipped unparsed. They carry image or file payloads in
@@ -23,6 +23,7 @@ struct AgentSessionSearchTranscript: Sendable {
 
     let path: String
     let agentKind: ChatAgentKind
+    let readByteLimit: UInt64
     private(set) var text = AgentSessionSearchText()
 
     private var byteOffset: UInt64 = 0
@@ -31,9 +32,10 @@ struct AgentSessionSearchTranscript: Sendable {
     private var lineCount = 0
     private var parseState = ChatTranscriptParseState()
 
-    init(path: String, agentKind: ChatAgentKind) {
+    init(path: String, agentKind: ChatAgentKind, readByteLimit: UInt64 = defaultReadByteLimit) {
         self.path = path
         self.agentKind = agentKind
+        self.readByteLimit = readByteLimit
     }
 
     /// Reads what the transcript gained since the last call.
@@ -48,7 +50,7 @@ struct AgentSessionSearchTranscript: Sendable {
         let replaced = fileInode != nil && inode != nil && inode != fileInode
         var didReset = false
         if size < byteOffset || replaced {
-            self = AgentSessionSearchTranscript(path: path, agentKind: agentKind)
+            self = AgentSessionSearchTranscript(path: path, agentKind: agentKind, readByteLimit: readByteLimit)
             didReset = true
         }
         fileInode = inode
@@ -56,8 +58,8 @@ struct AgentSessionSearchTranscript: Sendable {
 
         var start = byteOffset
         var skipsPartialFirstLine = false
-        if byteOffset == 0, size > Self.initialReadByteLimit {
-            start = size - Self.initialReadByteLimit
+        if byteOffset == 0, size > readByteLimit {
+            start = size - readByteLimit
             skipsPartialFirstLine = true
         }
         try? handle.seek(toOffset: start)

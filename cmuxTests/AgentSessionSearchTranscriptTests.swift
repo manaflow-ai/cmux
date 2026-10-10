@@ -92,6 +92,28 @@ struct AgentSessionSearchTranscriptTests {
     }
 
     @Test
+    func aLaterReadIsCappedLikeTheFirstAndSkipsTheCutLine() throws {
+        let newest = Self.userLine(uuid: "u-9", content: "the newest ask about figs")
+        try withTranscript([Self.userLine(uuid: "u-0", content: "the opening ask")]) { url in
+            // Room for the newest line and the tail of the one before it.
+            var transcript = AgentSessionSearchTranscript(
+                path: url.path,
+                agentKind: .claude,
+                readByteLimit: UInt64(newest.utf8.count + 1 + 20)
+            )
+            let changed = transcript.refresh()
+            #expect(changed)
+
+            let backlog = (1...8).map { Self.userLine(uuid: "u-\($0)", content: "backlog prompt \($0)") }
+            try Self.append(Data(((backlog + [newest]).map { $0 + "\n" }.joined()).utf8), to: url)
+            let grew = transcript.refresh()
+            #expect(grew)
+            let lines = transcript.text.documentText.components(separatedBy: "\n")
+            #expect(lines == ["the opening ask", "the newest ask about figs"])
+        }
+    }
+
+    @Test
     func boundedQueueDropsOldestButKeepsTheNewestEntry() {
         var queue = BoundedTextQueue(byteLimit: 10)
         queue.append("aaaa", seq: 0)
