@@ -29,6 +29,8 @@ means a title made from the participants), `participants`, `lastSeq`, `rev`,
 `unreadCount(me:)` does not count my own messages. My newest message counts
 as read up to its seq. Also, the local owner moves the read cursor of the
 sender to the seq of each send, for every client (CLI and paired phones too).
+On a daemon without `conversation-threads-v1`, `DaemonHomeSource` moves my
+cursor after my send instead.
 Thus a reply between messages from other people does not count.
 
 `Message`: `id`, `conversation`, `seq`, `author`, `parts`, `createdAt`,

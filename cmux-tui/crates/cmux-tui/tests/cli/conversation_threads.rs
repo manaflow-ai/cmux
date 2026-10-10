@@ -98,6 +98,10 @@ fn unread(home: &mut Conn, conversation: &str, participant: &str) -> u64 {
 fn thread_replies_carry_thread_root_and_a_send_reads_only_for_its_sender() {
     let server = HeadlessServer::start("conversation-threads");
     let mut home = Conn::open(&server.socket);
+    // Clients find the behavior by this capability (an older daemon lacks it).
+    let identity = home.request("identify", json!({}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.iter().any(|value| value == "conversation-threads-v1"), "{identity}");
     let created = home.request(
         "conversation-create",
         json!({"idempotency_key": "threads-test", "actor": "user_local", "title": "Threads",

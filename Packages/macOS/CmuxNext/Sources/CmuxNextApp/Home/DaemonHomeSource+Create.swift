@@ -31,4 +31,15 @@ nonisolated extension DaemonHomeSource {
         if let inbox = try? await inbox() { publish(.inbox(inbox)) }
         return HomeOpResult(rev: 0, replayed: created.replayed, conversation: ConversationID(created.conversation.id))
     }
+
+    /// My own send reads the conversation through it on a daemon without
+    /// `conversation-threads-v1` (newer daemons move the sender's cursor
+    /// themselves). Best effort: the owner refuses a cursor that would move
+    /// back, which is fine.
+    func readThrough(_ seq: Seq, in conversation: String, on connection: DaemonConnection) {
+        let request = ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(me.id.rawValue):\(seq)",
+                                            transaction: nil, op: .setReadCursor(seq: seq))
+        // task-owner: one read_cursor.set write; ends with its reply
+        Task { _ = try? await ConversationClient(connection).op(request) }
+    }
 }
