@@ -6,8 +6,11 @@ import Synchronization
 
 private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "socket")
 
-/// The helper's Unix socket. Each connection is checked with
-/// `AdmissionPolicy` before the helper reads a byte; a refused peer gets one
+/// The helper's Unix socket, in a directory private to this user under the
+/// Darwin per-user temp directory (or /tmp as a checked fallback; see
+/// `PrivateDirectory`). Each connection is checked first for the peer uid
+/// (getpeereid), then with `AdmissionPolicy`, before the helper reads a
+/// byte; a refused peer gets one
 /// line `{"ok":false,"error":"refused","reason":...}` and the connection closes.
 /// An admitted peer sends `{"secret":"<hex>"}` first, then requests:
 ///   {"id":N,"method":"tools/list"}
@@ -97,6 +100,13 @@ public final class HelperSocketServer: Sendable {
     /// Checks identity at accept, then the secret, then serves requests.
     func serve(_ client: Int32) {
         let connection = Connection(descriptor: client)
+        // The peer's uid comes first and from the kernel (getpeereid). A
+        // peer of another local user (fleet Macs run several slot users) is
+        // refused before the helper reads its process or code facts.
+        guard let peerUID = Self.peerUID(client), peerUID == geteuid() else {
+            socketLogger.notice("refused peer reason=\(AdmissionRefusal.foreignUser.rawValue, privacy: .public)")
+            return connection.refuse(.foreignUser)
+        }
         let config = admission.current
         let facts = inspector.facts(forConnection: client, requirement: config?.acpmuxRequirement)
         let identityRefusal: AdmissionRefusal? = if let facts {
@@ -131,6 +141,13 @@ public final class HelperSocketServer: Sendable {
             }
         }
         connection.close()
+    }
+
+    /// The connected peer's effective uid, from the kernel.
+    static func peerUID(_ descriptor: Int32) -> uid_t? {
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
     }
 
     private func handle(_ line: Data, connection: Connection) {

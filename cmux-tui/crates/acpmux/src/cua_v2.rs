@@ -58,12 +58,35 @@ pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     dir.filter(|d| d.join(ENDPOINT_FILE).is_file())
 }
 
-/// Reads `endpoint.json` in `dir`.
+/// Reads `endpoint.json` in `dir`. The file must be a regular file of this
+/// user that no other user can read or write (checked with `fstat` on the
+/// opened descriptor, not by path): another local user (fleet Macs run
+/// several slot users) must not be able to point the bridge, and its
+/// secret, at a socket of theirs.
 pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let path = dir.join(ENDPOINT_FILE);
-    let text = std::fs::read_to_string(&path).with_context(|| {
-        format!("the Computer Use helper v2 is not running ({} is missing)", path.display())
-    })?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&path)
+        .with_context(|| {
+            format!("the Computer Use helper v2 is not running ({} is missing)", path.display())
+        })?;
+    let meta = file.metadata().context("cannot stat endpoint.json")?;
+    // SAFETY: geteuid has no preconditions.
+    let me = unsafe { libc::geteuid() };
+    if !meta.file_type().is_file() || meta.uid() != me || meta.mode() & 0o077 != 0 {
+        bail!(
+            "{} is not private to this user (owner uid {}, mode {:o}); refusing it",
+            path.display(),
+            meta.uid(),
+            meta.mode() & 0o777
+        );
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text).context("cannot read endpoint.json")?;
     let value: Value = serde_json::from_str(&text).context("endpoint.json is not JSON")?;
     let socket = value["socket"].as_str().ok_or_else(|| anyhow!("endpoint.json has no socket"))?;
     let secret = value["secret"].as_str().ok_or_else(|| anyhow!("endpoint.json has no secret"))?;
@@ -82,6 +105,16 @@ impl Helper<UnixStream> {
         let stream = UnixStream::connect(&endpoint.socket)
             .await
             .with_context(|| format!("cannot connect to {}", endpoint.socket.display()))?;
+        // The secret goes only to a helper of this user (kernel peer uid).
+        let peer = stream.peer_cred().context("cannot read the helper socket's peer uid")?.uid();
+        // SAFETY: geteuid has no preconditions.
+        let me = unsafe { libc::geteuid() };
+        if peer != me {
+            bail!(
+                "{} is served by uid {peer}, not this user (uid {me}); the secret was not sent",
+                endpoint.socket.display()
+            );
+        }
         Helper::admit(stream, &endpoint.secret).await
     }
 }
