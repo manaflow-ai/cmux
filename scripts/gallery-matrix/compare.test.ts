@@ -399,8 +399,9 @@ test("a played step shows base and head settle timings when the interaction regr
   expect(outcome!.frames![0]!.basePlay?.settleMs).toBe(80);
   expect(outcome!.frames![0]!.play?.settleMs).toBe(140);
   const html = diffPage([outcome!], meta);
-  expect(html).toContain('typeof m.settleMs === "number"');
-  expect(html).toContain("f.basePlay.settleMs !== f.play.settleMs");
+  expect(html).toContain('typeof m.settleMs === "number" && Number.isFinite(m.settleMs)');
+  expect(html).toContain("const settleChanged = typeof f.basePlay?.settleMs === \"number\"");
+  expect(html).toContain("Number.isFinite(f.play.settleMs) && f.basePlay.settleMs !== f.play.settleMs");
 });
 
 test("a step that differs from itself makes an otherwise unchanged state nondeterministic", () => {
