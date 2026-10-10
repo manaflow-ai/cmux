@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value};
 
-use super::{Entry, parse, stroke};
+use super::{Entry, parse};
 use crate::jsonc::{self, JsoncError};
 
 /// One binding an edit names: command, keys (keybindings.json syntax) and
@@ -31,10 +31,11 @@ impl From<JsoncError> for EditError {
     }
 }
 
+/// The same checks `parse` applies (stroke syntax, at most four strokes, a
+/// first stroke with cmd or ctrl), so an edit never writes an entry the
+/// reader then drops.
 fn strokes(key: &str) -> Result<Vec<String>, EditError> {
-    key.split_whitespace()
-        .map(|part| stroke::normalize(part).ok_or_else(|| EditError::InvalidKey(part.to_string())))
-        .collect()
+    super::keys(key).map_err(|(_, message)| EditError::InvalidKey(message))
 }
 
 fn readable(source: &str) -> Result<Vec<Entry>, EditError> {
@@ -82,6 +83,9 @@ pub fn set(
 ) -> Result<String, EditError> {
     let entries = readable(source)?;
     let key = strokes(&binding.key)?.join(" ");
+    if key.is_empty() {
+        return Err(EditError::InvalidKey("a binding needs at least one stroke".to_string()));
+    }
     let new = json(&key, &binding.command, binding.when.as_deref(), args);
     match replaces {
         Some(old) => match user_entry(&entries, old)? {

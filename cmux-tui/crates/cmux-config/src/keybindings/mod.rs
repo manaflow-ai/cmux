@@ -135,7 +135,7 @@ fn entry(index: usize, item: &Value) -> Result<Entry, (Problem, String)> {
 }
 
 /// `"ctrl+k s"` -> normalized strokes, checked.
-fn keys(text: &str) -> Result<Vec<String>, (Problem, String)> {
+pub(super) fn keys(text: &str) -> Result<Vec<String>, (Problem, String)> {
     let strokes = text
         .split_whitespace()
         .map(|part| {

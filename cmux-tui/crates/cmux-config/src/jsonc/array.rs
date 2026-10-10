@@ -37,6 +37,10 @@ pub(super) fn root_array(bytes: &[u8]) -> Result<Option<RootArray>, JsoncError> 
     let mut index = skip_trivia(bytes, open + 1)?;
     while bytes.get(index) != Some(&b']') {
         let end = value_end(bytes, index)?;
+        if end == index {
+            // An empty element (`[,]`) is not JSON.
+            return Err(JsoncError::Malformed { offset: index });
+        }
         let after = skip_trivia(bytes, end)?;
         let comma_after = (bytes.get(after) == Some(&b',')).then_some(after);
         elements.push(Element { start: index, end, comma_after });
@@ -90,25 +94,41 @@ fn render(value: &Value, indent: &str) -> String {
     text.replace('\n', &format!("\n{indent}"))
 }
 
-/// `source` with `value` appended to the root array (an empty document
-/// becomes a one-element array).
+/// `source` with `value` appended to the root array. An empty or
+/// comment-only document keeps its text and gets a one-element array after
+/// it; an empty array keeps the comments inside it.
 pub(super) fn append(source: &str, value: &Value) -> Result<String, JsoncError> {
     let bytes = source.as_bytes();
     let Some(array) = root_array(bytes)? else {
-        return Ok(format!("[\n  {}\n]\n", render(value, "  ")));
+        let separator = if source.is_empty() || source.ends_with('\n') { "" } else { "\n" };
+        return Ok(format!("{source}{separator}[\n  {}\n]\n", render(value, "  ")));
     };
     let Some(last) = array.elements.last() else {
         let indent = line_indent(bytes, array.open) + "  ";
+        let at = line_start_if_blank(bytes, array.close);
+        if at == 0 || bytes[at - 1] == b'\n' {
+            // `]` starts its line: the entry goes on the line before it.
+            let insert = format!("{indent}{}\n", render(value, &indent));
+            return Ok(splice(source, at, at, &insert));
+        }
         let closing = line_indent(bytes, array.close);
         let insert = format!("\n{indent}{}\n{closing}", render(value, &indent));
-        return Ok(splice(source, array.open + 1, array.close, &insert));
+        return Ok(splice(source, array.close, array.close, &insert));
     };
     let indent = line_indent(bytes, last.start);
-    let tail = same_line_trivia_end(bytes, last.comma_after.map_or(last.end, |comma| comma + 1));
-    let comma = if last.comma_after.is_some() { "" } else { "," };
-    let insert = format!("{comma}\n{indent}{}", render(value, &indent));
-    let at = if last.comma_after.is_some() { tail } else { last.end };
-    Ok(splice(source, at, at, &insert))
+    let rendered = render(value, &indent);
+    match last.comma_after {
+        Some(comma) => {
+            let tail = same_line_trivia_end(bytes, comma + 1);
+            Ok(splice(source, tail, tail, &format!("\n{indent}{rendered}")))
+        }
+        None => {
+            // The comma goes right after the value; a comment on its line stays there.
+            let tail = same_line_trivia_end(bytes, last.end);
+            let with_comma = splice(source, last.end, last.end, ",");
+            Ok(splice(&with_comma, tail + 1, tail + 1, &format!("\n{indent}{rendered}")))
+        }
+    }
 }
 
 /// `source` with element `index` of the root array removed.
@@ -116,17 +136,22 @@ pub(super) fn remove(source: &str, index: usize) -> Result<String, JsoncError> {
     let bytes = source.as_bytes();
     let array = root_array(bytes)?.ok_or(JsoncError::Malformed { offset: 0 })?;
     let element = *array.elements.get(index).ok_or(JsoncError::Malformed { offset: 0 })?;
-    let (start, end) = match (element.comma_after, index.checked_sub(1)) {
-        (Some(comma), _) => (element.start, comma + 1),
-        // The last element without a comma takes the previous element's comma.
-        (None, Some(previous)) => {
-            (array.elements[previous].comma_after.unwrap_or(element.start), element.end)
-        }
-        (None, None) => (element.start, element.end),
+    let end = match element.comma_after {
+        Some(comma) => comma + 1,
+        None => element.end,
     };
-    let start = line_start_if_blank(bytes, start);
+    let start = line_start_if_blank(bytes, element.start);
     let end = line_end_if_blank(bytes, same_line_trivia_end(bytes, end));
-    Ok(splice(source, start, end, ""))
+    let removed = splice(source, start, end, "");
+    // The last element without a comma: drop only the previous element's
+    // comma byte, so a comment after it stays.
+    match (element.comma_after, index.checked_sub(1)) {
+        (None, Some(previous)) => match array.elements[previous].comma_after {
+            Some(comma) if comma < start => Ok(splice(&removed, comma, comma + 1, "")),
+            _ => Ok(removed),
+        },
+        _ => Ok(removed),
+    }
 }
 
 /// `source` with element `index` of the root array replaced by `value`.
