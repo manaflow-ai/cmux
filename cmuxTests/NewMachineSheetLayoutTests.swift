@@ -154,27 +154,30 @@ struct NewMachineSheetLayoutTests {
             window.close()
         }
 
-        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-        // Menu rows are lazily materialized under AppKit; use the view's stable identifier.
+        // SwiftUI attaches the identifier to an accessibility proxy rather than
+        // the bridged NSPopUpButton when hosted in-process.
         let base = try #require(
-            popUps.first { $0.accessibilityIdentifier() == "NewMachineSheet.baseImage" },
-            "no Base pop-up; identifiers=\(popUps.map { $0.accessibilityIdentifier() })"
+            Self.accessibilityElement("NewMachineSheet.baseImage", in: host),
+            "no Base pop-up in the hosted accessibility tree"
         )
         let size = try #require(
-            popUps.first { $0.accessibilityIdentifier() == "NewMachineSheet.size" },
-            "no Size pop-up; identifiers=\(popUps.map { $0.accessibilityIdentifier() })"
+            Self.accessibilityElement("NewMachineSheet.size", in: host),
+            "no Size pop-up in the hosted accessibility tree"
         )
         let rows = [("Base", base), ("Size", size)]
-        let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
+        let leading = try rows.map { try Self.frame(of: $0.1, in: host).minX }
         #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
         for (name, popUp) in rows {
-            let width = popUp.convert(popUp.bounds, to: host).width
-            // AppKit's intrinsicContentSize excludes a few points of the
-            // menu control's border/accessory; fittingSize is its measured
-            // natural width after those decorations are included.
+            let frame = try Self.frame(of: popUp, in: host)
+            let control = try #require(
+                Self.popUp(matching: frame, in: host),
+                "no AppKit pop-up matches the \(name) accessibility frame \(frame)"
+            )
+            let controlFrame = control.convert(control.bounds, to: host)
+            #expect(abs(frame.width - controlFrame.width) <= 1, "\(name) accessibility frame \(frame) does not match its control \(controlFrame)")
             #expect(
-                width <= popUp.fittingSize.width + 1,
-                "\(name) pop-up is \(width)pt wide; its fitting width is \(popUp.fittingSize.width)pt"
+                controlFrame.width <= control.fittingSize.width + 1,
+                "\(name) pop-up is \(controlFrame.width)pt wide; its fitting width is \(control.fittingSize.width)pt"
             )
         }
     }
@@ -242,11 +245,10 @@ struct NewMachineSheetLayoutTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
 
-        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }
-        let basePopUp = popUps.first { $0.accessibilityIdentifier() == "NewMachineSheet.baseImage" }
+        let basePopUp = Self.accessibilityElement("NewMachineSheet.baseImage", in: host)
         #expect(
             basePopUp != nil,
-            "\(label): the Base pop-up was not rendered; identifiers=\(popUps.map { $0.accessibilityIdentifier() })"
+            "\(label): the Base pop-up was not rendered in the hosted accessibility tree"
         )
 
         let bounds = host.bounds.insetBy(dx: -0.5, dy: -0.5)
@@ -261,5 +263,65 @@ struct NewMachineSheetLayoutTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    /// Finds a SwiftUI accessibility node through the same modern/legacy bridge
+    /// used by the app's hosted accessibility tests.
+    private static func accessibilityElement(_ identifier: String, in root: NSView) -> NSObject? {
+        var pending: [NSObject] = [root]
+        var visited = Set<ObjectIdentifier>()
+        while !pending.isEmpty {
+            let element = pending.removeFirst()
+            guard visited.insert(ObjectIdentifier(element)).inserted else { continue }
+            if element !== root,
+               accessibilityAttribute(.identifier, getter: "accessibilityIdentifier", of: element) as? String == identifier {
+                return element
+            }
+            let children = accessibilityAttribute(.children, getter: "accessibilityChildren", of: element) as? [Any]
+            pending += NSAccessibility.unignoredChildren(from: children ?? []).compactMap { $0 as? NSObject }
+        }
+        return nil
+    }
+
+    /// Converts either a hosted NSView or an accessibility proxy frame into
+    /// the hosting view's coordinate space.
+    private static func frame(of element: NSObject, in host: NSView) throws -> NSRect {
+        if let view = element as? NSView { return view.convert(view.bounds, to: host) }
+        guard let accessibilityElement = element as? NSAccessibilityElement else {
+            throw CocoaError(.featureUnsupported)
+        }
+        let screenFrame = accessibilityElement.accessibilityFrame()
+        guard let window = host.window else { throw CocoaError(.fileNoSuchFile) }
+        return host.convert(window.convertFromScreen(screenFrame), from: nil)
+    }
+
+    private static func popUp(matching frame: NSRect, in host: NSView) -> NSPopUpButton? {
+        descendants(of: host)
+            .compactMap { $0 as? NSPopUpButton }
+            .filter { !$0.isHiddenOrHasHiddenAncestor }
+            .min { lhs, rhs in
+                let lhsFrame = lhs.convert(lhs.bounds, to: host)
+                let rhsFrame = rhs.convert(rhs.bounds, to: host)
+                return distance(from: lhsFrame, to: frame) < distance(from: rhsFrame, to: frame)
+            }
+    }
+
+    private static func distance(from lhs: NSRect, to rhs: NSRect) -> CGFloat {
+        abs(lhs.minX - rhs.minX) + abs(lhs.minY - rhs.minY) + abs(lhs.width - rhs.width) + abs(lhs.height - rhs.height)
+    }
+
+    private static func accessibilityAttribute(
+        _ attribute: NSAccessibility.Attribute, getter: String, of element: NSObject
+    ) -> Any? {
+        let modern = NSSelectorFromString(getter)
+        if element.responds(to: modern), let value = element.perform(modern)?.takeUnretainedValue() {
+            return value
+        }
+        let names = NSSelectorFromString("accessibilityAttributeNames")
+        let legacy = NSSelectorFromString("accessibilityAttributeValue:")
+        guard element.responds(to: names), element.responds(to: legacy),
+              let attributes = element.perform(names)?.takeUnretainedValue() as? [String],
+              attributes.contains(attribute.rawValue) else { return nil }
+        return element.perform(legacy, with: attribute.rawValue)?.takeUnretainedValue()
     }
 }
