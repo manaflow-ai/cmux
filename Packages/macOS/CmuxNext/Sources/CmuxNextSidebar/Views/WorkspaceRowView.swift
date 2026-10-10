@@ -59,6 +59,8 @@ final class WorkspaceRowView: SidebarRowView {
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     private(set) var isShowingPlaceholder = false
+    /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
+    private var isPlaceholderRow = false
     /// The row's workspace can close (`SidebarWorkspace.isClosable`); the
     /// home row shows no close button.
     private(set) var isClosable = true
@@ -146,6 +148,7 @@ final class WorkspaceRowView: SidebarRowView {
         lastInGroup = row.isLastInGroup
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
+        isPlaceholderRow = ws.rowState == .placeholder
         isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
@@ -229,7 +232,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func hoverChanged() {
         super.hoverChanged()
         needsLayout = true
-        guard isHovered, !renaming, !isShowingPlaceholder else {
+        guard isHovered, !renaming, !isPlaceholderRow else {
             title.stopMarquee()
             return
         }
@@ -252,7 +255,7 @@ final class WorkspaceRowView: SidebarRowView {
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
+                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
