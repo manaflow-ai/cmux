@@ -187,14 +187,17 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.enableMinimalMode",
                 title: String(localized: "action.palette.enableMinimalMode", defaultValue: "Enable Minimal Mode", bundle: .module),
-                keywords: ["sidebar", "compact"], category: .sidebar, symbol: "rectangle.compress.vertical",
-                surfaces: [.palette], cliName: "sidebar enable-minimal-mode"
+                keywords: ["sidebar", "compact", "minimal", "simple", "dense"], category: .sidebar, symbol: "rectangle.compress.vertical",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar enable-minimal-mode",
+                // cx-w1r5: the sidebar's menu offers the one that applies (Options, like Show Tabs Under Workspaces).
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 130, folder: .options)])
             ),
             ActionDescriptor(
                 id: "palette.disableMinimalMode",
                 title: String(localized: "action.palette.disableMinimalMode", defaultValue: "Disable Minimal Mode", bundle: .module),
-                keywords: ["sidebar", "compact"], category: .sidebar, symbol: "rectangle.expand.vertical",
-                surfaces: [.palette], cliName: "sidebar disable-minimal-mode"
+                keywords: ["sidebar", "compact", "minimal", "simple", "dense"], category: .sidebar, symbol: "rectangle.expand.vertical",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar disable-minimal-mode",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 131, folder: .options)])
             ),
         ]
     }

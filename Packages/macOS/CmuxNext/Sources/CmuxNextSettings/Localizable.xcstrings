@@ -65499,6 +65499,58 @@
           "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示所有聊天" } }
         }
       },
+  "settings.sidebar.minimal": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "needs_review", "value": "شريط جانبي بسيط" } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Minimalna bočna traka" } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Minimal sidebjælke" } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Minimale Seitenleiste" } },
+          "en": { "stringUnit": { "state": "translated", "value": "Minimal Sidebar" } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Barra lateral mínima" } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Barre latérale minimale" } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Barra laterale minimale" } },
+          "ja": { "stringUnit": { "state": "needs_review", "value": "ミニマルなサイドバー" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "របារចំហៀងសាមញ្ញ" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "최소 사이드바" } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Minimal sidepanel" } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Minimalny pasek boczny" } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Barra lateral mínima" } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Минимальная боковая панель" } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "แถบด้านข้างแบบเรียบง่าย" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Sade Kenar Çubuğu" } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Мінімальна бічна панель" } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Thanh bên tối giản" } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "极简侧边栏" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "極簡側邊欄" } }
+        }
+      },
+  "settings.sidebar.minimal.help": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "needs_review", "value": "تعرض صفوف مساحات العمل أيقونتها واسمها وعلامة غير المقروء فقط، وتصبح عناوين الأقسام خطوطًا رفيعة." } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Redovi radnih prostora prikazuju samo ikonu, naziv i oznaku nepročitanog, a naslovi odjeljaka postaju tanke linije." } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Arbejdsområderækker viser kun ikon, navn og ulæst-mærke, og sektionstitler bliver til tynde streger." } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Arbeitsbereichszeilen zeigen nur Symbol, Namen und Ungelesen-Markierung, und Abschnittstitel werden zu dünnen Linien." } },
+          "en": { "stringUnit": { "state": "translated", "value": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines." } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Las filas de los espacios de trabajo solo muestran su icono, nombre y marca de no leído, y los títulos de sección se vuelven líneas finas." } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Les lignes des espaces de travail n’affichent que leur icône, leur nom et la marque non lu, et les titres de section deviennent de fines lignes." } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Le righe degli spazi di lavoro mostrano solo icona, nome e indicatore di non letto, e i titoli delle sezioni diventano linee sottili." } },
+          "ja": { "stringUnit": { "state": "needs_review", "value": "ワークスペースの行にはアイコン、名前、未読マークだけを表示し、セクションのタイトルは細い線になります。" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "ជួរកន្លែងធ្វើការបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន ហើយចំណងជើងផ្នែកក្លាយជាបន្ទាត់ស្តើង។" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "작업 공간 행에는 아이콘, 이름, 읽지 않음 표시만 나타나고 섹션 제목은 얇은 선이 됩니다." } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Arbeidsområderader viser bare ikon, navn og ulest-merke, og seksjonstitler blir tynne streker." } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Wiersze obszarów roboczych pokazują tylko ikonę, nazwę i znacznik nieprzeczytanych, a tytuły sekcji stają się cienkimi liniami." } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "As linhas dos espaços de trabalho mostram só o ícone, o nome e a marca de não lido, e os títulos das seções viram linhas finas." } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Строки рабочих пространств показывают только значок, имя и отметку непрочитанного, а заголовки разделов становятся тонкими линиями." } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "แถวพื้นที่ทำงานแสดงเฉพาะไอคอน ชื่อ และเครื่องหมายยังไม่อ่าน และชื่อส่วนจะกลายเป็นเส้นบาง" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Çalışma alanı satırları yalnızca simgeyi, adı ve okunmamış işaretini gösterir; bölüm başlıkları ince çizgilere dönüşür." } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Рядки робочих просторів показують лише значок, назву й позначку непрочитаного, а назви розділів стають тонкими лініями." } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Các hàng không gian làm việc chỉ hiện biểu tượng, tên và dấu chưa đọc, còn tiêu đề mục trở thành đường mảnh." } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "工作区行只显示图标、名称和未读标记，分区标题变为细线。" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "工作區列只顯示圖示、名稱與未讀標記，區段標題變成細線。" } }
+        }
+      },
   "settings.sidebar.showChats.help": {
         "extractionState": "manual",
         "localizations": {
