@@ -720,11 +720,15 @@ def cli_osc8_link_opens_the_subagent():
     Cmd-click (`debug.mouse`) on that cell goes through Ghostty's own hyperlink hit path and the
     app's link.open, and shows the subagent's workspace and chat."""
     os.makedirs(WORK, exist_ok=True)
-    rpc("action.run", {"action": "newWorkspace"})
-    term = wait(lambda: next((p for w in (rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
-                              if p.get("kind") == "terminal" and p.get("focused") and p.get("selected_tab")), None), 60)
+    def terminals():
+        return [p for w in (rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
+                if p.get("kind") == "terminal" and p.get("selected_tab")]
+    before = {p.get("pane") for p in terminals()}
+    made = rpc("action.run", {"action": "newTab"})  # New Workspace: one terminal pane
+    print("new workspace:", json.dumps(made)[:200], flush=True)
+    term = wait(lambda: next((p for p in terminals() if p.get("pane") not in before), None), 60)
     if not term:
-        row("terminal OSC 8 link opens the subagent", "a focused terminal", "none", False)
+        row("terminal OSC 8 link opens the subagent", "a new workspace's terminal", f"made {json.dumps(made)[:120]}; terminals {len(terminals())}", False)
         return
     prompt = (f"Use spawn to start exactly one subagent with cwd {WORK} whose task is: reply with only the word "
               "osc8-probe. Then name it in one short sentence.")
