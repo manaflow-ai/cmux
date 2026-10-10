@@ -3079,6 +3079,7 @@ function AcpmuxPane() {
               lastAgent={newTab.lastAgent}
               home={newTab.home}
               tools={newTab.tools}
+              {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               projects={newTabProjects}

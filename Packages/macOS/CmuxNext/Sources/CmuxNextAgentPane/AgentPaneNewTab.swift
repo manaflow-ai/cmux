@@ -63,6 +63,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
     /// nil focuses it.
     public var focusesField: Bool?
+    /// The workspace's tabs to move into this page's pane (`tab.jump` `here`): set when a split
+    /// opened the page (cx-jfo7); nil shows no Open Tabs list.
+    public var openTabs: [AgentPaneOmnibar.Tab]?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
