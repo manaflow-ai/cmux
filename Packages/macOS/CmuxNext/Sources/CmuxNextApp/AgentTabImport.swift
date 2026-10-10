@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -24,7 +25,7 @@ enum AgentTabImport {
         let store = services.daemon.store
         // task-owner: one-shot, ends after the first load
         Task {
-            for await loaded in Observations({ store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
                 guard let windowState = services.daemon.windowState else { return }
                 await run(services, windowState: windowState)
                 return

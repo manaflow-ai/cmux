@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -26,7 +27,7 @@ enum BrowserLinkClickPreference {
     static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
         Task { [weak settings, weak webKit, weak cef] in
             guard let settings else { return }
-            for await setting in Observations({ settings.snapshot.browserLinkClicks }) {
+            for await setting in ObservationStream({ settings.snapshot.browserLinkClicks }) {
                 let mapping = BrowserLinkClickMapping(setting)
                 webKit?.linkClicks = mapping
                 cef?.linkClicks = mapping

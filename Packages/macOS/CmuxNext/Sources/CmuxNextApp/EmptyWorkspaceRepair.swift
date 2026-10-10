@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -119,7 +120,7 @@ final class EmptyWorkspaceRepair {
     /// Every workspace, shown or not: which have a pane, and the connection.
     private func observe(_ store: DaemonStore) {
         observation = Task { [weak self, weak store] in
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 guard let store else { return [] }
                 // Turning live counts as a change: a tree drawn from the
                 // launch snapshot is first seen on a connection then.
