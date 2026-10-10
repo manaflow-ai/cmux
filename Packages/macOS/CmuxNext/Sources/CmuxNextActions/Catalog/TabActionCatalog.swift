@@ -23,6 +23,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square.on.square", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.tab]
             ),
+            // Chrome's New Tab to the Right (cx-d0d.58): Cmd-T's tab, right after this tab
+            // whatever `tabs.newTabPosition` says.
+            ActionDescriptor(
+                id: "newTab.toRight",
+                title: String(localized: "action.newTab.toRight", defaultValue: "New Tab to the Right", bundle: .module),
+                keywords: ["tab", "new", "right", "after", "next to", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
+                targets: [.tab]
+            ),
             ActionDescriptor(
                 id: "newTab.page",
                 title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),

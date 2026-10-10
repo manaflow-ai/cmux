@@ -8,7 +8,7 @@ nonisolated extension ActionSurfaceCatalog {
         // The menus offer New Tab Page, whose field is this action's GUI form.
         .duplicateOfDefault: [
             "newTab.submit",
-            // A tab's menu offers New <Kind> Tab (newTab.ofKind) and the New submenu's kinds; Cmd-T's
+            // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
             // setting-driven New Tab stays in the File menu and the palette.
             "newTab.default",
             // The pane's menu offers Show Tab Bar, and the bar's + adds a tab once it shows.

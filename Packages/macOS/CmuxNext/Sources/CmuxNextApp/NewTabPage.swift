@@ -266,7 +266,8 @@ extension PaneController {
     /// New Tab Page: an agent tab showing the new tab page, where the store
     /// places a new tab, with the selected tab's kind selected and folder inherited
     /// (``NewTabPage/open(in:seed:)``).
-    func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
+    /// `then` gets the new tab's id once the store made it.
+    func newTabPage(seed: AgentPaneSeedSource? = nil, then: (@MainActor (String) -> Void)? = nil) { NewTabPage.open(in: self, seed: seed, then: then) }
 
     /// Focus Location Bar: a browser tab's address bar; the omnibar of a new tab
     /// page already showing (cx-e2aa; its field when it shows none); anywhere
@@ -296,7 +297,7 @@ extension NewTabPage {
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
     /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
-    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, omnibar: Bool = false) {
+    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, omnibar: Bool = false, then: (@MainActor (String) -> Void)? = nil) {
         let start = ContinuousClock.now
         let services = pane.services
         let openingKey = ObjectIdentifier(pane)
@@ -329,7 +330,7 @@ extension NewTabPage {
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
-        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else {
+        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
             openingPanes.remove(openingKey)
             services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
             return
@@ -358,9 +359,10 @@ extension NewTabPage {
         openingPanes.remove(ObjectIdentifier(pane))
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+        let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
+        let closePage = NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

@@ -52,6 +52,7 @@ extension SettingsSchema {
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
         "tabs.newTabTemplate",
+        "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "tabs.swapCmdTAndCmdN",
