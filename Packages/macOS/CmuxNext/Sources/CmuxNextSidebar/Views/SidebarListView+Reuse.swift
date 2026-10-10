@@ -26,6 +26,7 @@ extension SidebarListView {
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.open(id) }
             view.isEditing = groupEditor.shownGroup == id
+            view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

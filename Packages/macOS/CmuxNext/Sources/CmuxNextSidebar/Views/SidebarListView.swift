@@ -61,6 +61,10 @@ final class SidebarListView: NSView {
     /// The group header that holds keyboard focus (arrow keys stop on
     /// headers; focus is not selection). Nil when a workspace has it.
     var focusedGroup: GroupID?
+    /// The keyboard moved focus to `focusedGroup`, so its header draws the
+    /// ring (a click focuses without one). A header view made later, by
+    /// reuse or scrolling, draws it from this (SidebarListView+Reuse).
+    var showsFocusRing = false
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?

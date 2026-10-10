@@ -198,12 +198,17 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var pid: Int32?
     /// The daemon runs agents under agent hosts: a restart keeps them.
     var agentHosts: Bool
+    /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
+    /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
+    var chiefMuxHome: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false) {
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
+         chiefMuxHome: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
+        self.chiefMuxHome = chiefMuxHome
     }
 
     init(_ result: [String: Any]) {
@@ -211,6 +216,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
+        chiefMuxHome = result["chiefMuxHome"] as? String
     }
 
     /// The WebSocket endpoint; `.noWebSocket` when the listener failed to bind.
