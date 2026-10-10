@@ -17,17 +17,30 @@ import Foundation
               store.tabsBySurface[provisional.surface] == nil, !daemonHas(provisional, in: store),
               let screen = store.screensByHandle.values.first(where: { $0.pane(target) != nil }),
               let layout = split(screen.layout, target, direction, ratio, provisional.handle) else { return nil }
-        var columns = screen.columns
-        if let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) {
-            guard let tree = split(columns[index].layout, target, direction, ratio, provisional.handle) else { return nil }
-            columns[index].layout = tree
-            if let row = columns[index].rows.firstIndex(where: { $0.layout.paneIDs.contains(target) }) {
-                guard let rowTree = split(columns[index].rows[row].layout, target, direction, ratio, provisional.handle) else {
-                    return nil
-                }
-                columns[index].rows[row].layout = rowTree
+        // The target's column tree (and row tree) take the split too; a tree the split cannot
+        // reach leaves the intent unapplied, as cmux-tui would refuse it.
+        var reached = true
+        let columns = screen.columns.map { column -> ColumnSnapshot in
+            guard column.layout.paneIDs.contains(target) else { return column }
+            var column = column
+            guard let tree = split(column.layout, target, direction, ratio, provisional.handle) else {
+                reached = false
+                return column
             }
+            column.layout = tree
+            column.rows = column.rows.map { row -> RowSnapshot in
+                guard row.layout.paneIDs.contains(target) else { return row }
+                var row = row
+                guard let rowTree = split(row.layout, target, direction, ratio, provisional.handle) else {
+                    reached = false
+                    return row
+                }
+                row.layout = rowTree
+                return row
+            }
+            return column
         }
+        guard reached else { return nil }
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: provisional.handle)
         let tab = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
