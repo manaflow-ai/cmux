@@ -1737,6 +1737,31 @@ public struct CmuxTuiSnapshotParser: Sendable {
         }
     }
 
+    public struct CreatedBrowserPath: Equatable, Sendable {
+        public let browserID: String
+        public let workspaceID: String?
+        public let screenID: String?
+        public let paneID: String?
+        public let tabID: String?
+        public let cursor: CloudVMCursor?
+
+        public init(
+            browserID: String,
+            workspaceID: String?,
+            screenID: String?,
+            paneID: String?,
+            tabID: String?,
+            cursor: CloudVMCursor?
+        ) {
+            self.browserID = browserID
+            self.workspaceID = workspaceID
+            self.screenID = screenID
+            self.paneID = paneID
+            self.tabID = tabID
+            self.cursor = cursor
+        }
+    }
+
     /// The exact path a `workspace <ws> run` / `tab create terminal` mutation
     /// created. The committed result is a read-your-write placement receipt, so
     /// callers do not need to guess a tab while the next snapshot is in flight.
@@ -1753,6 +1778,23 @@ public struct CmuxTuiSnapshotParser: Sendable {
         return CreatedTerminalPath(
             attachment: attachment,
             terminalID: terminalID,
+            workspaceID: optionalID("workspace_id"),
+            screenID: optionalID("screen_id"),
+            paneID: optionalID("pane_id"),
+            tabID: optionalID("tab_id"),
+            cursor: mutationCursor(fromResult: result)
+        )
+    }
+
+    /// The exact path a `tab.create_browser` mutation created.
+    public static func createdBrowser(fromCreateResult result: [String: Any]) -> CreatedBrowserPath? {
+        let path = (result["value"] as? [String: Any]) ?? result
+        func optionalID(_ key: String) -> String? {
+            (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        guard let browserID = optionalID("browser_id") else { return nil }
+        return CreatedBrowserPath(
+            browserID: browserID,
             workspaceID: optionalID("workspace_id"),
             screenID: optionalID("screen_id"),
             paneID: optionalID("pane_id"),

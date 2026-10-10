@@ -54,6 +54,84 @@ import Testing
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment == nil)
     }
 
+    @Test func browserCreationReceiptPreservesRemotePlacement() throws {
+        let result: [String: Any] = [
+            "value": [
+                "kind": "browser",
+                "workspace_id": "ws_main",
+                "screen_id": "screen_1",
+                "pane_id": "pane_1",
+                "tab_id": "tab_browser",
+                "browser_id": "browser_cloud",
+            ],
+            "generation": "g1",
+            "revision": "8",
+        ]
+        let created = try #require(CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: result))
+        #expect(created.browserID == "browser_cloud")
+        #expect(created.workspaceID == "ws_main")
+        #expect(created.screenID == "screen_1")
+        #expect(created.paneID == "pane_1")
+        #expect(created.tabID == "tab_browser")
+        #expect(created.cursor == CloudVMCursor(generation: "g1", revision: 8))
+    }
+
+    @Test func browserCreationReceiptRejectsAnUnboundRemotePath() {
+        let result: [String: Any] = [
+            "value": [
+                "kind": "browser",
+                "workspace_id": "ws_main",
+                "screen_id": "screen_1",
+                "pane_id": "pane_1",
+                "browser_id": "browser_cloud",
+            ]
+        ]
+        #expect(CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: result) == nil)
+    }
+
+    @Test func browserCreationRequestTargetsTheBoundMachineWorkspaceAndPane() {
+        let request = CloudTuiRequests.createBrowserArguments(
+            socketPath: "/tmp/cmux-tui.sock",
+            workspaceID: "ws_main",
+            screenID: "screen_1",
+            paneID: "pane_1",
+            url: "http://127.0.0.1:4312/health",
+            name: "health",
+            idempotencyKey: "browser-attempt",
+            correlationKey: "browser-correlation"
+        )
+        #expect(request.operation == "tab.create_browser")
+        #expect(request.params["machine"] as? String == "current")
+        #expect(request.params["workspace"] as? String == "ws_main")
+        #expect(request.params["screen"] as? String == "screen_1")
+        #expect(request.params["pane"] as? String == "pane_1")
+        #expect(request.params["url"] as? String == "http://127.0.0.1:4312/health")
+        #expect(request.params["name"] as? String == "health")
+        #expect(request.params["correlation_key"] as? String == "browser-correlation")
+        #expect(request.idempotencyKey == "browser-attempt")
+    }
+
+    @Test func browserSnapshotKeepsTheRemoteWorkspaceAndTabPlacement() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["browsers"] = [[
+            "id": "browser_cloud",
+            "tab_id": "tab_3",
+            "url": "http://127.0.0.1:4312/health",
+            "title": "Cloud health",
+            "status": "ready",
+        ]]
+        let browser = try #require(
+            CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+                .first(where: { $0.id == SurfaceResourceID(machine: Self.machine, kind: .browser, key: "browser_cloud") })
+        )
+        let view = try #require(browser.remoteViews?.first)
+        #expect(browser.remoteWorkspace?.id == "ws_main")
+        #expect(browser.url == "http://127.0.0.1:4312/health")
+        #expect(view.tabID == "tab_3")
+        #expect(view.screenID == "screen_1")
+        #expect(view.paneID == "pane_1")
+    }
+
     @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["screens"] = [
