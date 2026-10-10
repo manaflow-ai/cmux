@@ -113,6 +113,7 @@ extension PaletteModel {
     func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
         state.lastSections = sections
+        state.awaitsRank = provisional
         if shownLevelID == state.levelID { display(sections) }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
                       isFinal: !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,

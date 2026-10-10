@@ -58,6 +58,14 @@ SCAN = re.compile(r"\.range\(of:|\.firstRange\(of:|\.firstIndex\(of:|\.lastIndex
                   r"|\.components\(separatedBy:|\.distance\(from:|\.hasPrefix\(|\.contains\(\"")
 LOOP_RULE = "string scan inside a loop"
 
+# A main-actor Task per incoming line/event: an unbounded backlog of main-actor
+# work under a burst (the 2026-10-09 nightly hang). Batch with
+# MainActorLineBatch (CmuxNextAgentActivity) instead.
+PER_LINE_CALLBACK = re.compile(r"\b(onLine|onEvent|onMessage|onFrame|onChunk):\s*\{|\bsetEventHandler\s*\{|\breadabilityHandler\s*=|for\s+(try\s+)?await\s+\w+\s+in\b")
+MAIN_TASK = re.compile(r"\bTask\s*(\(priority:[^)]*\))?\s*\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
+PER_LINE_WINDOW = 1
+PER_LINE_RULE = "a main-actor Task per line or event (batch with MainActorLineBatch)"
+
 ALLOW = re.compile(r"//\s*main-actor-ok:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 OFF_MAIN = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|@concurrent\b|(^|\s)(distributed\s+)?actor\s+\w+|\bTask\.detached\b"
@@ -137,6 +145,13 @@ def scan_file(path: str, default_main: bool) -> list[tuple[int, str, str]]:
     lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
     main_lines = main_actor_lines(lines, default_main)
     hits: list[tuple[int, str, str]] = []
+    # Any isolation: the callback itself may run anywhere; the Task lands on main.
+    for index, raw in enumerate(lines):
+        if COMMENT_ONLY.match(raw) or allowed(lines, index) or not MAIN_TASK.search(strip(raw)):
+            continue
+        window = lines[max(0, index - PER_LINE_WINDOW):index + 1]
+        if any(PER_LINE_CALLBACK.search(strip(line)) for line in window):
+            hits.append((index + 1, PER_LINE_RULE, raw.strip()))
     loop_until = -1
     for index, raw in enumerate(lines):
         if COMMENT_ONLY.match(raw) or not main_lines[index] or allowed(lines, index):
