@@ -96,7 +96,13 @@ const readJson = async (request: Request): Promise<Record<string, unknown> | nul
   }
 }
 
-const keyIdOk = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9+/=_-]{20,100}$/.test(v)
+/** App Attest key ids are sha256 digests: exactly 32 bytes in any base64 form; one canonical base64url name per key. */
+const canonicalKeyId = (v: unknown): string | undefined => {
+  if (typeof v !== "string" || !/^[A-Za-z0-9+/_-]{43}=?$/.test(v)) return undefined
+  const bytes = unb64u(v.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""))
+  return bytes && bytes.length === 32 ? b64u(bytes) : undefined
+}
+const notProduction = (env: Env, flag: string | undefined) => env.ENVIRONMENT !== "production" && flag === "true"
 
 export const handleFree = async (env: Env, path: string, request: Request): Promise<Response> => {
   if (request.method !== "POST") return err(405, "method", "POST only")
@@ -107,15 +113,16 @@ export const handleFree = async (env: Env, path: string, request: Request): Prom
   if (path === "/v1/inference/free/challenge") return Response.json({ challenge: await newChallenge(env, now), expires_at: now + CHALLENGE_TTL_MS })
   const body = await readJson(request)
   if (!body) return err(400, "validation.invalid", "body must be a JSON object")
-  if (!keyIdOk(body.key_id)) return err(400, "validation.invalid", "key_id is required")
+  const keyId = canonicalKeyId(body.key_id)
+  if (!keyId) return err(400, "validation.invalid", "key_id must be an App Attest key id")
   if (!(await challengeValid(env, body.challenge, now))) return err(403, "free.challenge", "the challenge is invalid or expired")
   const challengeBytes = new TextEncoder().encode(body.challenge as string)
-  const stub = device(env, body.key_id)
+  const stub = device(env, keyId)
 
   if (path === "/v1/inference/free/token") {
     if (typeof body.assertion !== "string" || body.assertion.length > 4096) return err(400, "validation.invalid", "assertion is required")
-    if (!(await stub.assert(challengeBytes, body.assertion))) return err(403, "free.assertion", "the assertion did not verify")
-    return mint(env, body.key_id)
+    if (!(await stub.assert(challengeBytes, body.assertion))) return err(403, "free.assertion", "the assertion did not verify, or the grant expired; attest again")
+    return mint(env, keyId)
   }
   if (path !== "/v1/inference/free/attest") return err(404, "not_found", "not found")
 
@@ -126,7 +133,7 @@ export const handleFree = async (env: Env, path: string, request: Request): Prom
   let attested: AttestedKey | undefined
   let reason = "no app id matched"
   for (const appId of appIds(env)) {
-    const r = verifyAttestation({ attestation: body.attestation, keyId: body.key_id, clientData: challengeBytes, appId, allowDevelopment: env.INFERENCE_FREE_ATTEST_DEVELOPMENT === "true", now })
+    const r = verifyAttestation({ attestation: body.attestation, keyId, clientData: challengeBytes, appId, allowDevelopment: notProduction(env, env.INFERENCE_FREE_ATTEST_DEVELOPMENT), now })
     if (r.ok) {
       attested = r.key
       break
@@ -137,16 +144,19 @@ export const handleFree = async (env: Env, path: string, request: Request): Prom
     console.warn(JSON.stringify({ msg: "inference.free.attest_refused", reason }))
     return err(403, "free.attestation", "this device could not be verified")
   }
-  if (!(await stub.known())) {
-    // A new install: one grant per device per month (DeviceCheck bit 0, stamped with the month).
+  if ((await stub.grant(now)) !== "current") {
+    // A new install, or a grant from an earlier month: one grant per device per month (DeviceCheck
+    // bit 0, stamped with the month). Grants end with their month, so a key never keeps one forever.
+    // Residual risk: two attestations from one device at the same moment can both read "no grant"
+    // (Apple has no compare-and-swap); the per-IP grant limit and the month expiry bound it.
     const bits = await queryBits(env, body.device_token)
     if (!bits.ok) return err(bits.reason === "devicecheck.bad_token" ? 403 : 503, "free.devicecheck", "this device could not be verified")
     if (bits.bit0 && bits.month === new Date(now).toISOString().slice(0, 7)) return err(403, "free.device_used", "this device already used its free access this month; sign in to continue")
     if (!(await markGranted(env, body.device_token))) return err(503, "free.devicecheck", "this device could not be verified")
   }
-  if (!(await stub.register(attested, body.platform))) return err(403, "free.attestation", "this device could not be verified")
+  if (!(await stub.register(attested, body.platform, now))) return err(403, "free.attestation", "this device could not be verified")
   console.log(JSON.stringify({ msg: "inference.free.granted", platform: body.platform }))
-  return mint(env, body.key_id)
+  return mint(env, keyId)
 }
 
 /** A free-tier token, or undefined (any other token goes to the normal sign-in check). */
@@ -156,7 +166,7 @@ export const freeCaller = async (env: Env, token: string): Promise<Caller | unde
   } catch {
     return undefined
   }
-  if (!freeOn(env)) return undefined
+  if (!ready(env)) return undefined
   try {
     const { payload } = await jwtVerify(token, createLocalJWKSet(publicJwks(env) as { keys: Array<JWK> }), { algorithms: ["ES256"], issuer: issuer(env), audience: AUD, clockTolerance: 30 })
     return typeof payload.sub === "string" && payload.fr === 1 ? { kind: "free", device: payload.sub } : undefined
@@ -169,7 +179,7 @@ export const freeCaller = async (env: Env, token: string): Promise<Caller | unde
 export const freeAdmit = async (env: Env, keyId: string, id: string, tokenBound: number): Promise<Response | undefined> => {
   const r = await device(env, keyId).admit(id, tokenBound)
   if (r.ok) return undefined
-  if (r.code === "free.unknown_device") return err(401, r.code, "this device is not registered")
+  if (r.code === "free.unknown_device" || r.code === "free.expired") return err(401, r.code, "attest this device again")
   const res = err(429, r.code, r.code === "free.rate" ? "too many requests; wait a moment" : "today's free quota is used up; sign in to continue")
   if (r.retryAfterS) res.headers.set("retry-after", String(r.retryAfterS))
   return res

@@ -115,6 +115,9 @@ const inference = async (path: string, request: Request, env: Env, ctx: Executio
   if (path === "/v1/inference/chat/completions" && request.method === "POST") return r.handleChatCompletions(env, request, ctx)
   if (path === "/v1/inference/status" && request.method === "GET") return r.handleInferenceStatus(env, request)
   if (path.startsWith("/v1/inference/free/")) return (await import("./inference/free.ts")).handleFree(env, path, request)
+  // Messages API shape: a client's base URL is <origin>/v1/inference (it appends /v1/messages).
+  if (path === "/v1/inference/v1/messages" && request.method === "POST") return (await import("./inference/messages.ts")).handleMessages(env, request, ctx)
+  if (path === "/v1/inference/v1/messages/count_tokens" && request.method === "POST") return (await import("./inference/messages.ts")).handleCountTokens(env, request)
   return Response.json({ error: { code: "not_found", message: "not found" } }, { status: 404 })
 }
 

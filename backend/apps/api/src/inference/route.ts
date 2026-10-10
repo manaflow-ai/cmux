@@ -38,12 +38,14 @@ export const liveRoutes = (env: Env, m: ModelEntry) => {
   return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined)
 }
 
+/** Bearer token, or `x-api-key` (Messages API clients send the key there). */
 const bearer = (request: Request) => {
   const h = request.headers.get("authorization") ?? ""
-  return h.toLowerCase().startsWith("bearer ") ? h.slice(7).trim() : undefined
+  if (h.toLowerCase().startsWith("bearer ")) return h.slice(7).trim()
+  return request.headers.get("x-api-key")?.trim() || undefined
 }
 
-const resolveCaller = async (env: Env, request: Request): Promise<Caller | Response> => {
+export const resolveCaller = async (env: Env, request: Request): Promise<Caller | Response> => {
   const token = bearer(request)
   if (!token) return err(401, "auth.required", "sign in, or use the free model from the app")
   const free = await freeCaller(env, token)
@@ -103,7 +105,8 @@ const contentRefusal = (messages: ReadonlyArray<unknown>, tools: unknown): strin
   return undefined
 }
 
-export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
+/** Switch, caller and a JSON object body of at most MAX_BODY_BYTES (shared by both API shapes). */
+export const admitRequest = async (env: Env, request: Request): Promise<{ caller: Caller; body: Record<string, unknown>; bytes: number } | Response> => {
   if (!switchOn(env.INFERENCE_ENABLED)) return err(503, "inference.disabled", "the model router is off on this deployment")
   const caller = await resolveCaller(env, request)
   if (caller instanceof Response) return caller
@@ -111,14 +114,27 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
   if (length > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
   const bytes = new Uint8Array(await request.arrayBuffer())
   if (bytes.byteLength > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
-  const raw = new TextDecoder().decode(bytes)
   let body: Record<string, unknown>
   try {
-    body = JSON.parse(raw) as Record<string, unknown>
+    body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
   } catch {
     return err(400, "validation.invalid", "body must be JSON")
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return err(400, "validation.invalid", "body must be a JSON object")
+  return { caller, body, bytes: bytes.byteLength }
+}
+
+export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
+  const admitted = await admitRequest(env, request)
+  if (admitted instanceof Response) return admitted
+  return serveChat(env, ctx, admitted.caller, admitted.body, admitted.bytes)
+}
+
+/**
+ * One OpenAI chat/completions request from an admitted caller. `promptBytes` bounds the prompt
+ * tokens (one token is at least one byte of the request).
+ */
+export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number): Promise<Response> => {
   const model = typeof body.model === "string" ? modelById(body.model) : undefined
   if (!model) return err(404, "model.not_found", "unknown model; GET /v1/inference/models lists the models")
   if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
@@ -135,7 +151,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
   const id = crypto.randomUUID()
-  const promptBound = bytes.byteLength
+  const promptBound = promptBytes
   const maxUsd = cardCost(model, Math.min(promptBound, model.context), maxTokens)
   const maxMicros = Math.ceil(maxUsd * 1_000_000)
 
@@ -177,7 +193,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
         const usd = r.usage ? (r.usage.costUsd ?? cardCost(model, r.usage.input, r.usage.output)) : r.charged === "none" ? 0 : maxUsd
         if (usd > maxUsd * 1.0001) console.warn(JSON.stringify({ msg: "inference.cost_over_bound", id, model: model.id, provider: plan.provider, usd, max_usd: maxUsd }))
         await guard(env).settle(id, plan.provider, usd * 1_000_000, r.ttfbMs)
-        if (caller.kind === "free") await freeSettle(env, caller.device, id, r.usage ? r.usage.input + r.usage.output : Math.min(promptBound, model.context) + maxTokens)
+        if (caller.kind === "free") await freeSettle(env, caller.device, id, r.usage ? r.usage.input + r.usage.output : r.charged === "none" ? 0 : Math.min(promptBound, model.context) + maxTokens)
         else if (usd > 0) {
           const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
           await meter.record(caller.team, [{ key: `inference:${id}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() }])

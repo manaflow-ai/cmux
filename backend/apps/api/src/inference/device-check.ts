@@ -15,7 +15,7 @@ export type DeviceBits = { readonly ok: true; readonly bit0: boolean; readonly m
 
 export const deviceCheckConfigured = (env: Env) => Boolean(env.INFERENCE_DEVICECHECK_KEY_P8 && env.INFERENCE_DEVICECHECK_KEY_ID && env.APPLE_TEAM_ID)
 
-const host = (env: Env) => (env.INFERENCE_DEVICECHECK_DEVELOPMENT === "true" ? "https://api.development.devicecheck.apple.com" : "https://api.devicecheck.apple.com")
+const host = (env: Env) => (env.ENVIRONMENT !== "production" && env.INFERENCE_DEVICECHECK_DEVELOPMENT === "true" ? "https://api.development.devicecheck.apple.com" : "https://api.devicecheck.apple.com")
 
 let cached: { key: CryptoKey; kid: string; jwt: string; exp: number } | undefined
 

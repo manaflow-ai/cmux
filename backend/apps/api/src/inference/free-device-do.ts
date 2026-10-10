@@ -11,7 +11,10 @@ import { utcDay } from "./spend-guard-do.ts"
  * upstream call and settles with the real count; an unsettled reservation counts in full.
  */
 
-export type FreeAdmit = { readonly ok: true } | { readonly ok: false; readonly code: "free.quota" | "free.rate" | "free.unknown_device"; readonly retryAfterS?: number }
+export type FreeAdmit = { readonly ok: true } | { readonly ok: false; readonly code: "free.quota" | "free.rate" | "free.unknown_device" | "free.expired"; readonly retryAfterS?: number }
+
+/** UTC month of an instant, YYYY-MM: a grant is good for the month DeviceCheck stamped it in. */
+export const utcMonth = (ms: number) => new Date(ms).toISOString().slice(0, 7)
 
 const intVar = (v: string | undefined, d: number) => {
   const n = Number(v)
@@ -19,36 +22,52 @@ const intVar = (v: string | undefined, d: number) => {
 }
 
 export class FreeDeviceDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-    const sql = ctx.storage.sql
-    sql.exec(`CREATE TABLE IF NOT EXISTS device (id INTEGER PRIMARY KEY CHECK (id = 1), jwk TEXT NOT NULL, app_id_hash TEXT NOT NULL, counter INTEGER NOT NULL, platform TEXT NOT NULL, created_at INTEGER NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS usage (day TEXT PRIMARY KEY, tokens INTEGER NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS open (id TEXT PRIMARY KEY, day TEXT NOT NULL, tokens INTEGER NOT NULL, at INTEGER NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS minute (id INTEGER PRIMARY KEY CHECK (id = 1), minute INTEGER NOT NULL, n INTEGER NOT NULL)`)
+  /**
+   * Tables exist only after a successful attestation (register): a request for a random key id
+   * reads nothing and writes nothing, so nobody can fill storage with empty devices.
+   */
+  private hasTables(): boolean {
+    return this.ctx.storage.sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'device'`).toArray().length > 0
   }
 
-  private device(): AppAttestKey | undefined {
-    const row = this.ctx.storage.sql.exec<{ jwk: string; app_id_hash: string; counter: number }>(`SELECT jwk, app_id_hash, counter FROM device WHERE id = 1`).toArray()[0]
-    return row ? { jwk: JSON.parse(row.jwk), app_id_hash: row.app_id_hash, counter: Number(row.counter) } : undefined
+  private device(): (AppAttestKey & { grant_month: string }) | undefined {
+    if (!this.hasTables()) return undefined
+    const row = this.ctx.storage.sql.exec<{ jwk: string; app_id_hash: string; counter: number; grant_month: string }>(`SELECT jwk, app_id_hash, counter, grant_month FROM device WHERE id = 1`).toArray()[0]
+    return row ? { jwk: JSON.parse(row.jwk), app_id_hash: row.app_id_hash, counter: Number(row.counter), grant_month: row.grant_month } : undefined
   }
 
-  async known(): Promise<boolean> {
-    return this.device() !== undefined
+  /** "current": registered with this month's grant; "expired": registered, grant from an earlier month; "unknown". */
+  async grant(now = Date.now()): Promise<"current" | "expired" | "unknown"> {
+    const d = this.device()
+    return !d ? "unknown" : d.grant_month === utcMonth(now) ? "current" : "expired"
   }
 
-  /** Stores the attested key once. The same key again is a no-op; a different key under this id is refused. */
-  async register(key: AttestedKey, platform: string): Promise<boolean> {
+  /**
+   * Stores the attested key with this month's grant (after the Worker checked DeviceCheck). The
+   * same key again renews the month; a different key under this id is refused.
+   */
+  async register(key: AttestedKey, platform: string, now = Date.now()): Promise<boolean> {
+    const sql = this.ctx.storage.sql
+    if (!this.hasTables()) {
+      sql.exec(`CREATE TABLE IF NOT EXISTS device (id INTEGER PRIMARY KEY CHECK (id = 1), jwk TEXT NOT NULL, app_id_hash TEXT NOT NULL, counter INTEGER NOT NULL, platform TEXT NOT NULL, created_at INTEGER NOT NULL, grant_month TEXT NOT NULL)`)
+      sql.exec(`CREATE TABLE IF NOT EXISTS usage (day TEXT PRIMARY KEY, tokens INTEGER NOT NULL)`)
+      sql.exec(`CREATE TABLE IF NOT EXISTS open (id TEXT PRIMARY KEY, day TEXT NOT NULL, tokens INTEGER NOT NULL, at INTEGER NOT NULL)`)
+      sql.exec(`CREATE TABLE IF NOT EXISTS minute (id INTEGER PRIMARY KEY CHECK (id = 1), minute INTEGER NOT NULL, n INTEGER NOT NULL)`)
+    }
     const have = this.device()
-    if (have) return JSON.stringify(have.jwk) === JSON.stringify(key.jwk) && have.app_id_hash === key.app_id_hash
-    this.ctx.storage.sql.exec(`INSERT INTO device (id, jwk, app_id_hash, counter, platform, created_at) VALUES (1, ?, ?, 0, ?, ?)`, JSON.stringify(key.jwk), key.app_id_hash, platform, Date.now())
+    if (have) {
+      if (JSON.stringify(have.jwk) !== JSON.stringify(key.jwk) || have.app_id_hash !== key.app_id_hash) return false
+      sql.exec(`UPDATE device SET grant_month = ? WHERE id = 1`, utcMonth(now))
+      return true
+    }
+    sql.exec(`INSERT INTO device (id, jwk, app_id_hash, counter, platform, created_at, grant_month) VALUES (1, ?, ?, 0, ?, ?, ?)`, JSON.stringify(key.jwk), key.app_id_hash, platform, now, utcMonth(now))
     return true
   }
 
-  /** An App Attest assertion over `clientData` with a counter above the stored one; stores the new counter. */
-  async assert(clientData: Uint8Array, assertion: string): Promise<boolean> {
+  /** An App Attest assertion over `clientData` with a counter above the stored one, under this month's grant; stores the new counter. */
+  async assert(clientData: Uint8Array, assertion: string, now = Date.now()): Promise<boolean> {
     const key = this.device()
-    if (!key) return false
+    if (!key || key.grant_month !== utcMonth(now)) return false
     const r = verifyAppAttestData(key, clientData, assertion)
     if (!r.ok) return false
     this.ctx.storage.sql.exec(`UPDATE device SET counter = ? WHERE id = 1 AND counter < ?`, r.counter, r.counter)
@@ -56,7 +75,9 @@ export class FreeDeviceDO extends DurableObject<Env> {
   }
 
   async admit(id: string, tokenBound: number, now = Date.now()): Promise<FreeAdmit> {
-    if (!this.device()) return { ok: false, code: "free.unknown_device" }
+    const d = this.device()
+    if (!d) return { ok: false, code: "free.unknown_device" }
+    if (d.grant_month !== utcMonth(now)) return { ok: false, code: "free.expired" }
     const sql = this.ctx.storage.sql
     const perMinute = intVar(this.env.INFERENCE_FREE_PER_MINUTE, 20)
     const minute = Math.floor(now / 60_000)
@@ -77,6 +98,7 @@ export class FreeDeviceDO extends DurableObject<Env> {
   }
 
   async settle(id: string, tokens: number): Promise<void> {
+    if (!this.hasTables()) return
     const sql = this.ctx.storage.sql
     const row = sql.exec<{ day: string }>(`SELECT day FROM open WHERE id = ?`, id).toArray()[0]
     if (!row) return
