@@ -24,7 +24,12 @@
     document.querySelector("button").onclick = () => done("Posted");
   } else if (site === "gmail") {
     document.body.innerHTML = '<div role="textbox" aria-label="Message Body" contenteditable="true"><div class="draft"></div><div class="gmail_signature">-- Sent from the fixture</div></div><div role="button" data-tooltip="Send">Send</div>';
-    document.querySelector(".draft").textContent = draft;
+    // Gmail draws an emoji as an image whose alt is the emoji.
+    const body = document.querySelector(".draft");
+    for (const [i, part] of draft.split("🙂").entries()) {
+      if (i) body.appendChild(Object.assign(document.createElement("img"), { alt: "🙂", className: "an1" }));
+      body.appendChild(document.createTextNode(part));
+    }
     document.querySelector('[data-tooltip="Send"]').onclick = () => done("Message sent");
   }
 </script>

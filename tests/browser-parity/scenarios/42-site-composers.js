@@ -31,6 +31,10 @@ try {
   emitCmux("x-post", await run((...a) => sites.x.post(...a), [draftText]));
   emitCmux("linkedin-post", await run((...a) => sites.linkedin.post(...a), [draftText]));
   emitCmux("gmail-send", await run((...a) => sites.gmail.send(...a), [{ to: "someone@example.com", subject: "Hi", body: draftText }]));
+  // Gmail draws an emoji as an image; its alt text is part of the body.
+  tamper = false;
+  const emoji = await sites.gmail.send({ to: "someone@example.com", subject: "Hi", body: "Thanks 🙂 see you" });
+  emitCmux("gmail-emoji", await sites.gmail.send(emoji.id, { confirm: true }).then((r) => r.status, (e) => e.code || e.message));
 } finally {
   Page.goto = realGoto;
 }

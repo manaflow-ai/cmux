@@ -12,6 +12,7 @@
     "gmail-send": [
       "sent",
       "compose_mismatch: differs"
-    ]
+    ],
+    "gmail-emoji": "sent"
   }
 }
