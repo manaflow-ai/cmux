@@ -6,7 +6,7 @@ import os
 import shutil
 import time
 
-from . import cdp
+from . import bookmark_bridge, cdp
 from .app import TaggedApp
 from .collector import Collector
 
@@ -145,6 +145,7 @@ class Run:
             self.watch_auto_phase()
             self.collector.wait_for(lambda c: c.has_event("phase", phase="mv2", state="done"), 30)
             self.guarded(self.tabs_in_sync_check)
+            self.guarded(self.bookmark_bridge_check)
             self.guarded(self.focus_page_tab)
             self.app.quit()
             self.launch(extensions)
@@ -274,6 +275,9 @@ class Run:
         except (OSError, ConnectionError, RuntimeError) as error:
             self.note("mv3", "harness", step.__name__, "fail", f"runner error: {error!r}")
             return None
+
+    def bookmark_bridge_check(self):
+        bookmark_bridge.run(self, MV3_ID)
 
     def worker_call(self, name):
         worker = self.sw_session(MV3_ID)

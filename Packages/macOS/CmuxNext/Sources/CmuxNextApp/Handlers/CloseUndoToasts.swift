@@ -87,7 +87,14 @@ final class CloseUndoToasts {
         }
     }
 
-    isolated deinit { observation?.cancel(); reopenWatch?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            reopenWatch?.cancel()
+        }
+    }
 
     private static func daemonItemIDs(_ daemons: [DaemonService]) -> [String] {
         daemons.filter(\.store.servesStateResources).flatMap { $0.store.closedItems.map(\.id) }

@@ -91,6 +91,7 @@ export function BrowseView({
               key={entry.id}
               entry={entry}
               initialVariant={variant}
+              filter={filter}
               env={env}
               tune={tune}
               onOpen={onOpen}
@@ -116,6 +117,7 @@ export function BrowseView({
 function BrowseCard({
   entry,
   initialVariant,
+  filter,
   env,
   tune,
   onOpen,
@@ -124,6 +126,7 @@ function BrowseCard({
 }: {
   entry: GalleryEntry;
   initialVariant: string;
+  filter: string;
   env: GalleryEnv;
   tune: string;
   onOpen: (entry: GalleryEntry, variant: string) => void;
@@ -145,6 +148,12 @@ function BrowseCard({
   const variants = useMemo(() => Object.keys(entry.variants), [entry]);
   const selectedVariant = resolveBrowseVariant(variant, initialVariant, variants);
   const fixture = selectedVariant ? entry.variants[selectedVariant] : undefined;
+  // A query can choose a different variant on the same card; registry refreshes keep the current state.
+  useEffect(() => {
+    setVariant(initialVariant);
+    // The query is the reset boundary. An entry refresh may change initialVariant while preserving selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
   useEffect(() => {
     if (selectedVariant && selectedVariant !== variant) setVariant(selectedVariant);
   }, [selectedVariant, variant]);

@@ -9,6 +9,7 @@ import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setHeaderState } from "./header/headerState";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -89,6 +90,8 @@ export function applyHostEvent(event: HostEvent): void {
       return setRecentlyClosed(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
+    case "headerState":
+      return setHeaderState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
     case "revealTurn":

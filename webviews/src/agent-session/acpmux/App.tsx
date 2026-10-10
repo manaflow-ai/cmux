@@ -116,6 +116,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
@@ -180,6 +181,7 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      applyHeaderState?(state: unknown): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
       applyDeviceChats?(chats: unknown): void;
       /// The newest recently closed items for the New Tab page (newtab/recentlyClosed.ts).
@@ -1969,6 +1971,9 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
       },
+      applyHeaderState(state) {
+        setHeaderState(state);
+      },
       applyDeviceChats(chats) {
         setDeviceChats(chats);
       },
@@ -2542,14 +2547,14 @@ function AcpmuxPane() {
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
-  const tabPinned = useRef(false);
-  // Whether the panes beside the chat show ([+] New tab reads Hide tabs): the App's answer to the
-  // click, and the tab state it reports.
-  const [sideTabs, setSideTabs] = useState(false);
+  // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
+  // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
+  // follows the App's answer to the click.
+  const { sideTabs } = useHeaderState();
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
-        setSideTabs(result?.shown === true),
+        setHeaderState({ sideTabs: result?.shown === true }),
       ),
     );
   const archive = archiveRow(
@@ -2561,11 +2566,7 @@ function AcpmuxPane() {
     (archived) => ignoreFailure(callNative("chat.archive", { archived })),
     t,
   );
-  const readTabState = () =>
-    callNative<{ pinned?: boolean; sideTabs?: boolean }>("pane.tabState").then((state) => {
-      tabPinned.current = state?.pinned === true;
-      setSideTabs(state?.sideTabs === true);
-    });
+  const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
@@ -2651,7 +2652,7 @@ function AcpmuxPane() {
         },
         {
           key: "pin",
-          label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
+          label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
           icon: "action.pin",
           shortcutAction: HEADER_ACTIONS.pin,
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),

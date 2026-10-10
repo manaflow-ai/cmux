@@ -36,8 +36,12 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
         }
     }
 
-    deinit {
-        continuation.finish()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            continuation.finish()
+        }
     }
 
     func didRecordVisit(url: URL, title: String?, at date: Date) {

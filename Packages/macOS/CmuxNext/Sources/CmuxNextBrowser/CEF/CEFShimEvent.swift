@@ -66,6 +66,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsMessage(browser: Int32, json: String)
     /// A watched profile preference changed (`cmux_shim_pref_watch`).
     case preferenceChanged(name: String, profilePath: String)
+    /// A chrome.bookmarks bridge event of a profile's Chromium store (`CEFBookmarkBridge`).
+    case bookmarks(json: String, profilePath: String)
     /// A download's start, progress or end (`CEFDownloads`).
     case download(CEFDownloadEvent)
     case unknown(kind: Int32)
@@ -118,6 +120,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
             self = download.map(Self.download) ?? .unknown(kind: kind)
         case 38: self = .localFileHandoff(browser: browser, url: s1)
+        case 39: self = .bookmarks(json: s1, profilePath: s2)
         default: self = .unknown(kind: kind)
         }
     }

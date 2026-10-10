@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 
 /// The chat header's Terminal and Browser splits (acpmux header/quickActions.ts). Toggling (`mode:
@@ -76,6 +77,20 @@ final class AgentChatSplitToggles {
         }
         guard let mine = region(pane.handle) else { return false }
         return mine == region(chatPane.handle)
+    }
+
+    /// The chat header's state (cx-00n1): the tab's pin, whether the panes beside the chat show,
+    /// and the splits whose button is lit, the ones a toggle click would close (each button's last
+    /// split, while it is in the chat's workspace). One read, so ``AgentChatHeaderWatch`` observes
+    /// exactly what the page shows.
+    func headerState(chat: String, store: DaemonStore?) -> AgentPaneHeaderState {
+        guard let store else { return AgentPaneHeaderState() }
+        let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
+        let lit = Self.kinds.keys.sorted().filter { id in
+            opened.last { $0.id == id }.flatMap { Self.split($0, in: tabs, chat: chat) } != nil
+        }
+        return AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
+                                    sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit)
     }
 
     /// [+] New tab, which becomes Hide tabs in the same spot (cx-qom0, ChatGPT's right column). On a

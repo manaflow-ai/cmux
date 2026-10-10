@@ -66,7 +66,13 @@ final class ProjectsImport {
 
     init(services: AppServices) { self.services = services }
 
-    isolated deinit { sending?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            sending?.cancel()
+        }
+    }
 
     /// Follows the chat index and the local daemon connection for the app's life.
     func start(feed: ChatsFeed?) {
