@@ -153,9 +153,9 @@ struct NewMachineSheetLayoutTests {
             window.close()
         }
 
-        let popUps = Self.visiblePopUps(in: host)
-        let base = try #require(popUps.first, "no Base pop-up was rendered")
-        let size = try #require(popUps.dropFirst().first, "no Size pop-up was rendered")
+        let menus = Self.visibleMenus(in: host)
+        let base = try #require(menus.first, "no Base pop-up was rendered")
+        let size = try #require(menus.dropFirst().first, "no Size pop-up was rendered")
         let rows = [("Base", base), ("Size", size)]
         let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
         #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
@@ -230,7 +230,7 @@ struct NewMachineSheetLayoutTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
 
-        let basePopUp = Self.visiblePopUps(in: host).first
+        let basePopUp = Self.visibleMenus(in: host).first
         #expect(
             basePopUp != nil,
             "\(label): the Base pop-up was not rendered"
@@ -250,10 +250,18 @@ struct NewMachineSheetLayoutTests {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
-    private static func visiblePopUps(in root: NSView) -> [NSPopUpButton] {
+    /// SwiftUI may bridge a Menu as an NSPopUpButton or as another native
+    /// NSControl depending on the hosted test runner's OS version. AppKit's
+    /// accessibility role identifies both menu bridges without matching labels
+    /// or other buttons in the sheet.
+    private static func visibleMenus(in root: NSView) -> [NSControl] {
         descendants(of: root)
-            .compactMap { $0 as? NSPopUpButton }
-            .filter { !$0.isHiddenOrHasHiddenAncestor }
+            .compactMap { $0 as? NSControl }
+            .filter {
+                guard !$0.isHiddenOrHasHiddenAncestor else { return false }
+                let role = $0.accessibilityRole()
+                return role == .popUpButton || role == .menuButton
+            }
             .sorted { lhs, rhs in
                 let lhsFrame = lhs.convert(lhs.bounds, to: root)
                 let rhsFrame = rhs.convert(rhs.bounds, to: root)
