@@ -49,10 +49,10 @@ extension SidebarListView {
             }
             reload(animated: true)
         case let .group(group):
-            SidebarGroupKeys(list: self).setFocus(group)
-            // The first click already toggled (at once, cx-qno.17); the second
-            // click of a double click does nothing, so it never flickers.
-            if event.clickCount >= 2 {
+            // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
+            SidebarGroupKeys(list: self).setFocus(group, ring: false)
+            // Every click on the bar toggles, also fast ones; only a chip double click is dropped (cx-qno.17).
+            if event.clickCount >= 2, groupEditing.isOnChip(point, group: group) {
                 self.press = nil
                 return
             }

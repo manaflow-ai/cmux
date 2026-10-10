@@ -54,6 +54,13 @@ pub(crate) enum TerminalEnd {
 /// parent, could not read the status. This is a real process end.
 pub(crate) const EXIT_UNOBSERVED: &str = "exit-unobserved";
 
+/// The detail prefix of a respawn whose launch failed (cx-6so.49): the
+/// terminal stays ended as `restart_failed` and never respawns again.
+pub(crate) const RESPAWN_FAILED_DETAIL: &str = "respawn-failed";
+/// The detail prefix of a terminal that used every respawn attempt of the
+/// supervisor's window (cx-6so.49): `restart_exhausted`, never respawned.
+pub(crate) const RESPAWN_EXHAUSTED_DETAIL: &str = "restart-exhausted";
+
 /// Stable reason codes for a host loss, from the free-form reasons the owner
 /// records. Unknown text maps to `other`; the raw text stays in `detail`.
 fn host_lost_reason(detail: &str) -> &'static str {
@@ -67,6 +74,8 @@ fn host_lost_reason(detail: &str) -> &'static str {
         "unadoptable-host-ended" => "unadoptable_host_ended",
         // A signal exit during a session shutdown (logout): "session-shutdown: signal N".
         _ if detail.starts_with("session-shutdown") => "session_shutdown",
+        _ if detail.starts_with(RESPAWN_EXHAUSTED_DETAIL) => "restart_exhausted",
+        _ if detail.starts_with(RESPAWN_FAILED_DETAIL) => "restart_failed",
         _ => "other",
     }
 }

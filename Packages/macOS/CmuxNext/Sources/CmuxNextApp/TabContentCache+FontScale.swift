@@ -13,9 +13,14 @@ extension TabContentCache {
         session.delegate = sessionDelegate
         let key = tab.id
         if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
-        TerminalFontScale(session.surfaceView).observe { [weak daemon] scale in
+        TerminalFontScale(session.surfaceView).observe { [weak daemon, weak surfaceView = session.surfaceView] scale in
             guard let daemon else { return }
             Self.saveFontScale(scale, tab: key, daemon: daemon)
+            // Ghostty handles Cmd+=/-/0 directly, so show the same transient readout
+            // as the action/palette path when the changed terminal owns the key window.
+            if let surfaceView, surfaceView.window?.isKeyWindow == true {
+                SurfaceZoomIndicator.show(percent: Int(((scale ?? 1) * 100).rounded()), in: surfaceView.window)
+            }
         }
         return session
     }
