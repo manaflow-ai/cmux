@@ -308,24 +308,27 @@ async fn the_chat_allowance_never_answers_in_a_web_turn() {
     assert!(web.response(wid).await.0.is_ok());
 }
 
-/// ACP-REMOTE-GUARD (f): a Web answer allows once or denies once; an
-/// always option or the chat allowance is a lasting grant and is refused.
-/// REMOTE-FLOOR: once the local user gives the agent a lasting grant, Web
-/// control ends (the agent may run that tool without a request).
+/// A Web answer never allows (cx-1l61: only the person at the Mac app does;
+/// cx-aocz brings a device-bound proof for the phone), so it never makes a
+/// lasting grant either. REMOTE-FLOOR: once the local user gives the agent a
+/// lasting grant, Web control ends (the agent may run that tool without a
+/// request).
 #[tokio::test]
 async fn a_web_answer_never_makes_a_lasting_grant() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut c, "lasting").await;
     let mut web = web_client(&hub).await;
     let mut r = connect(&hub).await;
-    // "Allow for this chat" from the Web is refused; allow once is not.
+    // "Allow for this chat" and "allow once" from the Web are refused.
     let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
     let g = ready(&mut c).await;
-    let e = web.request(RESPOND, decision(&id, &g, "web-chat", "allow_chat")).await.unwrap_err();
-    assert!(e.contains("lasting grant"), "{e}");
+    for choice in ["allow_chat", "allow_once"] {
+        let e = web.request(RESPOND, decision(&id, &g, choice, choice)).await.unwrap_err();
+        assert!(e.contains("approve this on the Mac app"), "{choice}: {e}");
+    }
     let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
     assert_eq!(state["chatAllowance"]["active"], false, "{state}");
-    web.request(RESPOND, decision(&id, &g, "web-once", "allow_once")).await.unwrap();
+    r.request(RESPOND, decision(&id, &g, "local-once", "allow_once")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
     // Only an allow_always option is offered.
     let rid =
@@ -336,8 +339,8 @@ async fn a_web_answer_never_makes_a_lasting_grant() {
         "optionId": item["request"]["options"][0]["optionId"]});
     assert_eq!(item["request"]["options"][0]["kind"], "allow_always", "{item}");
     let e = web.request(method::MUX_PERMISSION_RESPOND, always.clone()).await.unwrap_err();
-    assert!(e.contains("lasting grant"), "{e}");
-    // The unix socket may still choose it; then Web control ends.
+    assert!(e.contains("approve this on the Mac app"), "{e}");
+    // The person may still choose it; then Web control ends.
     r.request(method::MUX_PERMISSION_RESPOND, always).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
     let e = web.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap_err();

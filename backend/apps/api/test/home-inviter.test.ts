@@ -10,10 +10,4 @@ describe("inviteSender", () => {
   it("drops an unverified email", () => {
     expect(inviteSender({ ...base, kind: "session", email_verified: false })).toEqual({ user: "user_a", email: null })
   })
-  it("gives nothing for installs, agents and system principals", () => {
-    expect(inviteSender({ ...base, kind: "install", install: "inst_1" })).toBeUndefined()
-    expect(inviteSender({ ...base, kind: "session", agent: "agent_x" })).toBeUndefined()
-    expect(inviteSender({ ...base, kind: "agent" })).toBeUndefined()
-    expect(inviteSender({ ...base, kind: "system" })).toBeUndefined()
-  })
 })

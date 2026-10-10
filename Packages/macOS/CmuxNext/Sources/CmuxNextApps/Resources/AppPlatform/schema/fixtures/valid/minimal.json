@@ -1,1 +1,0 @@
-{ "manifestVersion": 1, "id": "local/hello", "name": "Hello", "version": "0.1.0", "description": "A theme-only app.", "engines": { "cmux": "^1.0" } }

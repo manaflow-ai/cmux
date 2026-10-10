@@ -420,6 +420,13 @@ impl TabSource for SharedHeadless {
         self.0.drive(session, target_id);
     }
 
+    fn driven_by_others(&self, session: u64, target_id: &str) -> bool {
+        let driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
+        driven
+            .get(target_id)
+            .is_some_and(|sessions| !sessions.is_empty() && !sessions.contains(&session))
+    }
+
     fn kept(&self, session: u64, target_id: &str) {
         let created = self.0.routes().is_creator(session, target_id);
         self.0.configure_kept(session, target_id, created);
@@ -785,6 +792,10 @@ impl Driver for HeadlessSession {
 
     fn send_session_event(&self, event: DriverEvent) -> bool {
         self.engine.as_ref().is_some_and(|e| e.send_session_event(event))
+    }
+
+    fn drives_tab(&self, target_id: &str) -> bool {
+        self.engine.as_ref().is_none_or(|e| e.drives_tab(target_id))
     }
 
     fn end_session(&self) {

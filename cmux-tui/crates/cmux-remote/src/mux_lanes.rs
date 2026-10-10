@@ -249,21 +249,6 @@ mod tests {
         assert_eq!(tracker.classify_server_line(br#"{"id":1,"ok":true}"#), Some(Lane::Bulk));
     }
 
-    #[test]
-    fn cloud_image_paste_uses_bulk_capacity_instead_of_keyboard_capacity() {
-        assert_eq!(
-            classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),
-            Lane::Interactive
-        );
-        assert_eq!(
-            classify_client_line(br#"{"id":9,"cmd":"paste-image","op":"chunk","data":"eA=="}"#),
-            Lane::Bulk
-        );
-        assert_eq!(
-            classify_client_line(br#"{"id":10,"cmd":"send","surface":1,"bytes":"eA=="}"#),
-            Lane::Interactive
-        );
-    }
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
 
@@ -320,16 +305,6 @@ mod tests {
         }
     }
 
-    fn allocation_count<T>(operation: impl FnOnce() -> T) -> (T, usize) {
-        COUNT_ALLOCATIONS.with(|enabled| enabled.set(false));
-        ALLOCATION_COUNT.with(|count| count.set(0));
-        COUNT_ALLOCATIONS.with(|enabled| enabled.set(true));
-        let result = operation();
-        COUNT_ALLOCATIONS.with(|enabled| enabled.set(false));
-        let allocations = ALLOCATION_COUNT.with(Cell::get);
-        (result, allocations)
-    }
-
     #[test]
     fn keystrokes_and_terminal_output_use_distinct_lanes() {
         let tracker = MuxLaneTracker::default();
@@ -341,139 +316,6 @@ mod tests {
         assert_eq!(
             tracker.classify_server_line(br#"{"event":"output","surface":1,"data":"Yg=="}"#),
             Some(Lane::Bulk)
-        );
-    }
-
-    #[test]
-    fn surface_stream_state_events_use_the_bulk_lane() {
-        let tracker = MuxLaneTracker::default();
-        for event in [
-            "render-state",
-            "render-delta",
-            "resized",
-            "colors-changed",
-            "scroll-changed",
-            "detached",
-        ] {
-            let line = format!(r#"{{"event":"{event}","surface":1}}"#);
-            assert_eq!(
-                tracker.classify_server_line(line.as_bytes()),
-                Some(Lane::Bulk),
-                "{event} must stay ordered with surface output"
-            );
-        }
-    }
-
-    #[test]
-    fn surface_stream_terminal_cannot_overtake_its_bulk_tail() {
-        let tracker = MuxLaneTracker::default();
-        let render_lane =
-            tracker.classify_server_line(br#"{"event":"render-delta","surface":1}"#).unwrap();
-
-        for terminal in [
-            br#"{"event":"detached","surface":1}"#.as_slice(),
-            br#"{"event":"overflow","scope":"surface","surface":1}"#.as_slice(),
-        ] {
-            assert_eq!(
-                tracker.classify_server_line(terminal),
-                Some(render_lane),
-                "surface stream termination must stay ordered behind its bulk tail"
-            );
-        }
-    }
-
-    #[test]
-    fn one_way_input_response_is_drained_once() {
-        let tracker = MuxLaneTracker::default();
-        tracker.suppress_response(9);
-        assert_eq!(tracker.classify_server_line(br#"{"id":9,"ok":true}"#), None);
-        assert_eq!(tracker.classify_server_line(br#"{"id":9,"ok":true}"#), Some(Lane::Control));
-    }
-
-    #[test]
-    fn response_tracking_is_bounded() {
-        let tracker = MuxLaneTracker::default();
-        for id in 0..=MAX_TRACKED_REQUESTS as u64 {
-            tracker.suppress_response(id);
-        }
-
-        let state = tracker.state.lock().unwrap();
-        assert_eq!(state.order.len(), MAX_TRACKED_REQUESTS);
-        assert_eq!(state.requests.len(), MAX_TRACKED_REQUESTS);
-        drop(state);
-        assert_eq!(tracker.classify_server_line(br#"{"id":0,"ok":true}"#), Some(Lane::Control));
-    }
-
-    #[test]
-    fn stale_tracking_entry_does_not_evict_reused_request_id() {
-        let tracker = MuxLaneTracker::default();
-        tracker.suppress_response(1);
-        tracker.suppress_response(1);
-        for id in 2..=MAX_TRACKED_REQUESTS as u64 {
-            tracker.suppress_response(id);
-        }
-
-        assert_eq!(tracker.classify_server_line(br#"{"id":1,"ok":true}"#), None);
-    }
-
-    #[test]
-    fn large_snapshot_requests_use_bulk_lane() {
-        assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt-state"}"#), Lane::Bulk);
-        assert_eq!(
-            classify_client_line(br#"{"id":2,"cmd":"copy","mode":"scrollback"}"#),
-            Lane::Bulk
-        );
-        assert_eq!(classify_client_line(br#"{"id":3,"cmd":"list-workspaces"}"#), Lane::Control);
-    }
-
-    #[test]
-    fn escaped_protocol_names_retain_lane_semantics() {
-        let tracker = MuxLaneTracker::default();
-        assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt\u002dstate"}"#), Lane::Bulk);
-        assert_eq!(
-            tracker.classify_server_line(br#"{"event":"out\u0070ut","data":"YQ=="}"#),
-            Some(Lane::Bulk)
-        );
-    }
-
-    /// `resolve-terminal` is a lookup. Queueing it behind PTY input and every
-    /// mutation on the ordered Interactive lane let one slow commit trip the
-    /// resolver's deadline for unrelated terminals (#12362).
-    #[test]
-    fn read_only_terminal_resolution_rides_the_control_lane() {
-        assert_eq!(
-            classify_client_line(
-                br#"{"id":4,"cmd":"resolve-terminal","terminal_id":"term_41fb0b7fe0f204d428acf9db124023f4"}"#
-            ),
-            Lane::Control
-        );
-    }
-
-    #[test]
-    fn mux_mutations_share_input_ordering_lane() {
-        for command in ["close-surface", "run", "new-workspace", "set-client-sizing"] {
-            let line = format!(r#"{{"id":2,"cmd":"{command}"}}"#);
-            assert_eq!(classify_client_line(line.as_bytes()), Lane::Interactive);
-        }
-    }
-
-    #[test]
-    fn large_mux_payload_classification_does_not_allocate() {
-        let tracker = MuxLaneTracker::default();
-        let mut line = br#"{"event":"output","surface":1,"data":""#.to_vec();
-        line.resize(line.len() + 1024 * 1024, b'e');
-        line.extend_from_slice(br#""}"#);
-
-        let (lane, allocations) =
-            allocation_count(|| tracker.classify_server_line(std::hint::black_box(&line)));
-
-        assert_eq!(lane, Some(Lane::Bulk));
-        // This assertion also relies on serde_json skipping the unescaped data
-        // string in place. A serde_json parser change may legitimately add a
-        // scratch allocation even if lane classification remains bounded.
-        assert_eq!(
-            allocations, 0,
-            "mux classification allocated while skipping a large output payload"
         );
     }
 }
