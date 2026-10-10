@@ -42,12 +42,11 @@ private struct HostEditorNavigationItem: UIViewRepresentable {
             button.isEnabled = isEnabled
             button.handler = action
             button.accessibilityIdentifier = "ssh.editor.save"
+            button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
             item.title = title
             item.style = .done
             item.primaryAction = nil
             item.isEnabled = isEnabled
-            item.accessibilityIdentifier = "ssh.editor.save"
-            item.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
             controller.navigationItem.rightBarButtonItem = item
         }
     }
