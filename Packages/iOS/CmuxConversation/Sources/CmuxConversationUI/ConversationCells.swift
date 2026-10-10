@@ -28,6 +28,8 @@ final class MessageCell: UICollectionViewCell {
     /// Swipe-to-reply indicator, parked behind the bubble (ChatKit's CKSwipeActionIndicator).
     let replyIndicator = ReplySwipeIndicator()
     private(set) var imageViews: [UIImageView] = []
+    /// Document balloons, one per file attachment.
+    private(set) var fileViews: [ConversationFileBubbleView] = []
     /// Send-effect state (see MessageCell+Effects).
     let replayButton = UIButton(type: .system)
     var effectStage: MessageBubbleStage?
@@ -173,6 +175,7 @@ final class MessageCell: UICollectionViewCell {
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
 
         configureImages(model: model, layout: layout)
+        configureFiles(model: model, layout: layout)
         configurePoll(model: model, layout: layout)
 
         if let bubbleFrame = layout.bubbleFrame {
@@ -352,6 +355,25 @@ final class MessageCell: UICollectionViewCell {
         applyShifts()
     }
 
+    private func configureFiles(model: MessageRowModel, layout: MessageCellLayout) {
+        while fileViews.count < layout.fileFrames.count {
+            let view = ConversationFileBubbleView()
+            shiftable.insertSubview(view, belowSubview: reactionBadge)
+            fileViews.append(view)
+        }
+        let files = model.message.fileAttachments
+        for (index, view) in fileViews.enumerated() {
+            guard index < layout.fileFrames.count, index < files.count else {
+                view.isHidden = true
+                continue
+            }
+            view.isHidden = false
+            view.frame = layout.fileFrames[index]
+            let tailed = model.showsTail && index == layout.fileFrames.count - 1 && model.message.text.isEmpty
+            view.configure(files[index], side: model.isOutgoing ? .trailing : .leading, tailed: tailed)
+        }
+    }
+
     private func configureImages(model: MessageRowModel, layout: MessageCellLayout) {
         let sameImageRow = imageRowID == model.rowID
         imageRowID = model.rowID
@@ -375,7 +397,7 @@ final class MessageCell: UICollectionViewCell {
             view.isHidden = false
             // Images take the bubble outline; the last one in a run gets the
             // tail, which hangs below the full-height photo as in Messages.
-            let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty
+            let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty && layout.fileFrames.isEmpty
             var frame = layout.imageFrames[index]
             if tailed { frame.size.height += ConversationTheme.tailDrop }
             view.frame = frame

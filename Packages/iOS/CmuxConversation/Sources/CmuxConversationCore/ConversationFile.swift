@@ -33,7 +33,11 @@ public struct ConversationFileInfo: Sendable, Hashable {
     /// "PDF Document", "ZIP archive", "Plain Text"... (the system's localized
     /// type description; Messages' document bubble subtitle).
     public var typeDescription: String {
-        type.localizedDescription ?? URL(fileURLWithPath: name).pathExtension.uppercased()
+        guard let description = type.localizedDescription, let first = description.first else {
+            return URL(fileURLWithPath: name).pathExtension.uppercased()
+        }
+        // The system's descriptions can start lowercase ("text").
+        return first.uppercased() + description.dropFirst()
     }
 
     /// "1.2 MB", as Messages and Files format sizes.

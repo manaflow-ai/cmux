@@ -3,12 +3,30 @@ import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
 
-/// A picked image waiting in the composer.
+/// A picked image (or, with `file`, a document) waiting in the composer.
 struct ComposerAttachment {
     let id = UUID()
     var image: UIImage
     var data: Data
     var mimeType: String
+    /// A document picked in Files: sent as a file, shown as a document chip.
+    var file: ConversationPendingFile? = nil
+    /// The picked copy on disk, for the chip's Quick Look thumbnail.
+    var fileURL: URL? = nil
+
+    init(image: UIImage, data: Data, mimeType: String) {
+        self.image = image
+        self.data = data
+        self.mimeType = mimeType
+    }
+
+    init(file: ConversationPendingFile, url: URL?) {
+        self.image = UIImage()
+        self.data = file.data
+        self.mimeType = file.info.mimeType
+        self.file = file
+        self.fileURL = url
+    }
 }
 
 @MainActor
@@ -474,12 +492,16 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         attachmentViews.forEach { $0.removeFromSuperview() }
         attachmentViews = attachments.map { attachment in
             let container = UIView()
-            let imageView = UIImageView(image: attachment.image)
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.layer.cornerRadius = 12
-            imageView.layer.cornerCurve = .continuous
-            container.addSubview(imageView)
+            if let file = attachment.file {
+                container.addSubview(ComposerFileChipView(file: file.info, url: attachment.fileURL))
+            } else {
+                let imageView = UIImageView(image: attachment.image)
+                imageView.contentMode = .scaleAspectFill
+                imageView.clipsToBounds = true
+                imageView.layer.cornerRadius = 12
+                imageView.layer.cornerCurve = .continuous
+                container.addSubview(imageView)
+            }
             // A 19 pt neutral gray disc with a white cross (Messages), inside a
             // 32 pt hit target.
             let close = UIButton(type: .custom)
@@ -522,7 +544,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         for (index, view) in attachmentViews.enumerated() {
             let image = attachments[index].image
             let aspect = image.size.width / max(image.size.height, 1)
-            let width = min(maxWidth, max(60, (attachmentHeight * aspect).rounded()))
+            let width = attachments[index].file != nil
+                ? min(maxWidth, ComposerFileChipView.width(forHeight: attachmentHeight))
+                : min(maxWidth, max(60, (attachmentHeight * aspect).rounded()))
             view.frame = CGRect(x: x, y: 0, width: width, height: attachmentHeight)
             view.subviews.first?.frame = view.bounds
             // The cross centers 13.3 pt in from the preview's top-right corner.
