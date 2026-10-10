@@ -264,7 +264,7 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 - `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
 - `"bottom"`: after the last workspace that is not in a group.
 
-A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace in This Group. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
+A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace Like This. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
 
 ## `sidebar.groupByComputer`
 
@@ -396,7 +396,7 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 | Shortcut | Action | `shortcuts.bindings` key |
 | --- | --- | --- |
-| Cmd+T | New Tab | `newTab.sameKind` |
+| Cmd+T | New Tab | `newTab.default` |
 | Cmd+N | New Workspace | `newTab` |
 | Cmd+Shift+N | New Window | `newWindow` |
 | Cmd+Option+Shift+N | New Incognito Window | `newIncognitoWindow` |

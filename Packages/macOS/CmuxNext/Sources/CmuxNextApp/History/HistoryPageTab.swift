@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextHistory
+import CmuxNextIcons
 import CmuxNextPages
 import Foundation
 import Observation
@@ -16,7 +17,7 @@ final class HistoryPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
+    let favicon: NSImage? = NSImage.icon(.history, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?

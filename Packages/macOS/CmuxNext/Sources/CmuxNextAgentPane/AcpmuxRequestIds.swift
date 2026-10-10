@@ -22,6 +22,16 @@ nonisolated final class AcpmuxRequestIds: Sendable {
 
     private let state = Mutex(State())
 
+    /// An id for a request the host sends itself (the person proof): its reply matches no page
+    /// request, so it never reaches the page.
+    func hostID() -> Int {
+        state.withLock { state in
+            let id = state.next
+            state.next += 1
+            return id
+        }
+    }
+
     /// The relay id for a page request with raw id `pageID`; nil while that page id is in flight.
     func begin(pageID: String, method: String) -> Int? {
         state.withLock { state in

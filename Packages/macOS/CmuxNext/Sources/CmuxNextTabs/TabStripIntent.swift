@@ -29,8 +29,9 @@ public enum TabStripIntent: Equatable, Sendable {
     /// Drag reorder inside one strip. `to` is the final index of the tab.
     case reorder(TabID, from: Int, to: Int)
     /// `after` is nil for the new-tab button and empty-space double-click (append).
-    /// `opensWorkspace` is a one-shot Option-click override for terminal tabs.
-    case newTab(after: TabID?, opensWorkspace: Bool = false)
+    /// `opensWorkspace` is a one-shot Option-double-click override for terminal tabs.
+    /// `sameKind`: Option-click on the + (New <Kind> Tab, cmuxterm-hq#1829).
+    case newTab(after: TabID?, opensWorkspace: Bool = false, sameKind: Bool = false)
     case pin(TabID)
     case unpin(TabID)
     case rename(TabID)
