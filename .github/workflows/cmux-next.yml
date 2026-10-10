@@ -147,8 +147,8 @@ on:
     paths:
       - App/**
       - cmux.xcodeproj/**
-      # Base pushes still run the full side workflow for every package input;
-      # only pull requests use the focused package routing below.
+      # Main pushes still run the full side workflow for every package input.
+      # feat-cmux-next pushes use the Swift-only canary path below.
       - Packages/macOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
@@ -316,10 +316,11 @@ concurrency:
   # Pushes and dispatches get a group of their own, as in the other side
   # lanes: when the owned-pool rescue re-runs an older push run, it must not
   # join a group where it would replace (cancel) the newest pending run.
-  # The Mac jobs of a push (swift test, Release compile, generated files,
-  # daemon tests, scheme compile) each hold a job group per branch instead:
-  # one runs to the end, one waits, and a newer push replaces only the waiting
-  # job. The Linux checks still run on every push. Push runs upload no
+  # The Mac jobs of a full push or dispatch (swift test, Release compile,
+  # generated files, daemon tests, scheme compile) each hold a job group per
+  # branch instead: one runs to the end, one waits, and a newer push replaces
+  # only the waiting job. The Swift-only feat-cmux-next push path does not
+  # request those jobs. Push runs upload no
   # owned-pool-watch marker, because the rescue cancels a push run with a newer
   # push run behind it, running jobs included; at 1 push a minute no tip
   # swift test completed (2026-10-07 00:20Z to 01:05Z).
@@ -343,12 +344,10 @@ concurrency:
 # output, so bot attempt 3 still goes to the minis; the rescue re-runs a
 # refusal there as attempt 4, which drops that label and takes Blacksmith.
 jobs:
-  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
-  # pushes run the Release compile, the app scheme compile and the nightly-next
-  # request. checks, web bundles, swift test, daemon tests and generated files run
-  # on workflow_dispatch (gh workflow run cmux-next.yml --ref <ref>). Pull requests into
-  # feat-cmux-next run only the Linux checks (chief, 2026-10-10: the PR Mac tiers held the
-  # glaeda-side pool while the tip Release compile queued 33 min); dispatch for more.
+  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10).
+  # Pull requests into feat-cmux-next run only the Linux checks; explicit
+  # workflow_dispatch runs use the normal tier router. The 30-minute dispatcher
+  # promotes canary-green heads to nightly-next.
   # A push can sit in the owned-pool queue after newer commits have landed.
   # Resolve the branch head on Linux before any macOS job requests a runner.
   # The lookup fails open so the current head still gets its compile and
@@ -396,7 +395,8 @@ jobs:
   # parent, so commits that landed on the base after the branch point are not
   # counted as the pull request's own. Labels are read live, so labeling a
   # batch integration PR full-ci and re-running the workflow runs every tier.
-  # Pushes and dispatches run every tier.
+  # Explicit dispatches run every tier. A feat-cmux-next push is reduced to the
+  # warm Swift canary by the branch-specific path route above.
   #
   # The daemon and scheme tiers also need this commit's same-tree cmux-tui.
   # It is probed once here, never awaited (pin-cmux-tui.sh probe): published,
@@ -947,7 +947,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [[ "$EVENT_NAME" != pull_request ]]; then
-            echo "Pushes run every tier; the replay checks pull request routing only."
+            echo "Explicit dispatches run every tier; feat-cmux-next pushes use the Swift canary path; the replay checks pull request routing only."
             exit 0
           fi
           if git diff --quiet HEAD^1 HEAD -- scripts/ci/cmux_next_route.py scripts/ci/select_package_tests.py; then
@@ -1885,8 +1885,9 @@ jobs:
     if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
     name: cmux-next Release compile (Xcode 26)
     # Package-only Swift PRs have the bounded Swift canary as their merge gate.
-    # Keep this full Release compile visible and running for diagnostics, while
-    # retaining a hard failure on every feat-cmux-next push and on broader PRs.
+    # Keep this full Release compile visible for package Swift PR diagnostics;
+    # direct feat-cmux-next pushes use the warm Swift canary and the scheduled
+    # nightly backstop.
     continue-on-error: ${{ github.event_name == 'pull_request' && needs.path_route.outputs.swift_canary == 'true' }}
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -1981,12 +1982,10 @@ jobs:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
-  # Caches the Swift exports of a green feat-cmux-next push under their source
-  # key (scripts/cmux-next/swift-exports-key.py), so a job that only reads them
-  # (the web bundles read the settings schema) can restore them with
-  # swift-exports-cache.sh install instead of a Mac build (cx-vn5). A push runs
-  # every tier, so on success the committed exports are the ones the Swift
-  # tests checked.
+  # Caches the Swift exports of a full green feat-cmux-next push under their
+  # source key (scripts/cmux-next/swift-exports-key.py), so a job that only
+  # reads them (the web bundles read the settings schema) can restore them with
+  # swift-exports-cache.sh install instead of a Mac build (cx-vn5).
   swift-exports-cache:
     needs: [checks, generated-files, swift-test, daemon-test]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && needs.generated-files.result == 'success' && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
@@ -2023,25 +2022,11 @@ jobs:
           path: swift-exports-out
           key: cmux-next-swift-exports-v1-${{ steps.key.outputs.key }}
 
-  # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
-  # promote this commit to the protected `nightly-next` branch. Main's promote
-  # job refuses a head whose push run has no successful Release compile, so the
-  # request waits for that job and for nothing else: an unrelated red job never
-  # holds the promotion. (Requested after the Linux checks instead, it ran
-  # before the Release compile finished and every promotion was refused.)
-  # Every green head is promoted, with no debounce: nightly.yml's concurrency
-  # group lets the running nightly-next build finish and replaces only the
-  # pending one, so the feed rolls forward to the newest green head without
-  # dropping the last one. Only main's job, in the `release` environment,
-  # holds the release App key and checks this push run's Release compile; this
-  # job only needs actions: write to request it.
-  # The request also waits for this commit's cmux-tui tree: the nightly builds
-  # the tip with the tip's own nightly.yml and daemon only when that tree is
-  # published (a tip with a building tree failed runs 37767816879 and
-  # 37769010617). When the tree publishes after this job,
-  # cmux-tui-artifacts.yml's request-nightly-next asks instead
-  # (scripts/cmux-next/request-nightly-next.sh, tested by
-  # scripts/cmux-next/tests/request-nightly-next.test.sh).
+  # Older push runs requested nightly-next after a Release compile. Direct
+  # feat-cmux-next pushes now use the 30-minute dispatcher at
+  # .github/workflows/cmux-next-nightly-dispatch.yml, which promotes a head
+  # after the Swift canary; this compatibility job remains available only when
+  # a full push or same-tree flow actually produced a Release compile.
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
@@ -2316,7 +2301,7 @@ jobs:
           retention-days: 2
           compression-level: 0
 
-  # The post-merge backstop: every feat-cmux-next push runs every tier (a
+  # The post-merge backstop: full push or dispatch runs cover every tier (a
   # superseded push skips its Mac jobs, so a burst of merges is checked once,
   # at its newest commit). When a check job fails, this comments on each pull
   # request merged since that job last passed on a push, so the owning lane

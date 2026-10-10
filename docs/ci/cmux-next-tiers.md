@@ -36,8 +36,9 @@ scratch on a mini.
 It catches type-checking, dependency and module errors in those targets. It
 does not exercise optimizer-only behavior, Release compiler settings, Xcode
 scheme integration, signing or the CEF shim. The full Release compile still
-runs for diagnostics on that PR class and remains hard-gated on every
-`feat-cmux-next` push and on broader pull requests.
+runs for diagnostics on that PR class. Direct `feat-cmux-next` pushes use the
+canary as their gate; the 30-minute dispatcher promotes canary-green heads to
+`nightly-next`, where Release, scheme and daemon coverage remains the backstop.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
@@ -104,7 +105,7 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   same-tree daemon. A change only in CmuxNextApp skips it unless the tree is
   already published, because adding CmuxNextApp to the daemon tier would make
   every UI PR wait for the tree again. The batch PR's `full-ci` run and the
-  push run cover it.
+  scheduled `nightly-next` build cover it.
 - **App personality check.** `check-app-personalities.sh` runs with the app
   scheme compile. A new linked library changes `Package.swift`, which runs
   every tier, so a source-only CmuxNext change cannot add one.
