@@ -130,7 +130,11 @@ pub(crate) fn resume(mux: &Arc<Mux>) {
         }
         Err(error) => eprintln!("cmux-tui: status owner resume failed: {error}"),
     }
-    schedule_expiry(mux);
+    // Only a daemon with a TTL to keep joins the expiry thread, which holds
+    // a strong handle while it looks at one.
+    if !matches!(mux.read_registry_state(status_meta::next_expiry_ms), Ok(None)) {
+        schedule_expiry(mux);
+    }
 }
 
 fn clear_now(mux: &Mux, end: &OwnerEnd) {
@@ -380,7 +384,9 @@ fn run_expiry() {
         };
         let mut next: Option<u64> = None;
         let mut failed = false;
-        for mux in muxes.iter().filter_map(Weak::upgrade) {
+        let mut idle: Vec<Weak<Mux>> = Vec::new();
+        for weak in &muxes {
+            let Some(mux) = weak.upgrade() else { continue };
             let now = crate::mux::now_ms();
             if let Err(error) = mux.clear_owned_workspace_status(&OwnerEnd::Expired { now_ms: now })
             {
@@ -391,7 +397,8 @@ fn run_expiry() {
                 Ok(Some(deadline)) => {
                     next = Some(next.map_or(deadline, |current| current.min(deadline)));
                 }
-                Ok(None) => {}
+                // No deadline left: leave the list until a new TTL arrives.
+                Ok(None) => idle.push(weak.clone()),
                 Err(error) => {
                     eprintln!("cmux-tui: reading the next status expiry failed: {error}");
                     failed = true;
@@ -404,10 +411,11 @@ fn run_expiry() {
         if failures > 0 {
             next = Some(crate::mux::now_ms().saturating_add(1_000u64 << failures.min(8)));
         }
-        let guard = lock(&expiry.muxes);
+        let mut guard = lock(&expiry.muxes);
         if guard.1 != generation {
             continue;
         }
+        guard.0.retain(|known| !idle.iter().any(|weak| weak.ptr_eq(known)));
         match next {
             Some(deadline) => {
                 let wait =
