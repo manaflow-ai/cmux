@@ -28,7 +28,7 @@
 .nt-chats-empty{margin:8px 0 0;color:var(--acpmux-composer-dim);font-size:13px}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:8px}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
-.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;height:104px;padding:12px 14px;box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left;cursor:pointer}
+.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;min-height:84px;padding:12px 14px;box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left;cursor:pointer}
 .nt-card:hover{background:var(--acpmux-composer-bg);color:var(--agent-text)}
 .nt-card-meta{display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:11.5px}
 .nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:13.5px;font-weight:500}
