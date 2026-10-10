@@ -1309,15 +1309,17 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         }
     }
     let started_at = host.cursor;
-    loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
-        if page.records.is_empty() {
-            break;
-        }
-        for record in &page.records {
+    // The roster ignores terminal output, so replay reads only the other
+    // records up to the head and then stands on the head: startup no longer
+    // decodes every output chunk printed since the last agent event.
+    let head = registry.session_journal_head()?;
+    while host.cursor < head {
+        let (records, reached) =
+            registry.session_journal_without_output_after(host.cursor, head, 512)?;
+        for record in &records {
             host.roster.apply(&RosterEvent::from_record(record));
-            host.cursor = host.cursor.max(record.sequence);
         }
+        host.cursor = host.cursor.max(reached);
     }
     if needs_repair || host.cursor != started_at {
         registry.put_journal_reducer_state(
@@ -6508,19 +6510,20 @@ impl Mux {
             }
             let mut deltas = Vec::new();
             while host.cursor < commit.sequence {
-                let page = match registry.session_journal_after(host.cursor, 512) {
+                // Terminal output between agent events is skipped by the read:
+                // the roster ignores it, and this runs under the registry lock.
+                let (records, reached) = match registry.session_journal_without_output_after(
+                    host.cursor,
+                    commit.sequence,
+                    512,
+                ) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
                         return;
                     }
                 };
-                if page.records.is_empty() {
-                    break;
-                }
-                for record in
-                    page.records.iter().take_while(|record| record.sequence <= commit.sequence)
-                {
+                for record in &records {
                     let changes = host.roster.apply(&RosterEvent::from_record(record));
                     // Hooks already use the durable, session-fenced projector.
                     // Applying their reducer delta again would bypass its
@@ -6530,8 +6533,8 @@ impl Mux {
                     {
                         deltas.extend(changes);
                     }
-                    host.cursor = record.sequence;
                 }
+                host.cursor = reached;
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
