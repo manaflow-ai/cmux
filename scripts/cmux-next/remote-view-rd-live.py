@@ -8,8 +8,8 @@ GUI host only (cmux-lawrence-2 or the M1 Max through nx-remote), never a develop
 The host side runs elsewhere: a Linux `cmux-rd host --owner USER --token-fd N` (Xvfb plus
 `cmux-rd testapp --workload motion`) reached through an SSH tunnel on this Mac's loopback
 `--port`; `--token-file` holds the host's 64-hex token (mode 0600). The script launches the
-tagged app (no activation, automation socket) with CMUX_RD_DEBUG_PORT, CMUX_RD_DEBUG_TOKEN_FILE
-and CMUX_RD_DEBUG_USER, opens `cmux://remote-view?host=local&target=virtual&mode=view` through
+tagged app (no activation, automation socket) with CMUX_NEXT_RD_DEBUG_PORT, CMUX_NEXT_RD_DEBUG_TOKEN_FILE
+and CMUX_NEXT_RD_DEBUG_USER, opens `cmux://remote-view?host=local&target=virtual&mode=view` through
 `debug.remote_view open`, presses Connect (`debug.remote_view connect`, the button's closure),
 and passes only when the tab's session is a real rd session (`source: rd`) that streams and
 decoded at least --min-frames frames with no decode errors. Without the opt-in environment the
@@ -103,8 +103,8 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820",
-       "CMUX_RD_DEBUG_PORT": str(opts.port), "CMUX_RD_DEBUG_TOKEN_FILE": os.path.abspath(opts.token_file),
-       "CMUX_RD_DEBUG_USER": opts.user}
+       "CMUX_NEXT_RD_DEBUG_PORT": str(opts.port), "CMUX_NEXT_RD_DEBUG_TOKEN_FILE": os.path.abspath(opts.token_file),
+       "CMUX_NEXT_RD_DEBUG_USER": opts.user}
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
