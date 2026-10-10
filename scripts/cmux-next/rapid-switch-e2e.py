@@ -6,7 +6,9 @@ inside the pane; any other focus (a 1-tab pane, a field, nothing) steps the side
 script attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
 build) through its debug socket, makes two workspaces, presses the real chords through
 `debug.key` and reads the window's sidebar selection (`debug.sidebar_rows`) and the focused
-pane's selected tab (`debug.surfaces`). It never launches or quits the app.
+pane's selected tab (`debug.surfaces`). With --tab-rows it also turns Show Tabs Under Workspaces
+on and checks that Next walks a workspace's tab rows one at a time. It never launches or quits
+the app.
 
 Usage: rapid-switch-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--out DIR]
 Exit status 0 when every check passes.
@@ -16,6 +18,8 @@ import argparse, json, os, socket, sys, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--tab-rows", action="store_true",
+                    help="also check that, with Show Tabs Under Workspaces on, Next walks a workspace's tab rows")
 opts = parser.parse_args()
 ROWS = []
 
@@ -104,8 +108,38 @@ def setup():
     time.sleep(1)  # test harness: focus lands in the shown pane
 
 
+def tab_rows():
+    """Next from a 1-tab pane stops at each listed tab row: a workspace split into two 1-tab
+    panes is two stops, not one."""
+    if not any(str(r.get("key", "")).startswith("tab(") for r in sidebar().get("rows") or []):
+        print("workspace tabs toggle:", action("sidebar.workspaceTabs.toggle"), flush=True)
+    if not wait(lambda: any(str(r.get("key", "")).startswith("tab(") for r in sidebar().get("rows") or []), 15):
+        row("tab rows listed", "Show Tabs Under Workspaces lists tab rows", "no tab rows", False)
+        return
+    action("selectWorkspaceByNumber", {"index": 2})
+    wait(lambda: focused_pane().get("selected_tab"), 15)
+    split = selected()
+    print("splitRight:", action("splitRight"), flush=True)
+    wait(lambda: len([r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("tab(")]) >= 4, 15)
+    action("selectWorkspaceByNumber", {"index": 1})
+    wait(lambda: selected() and selected() != split, 15)
+    time.sleep(1)  # test harness: focus lands in the shown pane
+    reply = key("}", ["cmd"])
+    first = (selected(), focused_pane().get("selected_tab"))
+    reply2 = key("}", ["cmd"])
+    second = (selected(), focused_pane().get("selected_tab"))
+    row("tab rows: Next lands on the split workspace", f"row {split}", f"action={reply.get('action')} {first}",
+        first[0] == split)
+    row("tab rows: Next walks to its other tab row", "same workspace, the other pane's tab",
+        f"action={reply2.get('action')} {first} -> {second}", second[0] == split and second[1] != first[1])
+
+
 def main():
     setup()
+    if opts.tab_rows:
+        tab_rows()
+        action("selectWorkspaceByNumber", {"index": 1})
+        time.sleep(1)  # test harness: focus lands in the shown pane
     start = selected()
     reply = key("}", ["cmd"])
     after = selected()
