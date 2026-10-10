@@ -356,6 +356,25 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            let owner, owner.owningWorkspaceRoutesThroughSSHTui,
+           let model = owner.cloudAccess.model,
+           model.route == .loopback,
+           let listenerURL = model.url(for: url),
+           listenerURL != url {
+            // A service may redirect back to its canonical localhost origin.
+            // Once this pane owns a live forward, rewrite that request to the
+            // existing listener instead of reconfiguring the route and
+            // reloading the forward indefinitely. Keep the original method,
+            // headers, and body intact.
+            var request = navigationAction.request
+            request.url = listenerURL
+            decisionHandler(.cancel)
+            requestNavigation?(request, .currentTab, nil)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner, owner.owningWorkspaceRoutesThroughSSHTui,
            owner.sshLoopbackServiceURL(for: url) != nil {
             decisionHandler(.cancel)
             requestNavigation?(navigationAction.request, .currentTab, nil)

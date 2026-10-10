@@ -56,7 +56,7 @@ extension CmuxTuiSurfaceProvider {
     /// Bind the page to its machine proxy without activating a system VPN.
     @discardableResult
     func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
-                          preserveCurrentNavigation: Bool = false) -> Bool {
+                          preserveCurrentNavigation: Bool = false, request: URLRequest? = nil) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
             SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
@@ -129,7 +129,7 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID, request: request)
         }
         materializedPanels.insert(browser.id)
         return true

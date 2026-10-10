@@ -127,6 +127,30 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("SSH forward readiness preserves the submitted request")
+    func forwardedRequestKeepsMethodHeadersAndBody() async throws {
+        let model = makeModel(forward: { _ in 46_902 }, route: .loopback)
+        let state = CloudBrowserAccessState()
+        let remote = URL(string: "http://10.0.0.7:3000/submit")!
+        var request = URLRequest(url: remote)
+        request.httpMethod = "POST"
+        request.httpBody = Data("name=cmux".utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        state.configure(model: model, url: remote, request: request)
+        var navigations: [URLRequest] = []
+        state.automaticallyNavigateRequest { navigations.append($0) }
+
+        model.connect()
+        #expect(await wait { navigations.count == 1 })
+        let forwarded = try #require(navigations.first)
+        #expect(forwarded.url?.host == "127.0.0.1")
+        #expect(forwarded.url?.port == 46_902)
+        #expect(forwarded.httpMethod == "POST")
+        #expect(forwarded.httpBody == Data("name=cmux".utf8))
+        #expect(forwarded.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+        await model.retire()
+    }
+
     @Test("HTTP stays on the authenticated hub across every system VPN state",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func httpIsIndependentOfVPN(state: CloudTunnelState) async {
