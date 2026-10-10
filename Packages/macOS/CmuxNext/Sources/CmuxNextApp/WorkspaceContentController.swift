@@ -30,6 +30,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// True while `apply` mounts panes: it sends the topology once at its end,
+    /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
+    private var isApplying = false
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -136,6 +139,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     private func apply(_ result: LayoutMapping.Result) {
+        #if DEBUG
+        DebugLayoutCounters.workspaceApplies &+= 1
+        #endif
+        isApplying = true
+        defer { isApplying = false }
         handles = result.handles
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         // No row op is sent to a daemon without rows-v1 (rows.md step 4).
@@ -214,7 +222,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.workspace = self
         panes[pane] = controller
         services.paneMounts.changed()
-        sendTopology()
+        if !isApplying { sendTopology() }
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {
