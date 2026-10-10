@@ -229,6 +229,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+        const dialog = ctx.document.querySelector<HTMLElement>(".acpmux-pdf-viewer");
+        if (!dialog || ctx.document.defaultView!.getComputedStyle(dialog).position !== "fixed")
+          throw new Error("PDF preview must remain a fixed dialog over the composer");
+        if (!ctx.document.querySelector(".ui-backdrop")) throw new Error("PDF preview is missing its backdrop");
       },
     },
     draft: {
