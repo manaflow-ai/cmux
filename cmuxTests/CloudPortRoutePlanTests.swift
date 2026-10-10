@@ -175,7 +175,7 @@ struct CloudPortRoutePlanTests {
 
         // A later user navigation replaces the replay template, so recovery
         // cannot resurrect the earlier form submission.
-        let followUp = URLRequest(url: URL(string: "http://127.0.0.1:46904/other?q=next#section")!)
+        let followUp = URLRequest(url: URL(string: "http://10.0.0.7:3000/other?q=next#section")!)
         state.rememberNavigationRequest(followUp)
         state.didStart(url: followUp.url)
         state.didCommit(url: followUp.url)
