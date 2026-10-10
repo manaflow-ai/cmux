@@ -3,7 +3,7 @@ import { runChild } from "./helpers/run-child";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { devboxForkDaemonReadyCommand, devboxStrandedRemoteSessionRepairCommand } from "../services/vms/images/remoteState";
+import { devboxForkDaemonReadyCommand, devboxForkReadinessStage, devboxStrandedRemoteSessionRepairCommand } from "../services/vms/images/remoteState";
 
 // A fork of a machine from an image whose boot supervisor deleted only
 // sessions/<session>/auth resumes with the session's lifecycle fence still in
@@ -95,9 +95,8 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
       const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
       expect(result.status).toBe(1);
-      const [first, ...rest] = result.stderr.split("\n");
-      expect(first).toBe("cmux fork daemon did not become ready: stage=daemon-absent supervisor=active");
-      expect(rest.join("\n")).toContain("cmux-tui: some guest log line");
+      // The report is the one classified line; no guest log text follows it.
+      expect(result.stderr).toBe("cmux fork daemon did not become ready: stage=daemon-absent supervisor=active\n");
     });
   });
 
@@ -135,6 +134,32 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
       expect(result.status).toBe(0);
       expect(existsSync(started)).toBe(true);
     });
+  });
+
+  // Metadata reads that each run to their 1 s timeouts must not stretch the
+  // loop past its deadline: the report has to land inside the exec budget.
+  test("reports within its deadline when every metadata read times out", async () => {
+    await withFakeGuest("vm-source", async (env, root, boundFile) => {
+      const bin = env.PATH.split(":")[0];
+      writeFileSync(path.join(bin, "curl"), "#!/bin/sh\nsleep 1\nexit 28\n", { mode: 0o755 });
+      const command = devboxForkDaemonReadyCommand(2, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
+      const startedAt = Date.now();
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      // A pass-counted loop would take 4 passes x ~2.5 s; the deadline stops after ~2 s plus one pass.
+      expect(Date.now() - startedAt).toBeLessThan(6_500);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toBe("cmux fork daemon did not become ready: stage=metadata-unavailable supervisor=unknown\n");
+    });
+  });
+
+  test("the stage parser accepts only the fixed stage and supervisor sets", () => {
+    const line = (stage: string, supervisor: string) => `cmux fork daemon did not become ready: stage=${stage} supervisor=${supervisor}\nmore`;
+    expect(devboxForkReadinessStage(line("unbound", "active"))).toBe("stage=unbound supervisor=active");
+    expect(devboxForkReadinessStage(line("daemon-not-listening", "failed"))).toBe("stage=daemon-not-listening supervisor=failed");
+    expect(devboxForkReadinessStage(line("token-abc", "active"))).toBe("stage=unknown");
+    expect(devboxForkReadinessStage(line("unbound", "secret-value"))).toBe("stage=unknown");
+    expect(devboxForkReadinessStage("cmux fork daemon did not become ready")).toBe("stage=unknown");
+    expect(devboxForkReadinessStage(undefined)).toBe("stage=unknown");
   });
 
   test("names the supervisor state when the supervisor never binds the clone", async () => {

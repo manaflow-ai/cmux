@@ -52,18 +52,27 @@ function devboxStartSupervisorCommand(): string {
   );
 }
 
-/** The first stderr line of a readiness timeout; `freestyleForkReadinessStage` parses it. */
+/** The first stderr line of a readiness timeout; `devboxForkReadinessStage` parses it. */
 export const DEVBOX_FORK_DAEMON_NOT_READY = "cmux fork daemon did not become ready";
 
+/** The stalled stages the timeout report can name. */
+const FORK_READINESS_STAGES: ReadonlySet<string> = new Set([
+  "metadata-unavailable", // the clone never read its own instance id
+  "unbound", //              the supervisor never bound the clone (daemon-instance-id)
+  "daemon-absent", //        bound, but no cmux-tui server process runs
+  "daemon-not-listening", // bound and running, but nothing listens on 1337
+]);
+
+/** `systemctl is-active` answers, plus `unknown` when systemctl gave none. */
+const FORK_READINESS_SUPERVISOR_STATES: ReadonlySet<string> = new Set([
+  "active", "activating", "deactivating", "failed", "inactive", "maintenance", "refreshing", "reloading", "unknown",
+]);
+
 /**
- * The timeout report. Its first line names the stalled stage from a fixed
- * vocabulary, safe to store and alert on:
- *   metadata-unavailable  the clone never read its own instance id
- *   unbound               the supervisor never bound the clone (daemon-instance-id)
- *   daemon-absent         bound, but no cmux-tui server process runs
- *   daemon-not-listening  bound and running, but nothing listens on 1337
- * plus the supervisor unit's state reduced to [a-z-]. The unit's last log
- * lines follow on later lines for the server log only: they are guest text.
+ * The timeout report: one line naming the stalled stage and the supervisor
+ * unit's state, both checked against fixed sets by devboxForkReadinessStage.
+ * It carries no guest log text, so nothing a user's machine wrote can reach
+ * the stored error or the server log through it.
  */
 function devboxForkDaemonTimeoutReport(boundInstanceFile: string): string {
   return (
@@ -72,26 +81,29 @@ function devboxForkDaemonTimeoutReport(boundInstanceFile: string): string {
     ` elif [ "$cmux_id" != "$(cat "${boundInstanceFile}" 2>/dev/null)" ]; then cmux_stage=unbound;` +
     " elif ! pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1; then cmux_stage=daemon-absent;" +
     " else cmux_stage=daemon-not-listening; fi;" +
-    ` echo "${DEVBOX_FORK_DAEMON_NOT_READY}: stage=$cmux_stage supervisor=$cmux_unit" >&2;` +
-    ` journalctl -u ${DEVBOX_SUPERVISOR_UNIT} -n 5 -o cat --no-pager >&2 2>/dev/null; exit 1`
+    ` echo "${DEVBOX_FORK_DAEMON_NOT_READY}: stage=$cmux_stage supervisor=$cmux_unit" >&2; exit 1`
   );
 }
 
-const FORK_READINESS_STAGE_LINE = new RegExp(`^${DEVBOX_FORK_DAEMON_NOT_READY}: (stage=[a-z-]{1,32} supervisor=[a-z-]{1,32})$`);
+const FORK_READINESS_STAGE_LINE = new RegExp(`^${DEVBOX_FORK_DAEMON_NOT_READY}: stage=([a-z-]{1,32}) supervisor=([a-z-]{1,32})$`);
 
 /**
  * The stage summary from a readiness answer's first stderr line, or
- * `stage=unknown` when the answer is not the report's shape (an older image
- * command, an exec failure). Never returns other guest text.
+ * `stage=unknown` unless the line has the report's exact shape and both
+ * values are in their fixed sets (an older image command, an exec failure,
+ * anything else). Never returns other guest text.
  */
 export function devboxForkReadinessStage(stderr: string | undefined): string {
   const first = (stderr ?? "").split("\n", 1)[0]?.trim() ?? "";
-  return FORK_READINESS_STAGE_LINE.exec(first)?.[1] ?? "stage=unknown";
+  const match = FORK_READINESS_STAGE_LINE.exec(first);
+  if (!match || !FORK_READINESS_STAGES.has(match[1]) || !FORK_READINESS_SUPERVISOR_STATES.has(match[2])) return "stage=unknown";
+  return `stage=${match[1]} supervisor=${match[2]}`;
 }
 
 /**
  * Repairs a clone's stranded session and waits until THIS machine's daemon
- * listens on port 1337.
+ * listens on port 1337, for at most `timeoutSeconds` of wall-clock time, so
+ * the timeout report always lands inside the caller's exec budget.
  *
  * When create returns, the clone may still be running the source's resumed
  * daemon, listening on 1337 with the source's identity: the supervisor
@@ -113,8 +125,11 @@ export interface DevboxForkDaemonReadyOptions {
 export function devboxForkDaemonReadyCommand(timeoutSeconds: number, options: DevboxForkDaemonReadyOptions = {}): string {
   const boundInstanceFile = options.boundInstanceFile ?? DEVBOX_BOUND_INSTANCE_FILE;
   return (
-    'cmux_id=""; ' +
-    `for cmux_try in $(seq 1 ${timeoutSeconds * 2}); do` +
+    // A wall-clock deadline, not a pass count: a pass whose metadata reads
+    // time out costs ~2 s, so a counted loop could outlive the exec budget
+    // and lose the report. One pass after the deadline is bounded (~3 s).
+    `cmux_id=""; cmux_deadline=$(($(date +%s) + ${timeoutSeconds}));` +
+    ' while [ "$(date +%s)" -lt "$cmux_deadline" ]; do' +
     ` ${devboxStartSupervisorCommand()}` +
     ` [ -n "$cmux_id" ] || cmux_id=$(${DEVBOX_METADATA_INSTANCE_ID_COMMAND} 2>/dev/null) || cmux_id="";` +
     ` if [ -n "$cmux_id" ] && [ "$cmux_id" = "$(cat "${boundInstanceFile}" 2>/dev/null)" ]; then` +

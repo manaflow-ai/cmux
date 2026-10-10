@@ -1724,11 +1724,10 @@ export class FreestyleProvider implements VMProvider {
       (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
     );
     if (!ready || ready.exitCode !== 0) {
-      const diagnostic = (ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 1000);
-      console.error("[freestyle] fork daemon readiness failed", diagnostic);
-      // Only the fixed-vocabulary stage reaches the stored error; guest log
-      // lines stay in the server log above.
+      // Only the classified stage is logged and stored: the guest's own
+      // output is user-controlled text and never leaves this function.
       const stage = ready ? devboxForkReadinessStage(ready.stderr) : "stage=exec-unavailable";
+      console.error("[freestyle] fork daemon readiness failed", stage);
       throw new ProviderError("freestyle", `forked machine daemon did not become ready (${stage})`);
     }
   }
