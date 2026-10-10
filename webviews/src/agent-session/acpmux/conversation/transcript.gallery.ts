@@ -385,6 +385,125 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    "turn-error-signed-out": {
+      note: "The CLI's own login is gone: only this class says sign in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Claude Code is not logged in. Please run /login. (OAuth token has expired)",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="subscription-login"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-proxy-401": {
+      note: "A proxy route refused the request: name the route and the status, not a sign-in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://cmux-lawrences-mac-mini:31415/v1/messages',
+          }),
+        ],
+        { harness: "claude-sr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="proxy-auth"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-invalid-key": {
+      note: "A bad or missing API key.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="invalid-key"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-rate-limited": {
+      note: "Rate limits mention authentication sometimes; they are still rate limits.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "API Error: 429 rate_limit_error: This request would exceed your account's rate limit. Please check your authentication plan.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="rate-limited"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-unreachable": {
+      note: "The route's server is down or unreachable.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Connection error: fetch failed (connect ECONNREFUSED 127.0.0.1:31415)",
+          }),
+        ],
+        { harness: "claude-cr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="unreachable"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-other": {
+      note: "Anything else keeps the agent's own words.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "The agent stopped: the tool output was larger than the context window.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="other"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
     "refused-retry": {
       note: "A prompt the host refused: why, and Retry.",
       snapshot: chat([

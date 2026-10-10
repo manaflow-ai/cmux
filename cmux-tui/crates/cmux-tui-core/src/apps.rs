@@ -48,6 +48,8 @@ mod runs;
 #[cfg(unix)]
 mod servers;
 #[cfg(unix)]
+mod serves;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod store;
