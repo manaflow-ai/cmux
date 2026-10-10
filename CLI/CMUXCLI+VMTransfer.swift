@@ -7,6 +7,10 @@ import Foundation
 /// Cloud file transfer. Push streams through OpenSSH/SFTP over the app's
 /// userspace WireGuard tunnel. Pull retains the existing exec transport.
 extension CMUXCLI {
+    private struct VMPushLocalValidationError: Error {
+        let cliError: CLIError
+    }
+
     /// Raw bytes per exec round trip. Base64 expands this ~4/3, staying well
     /// under control-plane request/response body limits.
     static let vmTransferChunkBytes = 512 * 1024
@@ -98,6 +102,22 @@ extension CMUXCLI {
         ))
     }
 
+    /// A remote path is interpreted by the machine's shell/filesystem, not by
+    /// this Mac. A literal `~` component is especially dangerous: it creates a
+    /// directory that later shell guidance such as `rm -rf ~` resolves to the
+    /// machine user's home. Reject it before any remote mkdir or file delivery.
+    static func rejectLiteralTildePath(_ path: String, operation: String) throws {
+        // Filesystem separators are bytes, even when a combining mark follows `/`.
+        let components = path.utf8.split(separator: 0x2f, omittingEmptySubsequences: true)
+        guard !components.contains(where: { $0.count == 1 && $0.first == 0x7e }) else {
+            let message = String(
+                localized: "cli.vm.path.unexpandedTilde",
+                defaultValue: "%1$@ contains an unexpanded '~' path component; expand it or use an absolute path"
+            )
+            throw CLIError(message: String(format: message, operation))
+        }
+    }
+
     func runVMPushCommand(rest: [String], client: SocketClient, jsonOutput: Bool, quiet: Bool = false) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmPushUsage)
@@ -157,12 +177,16 @@ extension CMUXCLI {
         let vmID = positional[0]
         let localPath = (positional[1] as NSString).expandingTildeInPath
         let localURL = URL(fileURLWithPath: localPath)
+        let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
+        try Self.rejectLiteralTildePath(
+            remotePath,
+            operation: String(localized: "cli.vm.path.remote", defaultValue: "remote path")
+        )
 
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDirectory) else {
             throw CLIError(message: "No such local path: \(localPath)")
         }
-        let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
 
         if secret {
             guard !watch, extraExcludes.isEmpty, useDefaultExcludes else {
@@ -311,6 +335,10 @@ extension CMUXCLI {
         do {
             return try performVMPushTransfer(vmID: vmID, localURL: localURL, localPath: localPath, isDirectory: isDirectory,
                                             remotePath: remotePath, excludes: excludes, client: client, phase: &phase)
+        } catch let error as VMPushLocalValidationError {
+            // A rejected local archive is a caller error, not a transfer failure;
+            // do not open the socket just to report a validation refusal.
+            throw error.cliError
         } catch {
             // Structured API errors are already recorded by the app. Transport
             // and local subprocess failures need their own authenticated report.
@@ -325,8 +353,12 @@ extension CMUXCLI {
         vmID: String, localURL: URL, localPath: String, isDirectory: Bool,
         remotePath: String, excludes: [String], client: SocketClient, phase: inout String
     ) throws -> VMPushOutcome {
-        let destination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
-        guard !destination.utf8.contains(0), !destination.contains("\n"), !destination.contains("\r") else {
+        let requestedDestination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
+        try Self.rejectLiteralTildePath(
+            requestedDestination,
+            operation: String(localized: "cli.vm.path.remote", defaultValue: "remote path")
+        )
+        guard !requestedDestination.utf8.contains(0), !requestedDestination.contains("\n"), !requestedDestination.contains("\r") else {
             throw CLIError(message: "Cloud file destination contains an unsupported control character.")
         }
         let started = Date()
@@ -337,6 +369,7 @@ extension CMUXCLI {
         if isDirectory {
             let tarURL = try makeLocalTarball(of: localURL, excludes: excludes)
             defer { try? FileManager.default.removeItem(at: tarURL) }
+            try validateLocalTarball(at: tarURL)
             try FileManager.default.moveItem(at: tarURL, to: localFile)
         } else {
             let source = localURL.resolvingSymlinksInPath()
@@ -376,10 +409,43 @@ extension CMUXCLI {
             endpoint = renewed
         }
         try ("cmux-scp " + endpoint.hostPublicKey + "\n").write(to: transferDirectory.appendingPathComponent("known_hosts"), atomically: true, encoding: .utf8)
-        let parent = (destination as NSString).deletingLastPathComponent
-        let template = (parent.isEmpty ? "." : parent) + "/.cmux-push.XXXXXXXXXX"
-        let prepare = "umask 077; mkdir -p -- \(shellQuote(parent.isEmpty ? "." : parent)) && mktemp -d -- \(shellQuote(template))"
         phase = "connect"
+        let requestedParent = (requestedDestination as NSString).deletingLastPathComponent
+        // Validate the guest's filesystem interpretation before mkdir or staging.
+        // NUL-delimited output preserves whitespace and lets us reject control
+        // characters introduced by a symlink rather than silently trimming them.
+        let resolved = try runSCPProcess(
+            "/usr/bin/ssh",
+            arguments: ["-p", String(endpoint.port), "--", endpoint.destination,
+                        "realpath -mz -- \(shellQuote(requestedDestination)) \(shellQuote(requestedParent.isEmpty ? "." : requestedParent))"],
+            endpoint: endpoint, directory: transferDirectory
+        )
+        let resolvedPaths = resolved.utf8.split(separator: 0, omittingEmptySubsequences: false)
+        guard resolvedPaths.count == 3, resolvedPaths[2].isEmpty,
+              resolvedPaths[0].first == 0x2f, resolvedPaths[1].first == 0x2f else {
+            throw CLIError(message: String(
+                localized: "cli.vm.push.destinationResolutionFailed",
+                defaultValue: "Could not resolve the push destination."
+            ))
+        }
+        let resolvedDestination = String(decoding: resolvedPaths[0], as: UTF8.self)
+        let parent = String(decoding: resolvedPaths[1], as: UTF8.self)
+        for path in [resolvedDestination, parent] {
+            try Self.rejectLiteralTildePath(
+                path,
+                operation: String(localized: "cli.vm.path.remote", defaultValue: "remote path")
+            )
+            guard !path.contains("\n"), !path.contains("\r") else {
+                throw CLIError(message: "Cloud file destination contains an unsupported control character.")
+            }
+        }
+        // A file push replaces a final symlink instead of overwriting its
+        // target. Resolve its parent while preserving that existing behavior.
+        let destination = isDirectory
+            ? resolvedDestination
+            : parent + "/" + (requestedDestination as NSString).lastPathComponent
+        let template = parent + "/.cmux-push.XXXXXXXXXX"
+        let prepare = "umask 077; mkdir -p -- \(shellQuote(parent)) && mktemp -d -- \(shellQuote(template))"
         let remoteDirectory = try runSCPProcess(
             "/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, prepare],
             endpoint: endpoint, directory: transferDirectory
@@ -1663,6 +1729,58 @@ extension CMUXCLI {
         return tarURL
     }
 
+    /// Validate the archive after tar applies its exclusions, so every path that
+    /// can reach the machine shares the same literal-tilde invariant.
+    private func validateLocalTarball(at tarURL: URL) throws {
+        do {
+            let result = CLIProcessRunner.runProcessData(
+                executablePath: "/usr/bin/tar",
+                arguments: ["-tzf", tarURL.path],
+                timeout: 30
+            )
+            guard result.status == 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.push.archiveValidationFailed",
+                    defaultValue: "Could not validate the paths in the push archive."
+                ))
+            }
+            // macOS tar escapes embedded ASCII newlines and backslashes in names.
+            // Split only its LF record delimiter; other Unicode newlines are filenames.
+            for entry in result.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
+                try Self.rejectLiteralTildePath(
+                    String(decoding: entry, as: UTF8.self),
+                    operation: String(localized: "cli.vm.path.archive", defaultValue: "push archive path")
+                )
+            }
+
+            let verbose = CLIProcessRunner.runProcessData(
+                executablePath: "/usr/bin/tar",
+                arguments: ["-tvzf", tarURL.path],
+                timeout: 30
+            )
+            guard verbose.status == 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.push.archiveValidationFailed",
+                    defaultValue: "Could not validate the paths in the push archive."
+                ))
+            }
+            for entry in verbose.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
+                let line = String(decoding: entry, as: UTF8.self)
+                guard line.first == "l" else { continue }
+                var searchStart = line.startIndex
+                while let arrow = line.range(of: " -> ", range: searchStart..<line.endIndex) {
+                    try Self.rejectLiteralTildePath(
+                        String(line[arrow.upperBound...]),
+                        operation: String(localized: "cli.vm.path.symlinkTarget", defaultValue: "push archive symlink target")
+                    )
+                    searchStart = arrow.upperBound
+                }
+            }
+        } catch let error as CLIError {
+            throw VMPushLocalValidationError(cliError: error)
+        }
+    }
+
     static func formatByteCount(_ bytes: Int) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
@@ -1848,7 +1966,7 @@ extension CMUXCLI {
             }
             memoryMb = parsed
         }
-        let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        let workDirectory = cwdOption.map { URL(fileURLWithPath: resolvePath($0)).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
         let selection = try selectVMForRun(
             machineOverride: nil,
@@ -1871,7 +1989,7 @@ extension CMUXCLI {
         }
         if selection.wouldProvision {
             print(String(
-                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ \u{2014} `cmux vm run` would provision a fresh one (add --provision to create it now)."),
+                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ — `cmux vm run` would provision a fresh one (add --provision to create it now)."),
                 workDirectory
             ))
             return
@@ -1963,7 +2081,7 @@ extension CMUXCLI {
             }
             waitTimeoutSeconds = parsed
         }
-        let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        let workDirectory = cwdOption.map { URL(fileURLWithPath: resolvePath($0)).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
 
         if sync {
@@ -2048,7 +2166,7 @@ extension CMUXCLI {
         if let surfaceId { payload["surface_id"] = surfaceId }
         if let syncedRemoteDir { payload["synced_to"] = syncedRemoteDir }
         let startedLine = String(
-            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
+            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ — terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
             agent, selection.id, terminalId, workspaceId
         )
         let reattachLine = String(
