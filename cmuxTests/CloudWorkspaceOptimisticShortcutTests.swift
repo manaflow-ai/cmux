@@ -127,8 +127,10 @@ struct CloudWorkspaceOptimisticShortcutTests {
         #expect(pending.cloudVMBinding?.remoteWorkspaceID == nil)
         #expect(pending.cloudPendingCreations[reservation.panelID] === reservation)
         if navigation == "afterAdmission" { manager.selectWorkspace(other) }
-        if navigation == "providerDelay" { providerRelease.continuation.yield(()) }
-        for await _ in entered.stream { break }
+        if navigation == "providerDelay" {
+            providerRelease.continuation.yield(())
+            for await _ in entered.stream { break }
+        }
         release.continuation.yield(())
         await operations.waitForPendingOperations()
 
