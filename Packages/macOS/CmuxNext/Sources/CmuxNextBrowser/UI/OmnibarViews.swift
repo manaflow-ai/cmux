@@ -2,22 +2,34 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The omnibar's rounded background: gray at rest, darker on hover, white
-/// with a neutral ring while editing, and plain white while it is the top of
-/// the suggestion card.
+/// The omnibar's rounded background: at rest the glass material
+/// (`OmnibarGlassLook`, the theme fill when glass is off), a stronger tint
+/// on hover, a neutral ring while editing, and the plain card fill while it
+/// is the top of the suggestion card (the card is opaque, so the bar joins
+/// it).
 final class OmnibarPillView: NSView {
     enum State { case idle, editing, card }
 
     var state: State = .idle { didSet { if oldValue != state { refresh(animated: true) } } }
     private var isHovering = false { didSet { if oldValue != isHovering { refresh(animated: true) } } }
     private var tracking: NSTrackingArea?
+    /// The look in effect; follows the design picker live.
+    private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
+    /// The glass under the bar, built while the look has a material.
+    private var glass: GlassPanelView?
+    /// Ends with the view (the loop holds it weakly).
+    private var lookLoop: ObservationLoop?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.barCornerRadius
         layer?.cornerCurve = .continuous
-        refresh(animated: false)
+        layer?.masksToBounds = false
+        rebuildMaterial()
+        lookLoop = ObservationLoop { [weak self] in
+            let next = OmnibarGlassLook.current
+            self?.look = next
+        }
     }
 
     @available(*, unavailable)
@@ -42,19 +54,84 @@ final class OmnibarPillView: NSView {
         refresh(animated: false)
     }
 
+    override func layout() {
+        super.layout()
+        applyShape()
+    }
+
+    /// Glass draws only with a material and without Reduce Transparency.
+    private var drawsGlass: Bool {
+        look.material != .off && !ReduceTransparency.shared.isEnabled
+    }
+
+    private func rebuildMaterial() {
+        if drawsGlass {
+            let style: Glass.Style = look.material == .clear ? .clear : .regular
+            if let glass {
+                glass.style = style
+            } else {
+                let panel = GlassPanelView(style: style, cornerRadius: 0)
+                panel.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(panel, positioned: .below, relativeTo: nil)
+                NSLayoutConstraint.activate([
+                    panel.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    panel.trailingAnchor.constraint(equalTo: trailingAnchor),
+                    panel.topAnchor.constraint(equalTo: topAnchor),
+                    panel.bottomAnchor.constraint(equalTo: bottomAnchor),
+                ])
+                glass = panel
+            }
+        } else {
+            glass?.removeFromSuperview()
+            glass = nil
+        }
+        applyShape()
+        refresh(animated: false)
+    }
+
+    private func applyShape() {
+        let radius = look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.cornerRadius = radius
+        glass?.cornerRadius = radius
+        if look.shadow && drawsGlass && state != .card {
+            layer?.shadowOpacity = 0.18
+            layer?.shadowRadius = 6
+            layer?.shadowOffset = CGSize(width: 0, height: -1)
+            layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        } else {
+            layer?.shadowOpacity = 0
+            layer?.shadowPath = nil
+        }
+        CATransaction.commit()
+    }
+
     private func refresh(animated: Bool) {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
+        let glassy = drawsGlass && state != .card
+        glass?.isHidden = !glassy
         Motion.transaction(animated ? .hover : nil) {
             performWithTheme {
-                let fill: NSColor = switch state {
-                case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
-                case .editing, .card: OmnibarStyle.cardFill
+                let fill: NSColor
+                if glassy {
+                    // The glass draws the surface; the layer adds only the
+                    // hover lift over it.
+                    fill = isHovering && state == .idle ? OmnibarStyle.chipHoverFill : .clear
+                    glass?.tintColor = look.tintColor(boost: state == .editing ? 0.15 : 0)
+                    layer?.shadowColor = Palette.shadow.cgColor
+                } else {
+                    fill = switch state {
+                    case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
+                    case .editing, .card: OmnibarStyle.cardFill
+                    }
                 }
                 layer?.backgroundColor = fill.cgColor
                 layer?.borderColor = OmnibarStyle.ring.cgColor
             }
             layer?.borderWidth = Metrics.lineWidth(ring)
         }
+        applyShape()
     }
 }
 

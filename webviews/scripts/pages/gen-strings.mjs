@@ -145,6 +145,11 @@ export const PAGES = {
     out: "webviews/src/pages/coderouter/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
   },
+  // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
+  "home-channels": {
+    out: "webviews/src/pages/home-channels/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
