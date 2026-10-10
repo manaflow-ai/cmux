@@ -69,6 +69,7 @@ impl ResourceOperation {
             Self::WorkspaceGet => "workspace.get",
             Self::WorkspaceCreate => "workspace.create",
             Self::WorkspaceEnsureHome => "workspace.ensure_home",
+            Self::WorkspaceEnsureApp => "workspace.ensure_app",
             Self::WorkspaceRename => "workspace.rename",
             Self::WorkspaceMove => "workspace.move",
             Self::WorkspaceFocus => "workspace.focus",

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1e811af783f47f4f59562cd0d691d8d0619745adeee283fced1c737a297897c9",
+  "catalog_sha256": "40d702061039ec3d1b9a763699d520cbc9180b806efac8bdeec52ff4cb9879fe",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -602,6 +602,9 @@
       "class": "mutation"
     },
     "workspace.create": {
+      "class": "mutation"
+    },
+    "workspace.ensure_app": {
       "class": "mutation"
     },
     "workspace.ensure_home": {

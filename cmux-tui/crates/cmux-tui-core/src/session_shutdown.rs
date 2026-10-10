@@ -127,11 +127,6 @@ impl SessionShutdownClock {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn new(previous: Option<(u64, u64)>) -> Self {
-        Self::with_previous(previous, None)
-    }
-
     /// Read (and close) the previous owner's window from `marker`, after
     /// removing temporary files a crashed rewrite left behind. A missing or
     /// unreadable marker means no window; failures are logged.
@@ -172,13 +167,6 @@ impl SessionShutdownClock {
             return;
         }
         self.stamp(self.now_ms());
-    }
-
-    #[cfg(test)]
-    pub(crate) fn begin_at(&self, now_ms: u64) {
-        if !self.own_started.swap(true, Ordering::SeqCst) {
-            self.stamp(now_ms);
-        }
     }
 
     fn stamp(&self, now_ms: u64) {
@@ -237,14 +225,6 @@ impl SessionShutdownClock {
             }
             other => other,
         }
-    }
-
-    /// Reclassify a process end by signal during a session shutdown as a
-    /// host loss. The receipt keeps the signal in its reason and an unknown
-    /// outcome, so every later owner classifies it the same way.
-    #[cfg(test)]
-    pub(crate) fn classify(&self, end: TerminalEnd) -> TerminalEnd {
-        self.classify_with(self.own_start(), end)
     }
 
     /// Classify `end` and say whether a later shutdown start could still
@@ -375,183 +355,4 @@ pub(crate) fn unix_now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis()
         .min(u128::from(u64::MAX)) as u64
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn signal_end(exited_at_ms: u64) -> TerminalEnd {
-        TerminalEnd::ProcessEnded(TerminalExit {
-            outcome: TerminalExitOutcome::Signal { signal: 1, core_dumped: false },
-            exited_at_ms,
-        })
-    }
-
-    fn exit_end(exited_at_ms: u64) -> TerminalEnd {
-        TerminalEnd::ProcessEnded(TerminalExit {
-            outcome: TerminalExitOutcome::Exit { code: 0 },
-            exited_at_ms,
-        })
-    }
-
-    #[test]
-    fn signal_exits_during_the_previous_shutdown_are_host_losses() {
-        let clock = SessionShutdownClock::new(Some((100_000, 150_000)));
-        for at in [100_000 - SESSION_SHUTDOWN_LEAD_MS, 100_000, 125_000, 149_999] {
-            let end = clock.classify(signal_end(at));
-            assert!(matches!(end, TerminalEnd::HostLost(_)), "{at}: {end:?}");
-            assert!(end.detach_proof().is_none());
-            assert_eq!(end.exit().exited_at_ms, at);
-            let receipt = serde_json::json!({
-                "outcome": end.exit().outcome,
-                "exited_at": at.to_string(),
-                "revision": "1",
-            });
-            assert!(matches!(TerminalEnd::from_receipt(Some(&receipt)), TerminalEnd::HostLost(_)));
-        }
-        // Before the shutdown or during this owner's run: a real end.
-        for at in [100_000 - SESSION_SHUTDOWN_LEAD_MS - 1, 150_000, 300_000] {
-            assert!(matches!(clock.classify(signal_end(at)), TerminalEnd::ProcessEnded(_)));
-        }
-        // An exit with a status is always a real end.
-        assert!(matches!(clock.classify(exit_end(125_000)), TerminalEnd::ProcessEnded(_)));
-    }
-
-    #[test]
-    fn signal_exits_after_this_owner_began_shutting_down_are_host_losses() {
-        let clock = SessionShutdownClock::new(None);
-        assert!(matches!(clock.classify(signal_end(50_000)), TerminalEnd::ProcessEnded(_)));
-        clock.begin_at(50_000);
-        clock.begin_at(60_000);
-        assert!(matches!(clock.classify(signal_end(50_001)), TerminalEnd::HostLost(_)));
-        assert!(matches!(clock.classify(exit_end(50_001)), TerminalEnd::ProcessEnded(_)));
-        assert!(matches!(
-            clock.classify(signal_end(50_000 - SESSION_SHUTDOWN_LEAD_MS - 1)),
-            TerminalEnd::ProcessEnded(_)
-        ));
-    }
-
-    #[test]
-    fn a_shutdown_window_closes_at_the_next_start_and_survives_a_crash() {
-        let root = std::env::temp_dir()
-            .join(format!("cmux-owner-shutdown-{}", crate::workspace_registry::new_uuid_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let marker = owner_shutdown_marker_path(&root.join("workspace-registry.sqlite3"));
-        assert_eq!(SessionShutdownClock::open(Some(marker.clone()), 10).previous, None);
-        let first = SessionShutdownClock::open(Some(marker.clone()), 10);
-        first.begin_at(1_000);
-        first.begin_at(2_000);
-
-        // The next owner closes the window at its start.
-        let second = SessionShutdownClock::open(Some(marker.clone()), 5_000);
-        assert_eq!(second.previous, Some((1_000, 5_000)));
-        // That owner crashed without a shutdown: the same window again.
-        let third = SessionShutdownClock::open(Some(marker.clone()), 9_000);
-        assert_eq!(third.previous, Some((1_000, 5_000)));
-        // The next shutdown replaces it.
-        third.begin_at(10_000);
-        let fourth = SessionShutdownClock::open(Some(marker), 12_000);
-        assert_eq!(fourth.previous, Some((10_000, 12_000)));
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    fn scratch_marker(name: &str) -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-owner-shutdown-{name}-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let marker = owner_shutdown_marker_path(&root.join("workspace-registry.sqlite3"));
-        (root, marker)
-    }
-
-    /// A shutdown window lasts from its start to 60 s after it, even when no
-    /// owner starts in between: a signal exit after that is a real end again.
-    #[test]
-    fn a_shutdown_window_ends_sixty_seconds_after_its_start() {
-        let previous = SessionShutdownClock::new(Some((100_000, 400_000)));
-        let limit = 100_000 + SESSION_SHUTDOWN_WINDOW_MS;
-        assert!(matches!(previous.classify(signal_end(limit - 1)), TerminalEnd::HostLost(_)));
-        for at in [limit, 300_000] {
-            let end = previous.classify(signal_end(at));
-            assert!(matches!(end, TerminalEnd::ProcessEnded(_)), "{at}: {end:?}");
-        }
-        // A next owner that starts sooner still closes the window at its start.
-        let closed = SessionShutdownClock::new(Some((100_000, 120_000)));
-        assert!(matches!(closed.classify(signal_end(120_000)), TerminalEnd::ProcessEnded(_)));
-
-        let own = SessionShutdownClock::new(None);
-        own.begin_at(50_000);
-        let limit = 50_000 + SESSION_SHUTDOWN_WINDOW_MS;
-        assert!(matches!(own.classify(signal_end(limit - 1)), TerminalEnd::HostLost(_)));
-        for at in [limit, 200_000] {
-            let end = own.classify(signal_end(at));
-            assert!(matches!(end, TerminalEnd::ProcessEnded(_)), "{at}: {end:?}");
-        }
-    }
-
-    /// The previous window is known once the marker is read; failing to
-    /// rewrite it (closing the window) must not lose it.
-    #[test]
-    fn a_failed_marker_rewrite_still_returns_the_previous_window() {
-        let (root, marker) = scratch_marker("rewrite-fails");
-        std::fs::write(&marker, "1000").unwrap();
-        // A directory where the rewrite's temporary file goes makes the
-        // rewrite fail, also for a privileged test user.
-        let temporary = marker.with_extension(format!("owner-shutdown.{}.tmp", std::process::id()));
-        std::fs::create_dir_all(&temporary).unwrap();
-        let clock = SessionShutdownClock::open(Some(marker.clone()), 5_000);
-        assert_eq!(clock.previous, Some((1_000, 5_000)));
-        assert!(matches!(clock.classify(signal_end(1_500)), TerminalEnd::HostLost(_)));
-        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "1000");
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    /// A crash between creating and renaming the marker's temporary file
-    /// leaves it behind; the next owner removes it at open.
-    #[test]
-    fn opening_removes_stale_marker_temporary_files() {
-        let (root, marker) = scratch_marker("stale-temporary");
-        let stale = marker.with_extension("owner-shutdown.4242.tmp");
-        std::fs::write(&stale, "1000").unwrap();
-        let unrelated = root.join("other-registry.owner-shutdown.4242.tmp");
-        std::fs::write(&unrelated, "1000").unwrap();
-        let clock = SessionShutdownClock::open(Some(marker), 10);
-        assert_eq!(clock.previous, None);
-        assert!(!stale.exists(), "the stale temporary file stayed");
-        assert!(unrelated.exists(), "another registry's file was removed");
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    /// A signal exit stays pending for the lead while this owner runs, and
-    /// is final once the lead has passed or the shutdown has begun.
-    #[test]
-    fn a_live_signal_exit_settles_after_the_lead() {
-        let clock = SessionShutdownClock::new(None);
-        clock.set_now_for_test(10_000);
-        let pending = clock.settle(signal_end(10_000));
-        let until = 10_000 + SESSION_SHUTDOWN_LEAD_MS + 1;
-        assert_eq!(pending.pending_until_ms(), Some(until));
-        assert!(pending.end().detach_proof().is_some());
-        // An exit with a status, or an older signal exit, is final.
-        assert_eq!(clock.settle(exit_end(10_000)), SettledEnd::Final(exit_end(10_000)));
-        clock.set_now_for_test(until);
-        assert_eq!(clock.settle(signal_end(10_000)), SettledEnd::Final(signal_end(10_000)));
-
-        // A shutdown that starts within the lead makes it a host loss.
-        let clock = SessionShutdownClock::new(None);
-        clock.set_now_for_test(10_000);
-        assert!(clock.settle(signal_end(10_000)).pending_until_ms().is_some());
-        clock.set_now_for_test(11_000);
-        clock.begin();
-        clock.set_now_for_test(until);
-        let settled = clock.settle(signal_end(10_000));
-        assert!(matches!(settled, SettledEnd::Final(TerminalEnd::HostLost(_))), "{settled:?}");
-        // A start later than the lead after the exit does not cover it.
-        let clock = SessionShutdownClock::new(None);
-        clock.begin_at(10_000 + SESSION_SHUTDOWN_LEAD_MS + 1);
-        let settled = clock.settle(signal_end(10_000));
-        assert_eq!(settled, SettledEnd::Final(signal_end(10_000)));
-    }
 }

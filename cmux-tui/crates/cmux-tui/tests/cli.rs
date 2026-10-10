@@ -3643,6 +3643,10 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
+#[cfg(unix)]
+#[path = "cli/app_workspaces.rs"]
+mod app_workspaces;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[path = "cli/closed_delete.rs"]

@@ -6,7 +6,7 @@
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
     "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
-    "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set",
+    "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
@@ -18,7 +18,7 @@
   "gesture_ticket_key": "cmuxGesture",
   "session_scoped": [
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
+    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "source_scoped": [
@@ -54,6 +54,7 @@
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
+    "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
     "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},

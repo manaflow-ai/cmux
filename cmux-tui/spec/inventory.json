@@ -204,6 +204,7 @@
     "workspace.agent_folder.set",
     "workspace.close",
     "workspace.create",
+    "workspace.ensure_app",
     "workspace.ensure_home",
     "workspace.focus",
     "workspace.get",
