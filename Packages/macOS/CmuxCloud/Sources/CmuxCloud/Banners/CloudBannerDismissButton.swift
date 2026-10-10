@@ -10,6 +10,7 @@ public struct CloudBannerDismissButton: View {
     }
 
     public let action: () -> Void
+    @State private var isHovered = false
 
     public var body: some View {
         Button(action: action) {
@@ -19,7 +20,14 @@ public struct CloudBannerDismissButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(isHovered ? .primary : .secondary)
+        // The Cloud sidebar's icon-button hover (`MachinesChromeIconButton`):
+        // a faint fill in the sidebar's 6 pt button shape.
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+        )
+        .onHover { isHovered = $0 }
         .help(String(localized: "common.close", defaultValue: "Close"))
         .accessibilityLabel(String(localized: "common.close", defaultValue: "Close"))
         .accessibilityIdentifier("CloudBannerDismissButton")
