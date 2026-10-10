@@ -163,7 +163,7 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
             <button type="button" className="ds-button" onClick={() => void store.copy("swift")} data-testid="ds.copySwift">
               {t("debugSettings.copySwift")}
             </button>
-            {section && !searching ? (
+            {section ? (
               <button
                 type="button"
                 className="ds-button"

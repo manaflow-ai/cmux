@@ -55,15 +55,27 @@ export class DebugSettingsStore {
     if (!this.client || this.unsubscribe || this.starting) return;
     this.starting = true;
     try {
-      this.unsubscribe = await this.client.subscribe<{ state?: DebugSettingsState }>(DebugTunablesOps.changed, (data) => {
+      const unsubscribe = await this.client.subscribe<{ state?: DebugSettingsState }>(DebugTunablesOps.changed, (data) => {
         if (data?.state) this.accept(data.state);
       });
-      this.unpage = await subscribePageStreams(this.client, {
+      // The page went away while the subscribe was in flight.
+      if (this.listeners.size === 0) return unsubscribe();
+      this.unsubscribe = unsubscribe;
+      const unpage = await subscribePageStreams(this.client, {
         onConnection: (connected) => {
           if (!connected) this.set({ connection: "disconnected" });
-          else if (this.snapshot.connection === "disconnected") void this.reload();
+          else if (this.snapshot.connection === "disconnected") {
+            // A start that failed while the host was gone tries again.
+            if (!this.unsubscribe) void this.start();
+            else void this.reload();
+          }
         },
       });
+      if (this.listeners.size === 0) {
+        unpage();
+        return this.stop();
+      }
+      this.unpage = unpage;
     } catch (error) {
       this.set(failure(error));
       return;
@@ -136,6 +148,8 @@ export class DebugSettingsStore {
       if (generation !== this.generation) return;
       this.accept(state);
     } catch (error) {
+      // A refused search must not hold the field: the app's query shows again.
+      if (op === DebugTunablesOps.viewSet) this.pendingQuery = undefined;
       if (generation === this.generation) this.set(failure(error));
     }
   }

@@ -23,12 +23,6 @@
   border-inline-end: 1px solid var(--page-separator);
 }
 
-/* In its own window the page draws under the transparent title bar: leave the traffic lights room. */
-html[data-debug-settings-host="window"] .ds-sidebar,
-html[data-debug-settings-host="window"] .ds-toolbar {
-  padding-top: 40px;
-}
-
 .ds-search-box {
   padding-bottom: 8px;
 }
@@ -172,7 +166,7 @@ html[data-debug-settings-host="window"] .ds-toolbar {
 }
 
 .ds-destructive:not(:disabled) {
-  color: color-mix(in srgb, var(--page-text) 78%, #d44);
+  color: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
 }
 
 .ds-scroll {
