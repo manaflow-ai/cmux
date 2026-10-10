@@ -1,9 +1,10 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// A small gray capsule button. `prominent` fills it with the text color.
 struct PillButton: View {
     let title: String
-    var symbol: String?
+    var icon: IconName?
     var prominent = false
     var help: String?
     let action: () -> Void
@@ -14,7 +15,7 @@ struct PillButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if let symbol { Image(systemName: symbol).font(.system(size: 9.5, weight: .semibold)) }
+                if let icon { Icon(icon, size: 12) }
                 Text(title).font(.system(size: 11.5, weight: .medium)).lineLimit(1).fixedSize()
             }
             .padding(.horizontal, 9).frame(height: 22)
@@ -37,7 +38,7 @@ struct FixButton: View {
     let fix: HealthFix
 
     var body: some View {
-        PillButton(title: fix.title, symbol: fix.needsAdmin ? "lock.fill" : (fix.opensSettings ? "arrow.up.forward" : nil),
+        PillButton(title: fix.title, icon: fix.needsAdmin ? .securityLock : (fix.opensSettings ? .linkExternal : nil),
                    help: fix.needsAdmin ? ServerStrings.needsAdmin : nil) {
             model.fix(check)
         }

@@ -95,7 +95,7 @@ final class ScreenDragSession {
         guard let point else { return }
         if let (controller, hit) = hit {
             switch hit.drop {
-            case .intoWorkspace(let id):
+            case .intoWorkspace(let id), .beforeTab(let id, _):
                 guard id.rawValue != source.id, let target = services.workspace(id: id.rawValue) else { return }
                 ScreenCommands.move(screen, toWorkspace: target, daemon: daemon, services: services)
             case .newWorkspace, .intoGroup:
