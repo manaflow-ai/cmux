@@ -32,7 +32,7 @@
   // The page-agent methods frame.observe allows (browser lead contract v1).
   // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
   // among them.
-  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "framePosition", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -1347,10 +1347,14 @@
 
     async _scrollIntoView(frame, handle) {
       await frame._agent("scrollIntoViewIfNeeded", handle);
-      // Bring each owner <iframe> into its parent's viewport too.
+      // Bring each owner <iframe> into its parent's viewport too. The owner
+      // is the one the child's place in window.frames names, else (a frame
+      // in a shadow tree) one found within the parent's node budget: the
+      // page sets the parent's size, so no action walks its whole DOM.
       for (let child = frame; child._parent; child = child._parent) {
         const parent = child._parent;
-        const iframes = await parent._agent("iframeHandles");
+        const position = await child._agent("framePosition");
+        const iframes = (await parent._agent("iframeHandles", position)).handles;
         for (const h of iframes) {
           const f = await parent._contentFrame(h);
           if (f === child) {
@@ -2114,6 +2118,10 @@
   // How long Download.path() waits for download.finished after the driver
   // reported the saved path (the event travels apart from the reply).
   const DOWNLOAD_FINISHED_WAIT_MS = 30000;
+  // Downloads of a tab still running: a page can start them without end,
+  // so past this the oldest is dropped and reads as gone (a finished one
+  // is dropped when it finishes; its Download keeps its outcome).
+  const MAX_RUNNING_DOWNLOADS = 1000;
 
   class Download {
     constructor(page, payload) {
@@ -2131,6 +2139,7 @@
       return this._p.suggestedFilename;
     }
     async path() {
+      if (this._dropped) throw new Error(this._dropped);
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
@@ -2158,6 +2167,12 @@
     async failure() {
       const r = await this._finished;
       return r.error || null;
+    }
+    // The tab had too many downloads running; this one is no longer
+    // tracked, and never stands for another.
+    _drop(limit) {
+      this._dropped = `download ${this._p.downloadId} is gone: its tab had more than ${limit} downloads running, and the oldest are no longer tracked`;
+      this._resolveFinished({ error: this._dropped });
     }
     async saveAs(target) {
       const files = this._page._session.files;
@@ -2296,6 +2311,12 @@
   // Unfinished requests a page keeps to pair with their later events.
   const MAX_OPEN_REQUESTS = 1000;
 
+  // The prefixes of at most MAX_FRAME_TOMBSTONES detached frames a Page
+  // keeps (Page._forgetFrame): past it the oldest go, and a ref with a
+  // dropped prefix fails as one that does not exist (prefixes are never
+  // reused, so it never resolves to another frame's element).
+  const MAX_FRAME_TOMBSTONES = 1024;
+
   class Page extends EventEmitter {
     constructor(session, targetId) {
       super();
@@ -2309,11 +2330,15 @@
       this._requests = new Map();
       this._testIdAttribute = "data-testid";
       // Frame prefixes are assigned once per frame, in DOM order of first
-      // sight, so a frame's refs keep their prefix.
-      this._framePrefixes = new Map();
+      // sight, so a frame's refs keep their prefix. A detached frame's
+      // prefix maps to null (a tombstone, so its refs fail stale), for the
+      // newest MAX_FRAME_TOMBSTONES detached frames; prefixes are never
+      // reused, so an older one's refs fail as refs that do not exist.
+      this._framePrefixes = new WeakMap();
       this._prefixFrames = new Map([["", this._mainFrame]]);
+      this._prefixTombstones = new Set();
       this._prefixCounter = 0;
-      this._refMax = new Map();
+      this._refMax = new WeakMap();
       this._heldDialog = null;
       this._listenedDialog = null;
       this._dismissedDialogs = [];
@@ -2419,11 +2444,29 @@
       }
       for (const [id, frame] of this._frames) {
         if (!alive.has(frame)) {
-          frame._detached = true;
+          this._forgetFrame(frame);
           this._frames.delete(id);
         }
       }
       return list;
+    }
+    // A frame left the tab: its prefix becomes a tombstone (its refs fail
+    // stale) and its ref numbers go.
+    _forgetFrame(frame) {
+      frame._detached = true;
+      const prefix = this._framePrefixes.get(frame);
+      if (prefix) this._tombstone(prefix);
+      this._refMax.delete(frame);
+    }
+    _tombstone(prefix) {
+      this._prefixFrames.delete(prefix);
+      this._prefixFrames.set(prefix, null);
+      this._prefixTombstones.add(prefix);
+      for (const old of this._prefixTombstones) {
+        if (this._prefixTombstones.size <= MAX_FRAME_TOMBSTONES) break;
+        this._prefixTombstones.delete(old);
+        this._prefixFrames.delete(old);
+      }
     }
     _prefixFor(frame) {
       if (frame === this._mainFrame) return "";
@@ -2431,7 +2474,8 @@
       if (!prefix) {
         prefix = `f${++this._prefixCounter}`;
         this._framePrefixes.set(frame, prefix);
-        this._prefixFrames.set(prefix, frame);
+        if (frame._detached) this._tombstone(prefix);
+        else this._prefixFrames.set(prefix, frame);
       }
       return prefix;
     }
@@ -2619,7 +2663,7 @@
       // The next web process has new frame ids; address the main frame by
       // default until frames are read again.
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
       this.emit("crash", this);
     }
@@ -2627,7 +2671,7 @@
     // to save memory, or recovered a crashed one): frames have new ids.
     _onReplaced() {
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
     }
     _onClosed() {
@@ -2680,12 +2724,19 @@
     }
     _onDownload(p) {
       const download = new Download(this, p);
-      (this._downloads || (this._downloads = new Map())).set(p.downloadId, download);
+      const running = this._downloads || (this._downloads = new Map());
+      running.set(p.downloadId, download);
+      if (running.size > MAX_RUNNING_DOWNLOADS) {
+        const [oldestId, oldest] = running.entries().next().value;
+        running.delete(oldestId);
+        oldest._drop(MAX_RUNNING_DOWNLOADS);
+      }
       this.emit("download", download);
     }
     _onDownloadFinished(p) {
       const d = this._downloads && this._downloads.get(p.downloadId);
       if (d) {
+        this._downloads.delete(p.downloadId);
         d._outcome = p;
         d._resolveFinished(p);
       }
