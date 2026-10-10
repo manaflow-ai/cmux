@@ -42,9 +42,12 @@ extension AppDelegate {
         return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager, weak context] in
             let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager, weak context] in
                 guard let self, !Task.isCancelled else { return }
+                let fallbackWindow = self.mainWindowContexts.values
+                    .first(where: { $0.windowId == windowID })
+                    .flatMap { self.resolvedWindow(for: $0) }
                 _ = self.performNewCloudMachineAction(
                     tabManager: manager,
-                    preferredWindow: context.flatMap { self.resolvedWindow(for: $0) },
+                    preferredWindow: fallbackWindow,
                     debugSource: "\(debugSource).fallback"
                 )
             }
