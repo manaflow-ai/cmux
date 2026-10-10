@@ -34,8 +34,9 @@ class OpenedApp:
     `CMUX_EXT_E2E_OPEN=1` picks it. Quacks like the Popen the rest of the module uses;
     the PID is the one process running exactly this build's executable."""
 
-    def __init__(self, pid):
+    def __init__(self, pid, binary):
         self.pid = pid
+        self.binary = binary
         self.returncode = None
 
     @classmethod
@@ -53,7 +54,7 @@ class OpenedApp:
         while time.monotonic() < deadline:
             started = [pid for pid in cls.pids(binary) if pid not in before]
             if started:
-                return cls(started[0])
+                return cls(started[0], binary)
             time.sleep(0.2)
         raise SystemExit("open started no app process")
 
@@ -64,11 +65,10 @@ class OpenedApp:
                 if command == binary]
 
     def poll(self):
-        if self.returncode is None:
-            try:
-                os.kill(self.pid, 0)
-            except OSError:
-                self.returncode = 0
+        # Not our child: once it exits its PID may be reused, so alive means the PID
+        # still runs this build's executable (quit signals only then).
+        if self.returncode is None and self.pid not in self.pids(self.binary):
+            self.returncode = 0
         return self.returncode
 
     def wait(self, timeout=None):
@@ -242,12 +242,16 @@ class TaggedApp:
             self.process.wait(timeout=15)
         except Exception:  # noqa: BLE001 - fall back to a signal to our own PID
             pass
-        if self.process.poll() is None:
-            os.kill(self.process.pid, signal.SIGTERM)
-            try:
-                self.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.kill(self.process.pid, signal.SIGKILL)
+        try:
+            if self.process.poll() is None:
+                os.kill(self.process.pid, signal.SIGTERM)
+                try:
+                    self.process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    if self.process.poll() is None:
+                        os.kill(self.process.pid, signal.SIGKILL)
+        except ProcessLookupError:  # it exited between the check and the signal
+            pass
 
     def dump(self, name, payload):
         if self.log_dir:

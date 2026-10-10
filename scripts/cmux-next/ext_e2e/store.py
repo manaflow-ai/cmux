@@ -166,6 +166,8 @@ class StoreRun:
         Chromium's own pages (agent-driven tabs refuse chrome://): load state, but no
         manifest or worker errors (`manifestErrors` None)."""
         report = app.call("browser.extensions").get("result") or {}
+        if report.get("error") or not report.get("extensions"):
+            raise RuntimeError(f"browser.extensions: {report.get('error') or 'no extensions'}")
         return {item["id"]: {"name": item.get("name"), "version": item.get("version"),
                              "state": "ENABLED" if item.get("enabled") else "DISABLED",
                              "disableReasons": item.get("disable_reasons") or [],

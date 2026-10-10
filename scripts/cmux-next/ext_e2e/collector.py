@@ -5,6 +5,7 @@ cross-origin iframe host). Extensions POST results to /r; the runner reads
 them from memory.
 """
 import json
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -84,8 +85,8 @@ class Collector:
                     payload = {}
                 path = urlparse(self.path).path
                 index = collector.record(path, payload)
-                if path in collector.held:
-                    collector.wait_for(lambda c: index in c.acked, 10)
+                if path in collector.held and not collector.wait_for(lambda c: index in c.acked, 20):
+                    print(f"[collector] {path} event {index} answered unacked after 20 s", file=sys.stderr, flush=True)
                 self._send(204)
 
             def do_GET(self):
