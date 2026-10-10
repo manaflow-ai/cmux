@@ -6,7 +6,44 @@
 
 use std::path::PathBuf;
 
+use serde_json::{Value, json};
+
 use super::super::GlobalArgs;
+
+/// Why [`resolve_socket_with_origin`] gave no socket, as the typed local
+/// error (`{code, message, details, retryable}`) every caller reports
+/// unchanged: `socket.no_daemon` for an app socket with no session named,
+/// else `usage.invalid` (a session name with no socket path). Every caller
+/// reports `socket.no_daemon` unchanged; `lifecycle` keeps its own mapping
+/// for the other errors (cx-siev follow-up).
+pub(in crate::cli) fn resolve_failure(error: &anyhow::Error) -> Value {
+    let (code, message) = if error.is::<AppSocketOnly>() {
+        ("socket.no_daemon", error.to_string())
+    } else {
+        ("usage.invalid", crate::localization::catalog().startup.invalid_session_name.to_owned())
+    };
+    json!({"code": code, "message": message, "details": {}, "retryable": false})
+}
+
+/// The message of a [`resolve_failure`], for a caller that reports text
+/// (the app and Chief routes, which are unix-only).
+#[cfg(unix)]
+pub(in crate::cli) fn resolve_failure_message(error: &anyhow::Error) -> String {
+    resolve_failure(error)["message"].as_str().unwrap_or_default().to_owned()
+}
+
+/// The exit code of a [`resolve_failure`]: the caller must change its route.
+pub(in crate::cli) const RESOLVE_FAILURE_EXIT: i32 = 2;
+
+/// [`resolve_socket_with_origin`], or the typed failure printed for
+/// `global.output` and its exit code.
+pub(in crate::cli) fn resolve_socket_or_report(
+    global: &GlobalArgs,
+) -> Result<(PathBuf, bool), i32> {
+    resolve_socket_with_origin(global).map_err(|error| {
+        super::print_local_error(&resolve_failure(&error), global.output, RESOLVE_FAILURE_EXIT)
+    })
+}
 
 /// Resolve a socket and report whether it belongs to cmux's private runtime
 /// directory. Environment-selected and explicit paths remain caller-managed.

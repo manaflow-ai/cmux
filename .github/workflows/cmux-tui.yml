@@ -1030,6 +1030,10 @@ jobs:
           # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
+          # acpmux builds for Windows (the port lands in steps; the daemon's
+          # socket, lock and start are stubs until then): every target,
+          # tests included, so no Unix-only code comes back ungated.
+          cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

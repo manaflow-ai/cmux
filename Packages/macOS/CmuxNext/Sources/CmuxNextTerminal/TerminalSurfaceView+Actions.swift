@@ -30,13 +30,15 @@ extension TerminalSurfaceView {
             if let delegate = session.delegate {
                 return delegate.terminalSession(session, open: url)
             }
-            return NSWorkspace.shared.open(url)
+            // Never the blocking open: Ghostty holds the renderer lock here.
+            NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
         case .mouseShape(let shape):
             setCursor(Self.cursor(for: shape))
         case .mouseVisible(let visible):
             if !visible { NSCursor.setHiddenUntilMouseMoves(true) }
         case .mouseOverLink(let link):
-            model.hoveredLink = link
+            // Sent on every pointer move over a link; only a change notifies.
+            if model.hoveredLink != link { model.hoveredLink = link }
         case .cellSize:
             // Font size changed: re-apply the announced grid at the new cell
             // size; an owner reports the grid the view now fits.

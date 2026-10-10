@@ -185,7 +185,7 @@ extension TabDragSession {
         switch (drag.winner?.provider as? SidebarTabDropTarget)?.lastDrop {
         case .newWorkspace(let section, let group, let index)?: .at(DropPosition(section: section, group: group, index: index))
         case .intoGroup(let group)?: .endOfGroup(group)
-        case .intoWorkspace?, nil: nil
+        case .intoWorkspace?, .beforeTab?, nil: nil
         }
     }
 

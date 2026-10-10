@@ -55,11 +55,11 @@ import PackageDescription
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
-//   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
+//   CmuxNextTasks -> Design, Icons (Tasks pane: list, board and inbox prototypes over a mirror + intent
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
-//   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
+//   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
@@ -105,8 +105,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-52ac077be908e2cd6d9eeb5dd35573e331dab4d1/CCmuxAppFFI.xcframework.zip",
-    checksum: "0c417fb6d94a249f1cca71dc279196a198a176ae0c0ed95971dce0edd4443532"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d2fc4491bc2ddeaead5bfe28a6f09483abcd9334/CCmuxAppFFI.xcframework.zip",
+    checksum: "62dce8413e1a5355411ac5768c92d9e7f4bc950ca5a3bcd85195d623db2c538c"
 )
 
 let package = Package(
@@ -429,7 +429,7 @@ let package = Package(
         // confirmed mirror + intent log; the App supplies the source.
         .target(
             name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
@@ -475,7 +475,7 @@ let package = Package(
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],

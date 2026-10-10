@@ -96,9 +96,9 @@ pub(super) fn resource(
     };
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
-    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|_| {
-        let message = crate::localization::catalog().startup.invalid_session_name;
-        fail(NotRun, "usage.invalid", message.to_string())
+    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
+        CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
+            .with_key(key.as_deref())
     })?;
     let stream =
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
@@ -132,6 +132,18 @@ pub(super) fn resource(
         }
         request["params"] = plan.params.clone();
     }
+    // A browser tab in a session a cmux app owns is the app's to render
+    // (frontend_browser.rs), as the CLI's `tab create browser` does.
+    #[cfg(unix)]
+    if let Some(opened) = super::super::frontend_browser::open_in_app(
+        global,
+        &plan,
+        &mut reader,
+        &socket,
+        key.as_deref(),
+    ) {
+        return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
+    }
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;
     let _ = reader.get_mut().set_read_timeout(wire::response_read_timeout(&plan, true));
@@ -145,6 +157,29 @@ pub(super) fn resource(
         Ok(Err(error)) => Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() }),
         Err(message) => Err(fail(sent, "transport.failed", message)),
     }
+}
+
+/// A failed app-rendered browser creation as a `CallFailure`: a refusal of
+/// a run that never started is `not_run`, another refusal `rejected`, and a
+/// transport failure after the run may have started `in_progress`.
+#[cfg(unix)]
+fn app_open_failure(failure: resolve::Failure, key: Option<&str>) -> CallFailure {
+    use FailureKind::{InProgress, NotRun, Rejected};
+    let never_ran = super::super::frontend_browser::never_ran(&failure);
+    let (kind, error) = match failure {
+        resolve::Failure::Resource(error) => (if never_ran { NotRun } else { Rejected }, error),
+        // A local refusal (the socket resolver's) never reached a daemon.
+        resolve::Failure::Local { error, .. } => (NotRun, error),
+        resolve::Failure::Transport(message) => (
+            InProgress,
+            json!({"code": "transport.failed", "message": message, "details": {}, "retryable": true}),
+        ),
+        resolve::Failure::AppAction { action, .. } => (
+            NotRun,
+            json!({"code": "app.unreachable", "message": format!("{action} is an app action"), "details": {}, "retryable": false}),
+        ),
+    };
+    CallFailure { kind, error, idempotency_key: key.map(str::to_owned) }
 }
 
 /// One app control request: the CLI's app discovery, read barrier

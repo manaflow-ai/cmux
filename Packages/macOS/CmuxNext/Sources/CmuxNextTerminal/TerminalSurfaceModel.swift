@@ -62,7 +62,8 @@ public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+        return true
     }
     /// Ghostty's `bell-features` decide (no system beep by default).
     func terminalSessionDidRingBell(_ session: TerminalSession) {

@@ -1,0 +1,175 @@
+name: cmux-tui tree request
+
+# Starts the publish of one feat-cmux-next commit's cmux-tui tree on demand
+# (cx-73f2). The app's SSH installer needs
+# https://files.cmux.com/cmux-tui/tree/<key>/source.json for the tree key its
+# build bundled (scripts/cmux-next/pin-cmux-tui.sh key). cmux-tui-artifacts.yml
+# publishes it on every feat-cmux-next push; this covers a commit whose run
+# failed for good or never ran. The cmux-ci controller dispatches it for a dev
+# build whose tree is missing (cmuxterm-hq build-fleet, "remote install:"
+# line), and a person may too:
+#   gh workflow run cmux-tui-tree-request.yml --repo manaflow-ai/cmux \
+#     --ref feat-cmux-next -f commit=<40-hex sha>
+#
+# It builds and uploads nothing itself. When the commit is on feat-cmux-next,
+# its tree is not published, and no active cmux-tui artifacts run has the same
+# key, it points cmux-tui-pin-<sha12> at the commit and dispatches
+# cmux-tui-artifacts.yml there; that run has its own concurrency group
+# (sha-<sha>) and is never cancelled. A ref created with this job's
+# GITHUB_TOKEN starts no push run, so exactly one publisher starts. A commit
+# that is not on feat-cmux-next is refused: a cmux-tui-pin-* run has the R2
+# publish credentials.
+
+on:
+  # GitHub dispatches only a workflow it knows, and it learns a file that is
+  # not on the default branch from a run. A push that changes this file starts
+  # one run whose job skips, and that registers it for dispatch on
+  # feat-cmux-next.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-tui-tree-request.yml]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full 40-hex feat-cmux-next commit whose cmux-tui tree to publish"
+        required: true
+        type: string
+
+# Requests for one commit run one at a time, so the second sees the first's
+# dispatched run and starts nothing.
+concurrency:
+  group: cmux-tui-tree-request-${{ inputs.commit }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  request:
+    name: request the cmux-tui tree publish
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      # actions: write dispatches cmux-tui-artifacts.yml; contents: write creates
+      # the cmux-tui-pin-<sha12> ref it runs on.
+      actions: write
+      contents: write
+    steps:
+      - name: Check the commit is on feat-cmux-next
+        env:
+          COMMIT: ${{ inputs.commit }}
+          TIP: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
+          status="$(gh api "repos/$REPOSITORY/compare/$COMMIT...$TIP?per_page=1" --jq .status)"
+          case "$status" in
+            ahead|identical) echo "$COMMIT is on feat-cmux-next ($TIP)." ;;
+            *) echo "::error::$COMMIT is not on feat-cmux-next ($TIP is $status of it); nothing is published"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          fetch-depth: 1
+
+      - name: Dispatch one publisher when the tree is missing
+        id: request
+        env:
+          COMMIT: ${{ inputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          # The commit's own key definition, as its push run's tree-preflight uses.
+          key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$COMMIT")"
+          [[ "$key" =~ ^[0-9a-f]{40}$ ]]
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          report() {
+            echo "state=$1" >> "$GITHUB_OUTPUT"
+            echo "run_url=${2:-}" >> "$GITHUB_OUTPUT"
+            echo "::notice title=cmux-tui tree $key::$1${2:+ $2}"
+            echo "cmux-tui tree $key of $COMMIT: $1${2:+ $2}" >> "$GITHUB_STEP_SUMMARY"
+          }
+          # Published means complete: publish-cmux-tui-tree.py writes source.json
+          # first and completion.json last, so an interrupted publication has a
+          # source.json without its binaries. The query string bypasses a 404
+          # the CDN edge cached.
+          base="https://files.cmux.com/cmux-tui/tree/$key"
+          if curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              "$base/source.json?request=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/source.json" \
+            && curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              "$base/completion.json?request=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/completion.json" \
+            && python3 - "$key" "$RUNNER_TEMP/source.json" "$RUNNER_TEMP/completion.json" <<'PY'
+          import json, re, sys
+          key, source_path, completion_path = sys.argv[1:]
+          source = json.load(open(source_path, encoding="utf-8"))
+          completion = json.load(open(completion_path, encoding="utf-8"))
+          binaries = completion.get("binaries") if isinstance(completion.get("binaries"), dict) else {}
+          names = (
+              "cmux-tui-aarch64-apple-darwin",
+              "cmux-tui-app-host-aarch64-apple-darwin",
+              "cmux-tui-cloud-server-aarch64-apple-darwin",
+          )
+          ok = source.get("key") == key and completion.get("key") == key and all(
+              re.fullmatch(r"[0-9a-f]{64}", str(binaries.get(name, ""))) for name in names)
+          sys.exit(0 if ok else 1)
+          PY
+          then
+            report published
+            exit 0
+          fi
+
+          # An active publisher of this key already exists: a feat-cmux-next push
+          # run or a dispatch / cmux-tui-pin-* run of this commit or of another
+          # commit with the same key. A pending main, PR or pin push run can still
+          # be replaced, so those do not count. A failed listing fails the step
+          # rather than dispatching blind.
+          runs="$RUNNER_TEMP/active-runs.tsv"
+          : > "$runs"
+          for status in queued in_progress waiting pending requested; do
+            gh api "repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?status=$status&per_page=100" \
+              --jq '.workflow_runs[]
+                | select((.event == "push" and .head_branch == "feat-cmux-next") or .event == "workflow_dispatch")
+                | select(.head_branch == "feat-cmux-next" or (.head_branch | startswith("cmux-tui-pin-")))
+                | [.head_sha, .html_url] | @tsv' >> "$runs"
+          done
+          active_url=""
+          while IFS=$'\t' read -r candidate url; do
+            [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
+            if [[ "$candidate" != "$COMMIT" ]]; then
+              git fetch -q --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate" 2>/dev/null || continue
+              [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate" 2>/dev/null)" == "$key" ]] || continue
+            fi
+            active_url="$url"
+            break
+          done < "$runs"
+          if [[ -n "$active_url" ]]; then
+            report publishing "$active_url"
+            exit 0
+          fi
+
+          pin="cmux-tui-pin-${COMMIT:0:12}"
+          if ! gh api -X POST "repos/$REPOSITORY/git/refs" -f "ref=refs/heads/$pin" -f "sha=$COMMIT" >/dev/null 2>&1; then
+            existing="$(gh api "repos/$REPOSITORY/git/ref/heads/$pin" --jq .object.sha 2>/dev/null || true)"
+            [[ "$existing" == "$COMMIT" ]] || { echo "::error::could not point $pin at $COMMIT (it is at '${existing:-nothing}')"; exit 1; }
+          fi
+          # 30 s of slack for clock skew; an older dispatch run of this commit would
+          # name the same publisher anyway.
+          dispatched_at="$(date -u -d '30 seconds ago' +%Y-%m-%dT%H:%M:%SZ)"
+          gh api -X POST "repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/dispatches" -f "ref=$pin" >/dev/null
+          echo "Dispatched cmux-tui-artifacts.yml on $pin for $COMMIT."
+          # The run appears in the API a few seconds after the dispatch; name it
+          # so the requester (the controller's build report) can link it.
+          run_url=""
+          for _ in $(seq 1 12); do
+            run_url="$(gh api "repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$COMMIT&event=workflow_dispatch&created=%3E%3D$dispatched_at" \
+              --jq '.workflow_runs[0].html_url // empty' 2>/dev/null || true)"
+            [[ -n "$run_url" ]] && break
+            sleep 5
+          done
+          report publishing "${run_url:-$SERVER_URL/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml?query=branch%3A$pin}"

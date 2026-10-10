@@ -61,7 +61,9 @@ final class PageStatusViews {
         } else if !goneView.isHidden {
             goneView.isHidden = true
         }
-        if state.processExit == nil, let error = state.loadError {
+        // Chromium's own error page or interstitial is the page: never
+        // cover it, not even for the moment before it commits.
+        if state.processExit == nil, let error = state.loadError, !error.engineShowsPage {
             errorView.show(error)
         } else if !errorView.isHidden {
             errorView.isHidden = true

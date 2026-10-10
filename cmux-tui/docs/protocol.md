@@ -155,6 +155,22 @@ most 64 KiB) per frontend-rendered browser tab, such as its back/forward
 entries and scroll, and reads it back after a relaunch. `history:null`
 clears it. The daemon never journals it or puts it in the tree.
 
+`remote-terminal-tabs-v1` adds tabs that reference a terminal on another
+session, for frontends that federate several sessions. `new-remote-terminal-tab`
+stores `{session_id, terminal_id, session_name, title?}` in the durable tree;
+`update-remote-terminal-tab` records the title, session name, or a bounded
+text snapshot, which `remote-terminal-snapshot` reads back. The daemon never
+attaches or spawns anything for these tabs. They report
+`kind:"remote-terminal"` with a `remote` object and move, pin, group, and
+close like any tab. The TUI does not render them.
+
+`detached-terminals-v1` adds `detached:true` to `create-terminal`: the daemon
+creates a kept terminal with no workspace, pane, screen, or tab and returns
+its public `terminal_resource_id`, so another session's frontend can show it
+as a remote-terminal tab and attach by that id. Send it only to a daemon that
+advertises the capability; an older daemon ignores the field and creates a
+tab.
+
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
 `move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
