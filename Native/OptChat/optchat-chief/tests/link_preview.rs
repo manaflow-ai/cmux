@@ -402,3 +402,57 @@ fn translated_local_nat64_and_teredo_addresses_are_never_requested() {
     );
     assert_eq!(parts, urls.iter().map(|u| card(u)).collect::<Vec<_>>());
 }
+
+#[test]
+fn a_shortened_query_or_host_of_a_persons_url_gets_no_card() {
+    for (asked, reply) in [
+        (
+            "open https://example.com/x?id=1&token=abc",
+            "https://example.com/x?id=1",
+        ),
+        ("see https://example.com.au/page", "https://example.com"),
+    ] {
+        let counting = Arc::new(Counting::default());
+        let (parts, _) = reply_to(asked, reply, counting.clone(), |_| {});
+        assert_eq!(counting.0.load(Ordering::SeqCst), 0, "{asked}");
+        assert_eq!(parts, vec![text(reply)], "{asked}");
+    }
+}
+
+#[test]
+fn the_exact_url_inside_a_longer_sentence_gets_a_card() {
+    for asked in [
+        "is https://example.com/x up, or not?",
+        "(see https://example.com/x).",
+        "<https://example.com/x>",
+    ] {
+        let counting = Arc::new(Counting::default());
+        let (parts, _) = reply_to(asked, "https://example.com/x", counting.clone(), |_| {});
+        assert_eq!(counting.0.load(Ordering::SeqCst), 1, "{asked}");
+        assert_eq!(parts, vec![card("https://example.com/x")], "{asked}");
+    }
+}
+
+#[test]
+fn a_url_in_a_persons_link_preview_title_does_not_count() {
+    let counting = Arc::new(Counting::default());
+    let reply = "https://example.com/x";
+    let mut h = Harness::new(reply_script(reply));
+    h.brain.set_previewer(counting.clone());
+    h.connect();
+    h.say_parts(
+        "user_local",
+        vec![
+            text("look"),
+            Part::LinkPreview {
+                url: "https://a.example/".into(),
+                title: Some("https://example.com/x".into()),
+                site: None,
+                image: None,
+            },
+        ],
+    );
+    h.settle();
+    assert_eq!(sent_reply(&mut h), vec![text(reply)]);
+    assert_eq!(counting.0.load(Ordering::SeqCst), 0);
+}
