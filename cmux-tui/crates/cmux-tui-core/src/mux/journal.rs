@@ -215,6 +215,10 @@ impl Mux {
         self.resource_projection_stats.snapshot()
     }
 
+    pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
+        self.registry_connection.write_path_stats().snapshot()
+    }
+
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
         &self.connection_stats
     }

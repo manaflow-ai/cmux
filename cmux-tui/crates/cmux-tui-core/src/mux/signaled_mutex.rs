@@ -135,9 +135,13 @@ impl<T> SignaledMutex<T> {
 
 /// The workspace registry is the only production `SignaledMutex`. Lock
 /// order: workspace registry -> registry connection -> state; the journal
-/// writer takes only the connection lock, never this one.
+/// writer takes only the connection lock, never this one. Release builds
+/// count a violation (`server-stats` `write_path.writer_registry_locks`).
 #[track_caller]
 fn debug_assert_not_journal_writer_commit() {
+    if crate::workspace_registry::registry_connection::in_journal_writer_commit() {
+        crate::diagnostics::writer_took_registry_lock();
+    }
     debug_assert!(
         !crate::workspace_registry::registry_connection::in_journal_writer_commit(),
         "the session journal writer must not take the workspace registry lock"

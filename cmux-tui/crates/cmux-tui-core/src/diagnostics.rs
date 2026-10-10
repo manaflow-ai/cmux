@@ -22,6 +22,9 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod write_path;
+pub(crate) use write_path::writer_took_registry_lock;
+pub use write_path::{WritePathSnapshot, WritePathStats};
 
 /// Sub-buckets per power of two. Four keeps the reported percentile within
 /// 25% above the true value while costing 256 counters per histogram.
@@ -543,6 +546,9 @@ pub struct ServerStatsSnapshot {
     /// `include`: older SDK decoders refuse unknown result fields.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ResourceProjectionSnapshot>,
+    /// Present only when the request names `write_path` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_path: Option<WritePathSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

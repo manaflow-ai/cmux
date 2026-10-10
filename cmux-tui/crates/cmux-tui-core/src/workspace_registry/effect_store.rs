@@ -877,6 +877,7 @@ impl WorkspaceRegistry {
         );
         record_resource_input_receipt_completion(&tx, idempotency_key, operation)?;
         tx.commit()?;
+        self.connection.write_path_stats().request_effect_committed();
         Ok(revision)
     }
 
@@ -934,6 +935,7 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         drop(db);
+        self.connection.write_path_stats().request_effect_committed();
         self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
         self.record_public_fold(
             commit.revision.saturating_sub(1),
@@ -1022,6 +1024,7 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         drop(db);
+        self.connection.write_path_stats().request_effect_committed();
         self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
         self.record_public_fold(
             resource.revision.saturating_sub(1),
