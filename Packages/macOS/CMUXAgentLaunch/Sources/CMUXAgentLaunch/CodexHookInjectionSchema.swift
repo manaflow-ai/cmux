@@ -8,6 +8,10 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
         self.events = events
     }
 
+    private init(legacyEvents: [CodexHookInjectionEvent]) {
+        self.events = legacyEvents.map { $0.withCodexTimeoutValue($0.timeoutMs) }
+    }
+
     /// The schema emitted by current cmux wrappers.
     ///
     /// Keep generation and replay
@@ -59,9 +63,12 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
     /// arbitrary prefixes: hook config is user-controlled argv.
     static let recognized = [
         current,
+        // The current event ordering and companions with the historical raw
+        // millisecond timeout values emitted before Codex documented seconds.
+        Self(legacyEvents: current.events),
         // The generation before the agent message companions on
         // UserPromptSubmit and Stop.
-        Self(events: [
+        Self(legacyEvents: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
             .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
             .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
@@ -71,7 +78,7 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
             .init(agentEvent: "SubagentStart", cmuxSubcommand: "subagent-start", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds, delivery: .direct),
             .init(agentEvent: "SubagentStop", cmuxSubcommand: "subagent-stop", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds, delivery: .direct),
         ]),
-        Self(events: [
+        Self(legacyEvents: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
             .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),
             .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: 10000),
@@ -84,7 +91,7 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
         // The immediately previous wrapper generation had the same six
         // events but no native child callbacks. Keep it removable from saved
         // launch argv so an upgrade cannot leave two Stop producers active.
-        Self(events: [
+        Self(legacyEvents: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
             .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),
             .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: 10000),
@@ -92,7 +99,7 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
             .init(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use", timeoutMs: 10000),
             .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification", timeoutMs: 120000),
         ]),
-        Self(events: [
+        Self(legacyEvents: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
             .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),
             .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: 10000),
@@ -105,7 +112,7 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
                 delivery: .direct
             ),
         ]),
-        Self(events: [
+        Self(legacyEvents: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
             .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),
             .init(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use", timeoutMs: 10000),
@@ -113,7 +120,7 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
             .init(agentEvent: "Notification", cmuxSubcommand: "notification", timeoutMs: 10000),
             .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: 10000),
         ]),
-        Self(events: [
+        Self(legacyEvents: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
             .init(agentEvent: "SessionStop", cmuxSubcommand: "stop", timeoutMs: 10000),
             .init(agentEvent: "Notification", cmuxSubcommand: "notification", timeoutMs: 10000),

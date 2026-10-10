@@ -149,7 +149,7 @@ struct CLICodexHookTimeoutRegressionTests {
             let config = try #require(
                 emittedArguments.first { $0.hasPrefix("hooks.\(event)=") }
             )
-            #expect(config.contains("timeout=5000"))
+            #expect(config.contains("timeout=5}"))
             let script = try #require(
                 FileManager.default
                     .contentsOfDirectory(at: generatedHookDirectory, includingPropertiesForKeys: nil)
@@ -479,7 +479,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!emit.timedOut, Comment(rawValue: emit.stderr))
         #expect(emit.status == 0, Comment(rawValue: emit.stderr))
         #expect(emit.stdout.contains("hooks.Stop="))
-        #expect(emit.stdout.contains("timeout=5000"))
+        #expect(emit.stdout.contains("timeout=5}"))
 
         let hooksDirectory = root
             .appendingPathComponent(".cmux", isDirectory: true)
