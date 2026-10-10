@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
@@ -21,7 +22,7 @@ import Observation
         let control = self
         // task-owner: ends with the model (the window's sidebar); event-driven (Observation)
         Task { [weak model] in
-            for await avatar in Observations({ [weak model] in Self.avatar(profile: control.avatar(workspace: model?.activeWorkspaceID?.rawValue), account: control.account) }) {
+            for await avatar in ObservationStream({ [weak model] in Self.avatar(profile: control.avatar(workspace: model?.activeWorkspaceID?.rawValue), account: control.account) }) {
                 guard let model else { return }
                 if model.profileAvatar != avatar { model.profileAvatar = avatar }
             }

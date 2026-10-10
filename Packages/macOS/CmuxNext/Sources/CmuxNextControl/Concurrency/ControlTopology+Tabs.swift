@@ -10,6 +10,14 @@ public struct ControlPaneInfo: Sendable, Hashable {
     /// `tabs` with kind `page`; targets, counts and Search Tabs read the
     /// daemon's `tabs` only (bd cx-5xsi).
     public var pageTabs: [ControlPageTabInfo] = []
+    /// The pane's column on its screen, left to right as the window draws
+    /// them (left docks, the scrolling strip, right docks); nil for a pane in
+    /// a top or bottom band. A screen stored as one split tree is column 0.
+    /// `beside_caller` placement reads it (ControlCaller).
+    public var column: Int?
+    /// The edge its column is docked to (`left`, `right`, `top`, `bottom`);
+    /// nil for a scrolling column.
+    public var dock: String?
 
     public init(id: String, handle: String, name: String? = nil, selectedTabID: String? = nil,
                 tabs: [ControlTabInfo] = [], tabGroups: [ControlTabGroupInfo] = []) {

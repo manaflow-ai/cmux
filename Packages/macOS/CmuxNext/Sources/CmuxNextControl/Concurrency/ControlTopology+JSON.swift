@@ -63,7 +63,8 @@ extension ControlScreenInfo {
 extension ControlPaneInfo {
     public var json: JSONValue {
         ["id": .string(id), "handle": .string(handle), "name": .optional(name), "selected_tab": .optional(selectedTabID),
-         "tabs": .array(tabs.map(\.json) + pageTabs.map(\.json)), "tab_groups": .array(tabGroups.map(\.json))]
+         "tabs": .array(tabs.map(\.json) + pageTabs.map(\.json)), "tab_groups": .array(tabGroups.map(\.json)),
+         "column": column.map { JSONValue($0) } ?? .null, "dock": .optional(dock)]
     }
 }
 

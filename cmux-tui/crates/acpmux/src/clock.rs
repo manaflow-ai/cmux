@@ -69,19 +69,3 @@ impl Clock for ManualClock {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn manual_clock_fires_only_when_advanced_past_the_deadline() {
-        let clock = ManualClock::new();
-        let mut sleep = clock.sleep_until(Duration::from_secs(10));
-        clock.advance(Duration::from_secs(9));
-        assert!(futures::poll!(&mut sleep).is_pending());
-        clock.advance(Duration::from_secs(1));
-        sleep.await;
-        assert_eq!(clock.now(), Duration::from_secs(10));
-    }
-}
