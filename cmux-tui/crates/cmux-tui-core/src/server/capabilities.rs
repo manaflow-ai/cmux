@@ -142,6 +142,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
+    #[cfg(unix)]
+    capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities
 }
 

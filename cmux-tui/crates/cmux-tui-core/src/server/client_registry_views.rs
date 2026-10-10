@@ -519,6 +519,9 @@ impl ClientRegistry {
         // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state.clients.remove(&client)?;
+        // After the record goes: a start that ends later sees the connection gone.
+        #[cfg(unix)]
+        self.browser_runtimes.disconnect(client);
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
         }
