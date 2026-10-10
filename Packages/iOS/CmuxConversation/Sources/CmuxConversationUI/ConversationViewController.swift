@@ -295,6 +295,9 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // As in Messages, a transcript drag takes the keyboard once the finger
+        // reaches the field's top edge.
+        view.keyboardLayoutGuide.keyboardDismissPadding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: composer.fieldHeight)
         followKeyboardProgress()
         updateInsets()
         // A full field stops 3.3 pt below the header's bottom edge, just under
@@ -396,7 +399,8 @@ public final class ConversationViewController: UIViewController {
         let guideTop = view.keyboardLayoutGuide.layoutFrame.minY
         let keyboardTop = ConversationKeyboardPinGeometry.keyboardTop(
             guideTop: guideTop, restingGuideTop: restingGuideTop,
-            screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation
+            screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation,
+            dismissPadding: view.keyboardLayoutGuide.keyboardDismissPadding
         )
         let drop: CGFloat
         if photoDrawer != nil {
