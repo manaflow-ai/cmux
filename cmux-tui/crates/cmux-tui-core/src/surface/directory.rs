@@ -1,5 +1,11 @@
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    static PROGRAM_STATUS_AFTER_CLAIM: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
 /// A newly adopted host must confirm even an absent cwd at a new resource revision.
 pub(super) enum PublishedDirectory {
     Unreported,
@@ -42,31 +48,74 @@ impl Surface {
     /// parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
-        let (progress_changed, records) = {
+        let (mut progress_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
-        let (status_changed, alerts) = {
-            let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            (records.take_change(), records.take_alerts())
-        };
-        if !progress_changed && !status_changed {
-            return;
-        }
-        let Some(mux) = pty.mux.upgrade() else { return };
-        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if let Err(error) = mux.publish_terminal_progress(self, mutation) {
-            eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
-        }
-        if !alerts.is_empty() {
-            let notifications = pty
-                .terminal_metadata
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .admit_program_status_alerts(alerts, Instant::now());
-            if !notifications.is_empty() {
-                mux.post_terminal_notifications(self.id, notifications);
+        loop {
+            // Once the PTY has recorded an exit, transient records are no
+            // longer part of the hook envelope, matching the public snapshot.
+            let running = self.terminal_end().is_none();
+            let (status_revision, status_change) = {
+                let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                records
+                    .claim_pending_change(running)
+                    .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
+            };
+            #[cfg(test)]
+            if status_revision.is_some() {
+                let hook = PROGRAM_STATUS_AFTER_CLAIM.with(|slot| slot.borrow_mut().take());
+                if let Some(hook) = hook {
+                    hook();
+                }
             }
+            let status_changed = status_change.is_some();
+            if !progress_changed && !status_changed {
+                return;
+            }
+            let Some(mux) = pty.mux.upgrade() else {
+                if let Some(revision) = status_revision {
+                    records
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .finish_change_publication(revision, false);
+                }
+                return;
+            };
+            let mutation =
+                if status_changed { "terminal.program_status" } else { "terminal.progress" };
+            let published = match mux.publish_terminal_progress(self, mutation, status_change) {
+                Ok(published) => published,
+                Err(error) => {
+                    eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+                    false
+                }
+            };
+            if let Some(revision) = status_revision {
+                records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .finish_change_publication(revision, published);
+            }
+            if published && status_changed {
+                let alerts =
+                    records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
+                let notifications = pty
+                    .terminal_metadata
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .admit_program_status_alerts(alerts, Instant::now());
+                if !notifications.is_empty() {
+                    mux.post_terminal_notifications(self.id, notifications);
+                }
+            }
+            if !published {
+                return;
+            }
+            // A newer report may have arrived while the commit above was in
+            // flight. Drain it now so the reader cannot leave a final status
+            // pending until an unrelated output or topology event.
+            progress_changed = false;
         }
     }
 
@@ -175,3 +224,6 @@ impl PtyTerminalRuntime {
         }
     }
 }
+
+#[cfg(test)]
+mod program_status_publication_tests;
