@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextResources
+import CmuxNextCompat
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
@@ -325,7 +326,7 @@ public final class SidebarView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await state in Observations({
+            for await state in ObservationStream({
                 RenderState(
                     sections: model.sections,
                     selection: model.selection,

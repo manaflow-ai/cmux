@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR be0892d61ed90ae3494d87c2b50f9ab154fae8b1c53d3b6e7f2cda5e90c4f52b. */
+/* cmux-tui mux protocol 12, IR 264f53ee299c90c9957bee5c4436f503b1daf078c1aefda6b5ca14bd06ea08c7. */
 
 
 import type * as T from "./types.js";
@@ -2039,7 +2039,7 @@ export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   "transaction"?: (bigint) | null;
   "width": number;
 }
-export type SetViewportPaneWidthResult = T.EmptyResult;
+export type SetViewportPaneWidthResult = T.ViewportPaneWidthResult;
 
 /** Protocol v6; authority: control. */
 export interface SetWindowTitleRequest extends CmuxRequestBase {

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR be0892d61ed90ae3494d87c2b50f9ab154fae8b1c53d3b6e7f2cda5e90c4f52b. */
+/* cmux-tui mux protocol 12, IR 264f53ee299c90c9957bee5c4436f503b1daf078c1aefda6b5ca14bd06ea08c7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "be0892d61ed90ae3494d87c2b50f9ab154fae8b1c53d3b6e7f2cda5e90c4f52b" as const;
+export const SDK_IR_SHA256 = "264f53ee299c90c9957bee5c4436f503b1daf078c1aefda6b5ca14bd06ea08c7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -11652,6 +11652,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "superseded"
     ]
   },
+  "ViewportPaneWidthResult": {
+    "additional_properties": false,
+    "fields": {
+      "width": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "VtStateResult": {
     "additional_properties": false,
     "fields": {
@@ -21749,7 +21763,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "EmptyResult"
+      "name": "ViewportPaneWidthResult"
     }
   },
   "set-window-title": {

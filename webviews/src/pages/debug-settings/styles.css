@@ -1,0 +1,369 @@
+/* Debug Settings page; the shared base (colors, menu) is shared/pageBase.css. */
+.ds-page {
+  display: flex;
+  height: 100vh;
+  min-width: 0;
+  font-size: var(--text-body);
+  color: var(--page-text);
+}
+
+.ds-empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--page-text-3);
+}
+
+.ds-sidebar {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 12px 8px;
+  border-inline-end: 1px solid var(--page-separator);
+}
+
+.ds-search-box {
+  padding-bottom: 8px;
+}
+
+.ds-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: var(--page-hover);
+  color: inherit;
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+
+.ds-search:focus {
+  border-color: var(--page-text-3);
+}
+
+.ds-sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.ds-sidebar-row:hover {
+  background: var(--page-hover);
+}
+
+.ds-sidebar-row[aria-current="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+.ds-sidebar-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ds-count {
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--page-text-3);
+}
+
+.ds-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--page-text);
+}
+
+.ds-row-label .ds-dot {
+  visibility: hidden;
+}
+
+.ds-row-label .ds-dot[data-visible="true"] {
+  visibility: visible;
+}
+
+.ds-sidebar-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--page-separator);
+}
+
+.ds-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ds-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 24px 12px;
+}
+
+.ds-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ds-title {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-heading);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-title-count,
+.ds-notice,
+.ds-row-help,
+.ds-row-default {
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+
+/* Actions on their own row, so a narrow pane never truncates them. */
+.ds-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ds-button {
+  padding: 3px 10px;
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  background: var(--page-hover);
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ds-button:disabled {
+  opacity: 0.45;
+}
+
+.ds-destructive:not(:disabled) {
+  color: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+}
+
+.ds-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+
+.ds-none {
+  color: var(--page-text-2);
+}
+
+.ds-card {
+  margin-bottom: 16px;
+}
+
+.ds-card-title {
+  margin: 0 0 6px;
+  font-size: var(--text-detail);
+  font-weight: 600;
+  color: var(--page-text-2);
+}
+
+.ds-card-body {
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--page-elevated);
+}
+
+.ds-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 8px 14px;
+}
+
+.ds-row + .ds-row {
+  border-top: 1px solid var(--page-separator);
+}
+
+.ds-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ds-row-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-row[data-changed="true"] .ds-row-label {
+  font-weight: 600;
+}
+
+.ds-row-key,
+.ds-row-help {
+  padding-inline-start: 12px;
+}
+
+.ds-row-key {
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  user-select: text;
+}
+
+.ds-row-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.ds-row-reset {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  cursor: default;
+}
+
+.ds-row-reset:hover:not(:disabled) {
+  background: var(--page-hover);
+}
+
+.ds-row-reset:disabled {
+  visibility: hidden;
+}
+
+.ds-number {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ds-slider {
+  width: 160px;
+  accent-color: var(--page-text-2);
+}
+
+.ds-number-field {
+  width: 64px;
+  padding: 2px 6px;
+  border: 1px solid var(--page-separator);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  user-select: text;
+}
+
+.ds-unit {
+  min-width: 24px;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+.ds-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: var(--page-separator);
+  cursor: default;
+}
+
+.ds-switch[aria-checked="true"] {
+  background: var(--page-text-2);
+}
+
+.ds-switch-knob {
+  position: absolute;
+  top: 2px;
+  inset-inline-start: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--page-elevated);
+  transition: transform 120ms ease;
+}
+
+/* A transform, not an offset: the knob's move is no layout shift. */
+.ds-switch[aria-checked="true"] .ds-switch-knob {
+  transform: translateX(14px);
+}
+
+[dir="rtl"] .ds-switch[aria-checked="true"] .ds-switch-knob {
+  transform: translateX(-14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-switch-knob {
+    transition: none;
+  }
+}
+
+.ds-color-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--page-separator);
+}
+
+.ds-spring {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.ds-spring-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ds-spring-label {
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+
+.ds-footer {
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}

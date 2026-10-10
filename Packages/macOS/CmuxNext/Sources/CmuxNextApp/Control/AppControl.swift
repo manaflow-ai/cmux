@@ -71,6 +71,8 @@ final class AppControl {
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
+            .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
             },
