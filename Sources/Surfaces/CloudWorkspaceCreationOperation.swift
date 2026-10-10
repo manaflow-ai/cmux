@@ -45,6 +45,8 @@ final class CloudWorkspaceCreationOperation {
     /// attach/materialization error. New workspace creates retain a live pane
     /// for the established reconnect affordance.
     var isExistingWorkspaceOpen = false
+    /// The host admitted this pane before provider lookup; do not restart its receipt attempt.
+    var wasPreAdmitted = false
 
     init(
         provider: any SurfaceProvider,

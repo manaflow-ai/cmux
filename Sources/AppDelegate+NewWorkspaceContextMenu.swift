@@ -170,12 +170,10 @@ extension AppDelegate {
         }
         let didExecute: Bool
         if case .builtIn(.newWorkspace) = box.action.action {
-            // This menu row is an explicit local override of the context-following
-            // New Workspace command. Do not inherit a Cloud-only working directory.
-            didExecute = context.tabManager.addWorkspaceIfActive(
-                inheritWorkingDirectory: context.tabManager.selectedWorkspace?.cloudVMID == nil
-                    && context.tabManager.selectedWorkspace?.cloudVMBinding == nil
-            ) != nil
+            didExecute = performNewLocalWorkspaceAction(
+                tabManager: context.tabManager,
+                debugSource: "newWorkspace.contextMenu"
+            )
         } else {
             didExecute = executeConfiguredCmuxAction(box.action, context: context, preferredWindow: window)
         }

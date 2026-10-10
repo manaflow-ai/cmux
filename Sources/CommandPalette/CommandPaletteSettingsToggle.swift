@@ -701,6 +701,18 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "showCloudDeviceIconsInSidebar",
+                settingsKey: "sidebar.showCloudDeviceIcons",
+                title: {
+                    String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.showCloudDeviceIcons", "sidebar", "cloud", "device", "computer", "icon", "remote"],
+                defaultValue: SidebarWorkspaceDetailDefaults.showCloudDeviceIcons,
+                defaultsKey: SidebarWorkspaceDetailDefaults.showCloudDeviceIconsKey,
+                isAvailable: sidebarDetailsAvailable
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showPullRequestsInSidebar",
                 settingsKey: "sidebar.showPullRequests",
                 title: {

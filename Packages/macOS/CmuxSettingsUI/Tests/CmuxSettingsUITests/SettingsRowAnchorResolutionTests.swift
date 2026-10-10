@@ -127,6 +127,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.pathLastSegmentOnly",
         "sidebar.rightMaxWidth",
         "sidebar.showBranchDirectory",
+        "sidebar.showCloudDeviceIcons",
         "sidebar.showCustomMetadata",
         "sidebar.compactAgentStatus",
         "sidebar.showLog",

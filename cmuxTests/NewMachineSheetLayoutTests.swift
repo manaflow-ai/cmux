@@ -70,7 +70,7 @@ struct NewMachineSheetLayoutTests {
         #expect(invalidated)
     }
 
-    /// Cmd+Y on a nightly account: the sheet opens on its host window with a
+    /// Cmd+Shift+Y on a nightly account: the sheet opens on its host window with a
     /// cold plan and many base machines, the Cloud cache refreshes the plan,
     /// pool, and machine list while it is up, and then the person picks a
     /// Base machine, which adds the inherited-settings row. Sizing the window
