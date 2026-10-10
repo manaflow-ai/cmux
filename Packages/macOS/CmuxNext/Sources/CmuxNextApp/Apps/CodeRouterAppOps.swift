@@ -34,15 +34,35 @@ nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
         case "coderouter.detect":
             // Presence-only detection of this Mac's sign-ins (no cmux account needed); the rows
             // carry `acct_` handles and redacted labels, and `redact` shortens any email again.
+            // The answer is the app's `Detected[]` (first-party-apps/coderouter/README.md): one row per provider.
             let accounts = try await control("accounts.list", params)
-            return Self.redact(["providers": AppJSON(accounts["providers"] ?? .array([]))])
+            return Self.redact(.array((AppJSON(accounts["providers"] ?? .array([])).arrayValue ?? []).map(Self.detected)))
         case "coderouter.accounts.list":
-            return Self.redact(AppJSON(try await control("coderouter.accounts.list", params)))
+            // The control plane answers `{accounts: [...]}`; the app's `Account[]` is the list.
+            let reply = AppJSON(try await control("coderouter.accounts.list", params))
+            return Self.redact(reply["accounts"] ?? .array([]))
         case "coderouter.usage.get":
             return Self.redact(AppJSON(try await control("coderouter.machines", params)))
         default:
             throw .unsupported(request.op)
         }
+    }
+
+    /// One `accounts.list` provider row as the app's `Detected` row:
+    /// presence only (`status` signed_in, expired, missing or unknown;
+    /// no detection is missing), the `acct_` handle and redacted label, and
+    /// the first place it was found.
+    static func detected(_ row: AppJSON) -> AppJSON {
+        .object([
+            "provider": row["provider"] ?? .null,
+            "name": row["name"] ?? .null,
+            "status": row["status"]?.stringValue.map(AppJSON.string) ?? .string("missing"),
+            "account": row["account"] ?? .null,
+            "label": row["label"] ?? .null,
+            "plan": row["plan"] ?? .null,
+            "linkable": .bool(row["linkable"]?.boolValue ?? false),
+            "source": row["sources"]?.arrayValue?.first ?? .null,
+        ])
     }
 
     /// Shortens every email-like string, keys included, with the shared
