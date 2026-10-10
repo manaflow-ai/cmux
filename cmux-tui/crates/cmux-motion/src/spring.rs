@@ -516,7 +516,7 @@ impl Fade {
             self.value = self.target;
             return false;
         }
-        let t = ease_out((self.elapsed / self.duration) as f32);
+        let t = self.token.curve().progress((self.elapsed / self.duration) as f32);
         self.value = self.from + (self.target - self.from) * t;
         true
     }
@@ -591,10 +591,15 @@ pub enum MotionSpring {
     Selection,
     /// Floating panel slide (hover card).
     Panel,
+    /// Home list pin drag: the tiles making room, the rows below the grid
+    /// and a dropped tile landing (MessagesLab `SidebarPinDragging.spring`:
+    /// `CASpringAnimation` mass 1, stiffness 320, damping 30). Overshoots
+    /// about 1.6 pt on 200 pt.
+    PinDrag,
 }
 
 impl MotionSpring {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Move,
         Self::Appear,
         Self::Disappear,
@@ -604,6 +609,7 @@ impl MotionSpring {
         Self::Track,
         Self::Selection,
         Self::Panel,
+        Self::PinDrag,
     ];
 
     pub const fn base(self) -> SpringParameters {
@@ -617,6 +623,12 @@ impl MotionSpring {
             Self::Track => SpringParameters::new(0.12, 0.90),
             Self::Selection => SpringParameters::new(0.15, 0.90),
             Self::Panel => SpringParameters::new(0.18, 0.85),
+            // SidebarPinDragging.swift `spring`: mass 1, stiffness 320,
+            // damping 30, so response 2 pi / sqrt(320) and damping fraction
+            // 30 / (2 sqrt(320)).
+            Self::PinDrag => {
+                SpringParameters::new(0.351_240_736_552_036_3, 0.838_525_491_562_421_1)
+            }
         }
     }
 }
@@ -645,10 +657,19 @@ pub enum MotionFade {
     /// The launch mark resolving on a window still connecting (cmux-next
     /// `LaunchMarkView`, `Motion.revealLaunchMark`).
     Launch,
+    /// Home list pin drag: the tile lifting to `SidebarPinDragState.lift`
+    /// (MessagesLab `beginPinDrag`, `transform.scale` over 0.15 s).
+    PinLift,
+    /// Home list pin drag: a dropped tile scaling back from the lift
+    /// (`landPinDrag`, `transform.scale` over 0.25 s).
+    PinSettle,
+    /// Home list pin drag: a ghost that is not a tile now shrinking onto
+    /// its row's avatar and fading out (`landPinDrag`, a 0.22 s transaction).
+    PinShrink,
 }
 
 impl MotionFade {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::Hover,
         Self::Focus,
         Self::FadeIn,
@@ -658,6 +679,9 @@ impl MotionFade {
         Self::Theme,
         Self::Highlight,
         Self::Launch,
+        Self::PinLift,
+        Self::PinSettle,
+        Self::PinShrink,
     ];
 
     pub const fn base(self) -> f64 {
@@ -672,6 +696,47 @@ impl MotionFade {
             // MotionTunables.swift:38-39 (fadeDefaults .highlight, .launch).
             Self::Highlight => 1.2,
             Self::Launch => 0.24,
+            // SidebarPinDragging.swift: lift.duration, settle.duration,
+            // setAnimationDuration (beginPinDrag, landPinDrag); the curves
+            // are `curve`.
+            Self::PinLift => 0.15,
+            Self::PinSettle => 0.25,
+            Self::PinShrink => 0.22,
+        }
+    }
+}
+
+impl MotionFade {
+    /// The token's timing curve. Every fade eases out (cmux-next
+    /// `Motion.fadeCurve`) but MessagesLab's pin drag scales, which run
+    /// linear: `beginPinDrag`'s lift and `landPinDrag`'s settle are
+    /// `CABasicAnimation`s with no timing function (Core Animation paces
+    /// those linearly). `pinShrink` keeps ease-out: it is an implicit
+    /// animation in a `CATransaction` with no timing function set.
+    pub const fn curve(self) -> MotionCurve {
+        match self {
+            Self::PinLift | Self::PinSettle => MotionCurve::Linear,
+            _ => MotionCurve::EaseOut,
+        }
+    }
+}
+
+/// A timed fade's curve (`MotionFade::curve`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum MotionCurve {
+    /// Core Animation's `easeOut` (`ease_out`).
+    EaseOut,
+    /// Core Animation's `linear` (a `CABasicAnimation` without a timing function).
+    Linear,
+}
+
+impl MotionCurve {
+    /// The progress at time fraction `t` (0..=1).
+    pub fn progress(self, t: f32) -> f32 {
+        match self {
+            Self::EaseOut => ease_out(t),
+            Self::Linear => t.clamp(0., 1.),
         }
     }
 }
