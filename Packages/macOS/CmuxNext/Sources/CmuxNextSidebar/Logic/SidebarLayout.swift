@@ -191,7 +191,24 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
                     ))
                     y += m.groupHeaderHeight + m.rowSpacing
-                    guard !groupCollapsed else { return }
+                    if groupCollapsed {
+                        // Keep the selected workspace as the one visible member
+                        // of a collapsed group. This preserves orientation and
+                        // selection without reopening the rest of the group.
+                        guard let activeID = o.activeWorkspaceID,
+                              let childIndex = entry.children.firstIndex(where: { $0.id == activeID }),
+                              let ws = entry.children.first(where: { $0.id == activeID }) else { return }
+                        let content = o.rowContent(ws, machine: machineLabel)
+                        let h = m.height(for: content)
+                        rows.append(SidebarRow(
+                            key: .workspace(ws.id), y: y, height: h, section: section.id,
+                            group: group.id, siblingIndex: childIndex, parentIndex: index,
+                            isLastInGroup: true, isCollapsed: false, childCount: 0,
+                            groupColor: group.color, tabDisclosure: disclosure(ws), content: content
+                        ))
+                        y += h + m.rowSpacing
+                        return
+                    }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
                         let content = o.rowContent(ws, machine: machineLabel)
