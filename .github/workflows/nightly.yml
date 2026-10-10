@@ -3247,6 +3247,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ steps.source.outputs.build_sha }}
+          PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
           # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
           NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
           NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -3294,6 +3295,15 @@ jobs:
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
             --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+          # cmux-next lands commits, not PRs: its appcast item carries a short
+          # changelog of the user-facing commit subjects since the previous
+          # published build (New / Fixed / Changed, at most 8 lines, plain
+          # text; cx-lntk). The app shows the same lines from the signed notes.
+          if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
+            ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
+            python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
+              --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+          fi
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -3679,6 +3689,10 @@ jobs:
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh \
               "$dmg" "$CHANNEL_RELEASE_TAG" "nightly-delta/output/$feed"
+          # generate_appcast rewrites the items; keep the full feed's changelog
+          # <description> for this build (cx-lntk).
+          python3 scripts/ci/appcast_carry_description.py \
+            "nightly-delta/input/$feed" "nightly-delta/output/$feed" "$NIGHTLY_BUILD"
           ls -l nightly-delta/output
 
       - name: Upload delta result
@@ -3819,6 +3833,9 @@ jobs:
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+      # The commit published before this run (decide reads it from the release
+      # body before publish-nightly moves the nightly-next tag to HEAD_SHA).
+      PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
       CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3828,15 +3845,21 @@ jobs:
       # Only the published span: a full fetch of every branch and tag did not
       # finish inside this job's timeout (run 37526646874).
       - name: Fetch the commits since the published nightly-next
-        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next
+        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${PUBLISHED_SHA:+"$PUBLISHED_SHA"}
       - name: Build and sign the release notes
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
         run: |
           set -euo pipefail
-          # The previous published commit: the nightly-next tag still points at
-          # it (publish-nightly moves it after this run publishes).
-          since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
+          # The previous published commit. publish-nightly has already moved the
+          # nightly-next tag to HEAD_SHA when this job runs, so the tag gave an
+          # empty span and every build shipped "changes": [] (cx-lntk); the tag
+          # is only the fallback when decide recorded no published commit.
+          since="${PUBLISHED_SHA:-}"
+          if [ -z "$since" ]; then
+            since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
+          fi
+          if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
             --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
             --head "$HEAD_SHA" --since "$since" --out notes
