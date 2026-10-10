@@ -47,6 +47,9 @@ enum SurfaceDiagnosticsReport {
                     object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
                     object["skipped_images"] = JSONValue(diagnostics.skippedImages)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
+                    #if DEBUG
+                    if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
+                    #endif
                 }
                 if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     // A remote-terminal tab whose session is away (data-model.md 1.4).
@@ -72,6 +75,23 @@ enum SurfaceDiagnosticsReport {
             "hibernation": hibernation(services),
         ]
     }
+
+    #if DEBUG
+    /// The terminal's grid in window points from the top-left (`debug.mouse`'s coordinates):
+    /// cell size, the first cell's corner and the view's frame, and the window for `debug.mouse`.
+    private static func grid(_ view: TerminalSurfaceView, window controller: WindowController) -> JSONValue? {
+        guard let window = view.window, let metrics = view.debugGridMetrics() else { return nil }
+        let frame = view.convert(view.bounds, to: nil)
+        let topLeft = InputJournal.topLeftPoint(NSPoint(x: frame.minX, y: frame.maxY), in: window, relativeTo: window)
+        return [
+            "window": .string(controller.state.id),
+            "cell_width": .number(metrics.cellWidth), "cell_height": .number(metrics.cellHeight),
+            "origin_x": .number(topLeft.x + metrics.paddingLeft), "origin_y": .number(topLeft.y + metrics.paddingTop),
+            "frame_x": .number(topLeft.x), "frame_y": .number(topLeft.y),
+            "frame_width": .number(frame.width), "frame_height": .number(frame.height),
+        ]
+    }
+    #endif
 
     private static func linkName(_ status: TerminalConnectionStatus) -> String {
         switch status {
