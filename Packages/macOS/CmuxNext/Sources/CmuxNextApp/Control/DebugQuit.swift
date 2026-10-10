@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 
 #if DEBUG
@@ -23,10 +24,25 @@ enum DebugQuit {
             quit.requestQuit(.interactive)
             return .object(["requested": .bool(started)])
         }
-        if let remember = params["remember"]?.boolValue { quit.sheet?.remembers = remember }
+        // Through the dialog center's automation door (cx-zk9t): the quit sheet is
+        // destructive, so only Cancel passes; quit without it by `quit_with`.
+        var refusal: CmuxDialogAutomationRefusal?
+        do throws(CmuxDialogAutomationRefusal) {
+            if let remember = params["remember"]?.boolValue { try quit.sheet?.automationRemember(remember) }
+        } catch { refusal = error }
         var result = report(quit)
-        if let id = params["press"]?.stringValue {
-            result["pressed"] = .bool(quit.sheet?.press(id) ?? quit.failureAlert?.press(id) ?? false)
+        if refusal == nil, let id = params["press"]?.stringValue {
+            do throws(CmuxDialogAutomationRefusal) {
+                if let sheet = quit.sheet {
+                    result["pressed"] = .bool(try sheet.automationPress(id))
+                } else {
+                    result["pressed"] = .bool(try quit.failureAlert?.automationPress(id) ?? false)
+                }
+            } catch { refusal = error }
+        }
+        if let refusal {
+            result["error"] = .string(refusal.message)
+            result["refused"] = .object(["dialog": .number(Double(refusal.dialog)), "confirm_kind": .string(refusal.kind.rawValue)])
         }
         return .object(result)
     }

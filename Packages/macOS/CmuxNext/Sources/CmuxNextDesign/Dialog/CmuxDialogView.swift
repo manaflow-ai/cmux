@@ -36,6 +36,20 @@ public final class CmuxDialogView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // MARK: Accessibility
+
+    // `AXCmuxConfirmKind` (CmuxDialogConfirmKind.accessibilityAttribute): AppKit has no
+    // property for a custom attribute, so it goes through the informal protocol.
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated public override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [CmuxDialogConfirmKind.accessibilityAttribute]
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated public override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        attribute == CmuxDialogConfirmKind.accessibilityAttribute ? spec.confirmKind.rawValue : super.accessibilityAttributeValue(attribute)
+    }
+
     // MARK: Values
 
     /// Every field's current value by field id.
@@ -190,7 +204,9 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            // What a press of this button grants: the cancel button never needs the person.
+            let view = CmuxDialogButtonView(button, confirmKind: button.role == .cancel ? .none : spec.confirmKind,
+                                            target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }

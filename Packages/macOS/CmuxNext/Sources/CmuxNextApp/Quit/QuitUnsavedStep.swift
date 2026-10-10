@@ -64,7 +64,7 @@ enum QuitUnsavedStep {
             buttons: [CmuxDialogButton(id: dontSaveID, title: QuitStrings.unsavedDontSave, role: .destructive, key: "d"),
                       .cancel(ConfirmationStrings.cancel),
                       CmuxDialogButton(id: saveID, title: QuitStrings.unsavedSave, role: .default)],
-            identifier: "cmux.dialog.quitUnsaved")
+            identifier: "cmux.dialog.quitUnsaved", confirmKind: .destructive)
     }
 
     /// Saves while "Saving <title>…" shows with Cancel. Nil when the person

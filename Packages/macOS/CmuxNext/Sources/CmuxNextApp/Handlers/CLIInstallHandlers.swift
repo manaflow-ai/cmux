@@ -48,7 +48,7 @@ enum CLIInstallHandlers {
                 buttons.append(CmuxDialogButton(id: "cmux-next", title: CLIInstallStrings.installAsCmuxNext, role: .default))
             }
             let spec = CmuxDialogSpec(title: CLIInstallStrings.occupiedTitle, lines: [CLIInstallStrings.message(failure)],
-                                      buttons: buttons, identifier: "cmux.dialog.cliInstall.occupied")
+                                      buttons: buttons, identifier: "cmux.dialog.cliInstall.occupied", confirmKind: .destructive)
             switch await CmuxDialogCenter.shared.present(spec, in: scope(window)).button {
             case "replace": await install(name, replacing: true, in: window)
             case "cmux-next": await install(.cmuxNext, replacing: false, in: window)

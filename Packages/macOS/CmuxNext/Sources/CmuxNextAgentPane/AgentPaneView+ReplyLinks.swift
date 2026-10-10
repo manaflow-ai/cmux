@@ -8,7 +8,7 @@ extension AgentPaneView {
         model.replyLinks.confirmOutside = { [weak self] path, answer in
             guard let self, self.window != nil else { return answer(false) }
             let spec = CmuxDialogSpec(title: Self.openOutsideTitle, lines: [path],
-                                      buttons: [.cancel(), CmuxDialogButton(id: "open", title: Self.openOutsideButton)])
+                                      buttons: [.cancel(), CmuxDialogButton(id: "open", title: Self.openOutsideButton)], confirmKind: .consent)
             // Pane scope: a closed pane ends the sheet as Cancel.
             _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "open") }
         }

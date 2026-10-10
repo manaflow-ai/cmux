@@ -19,7 +19,7 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
         let spec = CmuxDialogSpec(
             title: site, lines: username.isEmpty ? [] : [username], fields: [.preview(text)],
             buttons: [CmuxDialogButton(id: "copy", title: PasswordStrings.copyPassword), .ok(PasswordStrings.done)],
-            identifier: "cmux.passwords.reveal")
+            identifier: "cmux.passwords.reveal", confirmKind: .consent)
         let scope: CmuxDialogScope = anchor?.window.map { .window($0) } ?? .app
         if await center.present(spec, in: scope).button == "copy" { pasteboard.write(secret) }
     }

@@ -58,7 +58,7 @@ final class QuitAlert {
         let fields: [CmuxDialogField] = content.showsSuppression
             ? [.check(id: rememberField, title: QuitStrings.dontAskAgain, on: remember)] : []
         return CmuxDialogSpec(title: content.title, lines: content.lines, fields: fields, buttons: ordered,
-                              identifier: "cmux.dialog.quit")
+                              identifier: "cmux.dialog.quit", confirmKind: .destructive)
     }
 
     /// Keep (or Quit) answers Return, Cancel answers Escape, every end choice
@@ -111,6 +111,23 @@ final class QuitAlert {
         default: id
         }
         return center.press(dialogID, button: resolved)
+    }
+
+    /// `press` for automation (`debug.quit`): the quit sheet is destructive, so only its
+    /// cancel button passes `CmuxDialogCenter.automationRefusal` (cx-zk9t). "end" only reports.
+    @discardableResult
+    func automationPress(_ id: String) throws(CmuxDialogAutomationRefusal) -> Bool {
+        if let dialogID, id != "end", let refusal = center.automationRefusal(dialogID, button: id) { throw refusal }
+        return press(id)
+    }
+
+    /// "Don't ask again" for automation: refused while the sheet shows (a user-only dialog).
+    func automationRemember(_ on: Bool) throws(CmuxDialogAutomationRefusal) {
+        guard let dialogID else {
+            remember = on
+            return
+        }
+        try center.automationSetValue(.bool(on), for: Self.rememberField, in: dialogID)
     }
 
     /// A second Cmd-Q while the dialog shows: its default (keep, or Quit).
