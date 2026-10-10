@@ -434,8 +434,29 @@ public final class ConversationViewController: UIViewController {
                 // jumping (and leaves the composer at rest when the guide did
                 // not move because the finger was already past the safe area).
                 self.view.setNeedsLayout()
-                self.view.layoutIfNeeded()
+                self.layoutRidingKeyboardAnimation()
             }
+        }
+    }
+
+    /// Lays out inside the keyboard's animation, in an animation of our own.
+    ///
+    /// A nested animation inherits the keyboard's remaining duration and
+    /// spring, so the composer and transcript still ride its curve. It keeps
+    /// our views' animations out of UIKit's own block, though: when an
+    /// interactive dismissal ends (a fling, or a release partway down),
+    /// UIKit resigns the text view from that block's completion, and with
+    /// the composer's animation joined to it that completion never ran. The
+    /// keyboard left while the field stayed first responder, so tapping the
+    /// field showed its edit menu instead of bringing the keyboard back.
+    private func layoutRidingKeyboardAnimation() {
+        let remaining = UIView.inheritedAnimationDuration
+        guard remaining > 0 else {
+            view.layoutIfNeeded()
+            return
+        }
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+            self.view.layoutIfNeeded()
         }
     }
 
