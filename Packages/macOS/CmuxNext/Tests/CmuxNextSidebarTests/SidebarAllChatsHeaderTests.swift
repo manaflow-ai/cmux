@@ -52,10 +52,13 @@ import Testing
         view.frame = window.contentView?.bounds ?? view.frame
         view.layoutSubtreeIfNeeded()
         view.layout()
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        #expect(!window.isKeyWindow, "the bug is the first click in a window that is not key")
         #expect(view.header.acceptsFirstMouse(for: nil), "the first click in an inactive window opens it")
         let center = view.header.convert(NSPoint(x: view.titleLabel.frame.midX, y: view.titleLabel.frame.midY), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: center, modifierFlags: [], timestamp: 0,
+            let event = try #require(NSEvent.mouseEvent(with: type, location: center, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                         windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             window.sendEvent(event)
         }
