@@ -59,15 +59,6 @@ pub mod mirror;
 mod mirror_state;
 pub mod reattach;
 
-#[cfg(test)]
-mod fixture;
-#[cfg(test)]
-mod mirror_state_tests;
-#[cfg(test)]
-mod mirror_tab_groups_tests;
-#[cfg(test)]
-mod mirror_tests;
-
 pub use attach::{
     AttachEnd, AttachError, AttachRequest, TerminalAttacher, TerminalAttachment, TerminalByteSink,
 };
