@@ -35,8 +35,8 @@ import AppKit
         return true
     }
 
-    /// Up or Down from a focused item: the next stop that way. False for
-    /// any other key, or at either end of the sidebar.
+    /// Up or Down from a focused item: the next stop that way (none at
+    /// either end of the sidebar). False for any other key.
     static func step(from item: SidebarItemRowView, _ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
         guard flags.isEmpty, event.specialKey == .upArrow || event.specialKey == .downArrow,
@@ -45,8 +45,9 @@ import AppKit
         let (above, below) = items(in: sidebar)
         let list = sidebar.list
         let stops = above.map(Stop.item) + (SidebarGroupKeys(list: list).stops.isEmpty ? [] : [Stop.list]) + below.map(Stop.item)
-        guard let index = stops.firstIndex(where: { if case let .item(view) = $0 { view === item } else { false } }),
-              stops.indices.contains(index + (up ? -1 : 1)) else { return false }
+        guard let index = stops.firstIndex(where: { if case let .item(view) = $0 { view === item } else { false } }) else { return false }
+        // At either end the key stops there, as at the list's ends: no beep.
+        guard stops.indices.contains(index + (up ? -1 : 1)) else { return true }
         switch stops[index + (up ? -1 : 1)] {
         case let .item(next):
             _ = focus(next)
