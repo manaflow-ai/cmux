@@ -50,54 +50,6 @@ impl Mux {
         result
     }
 
-    pub fn clear_surface_notification(&self, surface: SurfaceId) -> bool {
-        let state = self.state.lock().unwrap();
-        let terminal_id = state
-            .surfaces
-            .get(&surface)
-            .or_else(|| state.terminal_runtime_by_id(surface))
-            .and_then(|surface| surface.terminal_public_id().cloned());
-        drop(state);
-        let cleared = match &terminal_id {
-            Some(terminal_id) => {
-                self.terminal_notifications.lock().unwrap().remove(terminal_id).is_some()
-            }
-            None => self.placement_notifications.lock().unwrap().remove(&surface).is_some(),
-        };
-        if cleared
-            && let Some(terminal_id) = &terminal_id
-            && self.persist_notification_acks(Some(terminal_id), surface).is_err()
-        {
-            self.report_internal_diagnostic("notification acknowledgement not persisted");
-        }
-        if cleared {
-            self.emit(MuxEvent::TreeChanged);
-        }
-        cleared
-    }
-
-    pub(super) fn clear_viewed_notification(&self, surface: Option<SurfaceId>) {
-        let Some(surface) = surface else { return };
-        let state = self.state.lock().unwrap();
-        let terminal_id = state
-            .surfaces
-            .get(&surface)
-            .or_else(|| state.terminal_runtime_by_id(surface))
-            .and_then(|surface| surface.terminal_public_id().cloned());
-        drop(state);
-        if let Some(terminal_id) = terminal_id {
-            let removed =
-                self.terminal_notifications.lock().unwrap().remove(&terminal_id).is_some();
-            // Selecting a tab is a legacy acknowledgement; persist it like
-            // `ack-tab-notifications` so a restart keeps it read.
-            if removed && self.persist_notification_acks(Some(&terminal_id), surface).is_err() {
-                self.report_internal_diagnostic("notification acknowledgement not persisted");
-            }
-        } else {
-            let _ = self.placement_notifications.lock().unwrap().remove(&surface);
-        }
-    }
-
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
@@ -178,11 +130,11 @@ impl Mux {
             let mut ledger = self.notification_ledger.lock().unwrap();
             ledger.push_back(ResourceNotification {
                 id: public_id,
-                title: title.clone(),
+                title,
                 subtitle,
-                body: body.clone(),
+                body,
                 level,
-                terminal_id: terminal_id.clone(),
+                terminal_id,
                 created_at_ms,
                 source,
                 surface,
@@ -201,40 +153,8 @@ impl Mux {
                 self.notification_read_prunes.lock().unwrap().extend(evicted);
             }
         }
-        // Shared topology focus is only a default projection. A frontend must
-        // explicitly acknowledge a viewed notification through its selection
-        // action, so local focus in one client cannot hide attention from the
-        // others.
-        let mut unread_changed = false;
-        match terminal_id {
-            Some(terminal_id) => {
-                self.terminal_notifications.lock().unwrap().insert(
-                    terminal_id,
-                    SurfaceNotification { notification: id, level, unread: true, source },
-                );
-                unread_changed = true;
-            }
-            None if surface.is_some() => {
-                let surface = surface.expect("checked notification surface");
-                self.placement_notifications.lock().unwrap().insert(
-                    surface,
-                    SurfaceNotification { notification: id, level, unread: true, source },
-                );
-                unread_changed = true;
-            }
-            None => {}
-        }
-        self.emit(MuxEvent::Notification(NotificationEvent {
-            notification: id,
-            title,
-            body,
-            level,
-            surface,
-            source,
-        }));
-        if unread_changed {
-            self.emit(MuxEvent::TreeChanged);
-        }
+        // The ring and the `notification` event follow the commit
+        // (`commit_notification_effect`), under the feed lock with the item.
         id
     }
 
@@ -304,6 +224,19 @@ impl Mux {
         // Stored under `extra`, which every registry schema already accepts,
         // so a downgraded daemon still opens the receipt.
         value["extra"] = serde_json::json!({"source": notification.source.as_str()});
+        value
+    }
+
+    /// The snapshot row of a notification being created. Its ring goes up
+    /// in the commit (`commit_notification_effect`), after this value is
+    /// built, so a terminal's new notification is unread here explicitly.
+    pub(crate) fn created_notification_value(
+        &self,
+        notification: &ResourceNotification,
+        session_id: &SessionPublicId,
+    ) -> Value {
+        let mut value = self.notification_snapshot_value(notification, session_id, &[]);
+        value["unread"] = Value::Bool(notification.terminal_id.is_some());
         value
     }
 
@@ -421,21 +354,18 @@ impl Mux {
             source,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
-        let value = self.notification_snapshot_value(
-            &ResourceNotification {
-                id: notification_id.clone(),
-                title,
-                subtitle,
-                body,
-                level,
-                terminal_id,
-                created_at_ms,
-                source,
-                surface,
-            },
-            &session_id,
-            &[],
-        );
+        let notification = ResourceNotification {
+            id: notification_id.clone(),
+            title,
+            subtitle,
+            body,
+            level,
+            terminal_id,
+            created_at_ms,
+            source,
+            surface,
+        };
+        let value = self.created_notification_value(&notification, &session_id);
         let outcome = ResourceEffectOutcome::Success(value.clone());
         let deltas = serde_json::json!([{
             "kind":"upsert",
@@ -444,12 +374,14 @@ impl Mux {
             "id":notification_id,
             "value":value,
         }]);
-        if let Err(error) = self.commit_resource_effect(
+        if let Err(error) = self.commit_notification_effect(
+            actor,
             idempotency_key,
-            OPERATION,
             &fingerprint,
             &outcome,
-            Some(&deltas),
+            &deltas,
+            &notification,
+            numeric_id,
         ) {
             let _ = self.mark_resource_effect_indeterminate(idempotency_key);
             return Err(error.context("notification effect commit failed"));
@@ -574,6 +506,49 @@ impl Mux {
         expected_revision: Option<u64>,
         terminal_id: Option<&TerminalPublicId>,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        // The clear reads the cleared terminal's local items (every item for a
+        // session-wide clear) in its transaction, and drops the rings, under
+        // the feed lock (mux/feed_local.rs).
+        let mut committed = None;
+        let cleared = |item: &cmux_feed_core::Item| {
+            terminal_id
+                .is_none_or(|terminal| item.context.terminal.as_deref() == Some(terminal.as_str()))
+        };
+        let wrote = self.read_feed_items_in(cleared, |extra, feed| {
+            let commit = self.apply_notification_clear(
+                mutation,
+                expected_revision,
+                terminal_id,
+                extra,
+                feed,
+            )?;
+            let applied = !commit.replayed;
+            committed = Some(commit);
+            Ok(applied)
+        })?;
+        let commit = committed.context("notification clear did not run")?;
+        if !commit.replayed {
+            self.emit(MuxEvent::TreeChanged);
+            self.publish_resource_event();
+        }
+        if wrote {
+            self.publish_journal_event();
+        }
+        Ok(commit)
+    }
+
+    /// The `notification.clear` commit and its in-memory side; the caller
+    /// holds the feed lock. `feed` is the feed after the clear's reads: a
+    /// ring stays while an item it follows stays unread (moving, or owned
+    /// elsewhere), as the tab ack keeps it.
+    fn apply_notification_clear(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_revision: Option<u64>,
+        terminal_id: Option<&TerminalPublicId>,
+        extra: Option<crate::workspace_registry::RegistryTransactionWrite<'_>>,
+        feed: &cmux_feed_core::Feed,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "notification.clear";
         let fingerprint = serde_json::json!({
             "operation": OPERATION,
@@ -616,6 +591,7 @@ impl Mux {
             &cleared,
             &result,
             &Value::Array(deltas),
+            extra,
         )?;
         if !commit.replayed {
             {
@@ -628,22 +604,34 @@ impl Mux {
                     reads.remove(id);
                 }
             }
+            let unread = feed.items().iter().filter(|item| item.is_unread()).collect::<Vec<_>>();
+            let terminal_unread = |terminal: &TerminalPublicId| {
+                unread
+                    .iter()
+                    .any(|item| item.context.terminal.as_deref() == Some(terminal.as_str()))
+            };
             match terminal_id {
-                Some(terminal_id) => {
+                Some(terminal_id) if !terminal_unread(terminal_id) => {
                     self.terminal_notifications.lock().unwrap().remove(terminal_id);
                 }
+                Some(_) => {}
                 None => {
-                    self.terminal_notifications.lock().unwrap().clear();
-                    self.placement_notifications.lock().unwrap().clear();
+                    let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
+                    let tab_unread = |surface: &SurfaceId| {
+                        tabs.get(surface).is_some_and(|tab| {
+                            unread.iter().any(|item| {
+                                item.context.terminal.is_none()
+                                    && item.context.tab.as_deref() == Some(tab.as_str())
+                            })
+                        })
+                    };
+                    self.terminal_notifications.lock().unwrap().retain(|t, _| terminal_unread(t));
+                    self.placement_notifications.lock().unwrap().retain(|s, _| tab_unread(s));
                 }
             }
             self.state.lock().unwrap().resource_revision = commit.revision;
         }
         drop(registry);
-        if !commit.replayed {
-            self.emit(MuxEvent::TreeChanged);
-            self.publish_resource_event();
-        }
         Ok(commit)
     }
 }

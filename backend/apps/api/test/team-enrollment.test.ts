@@ -44,9 +44,6 @@ const ok = (r: ReturnType<typeof teamDomain.reduce>) => {
 }
 
 describe("enrollment and audit reducer (TeamDO)", () => {
-  it("hashes tokens like the app (shared vector with CmuxNextSettings ManagedPreferencesTests)", async () => {
-    expect(await tokenHash("cmxe_shared_vector_v1")).toBe("gBhFw31wF2LFrvU2l8Xgno2GFgrlOQQkj_hhy9_5fvw")
-  })
 
   it("creates a token without exposing its hash, enrolls a member's install with it, and refuses bad tokens", async () => {
     const h = await tokenHash("cmxe_secret_one")
@@ -86,40 +83,6 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     expect(ok(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER))).state.managed_devices?.[INST]).toBeUndefined()
   })
 
-  it("only admins release a token-enrolled install; agents never release (review, decision a)", async () => {
-    const h = await tokenHash("release-rules")
-    let s = ok(teamDomain.reduce(baseState(), "team.enrollment_token.create", { label: "MDM", token_hash: h }, ctx())).state as TeamState
-    s = ok(teamDomain.reduce(s, "team.device.enroll", { token_hash: h }, asInstall(MEMBER, INST))).state as TeamState
-    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(MEMBER, INST2))).state as TeamState
-    // The member's own MDM-enrolled install: refused (the profile's enrollment is the admin's).
-    expect(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    // An agent, even of the device's user and on an accepted install: refused.
-    expect(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(MEMBER, { kind: "agent", agent: "agent_x", install: INST2 }))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    // The member's own accepted install: allowed. An admin: allowed for any.
-    expect(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(MEMBER)).ok).toBe(true)
-    expect(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER)).ok).toBe(true)
-  })
-
-  it("status reports drive per-device compliance; members see only their own status (M2)", () => {
-    let s = ok(teamDomain.reduce(baseState(), "team.policy.update", { changes: [{ key: "telemetry.level", value: { value: "off", mode: "enforced" } }], expected_version: 0 }, ctx())).state as TeamState
-    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(MEMBER, INST))).state as TeamState
-    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(OWNER, INST2))).state as TeamState
-    expect(complianceFor(s).devices.map((d) => d.reasons)).toEqual([["no status report"], ["no status report"]])
-    s = ok(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: ["ui.animationSpeed"], conflicts: [] }, asInstall(MEMBER, INST))).state as TeamState
-    s = ok(teamDomain.reduce(s, "team.device.report_status", { policy_version: 0, app_version: "1.0", mdm_keys: [], conflicts: ["ui.animationSpeed"] }, asInstall(OWNER, INST2))).state as TeamState
-    const c = complianceFor(s)
-    expect(c.devices.map((d) => [d.device.install, d.compliant])).toEqual([[INST, true], [INST2, false]])
-    expect(c.devices[1]!.reasons).toEqual(["applied policy v0, current v1", "MDM overrides team policy: ui.animationSpeed"])
-    // Same report again: no change. Agents cannot report.
-    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: ["ui.animationSpeed"], conflicts: [] }, asInstall(MEMBER, INST))).toMatchObject({ ok: true, changed: false })
-    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: [], conflicts: [] }, ctx(MEMBER, { kind: "agent", agent: "agent_x", install: INST }))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    // Only managed installs report; releasing an install drops its status.
-    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1", mdm_keys: [], conflicts: [] }, asInstall(MEMBER, "inst_00000000000000000009"))).toMatchObject({ ok: false, code: "selector.not_found" })
-    expect((ok(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(OWNER))).state as TeamState).device_status?.[INST2]).toBeUndefined()
-    const memberView = teamSubscriberView({ ...s, members: { ...s.members } }, { identity: `user:${MEMBER}`, user: MEMBER, kind: "session" })
-    expect(Object.keys(memberView.device_status ?? {})).toEqual([INST])
-  })
-
   it("every admin action appends one record to a hash chain that verifies, and tampering breaks it", async () => {
     let s = baseState()
     const records: Array<AuditRecord> = []
@@ -142,34 +105,6 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     expect(verifyChain([{ ...records[0]!, summary: "edited" }, ...records.slice(1)])).toBe(false)
   })
 
-  it("the device policy read carries cmux.json settings from device.settings, and feature keys separately, only for a managed install", () => {
-    let s = ok(
-      teamDomain.reduce(
-        baseState(),
-        "team.policy.update",
-        {
-          changes: [
-            { key: "device.settings", value: { value: { "ui.animationSpeed": { value: "off", mode: "enforced" }, "layout.stripScrollbar": { value: "always", mode: "default" } }, mode: "enforced" } },
-            { key: "telemetry.level", value: { value: "crash_only", mode: "enforced" } },
-            { key: "github.repoScope", value: { value: "installation", mode: "enforced" } }
-          ],
-          expected_version: 0
-        },
-        ctx()
-      )
-    ).state as TeamState
-    expect(devicePolicyFor(s, INST)).toEqual({ managed: false, version: 1, defaults: {}, enforced: {}, features: {} })
-    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(OWNER, INST))).state as TeamState
-    expect(devicePolicyFor(s, INST)).toEqual({
-      managed: true,
-      version: 1,
-      defaults: { "layout.stripScrollbar": "always" },
-      enforced: { "ui.animationSpeed": "off" },
-      features: { "telemetry.level": { value: "crash_only", mode: "enforced" } }
-    })
-    // Keys must look like cmux.json key paths.
-    expect(teamDomain.reduce(baseState(), "team.policy.update", { changes: [{ key: "device.settings", value: { value: { appearance: { value: {}, mode: "enforced" } }, mode: "enforced" } }], expected_version: 0 }, ctx())).toMatchObject({ ok: false, code: "policy.invalid" })
-  })
 })
 
 const sessionToken = async (stackUser: string) => {

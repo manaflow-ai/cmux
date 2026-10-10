@@ -178,3 +178,18 @@ await shadowButton.waitFor();
 await lightButton.click();
 await shadowButton.click();
 emitCmux("frame-clicks", [await lightButton.textContent(), await shadowButton.textContent()]);
+
+// ---- cell session=budgetlog cmux-only
+// The blocked-navigation log keeps the newest 1,000 blocks: a repeat of the
+// newest adds to its count, a long URL is kept cut, and once older blocks
+// are dropped the list starts with a "dropped" row.
+session.allowedDomains(["http://localhost"]);
+for (let i = 0; i < 3; i++) await tabs.open(`${PEER}/aria.html?same`).catch(() => {});
+let blocked = session.blockedNavigations();
+emitCmux("blocked-coalesced", blocked.filter((b) => b.url.endsWith("?same")).map((b) => b.count || 1));
+await tabs.open(`${PEER}/aria.html?${"q".repeat(100000)}`).catch(() => {});
+emitCmux("blocked-long-cut", session.blockedNavigations().at(-1).url.length < 3000);
+for (let i = 0; i < 1005; i++) await tabs.open(`${PEER}/aria.html?n${i}`).catch(() => {});
+blocked = session.blockedNavigations();
+emitCmux("blocked-dropped", { first: blocked[0].blocked, counted: blocked[0].count > 0, size: blocked.length });
+session.allowedDomains(null);

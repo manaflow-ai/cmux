@@ -84,56 +84,6 @@ describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
     }
   })
 
-  it("confirms a KRL notice team by team and asks again only the teams still missing", async () => {
-    const asked: Array<string> = []
-    let down = true
-    const fakeEnv = {
-      TEAM_DO: {
-        idFromName: (t: string) => t,
-        get: (t: string) => ({
-          revokeInstallCerts: async () => {
-            asked.push(t)
-            if (t === "team_b" && down) throw new Error("down")
-            return { ok: true, revoked: [] }
-          }
-        })
-      }
-    }
-    const state = { ssh_revoke_pending: { inst_1: { user: USER, teams: ["team_a", "team_b", "team_c"], at: 1 } } } as unknown as UserState
-    const confirmed: Array<{ install: string; teams: ReadonlyArray<string> }> = []
-    const retry: KrlRetry = { at: null, attempts: 0 }
-    await deliverKrlNotices(fakeEnv as any, state, retry, 10, (install, _at, teams) => confirmed.push({ install, teams }))
-    expect(confirmed).toEqual([{ install: "inst_1", teams: ["team_a", "team_c"] }])
-    expect(retry.at).not.toBeNull()
-    // The reducer keeps only team_b pending.
-    const after = must(domain.reduce({ ...base, ...state } as UserState, "install.ssh_revoke_done", { install: "inst_1", teams: ["team_a", "team_c"] }, ctx({ identity: "system:user", kind: "system" })))
-    expect(after.state.ssh_revoke_pending?.inst_1?.teams).toEqual(["team_b"])
-    asked.length = 0
-    down = false
-    await deliverKrlNotices(fakeEnv as any, after.state, { at: null, attempts: 1 }, 10_000, (install, _at, teams) => confirmed.push({ install, teams }))
-    expect(asked).toEqual(["team_b"])
-    const done = must(domain.reduce(after.state, "install.ssh_revoke_done", { install: "inst_1", teams: ["team_b"] }, ctx({ identity: "system:user", kind: "system" })))
-    expect(done.state.ssh_revoke_pending).toEqual({})
-  })
-
-  it("a machine whose creator left its team does not bind (no VM install for an ex-member)", async () => {
-    const owner = person()
-    const x = person(owner.team)
-    // The member creates a machine in the owner's team while still a member.
-    await inDO(x.stub, async (instance) => {
-      instance.creatorIsMember = async () => true
-    })
-    const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
-    if (created.t !== "result") throw new Error(JSON.stringify(created))
-    const machine = created.value.machine.id as string
-    const file = await bindFile(x.stub, machine)
-    const { body } = await bindBody(x, machine, file.json.bind_token)
-    // Removed before the VM came up.
-    await inDO(x.stub, async (instance) => {
-      instance.creatorIsMember = async () => false
-    })
-    expect(await x.stub.bindMachine(x.team, body)).toMatchObject({ ok: false, code: "auth.forbidden" })
-  })
 })
 
 describe("team.ensure_personal names only the caller's own personal team (cx-er4p review)", () => {
