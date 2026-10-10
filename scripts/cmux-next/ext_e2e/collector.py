@@ -43,10 +43,14 @@ BLANK = """<!doctype html><meta charset="utf-8"><title>cxt blank</title><body>bl
 
 
 class Collector:
-    def __init__(self, run_id, extra_routes=None):
+    def __init__(self, run_id, extra_routes=None, held=()):
         self.run_id = run_id
         self.results = {}
         self.events = []
+        # Posts to these paths answer only once the harness acks the event, so
+        # the extension cannot undo what it reports before the harness looks.
+        self.held = set(held)
+        self.acked = set()
         self.lock = threading.Condition()
         self.extra_routes = extra_routes or {}
         collector = self
@@ -78,7 +82,10 @@ class Collector:
                     payload = json.loads(self.rfile.read(length) or b"{}")
                 except ValueError:
                     payload = {}
-                collector.record(urlparse(self.path).path, payload)
+                path = urlparse(self.path).path
+                index = collector.record(path, payload)
+                if path in collector.held:
+                    collector.wait_for(lambda c: index in c.acked, 10)
                 self._send(204)
 
             def do_GET(self):
@@ -130,8 +137,15 @@ class Collector:
                 # A final verdict replaces "pending"; a later pass never hides a fail.
                 if previous is None or previous.get("status") == "pending" or payload.get("status") == "fail":
                     self.results[key] = payload
-            else:
-                self.events.append(dict(payload, kind=path.strip("/")))
+                self.lock.notify_all()
+                return None
+            self.events.append(dict(payload, kind=path.strip("/")))
+            self.lock.notify_all()
+            return len(self.events) - 1
+
+    def ack(self, index):
+        with self.lock:
+            self.acked.add(index)
             self.lock.notify_all()
 
     def snapshot(self):
