@@ -15,6 +15,11 @@ final class SidebarRows {
     private let model: SidebarModel
     private var live: [SidebarRowSection] = []
     private var pending = SidebarPendingEdits()
+    /// A group's fold the user asked for that the home store has not shown
+    /// yet (cx-qno.17): the newest click wins over a live recompute, so a
+    /// fast run of clicks toggles once per click.
+    private var folds: [GroupID: (collapsed: Bool, serial: Int)] = [:]
+    private var foldSerial = 0
 
     init(model: SidebarModel) {
         self.model = model
@@ -28,7 +33,38 @@ final class SidebarRows {
     /// Shows `live` (when given) with the pending edits applied.
     func show(_ live: [SidebarRowSection]? = nil) {
         if let live { self.live = live }
-        model.setSections(pending.apply(to: self.live))
+        var sections = pending.apply(to: self.live)
+        for (group, fold) in folds {
+            guard let (s, n) = SidebarEdits.locateGroup(group, in: sections),
+                  case var .group(shown) = sections[s].nodes[n], shown.isCollapsed != fold.collapsed else { continue }
+            shown.isCollapsed = fold.collapsed
+            sections[s].nodes[n] = .group(shown)
+        }
+        model.setSections(sections)
+    }
+
+    /// Folds or opens `group` at once and keeps that look until `body`
+    /// replied and the home store holds it, or failed (then `resync`).
+    func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, resync: @escaping @MainActor () -> Void,
+              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+        foldSerial += 1
+        let serial = foldSerial
+        folds[group] = (collapsed, serial)
+        show()
+        let settle: @MainActor () -> Void = { [weak self] in
+            guard let self, folds[group]?.serial == serial else { return }
+            folds[group] = nil
+            show()
+        }
+        let transaction = ClientTransactionID.generate()
+        // task-owner: one personal fold command; settles its fold
+        Task {
+            guard await home.request("update-personal-group", transaction: transaction, { connection, _ in try await body(connection) }) != nil else {
+                settle()
+                return resync()
+            }
+            home.whenApplied(transaction, settle)
+        }
     }
 
     /// Shows `intent` at once, until `settle`.
