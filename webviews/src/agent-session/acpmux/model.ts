@@ -134,7 +134,7 @@ export type AcpmuxSnapshot = {
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
     effort?: string;
-    promptCapabilities?: { image?: boolean };
+    promptCapabilities?: { image?: boolean; document?: boolean };
     status?: string;
     enforcement?: Enforcement;
     modes?: {

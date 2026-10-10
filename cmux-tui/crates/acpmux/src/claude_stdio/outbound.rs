@@ -76,6 +76,13 @@ impl Translator {
                                     text
                                 }
                                 Some("image") => json!({"type": "image", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("image/png"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}}),
+                                Some("document") => {
+                                    let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("application/pdf"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}});
+                                    if let Some(name) = b.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+                                        document["title"] = json!(name);
+                                    }
+                                    document
+                                }
                                 Some("resource") | Some("resource_link") => {
                                     json!({"type": "text", "text": resource_text(b)})
                                 }

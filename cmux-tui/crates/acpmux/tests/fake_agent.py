@@ -85,7 +85,16 @@ def codex_prompt(rid, params):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    blocks = params.get("prompt", [])
+    text = "".join(b.get("text", "") for b in blocks)
+    documents = [b for b in blocks if isinstance(b, dict) and b.get("type") == "document"]
+    if documents:
+        text += " " + " ".join(
+            "document:{name}:{mime}:{data}".format(
+                name=b.get("name", ""), mime=b.get("mimeType", ""), data=b.get("data", "")
+            )
+            for b in documents
+        )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
             fixture = json.load(f)[text.split(":", 1)[1].strip()]

@@ -73,6 +73,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.acpmux-attachment-document {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 1fr;
+  width: min(260px, 72vw);
+  height: 56px;
+  overflow: hidden;
+}
+.acpmux-attachment-document-preview {
+  width: 44px;
+  height: 56px;
+  border: 0;
+  background: var(--agent-surface-strong, var(--agent-control));
+  pointer-events: none;
+}
+.acpmux-attachment-document-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  align-content: center;
+  gap: 2px 6px;
+  padding: 7px 24px 7px 8px;
+  color: var(--agent-text);
+}
+.acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
+.acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: 11px; }
+.acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 .acpmux-composer .acpmux-attachment-remove {
   position: absolute;
   top: 4px;

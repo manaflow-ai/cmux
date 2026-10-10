@@ -260,7 +260,7 @@ impl Translator {
                     out.push(Message::ok(id, json!({
                         "protocolVersion": 1,
                         "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
-                        "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
+                        "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "document": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));

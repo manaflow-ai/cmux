@@ -37,6 +37,7 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
@@ -1026,6 +1027,26 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
         ) : (
           img
         )}
+        {remove}
+      </div>
+    );
+  }
+  if (attachment.kind === "document" && attachment.data) {
+    const source = `data:application/pdf;base64,${attachment.data}`;
+    return (
+      <div
+        className="acpmux-attachment acpmux-attachment-document"
+        title={attachment.name}
+        data-page-count={attachment.pageCount ?? undefined}
+      >
+        <iframe className="acpmux-attachment-document-preview" src={source} title={attachment.name} tabIndex={-1} />
+        <span className="acpmux-attachment-document-meta">
+          <FileDoc size={15} />
+          <span className="acpmux-attachment-document-name">{attachment.name}</span>
+          {attachment.pageCount !== undefined && (
+            <span className="acpmux-attachment-document-pages">{attachment.pageCount}p</span>
+          )}
+        </span>
         {remove}
       </div>
     );

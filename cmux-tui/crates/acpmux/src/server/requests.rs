@@ -91,7 +91,7 @@ async fn dispatch_request(
                 "agentInfo": {"name": "acpmux", "title": "acpmux", "version": VERSION},
                 "agentCapabilities": {
                     "loadSession": true,
-                    "promptCapabilities": {"image": true, "audio": false, "embeddedContext": true},
+                    "promptCapabilities": {"image": true, "document": true, "audio": false, "embeddedContext": true},
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
