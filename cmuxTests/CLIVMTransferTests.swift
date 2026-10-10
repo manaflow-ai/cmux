@@ -895,6 +895,52 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 }
 
+extension CMUXCLIErrorOutputRegressionTests {
+    @Test func cloudVMInspectionCommandsRejectTrailingArgumentsBeforeRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-arity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // A malformed command must fail in the parser before it ever tries to
+        // connect to the app socket. The Usage assertion below catches a
+        // handler regression because socket failures do not emit usage text.
+        environment["CMUX_SOCKET_PATH"] = home.appendingPathComponent("missing.sock").path
+
+        let commands: [[String]] = [
+            ["vm", "stats", "machine", "typo"],
+            ["vm", "stats", " "],
+            ["vm", "desktop", "machine", "typo"],
+            ["vm", "shell", "machine", "typo"],
+            ["vm", "ssh", "machine", "typo"],
+            ["vm", "ssh-info", "machine", "typo"],
+            ["vm", "tui", "machine", "typo"],
+            ["vm", "tools", "machine", "typo"],
+            ["vm", "ports", "machine", "typo"],
+            ["vm", "handoff", "machine", "typo"],
+            ["vm", "prompt", "typo"],
+        ]
+
+        for arguments in commands {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, "\(arguments.joined(separator: " ")) timed out: \(result.diagnostics)")
+            #expect(result.status != 0, "\(arguments.joined(separator: " ")) unexpectedly succeeded")
+            #expect(
+                result.combinedOutput.contains("Usage:"),
+                "\(arguments.joined(separator: " ")) should reject trailing arguments before RPC: \(result.diagnostics)"
+            )
+        }
+    }
+}
+
 // MARK: - vm push --secret / --watch, vm agent --wait, vm self
 
 /// The second wave of transfer verbs, against the same mock control socket: a secret
