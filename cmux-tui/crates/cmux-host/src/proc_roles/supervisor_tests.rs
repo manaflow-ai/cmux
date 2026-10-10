@@ -80,10 +80,17 @@ fn notify_role_runs_logs_and_stops_with_its_group() {
     let left = sup.stop_all(Instant::now() + Duration::from_secs(10));
     assert!(left.is_empty(), "{left:?}");
     assert_eq!(state_of(&sup.health(), "chief"), Some(RoleState::Stopped));
-    // The whole group ended, the background sleep too, and the leader was reaped.
-    // SAFETY: signal 0 to the group only checks existence.
-    assert_ne!(unsafe { libc::kill(-(pid as libc::pid_t), 0) }, 0);
+    // The leader was reaped, and the whole group ended, the background sleep
+    // too. The sleep is not the supervisor's child: after the SIGKILL it is a
+    // zombie in the group until init reaps it, so the group check waits for
+    // that (a killed process that keeps running fails at the deadline).
     assert!(!alive(pid));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    // SAFETY: signal 0 to the group only checks existence.
+    while unsafe { libc::kill(-(pid as libc::pid_t), 0) } == 0 {
+        assert!(Instant::now() < deadline, "a process of the role's group outlived stop_all");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     drop(fx.dir);
 }
 

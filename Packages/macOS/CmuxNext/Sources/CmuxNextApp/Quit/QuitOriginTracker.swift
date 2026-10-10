@@ -13,7 +13,7 @@ final class QuitOriginTracker {
     /// The app keeps one for its lifetime; the observer holds it weakly.
     init(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
         _ = center.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.isPoweringOff = true }
+            MainActor.assumeIsolated { self?.isPoweringOff = true } // main-proof: observer on queue: .main
         }
     }
 

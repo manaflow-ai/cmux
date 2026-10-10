@@ -27,10 +27,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         guard let services else { return nil }
         let target = target(of: session, in: services)
         let menu = services.registry.makeContextMenu(for: .terminalSelection, target: target)
-        // A right-click on a link Ghostty underlines offers its browser
-        // profiles first (Open Link in Browser Profile ▸).
+        // A right-click on a link Ghostty underlines offers the link rows
+        // first (Open Link in New Tab, Copy Link, ...), then its browser
+        // profiles (Open Link in Browser Profile ▸).
         let link = session.model.hoveredLink.flatMap(URL.init(string:))
-        for (index, item) in BrowserProfileLinkMenu.items(for: link, target: target, services: services).enumerated() {
+        let linkRows = TerminalLinkMenu.items(for: link, target: target, registry: services.registry)
+            + BrowserProfileLinkMenu.items(for: link, target: target, services: services)
+        for (index, item) in linkRows.enumerated() {
             menu.insertItem(item, at: index)
         }
         return menu

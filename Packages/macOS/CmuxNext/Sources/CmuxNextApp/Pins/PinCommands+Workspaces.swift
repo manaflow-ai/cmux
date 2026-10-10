@@ -82,14 +82,14 @@ extension PinCommands {
 
     /// The sidebar's drop-to-pin (`SidebarIntent.dropOnLayoutSection`); a refusal is reported.
     func userDrop(_ ids: [String], on section: LayoutSectionID, at index: Int) {
-        do { try dropWorkspaces(ids, on: section, at: index, origin: .user) } catch { context.services.registry.refuse(String(describing: error)) }
+        do { try dropWorkspaces(ids, on: section, at: index, origin: .user) } catch { context.services.registry.refuse(RefusalStrings.describe(error)) }
     }
 
     /// A band edit from the sidebar (`SidebarIntent.layout`): a reorder, or
     /// an item dragged out (a tile dropped on the list unpins it), which is
     /// an undo step (P4). A refusal is reported.
     func userBandEdit(_ op: SidebarLayoutOp) {
-        do { try sendLayout(op, title: removalTitle(op) ?? "", origin: .user) } catch { context.services.registry.refuse(String(describing: error)) }
+        do { try sendLayout(op, title: removalTitle(op) ?? "", origin: .user) } catch { context.services.registry.refuse(RefusalStrings.describe(error)) }
     }
 
     /// The undo title of an item removal from the top region: Unpin
@@ -106,7 +106,7 @@ extension PinCommands {
         guard origin == .user, let inverse else { return }
         registerUndo(title: title) { commands in
             do { try commands.sendLayout(inverse, title: title, origin: .user) } catch {
-                commands.context.services.registry.refuse(String(describing: error))
+                commands.context.services.registry.refuse(RefusalStrings.describe(error))
             }
         }
     }

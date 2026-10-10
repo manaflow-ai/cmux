@@ -44,10 +44,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public static let separator = " · "
 
     /// The content of `ws`'s row under `preferences`; `now` decides whether
-    /// the last activity shows a time (today) or a date.
-    public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date()) {
+    /// the last activity shows a time (today) or a date. `machine` (the
+    /// computer of a workspace in the one-list sidebar that is not this Mac)
+    /// leads the second line whatever the preferences show, followed by a
+    /// starting Cloud machine's stage (`SidebarWorkspace.stage`).
+    public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil) {
         let set = preferences.resolved(for: ws.rowKind)
-        let items = set.secondLine.compactMap { Self.text(of: $0, in: ws, now: now) }
+        let items = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage)].compactMap { $0 } + set.secondLine.compactMap { Self.text(of: $0, in: ws, now: now) }
         let working = ws.agentWorking && set.shows(.working)
         self.init(
             icon: set.shows(.icon) ? ws.icon : nil,

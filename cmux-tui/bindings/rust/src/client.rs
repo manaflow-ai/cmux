@@ -1,15 +1,16 @@
 use crate::CommandMetadata;
 use crate::codec::JsonLineConnection;
+use crate::codec::UnixStream;
 use crate::generated::{Event, IdentifyResult, decode_event};
+pub(crate) use crate::socket_paths::{
+    current_uid_component, fallback_root, runtime_base, unix_socket_path_fits,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use std::collections::VecDeque;
 use std::fmt;
-use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -516,7 +517,7 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let canonical = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
+    let canonical = fallback_root().join(format!("cmux-tui-{uid}"));
     let sibling = parent.parent()?.join(format!("cmux-tui-{uid}"));
     let mut roots = vec![canonical];
     if sibling != roots[0] {
@@ -535,7 +536,13 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
                 continue;
             }
             let Ok(file_type) = entry.file_type() else { continue };
+            #[cfg(unix)]
             if std::os::unix::fs::FileTypeExt::is_socket(&file_type) {
+                return Some(entry.path());
+            }
+            // Windows AF_UNIX sockets are plain files to the file system.
+            #[cfg(windows)]
+            if file_type.is_file() {
                 return Some(entry.path());
             }
         }
@@ -761,20 +768,12 @@ pub fn default_socket_path(session: &str) -> PathBuf {
 }
 
 fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let base = runtime_base();
     default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
 }
 
 fn invalid_session_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let base = runtime_base();
     invalid_session_socket_path_in_runtime_dir(session, base)
 }
 
@@ -785,7 +784,7 @@ fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBu
     if unix_socket_path_fits(&preferred) {
         preferred
     } else {
-        PathBuf::from("/tmp")
+        fallback_root()
             .join(format!("cmux-tui-invalid-{}", current_uid_component()))
             .join(invalid_session_socket_leaf(session))
     }
@@ -798,7 +797,7 @@ pub(crate) fn default_socket_path_in_runtime_dir(
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
-        let fallback = PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+        let fallback = fallback_root().join(private_runtime_dir_name()).join(file_name);
         if unix_socket_path_fits(&fallback) {
             return Ok(fallback);
         }
@@ -807,14 +806,15 @@ pub(crate) fn default_socket_path_in_runtime_dir(
                 crate::socket_hash::LONG_PATH_NEEDS_HASH.into(),
             ));
         };
-        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
+        let fallback = fallback_root();
+        let preferred_base = runtime_dir.parent().unwrap_or(&fallback);
         let hashed = preferred_base
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
             .join(format!("{digest}.sock"));
         if unix_socket_path_fits(&hashed) {
             return Ok(hashed);
         }
-        let hashed = PathBuf::from("/tmp")
+        let hashed = fallback_root()
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
             .join(format!("{digest}.sock"));
         debug_assert!(unix_socket_path_fits(&hashed));
@@ -827,26 +827,17 @@ pub(crate) fn private_runtime_dir_name() -> String {
     format!("cmux-tui-{}", current_uid_component())
 }
 
-pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
-}
-
-pub(crate) fn current_uid_component() -> String {
-    // SAFETY: getuid has no preconditions and does not dereference pointers.
-    unsafe { libc::getuid() }.to_string()
-}
-
 fn invalid_session_socket_leaf(session: &str) -> String {
     crate::socket_hash::invalid_session_leaf(session)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
     use std::io::{BufRead, BufReader, Write};
+    use std::mem::{offset_of, size_of};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::thread;

@@ -40,7 +40,7 @@ final class ChromiumWindowGuard {
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
-                MainActor.assumeIsolated { self?.check(window) }
+                MainActor.assumeIsolated { self?.check(window) } // main-proof: observer on queue: .main
             })
         }
         for window in NSApp.windows { check(window) }

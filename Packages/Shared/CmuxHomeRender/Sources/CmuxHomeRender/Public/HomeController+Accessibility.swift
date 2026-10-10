@@ -11,8 +11,7 @@ extension HomeController {
         let shown = scene.visible.values.compactMap { r in scene.visibleIndex[ObjectIdentifier(r)] }.sorted()
         var out: [HomeAXItem] = []
         for i in shown where i < scene.model.count {
-            let row = scene.model.rows[i]
-            guard !row.ghost else { continue }
+            guard let row = scene.model.rows[checked: i], !row.ghost else { continue }
             let spec = row.spec
             let top = scene.windowY(contentY: scene.layout.contentTop(i))
             guard top + spec.height > scene.topInset, top < scene.anchorY else { continue }
@@ -55,8 +54,8 @@ extension HomeController {
     /// The item key inside a row key ("kind:<item key>[:part]").
     static func itemKey(of rowKey: String) -> String? {
         guard let colon = rowKey.firstIndex(of: ":") else { return nil }
-        var rest = rowKey[rowKey.index(after: colon)...]
-        if rowKey.hasPrefix("part:"), let last = rest.lastIndex(of: ":") { rest = rest[..<last] }
+        var rest = rowKey.suffix(from: rowKey.index(after: colon))
+        if rowKey.hasPrefix("part:"), let last = rest.lastIndex(of: ":") { rest = rest.prefix(upTo: last) }
         return String(rest)
     }
 }

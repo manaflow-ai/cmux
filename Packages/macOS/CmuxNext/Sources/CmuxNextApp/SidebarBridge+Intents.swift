@@ -12,6 +12,12 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) { return }
+        // A section's collapse is window view state (sidebar snapshot), never a daemon command.
+        if case .toggleCollapse(.section) = intent {
+            model.apply(intent)
+            return recordSnapshot()
+        }
         // The Pinned section is the daemon's pin, in either organization: a
         // drop there pins, a pinned workspace dropped on its own machine
         // unpins. Pinned order follows the sidebar, so a drop of workspaces
@@ -32,7 +38,7 @@ extension SidebarBridge {
                 if !leaving.isEmpty { sendPinned(leaving, false) }
             }
         }
-        if usesPersonalOrganization, handlePersonal(intent) { return }
+        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.
@@ -77,9 +83,8 @@ extension SidebarBridge {
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
             // `workspace_group.*`, `handlePersonal`); the shared group
-            // commands are not used, so the daemon can drop them.
-            services.registry.refuse(daemon(ofGroupless: intent))
-            resync()
+            // commands are not used, so the daemon can drop them. Before personal state loads it waits.
+            if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
                 services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
@@ -103,7 +108,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)
@@ -111,7 +116,7 @@ extension SidebarBridge {
             PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
         case .toggleLayoutSection:
             model.apply(intent)
-        case .setIcon, .setGroupPinned, .openGroup:
+        case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup, .groupEditorEnded:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
             model.apply(intent)
@@ -145,11 +150,6 @@ extension SidebarBridge {
         return (daemon, pairs.map(\.1))
     }
 
-    /// Why a group intent is refused without personal state.
-    private func daemon(ofGroupless intent: SidebarIntent) -> String {
-        services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles)
-    }
-
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
         guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
               let (daemon, _) = sameMachine(ids), daemon === target
@@ -166,7 +166,9 @@ extension SidebarBridge {
     private func run(_ commands: [WorkspaceMovePlan.Command], on daemon: DaemonService) {
         let keys = Dictionary(daemon.store.workspaces.compactMap { model in model.key.map { (model.id, $0) } },
                               uniquingKeysWith: { first, _ in first })
-        Task {
+        // [services] pins the app's services while the commands run, so a
+        // re-sync after a rejection never reads a freed owner (cx-6so P1b).
+        Task { [weak self, services] in
             for command in commands {
                 let ok: Bool
                 switch command {
@@ -180,30 +182,37 @@ extension SidebarBridge {
                     ok = false
                 }
                 if !ok {
-                    resync()
+                    withExtendedLifetime(services) { self?.resync() }
                     return
                 }
             }
         }
     }
 
+    /// Refuses an organization intent that personal state cannot take.
+    func refuseOrganization() {
+        services.registry.refuse(services.machines.local.personalStateUnavailableReason)
+        resync()
+    }
+
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+        rows.show(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                        hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces)
+                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
         model.profiles = Self.profiles(services.machines.local.store)
+        groupFlow.openPendingEditor()
     }
 
     /// Sends one command, shown at once through the store's intent log when
     /// it has an `intent`; a failure re-syncs the sidebar.
     private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
                          _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        Task {
+        Task { [weak self, services] in
             let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
-            if !ok { resync() }
+            if !ok { withExtendedLifetime(services) { self?.resync() } }
         }
     }
 }

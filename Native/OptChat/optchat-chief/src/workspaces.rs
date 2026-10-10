@@ -34,6 +34,11 @@ pub trait Workspaces: Send + Sync {
     fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
+    /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
+    /// goes to the closed history; the agent session stays.
+    fn close(&self, _key: &str) -> Result<(), String> {
+        Err("closing is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -87,17 +92,169 @@ pub fn new_key() -> String {
 pub struct AppWorkspaces {
     pub control: PathBuf,
     pub daemon: PathBuf,
+    /// The Chief home (`MUX_HOME`), whose own acpmux runs the subagents: the
+    /// tab's host is `chief:<home id>`, so the app attaches it there.
+    pub home: Option<PathBuf>,
 }
 
 impl AppWorkspaces {
     /// From the host's env: `CMUX_SOCKET_PATH` (None without it) and the
-    /// daemon socket.
+    /// app's daemon, where the app makes the workspaces.
     pub fn from_env(daemon: &str) -> Option<AppWorkspaces> {
-        crate::cli::env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
+        AppWorkspaces::resolve(daemon, &crate::cli::env)
+    }
+
+    /// `CMUX_SOCKET_PATH` from `env`, and the daemon that holds the app's
+    /// workspaces: `CMUX_APP_DAEMON_SOCKET` when the app sets it (the host's
+    /// `--daemon-socket` is then the Chief's conversation owner), else
+    /// `daemon` (cmux_env::app_daemon_socket).
+    pub fn resolve(daemon: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<AppWorkspaces> {
+        env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
             control: control.into(),
-            daemon: daemon.into(),
+            daemon: crate::cmux_env::app_daemon_socket(daemon, env).into(),
+            home: None,
         })
     }
+
+    /// The same, for the Chief home `home`.
+    pub fn with_home(mut self, home: &Path) -> AppWorkspaces {
+        self.home = Some(home.to_owned());
+        self
+    }
+}
+
+/// Where a subagent's workspace goes (E17, schemas/chief-cmux-target).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspaceTarget {
+    /// The app runs: its control socket opens the workspace in its daemon.
+    App,
+    /// No app: the Chief's owner daemon; the app shows it when it connects.
+    Owner,
+}
+
+/// `App` while both the app's control socket and its daemon exist as
+/// sockets, else `Owner`: the same rule as the Chief's `cmux` calls.
+pub fn workspace_target(control: &Path, app_daemon: &Path) -> WorkspaceTarget {
+    use std::os::unix::fs::FileTypeExt;
+    let socket = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket());
+    if socket(control) && socket(app_daemon) {
+        WorkspaceTarget::App
+    } else {
+        WorkspaceTarget::Owner
+    }
+}
+
+/// The opener of a Chief host started by the app or by `cmux chief`: each
+/// open picks its target now (the app may start or quit while the host
+/// runs); a rename or close goes where that workspace was opened.
+pub struct TargetWorkspaces {
+    pub app: AppWorkspaces,
+    pub owner: DaemonWorkspaces,
+    opened: std::sync::Mutex<std::collections::HashMap<String, WorkspaceTarget>>,
+}
+
+impl TargetWorkspaces {
+    /// `owner_daemon` is the host's `--daemon-socket`; the tabs name the Chief
+    /// home `home` (`chief:<home id>`) in both targets.
+    pub fn new(
+        app: AppWorkspaces,
+        owner_daemon: PathBuf,
+        home: &Path,
+        harness: Option<String>,
+    ) -> TargetWorkspaces {
+        TargetWorkspaces {
+            app: app.with_home(home),
+            owner: DaemonWorkspaces {
+                daemon: owner_daemon,
+                host: chief_host(home),
+                host_name: host_name(),
+                harness,
+            },
+            opened: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn target(&self) -> WorkspaceTarget {
+        workspace_target(&self.app.control, &self.app.daemon)
+    }
+
+    fn of(&self, key: &str) -> WorkspaceTarget {
+        let opened = self
+            .opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        opened.get(key).copied().unwrap_or_else(|| self.target())
+    }
+
+    fn backend(&self, target: WorkspaceTarget) -> &dyn Workspaces {
+        match target {
+            WorkspaceTarget::App => &self.app,
+            WorkspaceTarget::Owner => &self.owner,
+        }
+    }
+}
+
+impl Workspaces for TargetWorkspaces {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+        let target = self.target();
+        let opened = self.backend(target).open(key, session, name, cwd)?;
+        self.opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(opened.clone(), target);
+        Ok(opened)
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        self.backend(self.of(key)).close(key)
+    }
+
+    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
+        self.backend(self.of(key)).rename(key, name)
+    }
+
+    fn place(&self) -> String {
+        match self.target() {
+            WorkspaceTarget::App => self.app.place(),
+            WorkspaceTarget::Owner => {
+                "the Chief's own cmux session on this Mac (the cmux app shows it when it opens)"
+                    .to_owned()
+            }
+        }
+    }
+}
+
+/// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
+/// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
+/// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
+/// `chief:<home id>`); Home allows the form only for this Chief's own subagents. None when the
+/// tag names no home or the session id needs escaping.
+pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
+    let home = parent.strip_prefix("optchat-chief:")?;
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 200
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    (home.len() == 8
+        && home
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && token(session))
+    .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
+/// The agent tab host of a session in Chief home `home`'s acpmux.
+pub fn chief_host(home: &Path) -> String {
+    format!("chief:{}", crate::paths::home_id(home))
+}
+
+/// `open_request` whose tab names Chief home `home` as its session's host.
+pub fn open_request_for(home: &Path, session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    let mut request = open_request(session, name, key, cwd);
+    request["params"]["args"]["host"] = json!(chief_host(home));
+    request
 }
 
 /// The `action.run` request that opens `session` in workspace `key`.
@@ -157,7 +314,10 @@ impl Workspaces for AppWorkspaces {
         let key = key.to_owned();
         match control_call(
             &self.control,
-            &open_request(session, name, &key, cwd),
+            &match &self.home {
+                Some(home) => open_request_for(home, session, name, &key, cwd),
+                None => open_request(session, name, &key, cwd),
+            },
             Duration::from_secs(60),
         ) {
             Ok(_) => Ok(key),
@@ -169,6 +329,10 @@ impl Workspaces for AppWorkspaces {
             Err(e) if still_running(&e) => Ok(key),
             Err(e) => Err(e),
         }
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
@@ -280,6 +444,10 @@ impl Workspaces for DaemonWorkspaces {
         result.map(|()| key)
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         rename_by_key(&self.daemon, key, name)
     }
@@ -313,6 +481,28 @@ pub fn still_running(error: &str) -> bool {
 const MUTATION_ORIGIN: &str = "optchat-chief";
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
+/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// agent session is acpmux's and stays.
+fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let result = client
+        .close_workspace(CloseWorkspaceRequest {
+            end_terminals: Some(true),
+            expected_generation: Optional::Missing,
+            expected_revision: Optional::Missing,
+            key: Optional::Value(key.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-close-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            workspace: Optional::Missing,
+        })
+        .map(|_| ())
+        .map_err(|e| format!("close-workspace: {e}"));
+    client.close();
+    result
+}
+
 fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, Optional, RenameWorkspaceRequest};
     let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
@@ -335,6 +525,77 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// CLI dogfood 7bf60bcf938a: a Chief that `cmux chief` started without the
+    /// app tried the app's missing control socket for every subagent, and no
+    /// subagent got a workspace. The opener follows E17
+    /// (schemas/chief-cmux-target): the app while its control socket and its
+    /// daemon exist, else the Chief's owner daemon, with host chief:<home id>
+    /// so the app attaches the tab to the Chief home's acpmux when it opens.
+    #[test]
+    fn without_the_app_subagent_workspaces_go_to_the_owner_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("app.sock");
+        let app_daemon = dir.path().join("app-daemon.sock");
+        assert_eq!(
+            workspace_target(&control, &app_daemon),
+            WorkspaceTarget::Owner
+        );
+        let _c = std::os::unix::net::UnixListener::bind(&control).unwrap();
+        assert_eq!(
+            workspace_target(&control, &app_daemon),
+            WorkspaceTarget::Owner,
+            "both must exist"
+        );
+        let _d = std::os::unix::net::UnixListener::bind(&app_daemon).unwrap();
+        assert_eq!(
+            workspace_target(&control, &app_daemon),
+            WorkspaceTarget::App
+        );
+        let home = dir.path().join("mux");
+        let w = TargetWorkspaces::new(
+            AppWorkspaces {
+                control: control.clone(),
+                daemon: app_daemon.clone(),
+                home: Some(home.clone()),
+            },
+            dir.path().join("owner.sock"),
+            &home,
+            None,
+        );
+        assert_eq!(w.owner.host, chief_host(&home));
+        assert_eq!(w.owner.daemon, dir.path().join("owner.sock"));
+    }
+
+    /// Live proof subp6: the app showed "This chat isn't available" for every
+    /// subagent: its panes attach to the app's acpmux, the subagents run in the
+    /// Chief home's. The open request names the Chief home as the tab's host.
+    #[test]
+    fn the_open_request_names_the_chief_home_as_the_sessions_host() {
+        let home = std::path::Path::new("/tmp/mux-home");
+        let request = open_request_for(home, "s1", "a1 · x", "k", std::path::Path::new("/tmp"));
+        assert_eq!(
+            request["params"]["args"]["host"],
+            format!("chief:{}", crate::paths::home_id(home))
+        );
+    }
+
+    /// Live proof subp3: every done mark failed with "unknown workspace key":
+    /// the renames went to the Chief's conversation owner (--daemon-socket),
+    /// while the app makes the workspaces in its own daemon.
+    #[test]
+    fn app_workspaces_rename_in_the_apps_daemon() {
+        let env = |k: &str| match k {
+            "CMUX_SOCKET_PATH" => Some("/tmp/control.sock".to_owned()),
+            "CMUX_APP_DAEMON_SOCKET" => Some("/tmp/app-daemon.sock".to_owned()),
+            _ => None,
+        };
+        let app = AppWorkspaces::resolve("/tmp/chief-owner.sock", &env).unwrap();
+        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/app-daemon.sock"));
+        let without = |k: &str| (k == "CMUX_SOCKET_PATH").then(|| "/tmp/control.sock".to_owned());
+        let app = AppWorkspaces::resolve("/tmp/own.sock", &without).unwrap();
+        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/own.sock"));
+    }
+
     use super::*;
 
     #[test]
@@ -373,6 +634,7 @@ mod tests {
         let w = AppWorkspaces {
             control,
             daemon: dir.path().join("daemon.sock"),
+            home: None,
         };
         assert_eq!(
             w.open(&new_key(), "s", "n", Path::new("/w"))

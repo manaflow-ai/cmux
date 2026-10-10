@@ -273,7 +273,7 @@ geometry (F1 to F6), coordinated with the docked column lane and the close-focus
   `PinRow` on the only row of the last strip column (now rejected) and a close-focus successor
   that followed a row lifted into a dock (candidates must stay in the closed pane's column).
   Details in formal/README.md. proptest waits for the reducer step.
-- Geometry: `LayoutModelPrototypeTests` (7 tests) pin the frame in both orientations and both
+- Geometry: unit suite `LayoutModelPrototypeTests` (7 tests, removed 2026-10-09 with the other unit suites) pinned the frame in both orientations and both
   edges, docks drawn from plain columns, the grid's shared rows and holes, and off = real layout.
 - Live (2026-10-02, fleet job 60f8504c062867ad815f580a, tag lmproto-v1, no-activate, window-only
   captures; the app never took focus): the real geometry path draws top and bottom docks in both

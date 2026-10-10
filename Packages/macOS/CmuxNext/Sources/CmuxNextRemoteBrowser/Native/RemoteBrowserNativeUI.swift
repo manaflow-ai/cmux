@@ -135,8 +135,12 @@ public final class RemoteBrowserNativeUI: NSObject {
 
     // MARK: Cursor
 
+    /// The last page cursor's CSS name (debug socket).
+    public private(set) var cursorKind: String?
+
     /// The page cursor (`rb.cursor`), as a CSS cursor name.
     public func setCursor(kind: String) {
+        cursorKind = kind
         view?.pageCursor = RemoteBrowserCursorShape(css: kind).cursor
     }
 }

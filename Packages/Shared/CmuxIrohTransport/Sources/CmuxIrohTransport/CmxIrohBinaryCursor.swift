@@ -1,52 +1,50 @@
 import Foundation
 
-/// Bounds-checked reader for one small Iroh stream-header payload.
+/// Bounds-checked reader for one small Iroh stream-header payload. Reads go
+/// front to back over the bytes not read yet, so no read computes an index;
+/// a read past the end throws ``CmxIrohStreamHeaderCodecError/invalidPayload``.
 struct CmxIrohBinaryCursor {
-    private let data: Data
-    private(set) var offset: Int = 0
+    private var rest: Data
 
     init(data: Data) {
-        self.data = data
+        rest = data
     }
 
     var remainingByteCount: Int {
-        data.count - offset
+        rest.count
     }
 
     mutating func readUInt8() throws -> UInt8 {
-        let bytes = try readData(byteCount: 1)
-        return bytes[bytes.startIndex]
+        try readBigEndian()
     }
 
     mutating func readUInt16() throws -> UInt16 {
-        let bytes = try readData(byteCount: 2)
-        return bytes.reduce(UInt16.zero) { partial, byte in
-            (partial << 8) | UInt16(byte)
-        }
+        try readBigEndian()
     }
 
     mutating func readUInt32() throws -> UInt32 {
-        let bytes = try readData(byteCount: 4)
-        return bytes.reduce(UInt32.zero) { partial, byte in
-            (partial << 8) | UInt32(byte)
-        }
+        try readBigEndian()
     }
 
     mutating func readUInt64() throws -> UInt64 {
-        let bytes = try readData(byteCount: 8)
-        return bytes.reduce(UInt64.zero) { partial, byte in
-            (partial << 8) | UInt64(byte)
+        try readBigEndian()
+    }
+
+    /// A big-endian length field as a byte count.
+    mutating func readByteCount<T: FixedWidthInteger & UnsignedInteger>(_: T.Type) throws -> Int {
+        guard let count = Int(exactly: try readBigEndian() as T) else {
+            throw CmxIrohStreamHeaderCodecError.invalidPayload
         }
+        return count
     }
 
     mutating func readData(byteCount: Int) throws -> Data {
-        guard byteCount >= 0, byteCount <= remainingByteCount else {
+        guard byteCount >= 0, byteCount <= rest.count else {
             throw CmxIrohStreamHeaderCodecError.invalidPayload
         }
-        let start = data.index(data.startIndex, offsetBy: offset)
-        let end = data.index(start, offsetBy: byteCount)
-        offset += byteCount
-        return data[start ..< end]
+        let field = rest.prefix(byteCount)
+        rest = rest.dropFirst(byteCount)
+        return field
     }
 
     mutating func readString(byteCount: Int) throws -> String {
@@ -55,5 +53,11 @@ struct CmxIrohBinaryCursor {
             throw CmxIrohStreamHeaderCodecError.invalidPayload
         }
         return value
+    }
+
+    private mutating func readBigEndian<T: FixedWidthInteger & UnsignedInteger>() throws -> T {
+        let bytes = try readData(byteCount: MemoryLayout<T>.size)
+        // Every unsigned fixed-width type holds a whole byte: the widening T(byte) cannot trap.
+        return bytes.reduce(T.zero) { ($0 << 8) | T($1) }
     }
 }

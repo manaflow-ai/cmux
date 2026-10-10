@@ -128,7 +128,7 @@ final class SidebarLayoutService {
                 } else {
                     self.settle(key, confirmed: nil)
                     Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
-                    self.onRefused(String(describing: error))
+                    self.onRefused(RefusalStrings.describe(error))
                 }
             }
         }

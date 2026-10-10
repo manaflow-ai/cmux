@@ -10,6 +10,7 @@ the real one, so no web test runs here.
 
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,8 +32,24 @@ esac
 """
 
 
+def path_without_timeout(temp):
+    """A PATH with the tools the runner needs and no `timeout`/`gtimeout`, as on a stock Mac.
+
+    The fleet Macs (cmux-lawrence-2, nx-remote jobs) have no coreutils `timeout`, so the
+    runner must keep its per-file limit without it.
+    """
+    farm = temp / "system-bin"
+    farm.mkdir()
+    for name in ("bash", "git", "xargs", "tr", "wc", "sort", "cat", "mktemp", "rm", "getconf",
+                 "sleep", "perl", "dirname", "env"):
+        found = shutil.which(name)
+        if found:
+            (farm / name).symlink_to(found)
+    return str(farm)
+
+
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files):
+    def run_runner(self, files, without_timeout=False):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -49,7 +66,8 @@ class PerFileRunner(unittest.TestCase):
         (bin_dir / "bun").chmod(0o755)
         calls = temp / "calls"
         calls.write_text("", encoding="utf-8")
-        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "BUN_CALLS": str(calls),
+        system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
+        env = {**os.environ, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "4"}
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
@@ -66,6 +84,17 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"FAIL[^\n]*src/pages/fail\.test\.ts")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
         self.assertIn("(fail) a broken test", output)
+
+    def test_a_host_without_timeout_still_runs_and_limits_each_file(self):
+        files = ["test/a.test.ts", "test/hang.test.tsx", "src/b.test.tsx"]
+        result, elapsed, calls = self.run_runner(files, without_timeout=True)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 20, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in files))
+        self.assertRegex(output, r"TIMEOUT[^\n]*test/hang\.test\.tsx")
+        self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
+        self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*src/b\.test\.tsx")
 
     def test_passing_files_pass(self):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])

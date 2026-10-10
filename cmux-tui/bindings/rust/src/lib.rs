@@ -43,12 +43,16 @@ mod client;
 mod codec;
 mod convenience;
 mod generated;
+#[cfg(any(windows, feature = "local-socket"))]
+pub mod local_socket;
 mod presence;
 pub mod raw;
 mod raw_support;
 mod resource;
 mod socket_hash;
-#[cfg(test)]
+mod socket_paths;
+// Used by the hashed-socket tests only.
+#[cfg(all(test, unix, feature = "socket-path-hash"))]
 mod test_roots;
 mod topology;
 

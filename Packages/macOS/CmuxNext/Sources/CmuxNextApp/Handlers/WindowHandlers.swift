@@ -27,7 +27,8 @@ enum WindowHandlers {
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
         registry.bind("about", run: { _ in
             context.activateApp()
-            NSApp.orderFrontStandardAboutPanel(nil)
+            let credits = AboutPanelCredits(bundle: .main).credits
+            NSApp.orderFrontStandardAboutPanel(options: credits.map { [.credits: $0] } ?? [:])
         })
         registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
         registry.bind("showHideAllWindows", run: { _ in

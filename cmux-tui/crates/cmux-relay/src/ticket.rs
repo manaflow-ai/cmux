@@ -16,6 +16,18 @@ const MAXIMUM_SCOPE_BYTES: usize = 256;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Ticket equality without an early exit on the first differing byte (the
+/// length is not secret). Register and join tickets are compared with it.
+/// `black_box` keeps the compiler from turning the fold into an early exit.
+pub(crate) fn tickets_equal(left: &str, right: &str) -> bool {
+    left.len() == right.len()
+        && std::hint::black_box(
+            left.bytes()
+                .zip(right.bytes())
+                .fold(0_u8, |acc, (a, b)| std::hint::black_box(acc | (a ^ b))),
+        ) == 0
+}
+
 #[derive(Clone)]
 pub struct TicketAuthority {
     issuer: String,
@@ -35,7 +47,8 @@ pub(crate) struct TicketExpectation<'a> {
 
 impl TicketAuthority {
     pub fn open() -> Self {
-        Self::open_with_issuer(DEFAULT_ISSUER.into()).expect("default ticket issuer is valid")
+        // DEFAULT_ISSUER passes validate_issuer (a unit test checks it).
+        Self { issuer: DEFAULT_ISSUER.into(), secret: None }
     }
 
     pub fn open_with_issuer(issuer: String) -> Result<Self, TicketError> {
@@ -312,6 +325,15 @@ mod tests {
     use super::*;
 
     const ISSUER: &str = "relay.example";
+
+    #[test]
+    fn the_default_issuer_is_valid() {
+        assert!(validate_issuer(DEFAULT_ISSUER).is_ok());
+        let open = TicketAuthority::open();
+        let explicit = TicketAuthority::open_with_issuer(DEFAULT_ISSUER.into()).unwrap();
+        assert_eq!(open.issuer, explicit.issuer);
+        assert!(open.secret.is_none());
+    }
 
     fn join_claims(expires_at_unix: u64) -> RelayTicketClaims {
         RelayTicketClaims {

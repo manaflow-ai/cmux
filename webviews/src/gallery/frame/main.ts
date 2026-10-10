@@ -4,6 +4,7 @@
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
+import { readTunes } from "../../experiments/tunable";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { entryStore } from "../registry";
@@ -104,6 +105,9 @@ if (experiment && arm) {
   experimentRunner!.installAnimationControl();
 }
 
+// Edited tunables (the stage's curve editors): the page reads them through tunableValue().
+globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(params.get("tune") ?? "") };
+
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;
 const context: StageContext = {
@@ -124,10 +128,14 @@ function markReady(): void {
 
 /** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
 async function playThenReady(): Promise<void> {
-  const play = entry.variants[variantName]?.play;
+  const variant = entry.variants[variantName];
+  const play = variant?.play;
   if (play) {
     const { runPlay } = await import("./playRunner");
-    const report = await runPlay(play, { anchors: entry.anchors, checks: entry.checks });
+    const report = await runPlay(play, {
+      anchors: entry.anchors,
+      checks: { ...entry.checks, ...variant.checks },
+    });
     window.cmuxGalleryPlayReport = report;
     parent.postMessage({ type: "cmux-gallery-play", report }, "*");
   }

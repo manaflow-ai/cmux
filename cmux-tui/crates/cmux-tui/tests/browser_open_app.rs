@@ -99,14 +99,52 @@ fn a_named_pane_wins_over_the_callers_terminal() {
         Some(CALLER_TERMINAL),
     );
     assert!(run.output.status.success(), "{}", run.stderr());
+    // An explicit pane is a script or agent target, often in a workspace the
+    // window does not show: the tab opens there and the view stays (no
+    // tab.focus; only the implicit default-pane fallback reveals).
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["action"], "openBrowser", "{call}");
     assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
     let lookup = run
         .daemon
         .iter()
         .find(|request| request["operation"] == "tab.get" && request["params"]["pane"] == PANE)
         .unwrap_or_else(|| panic!("no tab.get of the named pane: {:?}", run.daemon));
+    // The daemon refuses `tab: current` without every parent: the CLI reads
+    // the named pane's own screen and workspace first.
     assert_eq!(lookup["params"]["tab"], "current", "{lookup}");
+    assert_eq!(lookup["params"]["screen"], SCREEN, "{lookup}");
+    assert_eq!(lookup["params"]["workspace"], WORKSPACE, "{lookup}");
+}
+
+#[test]
+fn a_named_screen_opens_in_its_shown_pane() {
+    let run = Run::new(true).cli(
+        &["--json", "tab", "create", "browser", "--url", URL, "--screen", SCREEN],
+        Some(CALLER_TERMINAL),
+    );
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["action"], "openBrowser", "{call}");
+    assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
+}
+
+#[test]
+fn an_explicit_pane_in_a_background_workspace_keeps_the_selected_workspace() {
+    // Home mode: the window shows a page, so the implicit fallback would
+    // reveal. An explicit --pane is a script or agent target: the tab opens
+    // there and the user's selected workspace stays.
+    let run = Run::app(AppMode::Home)
+        .cli(&["--json", "tab", "create", "browser", "--url", URL, "--pane", PANE], None);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let actions: Vec<_> = run.app.iter().map(|c| c["params"]["action"].clone()).collect();
+    assert_eq!(
+        actions,
+        vec![json!("openBrowser")],
+        "no tab.focus or workspace select: {actions:?}"
+    );
+    assert_eq!(run.app[0]["params"]["target"], format!("tab:{SHOWN_TAB}"));
+    assert_eq!(selected_workspace(&[]), selected_workspace(&run.app), "{:?}", run.app);
 }
 
 #[test]
@@ -335,12 +373,15 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
         while reader.read_line(&mut line).unwrap_or(0) > 0 {
             let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
             line.clear();
-            let result = daemon_result(&request);
+            let result = match incomplete_chain(&request["params"]) {
+                Some(message) => Err(("selector.invalid", message)),
+                None => daemon_result(&request).map_err(|message| ("resource.not_found", message)),
+            };
             let response = match result {
                 Ok(result) => json!({"protocol": "cmux.protocol/2", "type": "response",
                     "id": request["id"], "ok": true, "result": result}),
-                Err(message) => json!({"protocol": "cmux.protocol/2", "type": "response",
-                    "id": request["id"], "ok": false, "error": {"code": "resource.not_found",
+                Err((code, message)) => json!({"protocol": "cmux.protocol/2", "type": "response",
+                    "id": request["id"], "ok": false, "error": {"code": code,
                     "message": message, "details": {}, "retryable": false}}),
             };
             requests.push(request);
@@ -350,6 +391,25 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
         }
         requests
     })
+}
+
+/// The real daemon's chain rule (resource_selector.rs): a `current` or
+/// name selector needs every structural parent above it; an exact id
+/// stands alone.
+fn incomplete_chain(params: &Value) -> Option<String> {
+    let levels = ["workspace", "screen", "pane", "tab"];
+    for (index, kind) in levels.iter().enumerate() {
+        let Some(raw) = params[*kind].as_str() else { continue };
+        if raw.starts_with(&format!("{}_", if *kind == "workspace" { "ws" } else { kind })) {
+            continue;
+        }
+        if let Some(missing) =
+            levels[..index].iter().rev().find(|parent| params[**parent].is_null())
+        {
+            return Some(format!("{kind} current/name selector requires a {missing} selector"));
+        }
+    }
+    None
 }
 
 fn daemon_result(request: &Value) -> Result<Value, String> {
@@ -373,6 +433,17 @@ fn daemon_result(request: &Value) -> Result<Value, String> {
     }
 }
 
+/// The workspace the fake app's window selects after `calls`: it starts on
+/// a background one and moves to the tab's workspace on any call that
+/// focuses, selects or shows something.
+fn selected_workspace(calls: &[Value]) -> &'static str {
+    let moves = |call: &Value| {
+        let action = call["params"]["action"].as_str().unwrap_or_default();
+        ["focus", "select", "show", "reveal"].iter().any(|verb| action.contains(verb))
+    };
+    if calls.iter().any(moves) { WORKSPACE } else { "ws_00000000000000000000000000000000" }
+}
+
 /// The fake app's answer to one `action.run`.
 fn app_response(mode: AppMode, request: &Value) -> Value {
     let params = &request["params"];
@@ -392,7 +463,13 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
             "message": HOME_REFUSAL,
             "data": {"action": "openBrowser", "reason": "This page has no tabs."}}});
     }
-    let created = if params["action"] == "openBrowser" { json!([NEW_TAB]) } else { json!([]) };
+    // The real app maps created ids only after a waited run settles; a run
+    // that does not wait answers `created: []` at once.
+    let created = if params["action"] == "openBrowser" && params["wait"] == true {
+        json!([NEW_TAB])
+    } else {
+        json!([])
+    };
     json!({"id": request["id"], "ok": true, "result": {"action": params["action"], "ran": true,
         "waited": true, "created": created, "replayed": false}})
 }
