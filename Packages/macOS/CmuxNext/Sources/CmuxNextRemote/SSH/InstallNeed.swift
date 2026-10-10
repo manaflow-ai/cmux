@@ -57,7 +57,8 @@ public enum RemoteRefusal: String, CaseIterable, Hashable, Sendable {
     /// An installing client with an unpublished build found another build.
     case buildMismatch = "remote-build-mismatch"
 
-    /// The first `[code]` in a link's error output, or nil when it has none.
+    /// The refusal whose `[code]` is in a link's error output (Rust emits at
+    /// most one), or nil when it has none.
     public static func parse(_ output: String) -> RemoteRefusal? {
         allCases.first { output.contains("[\($0.rawValue)]") }
     }
