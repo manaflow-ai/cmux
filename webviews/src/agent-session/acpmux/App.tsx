@@ -2544,6 +2544,12 @@ function AcpmuxPane() {
       tabPinned.current = state?.pinned === true;
       setSideTabs(state?.sideTabs === true);
     });
+  const refreshTabState = () => void readTabState().catch(() => undefined);
+  // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
+  const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
+    runHeaderAction(id, cwd, mode);
+    window.setTimeout(refreshTabState, 400);
+  };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
     if (!quick) void readTabState().catch(() => undefined);
@@ -3163,10 +3169,11 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
-                      onTerminal={(mode) => runHeaderAction(HEADER_ACTIONS.terminal, localCwd, mode)}
-                      onBrowser={(mode) => runHeaderAction(HEADER_ACTIONS.browser, undefined, mode)}
+                      onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                      onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       sideTabs={sideTabs}
                       onSideTabs={toggleSideTabs}
+                      onPointerEnter={quick ? undefined : refreshTabState}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.

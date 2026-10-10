@@ -83,17 +83,28 @@ final class AgentChatSplitToggles {
     /// click hides them by zooming the chat, which closes nothing; on a zoomed chat it shows them
     /// again. Returns whether the panes beside the chat show after the click; nil when the store
     /// does not list the chat.
-    func sideTabs(chat: String, store: DaemonStore?, actions: AgentChatTabActions, openColumn: () -> Void) -> Bool? {
+    /// `openColumn` returns whether it started the page; until the page's split shows (the page is
+    /// made, then moved), a second click opens no second page.
+    func sideTabs(chat: String, store: DaemonStore?, actions: AgentChatTabActions, openColumn: () -> Bool,
+                  now: ContinuousClock.Instant = .now) -> Bool? {
         guard let store, let state = Self.sideTabs(of: chat, in: store) else { return nil }
         switch state {
         case .alone:
-            openColumn()
+            if let opening, now - opening < Self.openingWait { return true }
+            guard openColumn() else { return false }
+            opening = now
             return true
         case .shown, .hidden:
+            opening = nil
             actions.run("toggleSplitZoom", cwd: nil)
             return state == .hidden
         }
     }
+
+    /// When [+] last started a New Tab page column.
+    private var opening: ContinuousClock.Instant?
+    /// How long a started column may take to show before a click opens another.
+    private static let openingWait: Duration = .seconds(3)
 
     enum SideTabs { case alone, shown, hidden }
 

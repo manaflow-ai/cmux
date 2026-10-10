@@ -41,6 +41,7 @@ export function ChatHeaderTools({
   onBrowser,
   sideTabs = false,
   onSideTabs,
+  onPointerEnter,
   tabTools = true,
   summary,
   menu,
@@ -55,6 +56,8 @@ export function ChatHeaderTools({
   /// Whether the panes beside the chat show: [+] New tab reads Hide tabs, in the same spot.
   sideTabs?: boolean;
   onSideTabs?: () => void;
+  /// The pointer reached the tools: the App rereads the layout, so [+] reads right before a click.
+  onPointerEnter?: () => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
   summary: ReactNode;
@@ -71,7 +74,7 @@ export function ChatHeaderTools({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const actions = useQuickActions();
   return (
-    <div className="acpmux-header-tools">
+    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {tabTools &&
         actions.map(({ id, mode }) =>
           id === "newTab" ? (

@@ -31,11 +31,19 @@ struct HeaderSideTabsTests {
             publish()
         }
 
+        /// Whether the New Tab page's split shows as soon as it is asked for; else it is still
+        /// being made (the page is created, then moved), as when a second click comes fast.
+        var columnShowsAtOnce = true
+        private(set) var columnsAsked = 0
+
         /// The New Tab page column the header asks for: a page in a new pane right of the chat.
-        func openColumn() {
+        func openColumn() -> Bool {
+            columnsAsked += 1
+            guard columnShowsAtOnce else { return true }
             panes.append((PaneID(rawValue: next), SurfaceID(rawValue: next), .conversation))
             next += 1
             publish()
+            return true
         }
 
         func addTerminal() {
@@ -79,5 +87,13 @@ struct HeaderSideTabsTests {
         #expect(screen.click(toggles) == "New tab")
         #expect(screen.shown == ["chat"])
         #expect(screen.panes.count == 2)
+    }
+
+    @Test func aSecondClickWhileThePageIsMadeOpensNoSecondPage() {
+        let screen = Screen(), toggles = AgentChatSplitToggles()
+        screen.columnShowsAtOnce = false
+        #expect(screen.click(toggles) == "Hide tabs")
+        #expect(screen.click(toggles) == "Hide tabs")
+        #expect(screen.columnsAsked == 1)
     }
 }

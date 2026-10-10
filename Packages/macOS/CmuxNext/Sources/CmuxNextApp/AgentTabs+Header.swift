@@ -26,7 +26,7 @@ extension AgentTabStore {
             guard let self else { return nil }
             let chat = resolve(provisional)
             return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
-                self?.openNewTabColumn(beside: provisional)
+                self?.openNewTabColumn(beside: provisional) ?? false
             }
         })
         model.chatMenuItems = actions.menuItems
@@ -41,15 +41,17 @@ extension AgentTabStore {
 
     /// [+] New tab's column: a New Tab page in the chat's folder, moved to a new split on its right
     /// as New side chat's tab is. The page's choices replace it in whichever pane it is in then.
-    private func openNewTabColumn(beside provisional: String) {
+    /// Returns whether the page was started.
+    private func openNewTabColumn(beside provisional: String) -> Bool {
         let chat = resolve(provisional)
-        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd) else { return }
-        openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
+        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd) else { return false }
+        return openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 
-    private func openBeside(_ provisional: String, open: (PaneID, DaemonService) throws -> AgentTabPending) {
+    @discardableResult
+    private func openBeside(_ provisional: String, open: (PaneID, DaemonService) throws -> AgentTabPending) -> Bool {
         guard let (pane, daemon) = locate(resolve(provisional)),
-              let pending = try? open(pane, daemon) else { return }
+              let pending = try? open(pane, daemon) else { return false }
         // task-owner: one tab creation, then one move of that tab
         Task { [weak self] in
             guard let created = try? await pending.value() else { return }
@@ -57,5 +59,6 @@ extension AgentTabStore {
             _ = self?.actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(
                 target: target, arguments: ["direction": .string("right")], origin: .user))
         }
+        return true
     }
 }
