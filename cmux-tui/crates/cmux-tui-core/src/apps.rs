@@ -44,7 +44,7 @@ mod provider;
 #[cfg(unix)]
 mod relay;
 #[cfg(unix)]
-mod routing;
+pub(crate) mod routing;
 #[cfg(unix)]
 mod runs;
 #[cfg(unix)]
@@ -147,6 +147,13 @@ pub(crate) fn advertised_capabilities() -> Vec<&'static str> {
 
 pub(crate) fn advertised_with(app_host: bool) -> Vec<&'static str> {
     if app_host { vec![CAPABILITY, CANCEL_REQUEST_CAPABILITY] } else { Vec::new() }
+}
+
+/// The `cmux-app-host` binary, when this build has one here (apps and
+/// script sessions both run in it).
+#[cfg(unix)]
+pub(crate) fn host_binary() -> Option<std::path::PathBuf> {
+    host::resolve_binary()
 }
 
 /// The capability to advertise, if this build can run apps here.

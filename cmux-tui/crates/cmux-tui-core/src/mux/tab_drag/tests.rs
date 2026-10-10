@@ -87,14 +87,16 @@ fn cmux_next_respawn_split_refuses_a_pane_that_changed_since_the_fresh_tab() {
     let before = tabs(&mux, pane);
     let split = TabDragDestination::Split { pane, edge: TabDropEdge::Right, ratio: None };
     let guard = SourceGuard { pane, tabs: [fresh, dragged] };
-    let error = mux.commit_tab_drag_guarded(dragged, split, None, Some(guard)).unwrap_err();
+    let error =
+        mux.commit_tab_drag_guarded(&Actor::Daemon, dragged, split, None, Some(guard)).unwrap_err();
     assert!(error.to_string().contains("stale"), "{error:#}");
     assert_eq!(tabs(&mux, pane), before);
     assert_eq!(screen_panes(&mux, pane), vec![pane]);
     // With the expected pane the same split commits.
     mux.close_surface(other).unwrap();
     let guard = SourceGuard { pane, tabs: [fresh, dragged] };
-    let outcome = mux.commit_tab_drag_guarded(dragged, split, None, Some(guard)).unwrap();
+    let outcome =
+        mux.commit_tab_drag_guarded(&Actor::Daemon, dragged, split, None, Some(guard)).unwrap();
     assert_eq!(tabs(&mux, outcome.pane), vec![dragged]);
     assert_eq!(tabs(&mux, pane), vec![fresh]);
 }

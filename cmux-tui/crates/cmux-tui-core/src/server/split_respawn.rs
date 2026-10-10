@@ -20,12 +20,13 @@ pub(super) fn split_tab(
     respawn: Option<SplitRespawnRequest>,
     transaction: Option<String>,
 ) -> anyhow::Result<crate::TabDragOutcome> {
+    let actor = origin_gate::connection_actor(mux, client);
     match respawn {
-        None => mux.move_tab_to_split(surface, pane, edge, ratio, transaction),
+        None => mux.move_tab_to_split_as(&actor, surface, pane, edge, ratio, transaction),
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
             mux.move_tab_to_split_respawning_as(
-                &origin_gate::connection_actor(mux, client),
+                &actor,
                 surface,
                 pane,
                 edge,
@@ -108,7 +109,7 @@ pub(super) fn placement_spawn_options(
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
     let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
     let argv = shell_argv(&env, shell_args, frontend_shell);
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv, ..Default::default() })
 }
 
 /// `terminal-shell-args-v1`: the shell the terminal would run with no

@@ -191,11 +191,9 @@ pub fn import(dir: &Path, db: &Path, items: &[Imported]) -> Result<usize, String
         ));
     }
     for item in items {
-        match &item.date {
-            Some(date) => chat.append_dated(item.kind, &item.text, date),
-            None => chat.append(item.kind, &item.text),
-        }
-        .map_err(|e| format!("appending: {e}"))?;
+        // Imported: its lines never hold a turn (the chat's own side does).
+        chat.append_imported(item.kind, &item.text, item.date.as_deref())
+            .map_err(|e| format!("appending: {e}"))?;
     }
     chat.shutdown();
     Ok(items.len())

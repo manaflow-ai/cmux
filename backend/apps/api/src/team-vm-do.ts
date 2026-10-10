@@ -3,18 +3,19 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
-import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
+import { fromBase64, isStream, journalCaller, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
 import { RegistryOutbox } from "./team-vm-registry-outbox.ts"
-import { TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
+import { prefixReport, TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
 import { TEAM_VM_REGISTRY } from "./team-vm-admin.ts"
 import { BindRunner } from "./team-vm-bind-run.ts"
 import { FakeGuest, type FakeGuestMode } from "./team-vm-fake-guest.ts"
+import { adminAction, pauseRetired, taintSummary, type AdminReply, type AdminRequest, type TaintSummary } from "./team-vm-taint-run.ts"
+import { taintView } from "./domains/team-vm-taint.ts"
+import { downloadExport, exportUnknown, type ExportRunDeps } from "./team-vm-export-run.ts"
+import { ExportTickets } from "./team-vm-export.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
-/** Prefix report bounds: pages of this size, at most this many pages, at most this many names in the answer. */
-const REPORT_PAGE = 100
-const REPORT_MAX_PAGES = 50
-const REPORT_MAX_NAMES = 200
 /** Retry of undelivered registry events when the alarm next runs for this object. */
 const REGISTRY_RETRY_MS = 60_000
 
@@ -51,18 +52,6 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     return this.journalStore
   }
 
-  /**
-   * The journal is the team's zero-loss tier and holds every person's files: only the VM's own
-   * install for the current epoch reads or writes it, never a member's session or another install.
-   */
-  private journalCaller(state: TeamVmState, p: Principal, risk: "read" | "mutate-own"): { ok: true } | { ok: false; code: string; message: string } {
-    if (p.kind !== "install" || p.team === undefined || p.team !== state.team) return { ok: false, code: "auth.forbidden", message: "only the team VM's install uses the journal" }
-    if (!state.vm_install) return { ok: false, code: "team_vm.not_bound", message: "the team VM has not bound its install yet" }
-    if (p.install !== state.vm_install) return { ok: false, code: "auth.forbidden", message: "only the team VM's install uses the journal" }
-    if (!p.grant_classes?.includes(risk)) return { ok: false, code: "auth.forbidden", message: `grant does not cover ${risk}` }
-    return { ok: true }
-  }
-
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, teamVmDomain as Domain<TeamVmState>, "team_vm")
   }
@@ -77,7 +66,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
 
   protected read(state: TeamVmState, op: string, params: unknown, principal: Principal): ReadResult {
     if (op === "team_vm.journal.high_water" || op === "team_vm.journal.read") {
-      const allowed = this.journalCaller(state, principal, "read")
+      const allowed = journalCaller(state, principal, "read")
       if (!allowed.ok) return allowed
       const p = (params ?? {}) as { stream?: unknown; from_seq?: unknown }
       if (!isStream(p.stream)) return { ok: false, code: "validation.invalid", message: "unknown journal stream" }
@@ -94,9 +83,16 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
       .map(([lease, l]) => ({ lease, holder: l.holder, reason: l.reason, expires_at: l.expires_at }))
     return {
       ok: true,
-      value: { team: state.team ?? principal.team, status: state.status, vm: state.vm, epoch: state.epoch, leases, last_error: state.last_error, updated_at: state.updated_at },
+      value: { team: state.team ?? principal.team, status: state.status, vm: state.vm, epoch: state.epoch, leases, last_error: state.last_error, updated_at: state.updated_at, ...taintView(state) },
       revision: ""
     }
+  }
+
+  /** team_vm.status also says when the team has no owner (TeamDO holds the roles; review P2-3). An unreachable TeamDO leaves the field out. */
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    const r = await super.readOp(entity, principal, op, params)
+    const noOwner = r.ok && op === "team_vm.status" ? await (this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { noOwner(e: string): Promise<boolean> }).noOwner(entity).catch(() => undefined) : undefined
+    return noOwner === undefined || !r.ok ? r : { ...r, value: { ...(r.value as object), no_owner: noOwner } }
   }
 
   protected override nextWakeAt(state: TeamVmState, now: number): number | null {
@@ -115,6 +111,37 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (state.pending && state.pending.retry_at <= now) await this.reconcile()
     await this.drainRegistry()
     await this.binder.pass(now)
+    // After any running provider pass: a start that read the state before a rebuild must not resume the old VM after its pause.
+    await this.inflight
+    await pauseRetired(this.taintDeps, now)
+  }
+
+  // Taint after a member removal (cx-q4f3): team-vm-taint-run.ts.
+  private get taintDeps(): ExportRunDeps {
+    const driver = () => (providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore))
+    return { state: () => this.boundEngine?.currentState, driver, refusal: () => providerRefusal(this.env), submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile(), exportTickets: () => new ExportTickets(this.sqlStore) }
+  }
+
+  /** RPC from TeamDO's certificate issue: the taint of a team that has a VM record (never creates one). */
+  async taintStatus(entity: string): Promise<TaintSummary | null> { return this.isBound(entity) ? taintSummary(this.bind(entity).currentState) : null }
+
+  /** RPC from TeamDO (cx-n3fb): the install bound for the current epoch, null when none (never creates a record). */
+  async currentInstall(entity: string): Promise<string | null> { return this.isBound(entity) ? (this.bind(entity).currentState.vm_install ?? null) : null }
+
+  /** RPC from TeamDO after its owner/admin check; TeamDO audits the outcome. */
+  async adminAction(entity: string, req: AdminRequest): Promise<AdminReply> {
+    if (!this.isBound(entity)) return { ok: false, code: "selector.not_found", message: "this team has no VM" }
+    this.bind(entity)
+    return adminAction(this.taintDeps, req)
+  }
+
+  /** The team files download (`GET /v1/team-vm/export/<team>/<ticket>`, cx-lyvg): the ticket the export op minted, single use. */
+  async exportDownload(entity: string, ticket: string): Promise<Response> { return this.isBound(entity) ? (this.bind(entity), downloadExport(this.taintDeps, ticket)) : exportUnknown() }
+
+  /** A member-removal notice for a team that never had a VM creates no record here. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    if (!this.isBound(entity) && items.every((i) => i.op === "team_vm.member_removed")) return { done: items.map((i) => i.id) }
+    return super.systemDeliver(entity, source, items)
   }
 
   /**
@@ -158,7 +185,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     })
     const state = this.boundEngine?.currentState
     if (!state) return reject("owner.unreachable", "team VM record not open")
-    const allowed = this.journalCaller(state, principal, "mutate-own")
+    const allowed = journalCaller(state, principal, "mutate-own")
     if (!allowed.ok) return reject(allowed.code, allowed.message)
     const p = (frame.params ?? {}) as { stream?: unknown; epoch?: unknown; first_seq?: unknown; last_seq?: unknown; bytes?: unknown; sha256?: unknown }
     if (!isStream(p.stream) || typeof p.epoch !== "number" || typeof p.first_seq !== "number" || typeof p.last_seq !== "number" || typeof p.bytes !== "string" || typeof p.sha256 !== "string")
@@ -412,28 +439,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     // The same prefix new team VMs get (createSlug); offset paging over a changing list may skip or repeat a row (a report, not a ledger).
     const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
     if (!prefix) throw new Error("team_vm.no_prefix")
-    let listed = 0
-    let matched = 0
-    let known = 0
-    const unknown: string[] = []
-    let truncated = false
-    for (let page = 0; ; page++) {
-      if (page >= REPORT_MAX_PAGES) {
-        truncated = true
-        break
-      }
-      const r = await driver.listPage(REPORT_PAGE, page * REPORT_PAGE)
-      listed += r.size
-      for (const vm of r.vms) {
-        if (!vm.slug?.startsWith(prefix)) continue
-        matched++
-        if (this.registry.knows(vm.id)) known++
-        else if (unknown.length < REPORT_MAX_NAMES) unknown.push(vm.slug)
-        else truncated = true
-      }
-      if (r.size < REPORT_PAGE || (r.total !== null && (page + 1) * REPORT_PAGE >= r.total)) break
-    }
-    const report = { prefix, listed, matched, in_registry: known, not_in_registry: unknown, truncated }
+    const report = await prefixReport(driver, prefix, this.registry)
     console.log(JSON.stringify({ msg: "team vm prefix report", ...report, counts: this.registry.counts() }))
     return report
   }
@@ -450,6 +456,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     drop_registry?: boolean
     reset_registry_seed?: boolean
     guest_mode?: FakeGuestMode
+    fail_pause?: number
   }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
@@ -466,6 +473,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
+    if (cmd.fail_pause !== undefined) this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`), this.sqlStore.exec(`INSERT OR REPLACE INTO fake_pause_ctl (id, fail) VALUES (1, ?)`, cmd.fail_pause)
     return this.sqlStore.exec<{ creates: number; starts: number }>(`SELECT creates, starts FROM fake_ctl WHERE id = 1`)[0]!
   }
 

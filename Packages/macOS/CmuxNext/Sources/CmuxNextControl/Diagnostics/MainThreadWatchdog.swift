@@ -44,6 +44,9 @@ public final class MainThreadWatchdog: Sendable {
     /// Busy windows (CPU with no input, animation or output) share the log.
     public let busy: BusyWatchdog
     private let thresholdNanos: UInt64
+    /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only
+    /// when they move it, so host load adds no stall.
+    private let uptime: @Sendable () -> UInt64
     /// The stack is sampled this long into a stall (60% of the threshold),
     /// so a stall that ends just past the threshold still has one; the
     /// sample is dropped when the stall ends below the threshold.
@@ -87,25 +90,30 @@ public final class MainThreadWatchdog: Sendable {
     #endif
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
-    public init(configuration: Configuration = Configuration()) {
+    public convenience init(configuration: Configuration = Configuration()) {
+        self.init(configuration: configuration, uptime: { MainThreadWatchdog.now() })
+    }
+
+    init(configuration: Configuration, uptime: @escaping @Sendable () -> UInt64) {
         self.configuration = configuration
+        self.uptime = uptime
         self.log = HangLog(capacity: configuration.capacity)
         self.busy = BusyWatchdog(log: log)
-        self.thresholdNanos = UInt64(max(configuration.threshold.wholeMilliseconds, 1)) * 1_000_000
-        self.sampleAfterNanos = thresholdNanos * 3 / 5
+        self.thresholdNanos = UInt64(clamping: max(configuration.threshold.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
+        self.sampleAfterNanos = thresholdNanos / 5 * 3 + thresholdNanos % 5 * 3 / 5
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
 
     /// Main-thread work gaps over 16.7 ms since the last reset, and the longest.
     public var longFrameStats: (count: Int, max: Duration) {
-        (Int(longFrames.load(ordering: .relaxed)), .nanoseconds(Int64(longFrameMaxNanos.load(ordering: .relaxed))))
+        (Int(clamping: longFrames.load(ordering: .relaxed)), .nanoseconds(Int64(clamping: longFrameMaxNanos.load(ordering: .relaxed))))
     }
 
     /// Main-thread work gaps over 8.3 ms since the last reset, and the
     /// longest gap of any length.
     public var gapStats: (over120HzFrame: Int, max: Duration) {
-        (Int(frames120.load(ordering: .relaxed)), .nanoseconds(Int64(gapMaxNanos.load(ordering: .relaxed))))
+        (Int(clamping: frames120.load(ordering: .relaxed)), .nanoseconds(Int64(clamping: gapMaxNanos.load(ordering: .relaxed))))
     }
 
     public func resetLongFrames() {
@@ -120,7 +128,7 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         busy.watchCurrentThread()
-        beatNanos.store(Self.now(), ordering: .releasing)
+        beatNanos.store(uptime(), ordering: .releasing)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         // Two observers: every activity but before-waiting stamps first
@@ -156,8 +164,10 @@ public final class MainThreadWatchdog: Sendable {
 
     // MARK: - Main thread
 
-    private func heartbeat(_ activity: CFRunLoopActivity) {
-        let now = Self.now()
+    /// One run-loop activity on the main thread (the observers call it;
+    /// tests call it directly).
+    func heartbeat(_ activity: CFRunLoopActivity) {
+        let now = uptime()
         let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
@@ -191,8 +201,8 @@ public final class MainThreadWatchdog: Sendable {
         if publishedSampleBeat.load(ordering: .acquiring) == beat, let sampler = sampler.withLock({ $0 }) {
             addresses = sampler.copy(count: publishedSampleCount.load(ordering: .relaxed))
         }
-        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)),
-                                cpu: .nanoseconds(Int64(cpuNanos)), addresses: addresses)
+        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: nanos)),
+                                cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
@@ -217,10 +227,10 @@ public final class MainThreadWatchdog: Sendable {
             }
             let beat = beatSequence.load(ordering: .acquiring)
             let due = beatNanos.load(ordering: .acquiring) &+ (beat == sampledBeat ? thresholdNanos : sampleAfterNanos)
-            let now = Self.now()
+            let now = uptime()
             if now < due {
                 // concurrency-allow: dedicated watchdog thread; bounded wait until the next heartbeat check.
-                _ = wake.wait(timeout: .now() + .nanoseconds(Int(due - now)))
+                _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: due - now)))
                 continue
             }
             // The heartbeat is old enough that the main thread may be stalling.
@@ -240,7 +250,7 @@ public final class MainThreadWatchdog: Sendable {
             }
             // Check again one threshold later (or when the stall ends and the loop sleeps).
             // concurrency-allow: dedicated watchdog thread; bounded wait between stall checks.
-            _ = wake.wait(timeout: .now() + .nanoseconds(Int(thresholdNanos)))
+            _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: thresholdNanos)))
         }
     }
 

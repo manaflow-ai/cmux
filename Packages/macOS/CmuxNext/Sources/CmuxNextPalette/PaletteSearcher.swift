@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// Runs searches off the main actor on the latest index snapshot. Each
 /// request carries a generation; the caller drops results whose generation
@@ -11,8 +12,25 @@ public actor PaletteSearcher {
     /// searcher would get it next (state-audit P2), so a test interleaves deterministically.
     private var betweenCalls: (@Sendable (isolated PaletteSearcher) -> Void)?
 
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.searcher")
+    /// Why the shared ranker did not load here (its bundle is missing or broken), nil when it
+    /// did. Without it every query ranks to no rows, so the reason is kept and logged, not lost.
+    public nonisolated let loadError: PaletteRankerBridgeError?
+
     public init() {
-        bridge = try? PaletteRankerBridge()
+        self.init(loading: { try PaletteRankerBridge() })
+    }
+
+    init(loading: @Sendable () throws -> PaletteRankerBridge) {
+        do {
+            bridge = try loading()
+            loadError = nil
+        } catch {
+            let reason = error as? PaletteRankerBridgeError ?? .runtimeFailed(String(describing: error))
+            bridge = nil
+            loadError = reason
+            Self.logger.fault("palette searcher ranker did not load, searches have no rows: \(reason.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Tests: sets ``betweenCalls``.

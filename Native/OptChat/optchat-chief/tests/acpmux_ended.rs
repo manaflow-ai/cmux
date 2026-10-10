@@ -6,9 +6,9 @@
 //! again.
 
 mod common;
+mod exe;
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
@@ -58,12 +58,10 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
     let socket = dir.path().join("acpmux.sock");
     let marker = dir.path().join("respawned");
     let bin = dir.path().join("acpmux");
-    std::fs::write(
+    exe::write_executable(
         &bin,
-        format!("#!/bin/sh\ntouch '{}'\nsleep 30\n", marker.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\ntouch '{}'\nsleep 30\n", marker.display()),
+    );
     // SAFETY: this test binary runs this one test; nothing else reads the env meanwhile.
     unsafe {
         std::env::set_var("ACPMUX_BIN", &bin);

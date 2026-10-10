@@ -106,6 +106,6 @@ extension AppServices {
     /// The key window's role (`KeyWindowRole.resolve`).
     var keyWindowRole: KeyWindowRole? {
         guard let key = keyWindowSource() else { return nil }
-        return KeyWindowRole.resolve(key, ownedByMain: windows.owner(of: key) != nil, isPalette: palette?.owns(key) == true)
+        return KeyWindowRole.resolve(key, ownedByMain: windows.owner(of: key) != nil, isPalette: palette.owns(key) == true)
     }
 }

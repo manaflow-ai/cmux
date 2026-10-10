@@ -37,7 +37,7 @@ extension BrowserProfileService {
     /// The room a new tab of `workspaceID` takes its default from: the room
     /// of the window that shows it, else the active window's.
     func roomDefault(_ workspaceID: String?) -> String? {
-        guard let windows = services.windows else { return nil }
+        let windows = services.windows
         let owner = workspaceID.flatMap { windows.registry.value.owner(of: $0) }
         let room = owner.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
         return services.machines.local.store.profile(room)?.browserProfileID?.rawValue

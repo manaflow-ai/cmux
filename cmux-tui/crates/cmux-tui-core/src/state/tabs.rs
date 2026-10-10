@@ -3,6 +3,7 @@
 //! [`Mux::commit_tab_strip_change`] (tab order changes) or
 //! [`Mux::commit_state`] (rows only), keyed by the request's idempotency key.
 
+use crate::Actor;
 use crate::mux::tab_groups::{pane_by_public_id, tab_public_id};
 use crate::mux::tab_strip::{StripRequest, StripResult};
 use crate::mux::*;
@@ -117,7 +118,12 @@ impl Mux {
     /// browser tab on its record, restating the tab on `session.events`.
     /// The raw `update-frontend-browser-tab {owner}` path; `tab.update`
     /// writes the same column through the tab strip commit.
-    pub(crate) fn commit_browser_owner(&self, tab: &str, owner: &str) -> anyhow::Result<()> {
+    pub(crate) fn commit_browser_owner(
+        &self,
+        actor: &Actor,
+        tab: &str,
+        owner: &str,
+    ) -> anyhow::Result<()> {
         crate::state::window_record_store::validate_key("owner", owner)?;
         let fingerprint = serde_json::json!({
             "operation": "browser.owner.set",
@@ -126,7 +132,7 @@ impl Mux {
             "nonce": crate::workspace_registry::new_uuid_v4(),
         });
         self.commit_state(
-            &WorkspaceMutation::daemon_local("cmux-tui-browser-owner"),
+            &WorkspaceMutation::local("cmux-tui-browser-owner", actor.clone()),
             "browser.owner.set",
             &fingerprint,
             None,

@@ -6,6 +6,7 @@ import { HttpApiBuilder, HttpServer, type HttpApp } from "@effect/platform";
 import { Effect, Layer, ManagedRuntime, type Redacted } from "effect";
 import { CmuxVmApi } from "./api.ts";
 import { authenticationLayer } from "./auth/middleware.ts";
+import type { ServiceKeys } from "./auth/service-keys.ts";
 import type { SessionVerifier, TeamMembership } from "./auth/credentials.ts";
 import type { ApiKeyStore, AuditStore, OwnershipStore } from "./db/stores.ts";
 import { execHandlers } from "./handlers/exec.ts";
@@ -35,6 +36,7 @@ import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook
 export type Services =
   | OwnershipStore
   | ApiKeyStore
+  | ServiceKeys
   | AuditStore
   | UpstreamClient
   | SessionVerifier

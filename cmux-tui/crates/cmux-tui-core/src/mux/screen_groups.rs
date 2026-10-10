@@ -26,6 +26,7 @@ use crate::workspace_registry::{
     new_saved_screen_group_id, new_screen_group_id, validate_tab_group_color,
     validate_tab_group_name,
 };
+mod saved_groups;
 mod screen_order;
 pub(crate) use screen_order::normalize_screen_order;
 
@@ -226,12 +227,14 @@ impl Mux {
     /// workspaces: one local commit through the shared screen path.
     fn commit_screen_change<R>(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: &str,
         mutate: impl FnOnce(&Arc<Mux>, &mut State, &mut ScreenPresentationState) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
-        self.commit_screen_request(StripRequest::local_screens(operation), |mux, state, edit| {
-            mutate(mux, state, &mut edit.screens)
-        })?
+        self.commit_screen_request(
+            StripRequest::local_screens(actor, operation),
+            |mux, state, edit| mutate(mux, state, &mut edit.screens),
+        )?
         .0
         .context("screen change committed no result")
     }
@@ -239,10 +242,11 @@ impl Mux {
     /// A raw screen command that leaves screen order alone.
     fn commit_screen_metadata<R>(
         &self,
+        actor: &Actor,
         mutate: impl FnOnce(&State, &mut ScreenPresentationState) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
         self.commit_screen_rows(
-            StripRequest::local_screens("screen.presentation"),
+            StripRequest::local_screens(actor, "screen.presentation"),
             |state, edit| mutate(state, &mut edit.screens),
         )?
         .0
@@ -273,15 +277,16 @@ impl Mux {
 
     /// Set or clear a screen's color and icon. `None` leaves a field,
     /// `Some(None)` clears it. Returns whether anything changed.
-    pub fn set_screen_metadata(
+    pub fn set_screen_metadata_as(
         self: &Arc<Self>,
+        actor: &Actor,
         screen: ScreenId,
         color: Option<Option<String>>,
         icon: Option<Option<String>>,
     ) -> anyhow::Result<bool> {
         let before = self.screen_presentation_record(screen);
         self.update_screen_presentation(
-            StripRequest::local_screens("screen.metadata"),
+            StripRequest::local_screens(actor, "screen.metadata"),
             screen,
             ScreenMetaUpdate { pinned: None, color, icon },
         )?;
@@ -290,14 +295,15 @@ impl Mux {
 
     /// Pin or unpin a screen. Pinned screens sort first and leave their
     /// group. Returns whether the flag changed and the screen's new index.
-    pub fn set_screen_pinned(
+    pub fn set_screen_pinned_as(
         self: &Arc<Self>,
+        actor: &Actor,
         screen: ScreenId,
         pinned: bool,
     ) -> anyhow::Result<(bool, usize)> {
         let before = self.screen_presentation_record(screen).is_some_and(|record| record.pinned);
         self.update_screen_presentation(
-            StripRequest::local_screens("screen.pin"),
+            StripRequest::local_screens(actor, "screen.pin"),
             screen,
             ScreenMetaUpdate { pinned: Some(pinned), color: None, icon: None },
         )?;
@@ -320,12 +326,13 @@ impl Mux {
     /// Move one screen within its workspace, into another workspace, or into
     /// a new one. The screen keeps its panes, tabs, and terminals; it leaves
     /// its group when it changes workspace.
-    pub fn move_screen(
+    pub fn move_screen_as(
         self: &Arc<Self>,
+        actor: &Actor,
         screen: ScreenId,
         destination: ScreenDestination,
     ) -> anyhow::Result<ScreenMoveOutcome> {
-        self.move_screen_block(&[screen], destination, "screen.move")?;
+        self.move_screen_block(actor, &[screen], destination, "screen.move")?;
         self.with_state(|state| {
             let (wi, si) =
                 locate_screen(state, screen).with_context(|| format!("unknown screen {screen}"))?;
@@ -340,12 +347,13 @@ impl Mux {
 
     fn move_screen_block(
         self: &Arc<Self>,
+        actor: &Actor,
         block: &[ScreenId],
         destination: ScreenDestination,
         operation: &str,
     ) -> anyhow::Result<()> {
         self.move_screen_block_request(
-            StripRequest::local_screens(operation),
+            StripRequest::local_screens(actor, operation),
             block,
             destination,
             false,
@@ -419,14 +427,15 @@ impl Mux {
     /// Create a group from screens of one workspace. Members become
     /// contiguous at the position of the first; screens leave any group they
     /// were in. Pinned screens cannot be grouped.
-    pub fn create_screen_group(
+    pub fn create_screen_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         members: &[ScreenId],
         name: Option<String>,
         color: Option<String>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
         let (id, _) = self.create_screen_group_request(
-            StripRequest::local_screens("screen.group.create"),
+            StripRequest::local_screens(actor, "screen.group.create"),
             members,
             name,
             color,
@@ -489,8 +498,9 @@ impl Mux {
     }
 
     /// Rename, recolor, or collapse a group. A linked saved record follows.
-    pub fn update_screen_group(
+    pub fn update_screen_group_as(
         &self,
+        actor: &Actor,
         group: &str,
         name: Option<String>,
         color: Option<String>,
@@ -503,7 +513,7 @@ impl Mux {
             validate_tab_group_color(color)?;
         }
         self.update_screen_group_request(
-            StripRequest::local_screens("screen.group.update"),
+            StripRequest::local_screens(actor, "screen.group.update"),
             group,
             name,
             color,
@@ -556,14 +566,15 @@ impl Mux {
     }
 
     /// Add screens to a group at `index` inside it (default: the end).
-    pub fn add_screens_to_screen_group(
+    pub fn add_screens_to_screen_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         added: &[ScreenId],
         index: Option<usize>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
         self.add_screens_request(
-            StripRequest::local_screens("screen.group.add"),
+            StripRequest::local_screens(actor, "screen.group.add"),
             group,
             added,
             index,
@@ -635,12 +646,16 @@ impl Mux {
 
     /// Remove screens from their groups; each lands right after its former
     /// group. Returns the groups they left.
-    pub fn remove_screens_from_screen_group(
+    pub fn remove_screens_from_screen_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         removed: &[ScreenId],
     ) -> anyhow::Result<Vec<String>> {
         Ok(self
-            .remove_screens_request(StripRequest::local_screens("screen.group.remove"), removed)?
+            .remove_screens_request(
+                StripRequest::local_screens(actor, "screen.group.remove"),
+                removed,
+            )?
             .0)
     }
 
@@ -684,15 +699,16 @@ impl Mux {
 
     /// Move a whole group within its workspace, into another workspace, or
     /// into a new one. Members keep their order and stay grouped.
-    pub fn move_screen_group(
+    pub fn move_screen_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         destination: ScreenDestination,
     ) -> anyhow::Result<ScreenGroupOutcome> {
         let members = self.screen_group_outcome(group).members;
         anyhow::ensure!(!members.is_empty(), "unknown screen group {group}");
         let workspace_id = self.next_id();
-        self.commit_screen_change("screen.group.move", |_, state, screens| {
+        self.commit_screen_change(actor, "screen.group.move", |_, state, screens| {
             let (from, _) = locate_screen(state, members[0]).context("screen group disappeared")?;
             let (to, index) = match destination {
                 ScreenDestination::Workspace { workspace, index } => match workspace {
@@ -736,10 +752,14 @@ impl Mux {
     }
 
     /// Dissolve a group; its screens stay in place. Returns the members.
-    pub fn ungroup_screen_group(&self, group: &str) -> anyhow::Result<Vec<ScreenId>> {
+    pub fn ungroup_screen_group_as(
+        &self,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<Vec<ScreenId>> {
         Ok(self
             .ungroup_screen_group_request(
-                StripRequest::local_screens("screen.group.ungroup"),
+                StripRequest::local_screens(actor, "screen.group.ungroup"),
                 group,
             )?
             .0)
@@ -789,7 +809,8 @@ impl Mux {
         let mut closed = Vec::new();
         for screen in &members {
             let ok = if end_terminals {
-                self.close_container_ending_terminals(BatchCloseTarget::Screen(*screen)).is_ok()
+                self.close_container_ending_terminals_as(actor, BatchCloseTarget::Screen(*screen))
+                    .is_ok()
             } else {
                 self.close_screen_as(actor, *screen)?
             };
@@ -801,156 +822,6 @@ impl Mux {
     }
 
     // MARK: Saved screen groups
-
-    fn saved_members(&self, members: &[ScreenId]) -> Vec<SavedScreenMember> {
-        let presentation = self.presentation_snapshot();
-        self.with_state(|state| {
-            members
-                .iter()
-                .filter_map(|screen| {
-                    let (wi, si) = locate_screen(state, *screen)?;
-                    let screen = &state.workspaces[wi].screens[si];
-                    let record = presentation
-                        .screens
-                        .screen(screen.public_id.as_str())
-                        .cloned()
-                        .unwrap_or_default();
-                    let cwd = state
-                        .panes
-                        .get(&screen.active_pane)
-                        .and_then(|pane| pane.tabs.get(pane.active_tab))
-                        .and_then(|surface| state.surfaces.get(surface))
-                        .and_then(|runtime| runtime.presented_directory());
-                    Some(SavedScreenMember {
-                        name: screen.name.clone(),
-                        color: record.color,
-                        icon: record.icon,
-                        cwd,
-                    })
-                })
-                .collect()
-        })
-    }
-
-    fn sync_saved_screen_group(&self, group: &str) -> anyhow::Result<()> {
-        let outcome = self.screen_group_outcome(group);
-        let Some(record) = outcome.group else { return Ok(()) };
-        let Some(saved_id) = record.saved_id.clone() else { return Ok(()) };
-        let profile_id = self
-            .presentation_snapshot()
-            .saved_screen_groups
-            .iter()
-            .find(|saved| saved.id == saved_id)
-            .and_then(|saved| saved.profile_id.clone());
-        let saved = SavedScreenGroupRecord {
-            id: saved_id,
-            name: record.name,
-            color: record.color,
-            profile_id,
-            members: self.saved_members(&outcome.members),
-            updated_at_ms: crate::workspace_registry::unix_epoch_ms()?,
-        };
-        let mut registry = self.workspace_registry.lock().unwrap();
-        registry.put_saved_screen_group(&saved)?;
-        self.reload_presentation(&registry)
-    }
-
-    /// Save a group: a session-wide record linked to the live group.
-    pub fn save_screen_group(&self, group: &str) -> anyhow::Result<String> {
-        let saved_id = self.commit_screen_metadata(|_, screens| {
-            let record = screens
-                .groups
-                .get_mut(group)
-                .with_context(|| format!("unknown screen group {group}"))?;
-            Ok(record.saved_id.get_or_insert_with(new_saved_screen_group_id).clone())
-        })?;
-        self.sync_saved_screen_group(group)?;
-        self.emit(MuxEvent::TreeChanged);
-        Ok(saved_id)
-    }
-
-    /// Unsave a live group: delete its saved record and unlink it.
-    pub fn unsave_screen_group(&self, group: &str) -> anyhow::Result<()> {
-        let saved = self
-            .presentation_snapshot()
-            .screens
-            .groups
-            .get(group)
-            .with_context(|| format!("unknown screen group {group}"))?
-            .saved_id
-            .clone()
-            .context("bad request: the screen group is not saved")?;
-        self.delete_saved_screen_group(&saved)?;
-        Ok(())
-    }
-
-    pub fn delete_saved_screen_group(&self, saved: &str) -> anyhow::Result<bool> {
-        let removed = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let removed = registry.delete_saved_screen_group(saved)?;
-            self.reload_presentation(&registry)?;
-            removed
-        };
-        anyhow::ensure!(removed, "unknown saved screen group {saved}");
-        self.publish_journal_event();
-        self.emit(MuxEvent::TreeChanged);
-        Ok(removed)
-    }
-
-    /// Reopen a saved group into `workspace`: one new screen per member, in
-    /// the member's directory, with its name, color, and icon, grouped and
-    /// linked to the saved record. An open group is returned as it is.
-    pub fn reopen_saved_screen_group_as(
-        self: &Arc<Self>,
-        actor: &Actor,
-        saved: &str,
-        workspace: WorkspaceId,
-    ) -> anyhow::Result<ScreenGroupOutcome> {
-        let presentation = self.presentation_snapshot();
-        let record = presentation
-            .saved_screen_groups
-            .iter()
-            .find(|candidate| candidate.id == saved)
-            .cloned()
-            .with_context(|| format!("unknown saved screen group {saved}"))?;
-        if let Some(open) = presentation
-            .screens
-            .groups
-            .values()
-            .find(|group| group.saved_id.as_deref() == Some(saved))
-        {
-            return Ok(self.screen_group_outcome(&open.id));
-        }
-        let mut created = Vec::new();
-        for member in &record.members {
-            let spec = ScreenSpec {
-                name: member.name.clone(),
-                color: member.color.clone(),
-                icon: member.icon.clone(),
-                ..ScreenSpec::default()
-            };
-            let spawn = TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
-            let (_, screen) =
-                self.new_screen_with_spec_as(actor, Some(workspace), spawn, None, spec)?;
-            created.push(screen);
-        }
-        anyhow::ensure!(!created.is_empty(), "bad request: the saved screen group has no members");
-        let outcome =
-            self.create_screen_group(&created, Some(record.name.clone()), Some(record.color))?;
-        let group = outcome
-            .group
-            .as_ref()
-            .map(|group| group.id.clone())
-            .context("screen group disappeared")?;
-        self.commit_screen_metadata(|_, screens| {
-            if let Some(live) = screens.groups.get_mut(&group) {
-                live.saved_id = Some(saved.to_string());
-            }
-            Ok(())
-        })?;
-        self.emit(MuxEvent::TreeChanged);
-        Ok(self.screen_group_outcome(&group))
-    }
 
     /// New screen in `workspace` (default: the active one) with `spec`
     /// applied: the name in the creating commit, the rest (color, icon, pin,
@@ -970,41 +841,42 @@ impl Mux {
         if let Some(icon) = &spec.icon {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
-        let surface = self.new_screen_named_as(actor, workspace, spec.name.clone(), spawn, size)?;
-        let screen = self
-            .with_state(|state| {
-                let pane = state.pane_of(surface.id)?;
-                let (wi, si) = state.screen_of(pane)?;
-                Some(state.workspaces[wi].screens[si].id)
-            })
-            .context("new screen disappeared")?;
+        let (surface, screen) =
+            self.new_screen_created_as(actor, workspace, spec.name.clone(), spawn, size)?;
         if spec.has_presentation() {
-            self.commit_screen_change("screen.create.presentation", |_, state, screens| {
-                let public = screen_public_id(state, screen)?;
-                screens.edit(&public, |record| {
-                    record.color = spec.color.clone();
-                    record.icon = spec.icon.clone();
-                    record.pinned = spec.pinned.unwrap_or(false);
-                });
-                if let Some(group) = &spec.group {
-                    let record = screens
-                        .groups
-                        .get(group)
-                        .with_context(|| format!("unknown screen group {group}"))?;
-                    let (wi, _) = locate_screen(state, screen).context("new screen disappeared")?;
-                    anyhow::ensure!(
-                        record.workspace_key == state.workspaces[wi].key,
-                        "bad request: a screen can join only a group of its own workspace"
-                    );
-                    screens.members.insert(public, group.clone());
-                }
-                if let Some(index) = spec.index {
-                    let (wi, _) = locate_screen(state, screen).context("new screen disappeared")?;
-                    place_screens(state, &[screen], wi, wi, Some(index))?;
-                }
-                Ok(())
-            })?;
-            self.emit_screen_changed(&[screen]);
+            let applied = self.commit_screen_change(
+                actor,
+                "screen.create.presentation",
+                |_, state, screens| {
+                    // A terminal that exited at once may have closed the screen
+                    // already: it was created, and there is nothing to dress.
+                    let Some((wi, _)) = locate_screen(state, screen) else { return Ok(false) };
+                    let public = screen_public_id(state, screen)?;
+                    screens.edit(&public, |record| {
+                        record.color = spec.color.clone();
+                        record.icon = spec.icon.clone();
+                        record.pinned = spec.pinned.unwrap_or(false);
+                    });
+                    if let Some(group) = &spec.group {
+                        let record = screens
+                            .groups
+                            .get(group)
+                            .with_context(|| format!("unknown screen group {group}"))?;
+                        anyhow::ensure!(
+                            record.workspace_key == state.workspaces[wi].key,
+                            "bad request: a screen can join only a group of its own workspace"
+                        );
+                        screens.members.insert(public, group.clone());
+                    }
+                    if let Some(index) = spec.index {
+                        place_screens(state, &[screen], wi, wi, Some(index))?;
+                    }
+                    Ok(true)
+                },
+            )?;
+            if applied {
+                self.emit_screen_changed(&[screen]);
+            }
         }
         Ok((surface, screen))
     }

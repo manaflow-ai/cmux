@@ -79,8 +79,14 @@ extension SidebarRegionView {
         if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
-                // Over the list the band keeps its order: the tile leaves it on the drop.
-                if reorderSections != content?.sections { reorderSections = content?.sections; relayout(animated: true) }
+                // Over the list the band shows the drop's outcome: itself
+                // without the tile (cx-odqn: no flight back, no gap after).
+                let without = content?.sections.map { section in
+                    var section = section
+                    section.items.removeAll { $0.id == drag.subject.itemID }
+                    return section
+                }
+                if reorderSections != without { reorderSections = without; relayout(animated: true) }
                 return
             }
         }
@@ -114,8 +120,9 @@ extension SidebarRegionView {
         land(drag)
     }
 
-    /// The card settles into the slot the region already shows; then the
-    /// region shows its content again (by then the dropped order).
+    /// The card settles into the slot the region already shows (a tile
+    /// dropped on the list has none there: it settles where it is); then
+    /// the region shows its content again (by then the dropped order).
     private func land(_ drag: SidebarRegionDrag) {
         let host = drag.lift.superview ?? self
         SidebarReorderLift.land(drag.lift, at: frame(of: drag.subject).map { host.convert($0, from: self) }) { [weak self] in
@@ -160,5 +167,12 @@ extension SidebarRegionView {
             view.image = image
         }
         return view
+    }
+}
+
+extension SidebarRegionDragSubject {
+    /// The dragged item, or nil for a section.
+    var itemID: LayoutItemID? {
+        if case let .item(id) = self { id } else { nil }
     }
 }

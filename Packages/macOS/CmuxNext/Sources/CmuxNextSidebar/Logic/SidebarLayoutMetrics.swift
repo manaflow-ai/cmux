@@ -71,6 +71,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
+    /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
+    public var hidesWorkspaces = false
+    /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
+    /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
+    public var groupsByFolder = false
 
     public init() {}
 }

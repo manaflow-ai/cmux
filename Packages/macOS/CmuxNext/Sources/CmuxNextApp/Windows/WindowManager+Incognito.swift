@@ -22,7 +22,7 @@ extension WindowManager {
         // The session begins now, so the window's first page is incognito.
         _ = incognitoProfile()
         let daemon = services.daemon
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
             choice
         } else {
@@ -37,7 +37,7 @@ extension WindowManager {
         // session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        Task {
+        Task { [services] in
             guard let connection = daemon.connection else {
                 pendingClaims[key.rawValue] = nil
                 return endIncognitoSessionIfUnused()
@@ -46,7 +46,7 @@ extension WindowManager {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
                     let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
                     if let pane = terminal.pane {
-                        _ = try await browserTabs.open(choice, in: pane, url: address, incognito: true)
+                        _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
                     }
                     return created.rawValue

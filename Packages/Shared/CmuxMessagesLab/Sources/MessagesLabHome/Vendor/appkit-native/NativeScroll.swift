@@ -58,11 +58,17 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         documentView = document
         verticalScroller = SequenceScroller()
         let nc = NotificationCenter.default
-        nc.addObserver(self, selector: #selector(clipMoved(_:)), name: NSView.boundsDidChangeNotification, object: clip)
-        nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) }
-        nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) }
+        // cmux: a block observer on queue: .main (inline for the clip's post on main), not a selector:
+        // a selector into this main-actor view trapped on a post off main (crash program). Tokens kept and removed.
+        observers = [
+            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] n in self?.clipMoved(n) },
+            nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) },
+            nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) },
+        ]
     }
     required init?(coder: NSCoder) { fatalError() }
+    private var observers: [NSObjectProtocol] = []  // cmux
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
 
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
@@ -121,7 +127,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
 
     // MARK: Clip view -> model
 
-    @objc private func clipMoved(_ n: Notification) {
+    private func clipMoved(_ n: Notification) {  // cmux: no selector
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
         let y = clip.bounds.origin.y - shift

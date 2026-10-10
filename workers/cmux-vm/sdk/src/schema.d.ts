@@ -709,6 +709,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/{deviceId}/signed/address": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A device publishes its public IPv6 address
+         * @description Opens the direct IPv6 path to the device's VMs: one firewall rule per VM the ACL allows, UDP 4101 from this one /128, replaced (new rule first, then the old one deleted) when the address changes and deleted when it is cleared or the device is closed. Publish again after every network change. An address that is not one global unicast IPv6 address is 400. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        post: operations["meshDevice.signedDeviceAddress"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -861,7 +881,7 @@ export interface components {
             message: string;
             retryAfterSeconds?: components["schemas"]["Int"];
             /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour";
+            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
             /** @enum {string} */
             _tag: "QuotaExceeded";
         };
@@ -1288,6 +1308,27 @@ export interface components {
             nonce: string;
             /** @description ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message. */
             signature: string;
+        };
+        /** @description A device publishes its own public IPv6 address, authenticated only by its install key: the cmux-mesh-v1 message with purpose address, the device id as target, an empty WireGuard key, the address exactly as sent as the name line (empty for null), and the device's recorded install public key. Fresh (120 s) and single use. */
+        PublishAddressRequest: {
+            /** @description The device's current global unicast IPv6 address (one address: no prefix, zone or IPv4 form; not Teredo, 6to4 or documentation space), or null to clear it. */
+            publicIpv6: string | null;
+            /**
+             * positive
+             * @description When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.
+             */
+            signedAt: components["schemas"]["Int"];
+            /** @description 16 random bytes, base64url without padding. */
+            nonce: string;
+            /** @description ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message. */
+            signature: string;
+        };
+        /** @description The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened. */
+        DeviceAddress: {
+            /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            deviceId: string;
+            /** @description The stored address in canonical form (RFC 5952), or null. */
+            publicIpv6: string | null;
         };
     };
     responses: never;
@@ -4098,6 +4139,15 @@ export interface operations {
                     "application/json": components["schemas"]["NotFound"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
             /** @description QuotaExceeded */
             429: {
                 headers: {
@@ -4600,6 +4650,15 @@ export interface operations {
                     "application/json": components["schemas"]["NotFound"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
             /** @description QuotaExceeded */
             429: {
                 headers: {
@@ -5062,6 +5121,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TunnelConfig"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "meshDevice.signedDeviceAddress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishAddressRequest"];
+            };
+        };
+        responses: {
+            /** @description The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAddress"];
                 };
             };
             /** @description The request did not match the expected schema */

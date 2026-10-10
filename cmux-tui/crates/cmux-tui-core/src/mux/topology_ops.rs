@@ -139,7 +139,7 @@ impl Mux {
         width: f32,
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
@@ -155,25 +155,23 @@ impl Mux {
         ]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self
-            .commit_ordinary_topology_operation_by(
-                actor,
-                ResourceOperation::PaneSplit,
-                selectors,
-                fields,
-            )
+        self.commit_pane_creation_by(actor, ResourceOperation::PaneSplit, selectors, fields)
             .map_err(|error| {
                 // Caller input errors stay visible; spawn failures keep the
                 // generic message.
-                let message = error.to_string();
-                if message.starts_with("bad request") || message.starts_with("terminal_id_exists") {
+                let message = format!("{error:#}");
+                if ["bad request", "terminal_id_exists", "pane_id_exists", "tab_id_exists"]
+                    .iter()
+                    .any(|prefix| message.starts_with(prefix))
+                    || error
+                        .downcast_ref::<ResourceError>()
+                        .is_some_and(|error| error.code == "creation.conflict")
+                {
                     return error;
                 }
                 eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
                 anyhow::anyhow!("pane creation failed")
-            })?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
-        self.ordinary_created_surface(&commit)
+            })
     }
 
     /// `new_pane` with a directory, extra environment, and an optional
@@ -184,7 +182,7 @@ impl Mux {
         target: PaneId,
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -192,14 +190,7 @@ impl Mux {
         let mut fields = Map::new();
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation_by(
-            actor,
-            ResourceOperation::PaneCreate,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneCreate, &commit);
-        self.ordinary_created_surface(&commit)
+        self.commit_pane_creation_by(actor, ResourceOperation::PaneCreate, selectors, fields)
     }
 
     /// New screen with a name (set in the creating commit) and the spawn
@@ -212,6 +203,20 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        Ok(self.new_screen_created_as(actor, workspace, name, spawn, size)?.0)
+    }
+
+    /// `new_screen_named_as` that also returns the new screen. Both ids are
+    /// resolved under the creation handoff, which an exit-close also takes,
+    /// so a terminal that exits at once cannot close the screen first.
+    pub(crate) fn new_screen_created_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        workspace: Option<WorkspaceId>,
+        name: Option<String>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
@@ -237,7 +242,22 @@ impl Mux {
             fields,
         )?;
         self.emit_resource_topology_legacy_events(ResourceOperation::ScreenCreate, &commit);
-        self.ordinary_created_surface(&commit)
+        let surface = self.ordinary_created_surface(&commit)?;
+        let screen = self
+            .with_state(|state| {
+                let pane = state.pane_of(surface.id)?;
+                let (wi, si) = state.screen_of(pane)?;
+                Some(state.workspaces[wi].screens[si].id)
+            })
+            .context("created screen disappeared")?;
+        drop(_creation_handoff);
+        #[cfg(test)]
+        if let Some(hook) =
+            self.screen_created_hook.lock().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            hook(surface.id);
+        }
+        Ok((surface, screen))
     }
 
     /// `new_tab` with a directory, extra environment, and an optional
@@ -409,7 +429,7 @@ impl Mux {
         dir: SplitDir,
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -421,14 +441,7 @@ impl Mux {
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation_by(
-            actor,
-            ResourceOperation::PaneSplit,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
-        self.ordinary_created_surface(&commit)
+        self.commit_pane_creation_by(actor, ResourceOperation::PaneSplit, selectors, fields)
     }
 
     /// Runs a command and optionally creates its workspace with a caller-owned
@@ -515,6 +528,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.split_with_options_as(actor, target, dir, TerminalSpawnOptions::new(cwd, env), size)
+            .map(|created| created.surface)
     }
 
     /// Add a terminal as a viewport-width column after the target's column.
@@ -536,6 +550,7 @@ impl Mux {
             TerminalSpawnOptions::default(),
             size,
         )
+        .map(|created| created.surface)
     }
 
     /// Create a pane and reapply Zellij's default pane distribution to the
@@ -549,6 +564,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_pane_with_options_as(actor, target, TerminalSpawnOptions::default(), size)
+            .map(|created| created.surface)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -604,6 +620,44 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.split_with_as(actor, target, dir, None, Vec::new(), size)
+    }
+
+    /// A pane creation of `actor` (`split`, `new-pane`, `new-pane-right`).
+    /// Keyed by its client-minted pane id, else by its caller-chosen
+    /// terminal id (`split-client-keys-v1`): the creation receipt makes a
+    /// retry of the same request return the first result, and the same key
+    /// with another request `idempotency.conflict`. Unkeyed, it is an
+    /// ordinary creation.
+    fn commit_pane_creation_by(
+        self: &Arc<Self>,
+        actor: &Actor,
+        operation: ResourceOperation,
+        selectors: crate::ResourceSelectors,
+        mut fields: Map<String, Value>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
+        let key = fields
+            .get(CLIENT_PANE_ID_FIELD)
+            .or_else(|| fields.get(RESERVED_TERMINAL_ID_FIELD))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let commit = match key {
+            Some(key) => {
+                let mutation =
+                    WorkspaceMutation::new(format!("client-key:{key}"), "cmux-tui", actor.clone())?;
+                fields.insert("correlation_key".into(), Value::String(format!("client-key:{key}")));
+                self.commit_resource_topology_operation(
+                    operation, selectors, fields, None, &mutation,
+                )?
+            }
+            None => {
+                self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?
+            }
+        };
+        if !commit.replayed {
+            self.emit_resource_topology_legacy_events(operation, &commit);
+        }
+        let surface = self.ordinary_created_surface(&commit)?;
+        Ok(PaneSurfaceCreation { surface, replayed: commit.replayed })
     }
 
     /// A topology op of `actor` on the legacy and TUI paths (P8 landing 3a).

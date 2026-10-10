@@ -114,10 +114,15 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
  */
 export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
   const text = fs.readFileSync(script, "utf8");
-  const files = [...text.matchAll(/"\$SRC\/([^"$]+\.css)"/g)].map((match) => path.join(SESSION, match[1]!));
+  // `$SRC/...` (the session sources) and `$ROOT/webviews/src/...` (shared ui/ files such as
+  // ui/popupSurface.css), in the script's order, so the gallery pane matches the shipped one.
+  const files = [...text.matchAll(/"\$(SRC|ROOT\/webviews\/src)\/([^"$]+\.css)"/g)].map((match) =>
+    match[1] === "SRC" ? path.join(SESSION, match[2]!) : path.join(webviewsRoot, "src", match[2]!),
+  );
   if (!files.some((file) => file.endsWith("shared/styles.css")))
     throw new Error("gallery: build-agent-pane-web.sh no longer names shared/styles.css; update agentPaneStylesheets");
-  return [path.join(webviewsRoot, "src/pages/shared/desktop.css"), ...files];
+  const desktop = path.join(webviewsRoot, "src/pages/shared/desktop.css");
+  return [desktop, ...files.filter((file) => file !== desktop)];
 }
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
@@ -161,9 +166,22 @@ function agentPaneCSS(): string {
       const css = fs.readFileSync(file, "utf8");
       const body = file.endsWith("shared/styles.css")
         ? css.replace(/^@import .*$/gm, "")
-        : inlineRelativeImports(file, css);
+        : file.endsWith("acpmux/tailwind.css")
+          ? `${css}\n${tailwindSources()}`
+          : inlineRelativeImports(file, css);
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
+    .join("\n");
+}
+
+/**
+ * The pane's Tailwind entry scans nothing by itself (`source(none)`): the combined stylesheet sits
+ * under the gallery, so it names the pane's sources by absolute path, as
+ * scripts/agent-pane/tailwind-css.mjs does for the app build.
+ */
+function tailwindSources(): string {
+  return [path.join(SESSION, "acpmux"), path.join(webviewsRoot, "src/ui")]
+    .map((dir) => `@source "${dir}/**/*.{ts,tsx}";`)
     .join("\n");
 }
 

@@ -193,8 +193,9 @@ impl Mux {
     /// `set-row-heights`: every row height of one column at once. The row
     /// set must be exactly the column's rows; `fit` requires a sum of 1000.
     /// `transaction` coalesces undo entries like viewport resizes.
-    pub fn set_row_heights(
+    pub fn set_row_heights_as(
         self: &Arc<Self>,
+        actor: &Actor,
         column: SplitId,
         heights: &[(SplitId, u64)],
         fit: bool,
@@ -234,7 +235,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::daemon_local("cmux-tui-row-heights"),
+                &WorkspaceMutation::local("cmux-tui-row-heights", actor.clone()),
                 ROW_HEIGHTS_OPERATION,
                 &fingerprint,
                 None,

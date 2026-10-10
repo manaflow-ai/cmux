@@ -199,8 +199,9 @@ impl Mux {
     /// to `session` when its current session is `expected` (None: unbound).
     /// Returns the record and whether the call was a replay (the tab already
     /// had `session`).
-    pub(crate) fn bind_conversation_tab_session(
+    pub(crate) fn bind_conversation_tab_session_as(
         &self,
+        actor: &Actor,
         surface: SurfaceId,
         session: &str,
         expected: Option<&str>,
@@ -219,7 +220,7 @@ impl Mux {
             "operation": operation, "browser": browser_id, "session": session, "expected": expected,
         });
         let committed = self.commit_state(
-            &WorkspaceMutation::daemon_local("cmux-tui-conversation-tab"),
+            &WorkspaceMutation::local("cmux-tui-conversation-tab", actor.clone()),
             operation,
             &fingerprint,
             None,
