@@ -34,6 +34,8 @@ final class MachineBrowserPageTab: BrowserTab {
     private(set) var queuedURL: URL?
 
     var contentView: NSView { view }
+    /// The message shown (debug socket).
+    var messageText: String { view.messageText }
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, record: MachineBrowserRecord,
          state: @escaping @MainActor () -> MachineBrowserState, openLocally: @escaping @MainActor (URL?) -> Void) {

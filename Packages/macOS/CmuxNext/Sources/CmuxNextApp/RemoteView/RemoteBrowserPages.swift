@@ -248,7 +248,10 @@ enum RemoteBrowserPages {
                 hosts.append(.object(row))
             }
             let failure: JSONValue = lastLocalFailure.map(JSONValue.string) ?? .null
-            return ["sessions": .array(rows), "local_hosts": .array(hosts),
+            let pages: [String: JSONValue] = services.cache.browsers.compactMapValues { entry in
+                (entry.tab as? MachineBrowserPageTab).map { JSONValue.string($0.messageText) }
+            }
+            return ["sessions": .array(rows), "local_hosts": .array(hosts), "machine_pages": .object(pages),
                     "local_starting": .number(Double(startingLocalHosts)), "local_failure": failure]
         case "navigate":
             guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }
