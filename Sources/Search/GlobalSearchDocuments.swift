@@ -117,10 +117,73 @@ enum GlobalSearchDocuments {
         )
     }
 
-    static func cappedText(_ text: String) -> String {
+    /// An open agent session's transcript, indexed in place of the pane's
+    /// scrollback. Nonisolated so the capture manager builds it (capping up
+    /// to 400k characters) off the main actor.
+    nonisolated static func agentSessionDocument(
+        windowID: UUID,
+        workspaceID: UUID,
+        panelID: UUID,
+        location: String,
+        source: AgentSessionSearchSource,
+        title: String,
+        transcriptText: String
+    ) -> SearchIndexDocument {
+        // The location already names the pane's directory, so the body is
+        // only what was said; a leading path would open every snippet.
+        // Newest messages sit at the end, so a cap keeps the end.
+        let text = cappedTextKeepingEnd(transcriptText)
+
+        return SearchIndexDocument(
+            id: SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession),
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            kind: .agentSession,
+            title: title,
+            location: location,
+            // The row's label: which agent, in place of a generic kind name.
+            anchor: source.agentKind.globalSearchDisplayName,
+            text: text
+        )
+    }
+
+    nonisolated static func cappedText(_ text: String) -> String {
         guard text.count > GlobalSearchIndexingLimits.maxIndexedTextCharacters else { return text }
         let endIndex = text.index(text.startIndex, offsetBy: GlobalSearchIndexingLimits.maxIndexedTextCharacters)
         return String(text[..<endIndex])
+    }
+
+    /// A session row is titled by the pane it lives in, so searching for a
+    /// pane finds a row with that pane's name on it: the pane's own title when
+    /// it names something (a rename, or the agent's task title), otherwise the
+    /// workspace's. Shell defaults ("lucas@host:~", "Terminal", a bare user
+    /// name or path) and the agent's own name don't count as names.
+    nonisolated static func agentSessionRowTitle(
+        workspaceTitle: String,
+        paneTitle: String,
+        agentName: String,
+        userName: String = NSUserName()
+    ) -> String {
+        let workspace = workspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pane = paneTitle
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .drop { "\u{2733}\u{2736}\u{273B}\u{273D}\u{2722}\u{273A}\u{2726}\u{2727}\u{2217}\u{27E2}\u{25D0}\u{25D1}\u{25D2}\u{25D3}\u{25CF} ".contains($0) }
+        let isShellDefault = pane.isEmpty
+            || pane.caseInsensitiveCompare("Terminal") == .orderedSame
+            || pane.caseInsensitiveCompare(userName) == .orderedSame
+            || pane.caseInsensitiveCompare(agentName) == .orderedSame
+            || pane.caseInsensitiveCompare("Claude Code") == .orderedSame
+            || (pane.contains("@") && pane.contains(":"))
+            || pane.hasPrefix("~") || pane.hasPrefix("/")
+        if !isShellDefault { return String(pane) }
+        return workspace.isEmpty ? agentName : workspace
+    }
+
+    nonisolated static func cappedTextKeepingEnd(_ text: String) -> String {
+        guard text.count > GlobalSearchIndexingLimits.maxIndexedTextCharacters else { return text }
+        let startIndex = text.index(text.endIndex, offsetBy: -GlobalSearchIndexingLimits.maxIndexedTextCharacters)
+        return String(text[startIndex...])
     }
 
     static func firstNonEmpty(_ values: String?...) -> String? {

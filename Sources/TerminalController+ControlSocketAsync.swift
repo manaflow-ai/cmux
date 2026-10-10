@@ -164,6 +164,16 @@ extension TerminalController {
                         )
                     }
                 }
+#if DEBUG
+                if authorizedRequest.method == "debug.global_search.query" {
+                    let query = authorizedRequest.params["query"]?.foundationObject as? String ?? ""
+                    let result = await GlobalSearchCoordinator.shared.debugQuery(query)
+                    return self.v2Ok(
+                        id: authorizedRequest.id?.foundationObject,
+                        result: GlobalSearchCoordinator.debugQueryPayload(result)
+                    )
+                }
+#endif
                 if policy.runsOnSocketWorker {
                     // Terminal rename performs an awaited cloud-link mutation. Keep the
                     // actual socket connection task asynchronous instead of parking a

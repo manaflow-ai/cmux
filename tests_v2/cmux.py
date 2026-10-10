@@ -1081,6 +1081,10 @@ class cmux:
             params["label"] = label
         return dict(self._call("debug.window.screenshot", params) or {})
 
+    def global_search_query(self, query: str) -> dict:
+        """Refresh Global Search's live index like opening the palette, then search."""
+        return dict(self._call("debug.global_search.query", {"query": query}, timeout_s=70.0) or {})
+
 
 def main() -> None:
     import argparse
