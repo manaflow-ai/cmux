@@ -80,11 +80,13 @@ public struct SidebarMapping {
         let folder = folderTab(tabs)
         let page = front.flatMap { $0.kind == .browser ? pageFace(workspace, $0) : nil }
         let entries = workspace.status?.entries ?? []
+        // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
+        let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: page?.title ?? workspace.displayName,
-            directory: folder?.cwd.map(abbreviate),
+            directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),
             // The hooks' status line, else the daemon's workspace status
@@ -112,7 +114,7 @@ public struct SidebarMapping {
             // The store refuses every close of its home workspace (`home_not_closable`).
             isClosable: workspace.kind != Self.homeKind,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
-            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(abbreviate)
+            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
     }
 
@@ -224,6 +226,16 @@ public struct SidebarMapping {
         })
         guard kinds.count <= 1 else { return .mixed }
         return kinds.first ?? .terminal
+    }
+
+    /// A folder of another computer (SSH, Cloud) as its shell prompt writes it: its account's
+    /// home (`/Users/<name>` or `/home/<name>`) as `~`. The app does not know that machine's home
+    /// otherwise, and this Mac's home says nothing about it (cx-gaq9).
+    public static func abbreviateRemote(_ path: String) -> String {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home", !parts[2].isEmpty,
+              parts[2] != "Shared" else { return path }
+        return (["~"] + parts.dropFirst(3)).joined(separator: "/")
     }
 
     func abbreviate(_ path: String) -> String {

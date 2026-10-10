@@ -7,6 +7,10 @@ enum RemoteStrings {
     static func placeholderReconnecting(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
     }
+    /// The one-list sidebar's pending row of an SSH machine that is connecting (cx-gaq9).
+    static func sidebarConnecting(_ machine: String) -> String {
+        String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module), machine)
+    }
     static func placeholderOffline(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
     }

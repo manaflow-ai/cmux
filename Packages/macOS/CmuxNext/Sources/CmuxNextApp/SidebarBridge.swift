@@ -185,7 +185,9 @@ final class SidebarBridge {
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
-        let sections = seed.merge(live, launching: launching, failed: failed)
+        var sections = seed.merge(live, launching: launching, failed: failed)
+        // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections)

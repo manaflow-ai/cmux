@@ -355,6 +355,25 @@ export default agentPaneEntry({
         summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
+    "turn-error-with-pdf": {
+      note: "A failed turn keeps its attached PDF available to Retry, so the next request does not lose document context.",
+      snapshot: chat([
+        user("Review the attached build report", 6, {
+          retryAttachments: [
+            {
+              id: "gallery-build-report",
+              kind: "document",
+              name: "build-report.pdf",
+              mimeType: "application/pdf",
+              size: 128,
+              data: "JVBERi0xLjQK",
+              pageCount: 3,
+            },
+          ],
+        }),
+        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
+      ]),
+    },
     "turn-error-long": {
       note: "A turn that failed with a long gateway error: the note wraps and the row grows.",
       snapshot: chat([

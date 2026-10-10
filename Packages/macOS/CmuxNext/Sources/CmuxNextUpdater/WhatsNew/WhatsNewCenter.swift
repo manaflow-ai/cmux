@@ -78,6 +78,10 @@ public final class WhatsNewCenter {
         return task
     }
 
+    /// The newest version seen before this launch (read at `load`), the start of the update's
+    /// span; nil on a fresh install or before `load`.
+    public var lastSeen: WhatsNewVersion? { tracker?.lastSeen }
+
     /// The page opens (the item, the palette, the Help menu,
     /// `updates.whatsNew`): it shows the unseen documents, or the most
     /// recent ones when nothing is unseen, and everything up to this

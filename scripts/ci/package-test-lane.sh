@@ -361,16 +361,33 @@ prebuild_one() {
 # selected packages CMUX_SWIFT_PACKAGE_BUILD_JOBS at a time first; the test
 # pass below then finds each build up to date and runs the tests serially as
 # before, so no two packages' tests ever overlap.
+#
+# A fleet step runs with the cores its worker granted it (CMUX_CI_CPU_BUDGET,
+# hq build-fleet internal/cpubudget), and every swift build here passes --jobs
+# of that grant (swift-test-debug-info.sh). Parallel package builds therefore
+# split the grant: at most one build per 2 granted cores, each build getting
+# its share as its own CMUX_CI_CPU_BUDGET (3 builds x 2 cores on a 6-core
+# grant, where they ran 3 x 6 = 18 compile jobs before). A grant below 4
+# leaves one build at a time: the test pass then builds each package in turn.
 prebuild_packages() {
   local jobs="${CMUX_SWIFT_PACKAGE_BUILD_JOBS:-3}"
-  if ! [[ "$jobs" =~ ^[0-9]+$ ]] || [ "$jobs" -le 1 ] || [ "${SELECTED_COUNT:-0}" -le 1 ]; then
+  if ! [[ "$jobs" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+  local grant_env=()
+  if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
+    local by_grant=$((CMUX_CI_CPU_BUDGET / 2))
+    [ "$by_grant" -ge "$jobs" ] || jobs="$by_grant"
+    [ "$jobs" -lt 1 ] || grant_env=(CMUX_CI_CPU_BUDGET="$((CMUX_CI_CPU_BUDGET / jobs))")
+  fi
+  if [ "$jobs" -le 1 ] || [ "${SELECTED_COUNT:-0}" -le 1 ]; then
     return 0
   fi
   local logs="$work/package-prebuild" started=$SECONDS
   mkdir -p "$logs"
-  echo "::group::Prebuild $SELECTED_COUNT Swift packages, $jobs at a time"
+  echo "::group::Prebuild $SELECTED_COUNT Swift packages, $jobs at a time${grant_env[0]:+ (${grant_env[0]} each)}"
   grep -v '^$' "$selected" \
-    | RUNNER_TEMP="$work" xargs -P "$jobs" -I '{}' \
+    | env RUNNER_TEMP="$work" ${grant_env[@]+"${grant_env[@]}"} xargs -P "$jobs" -I '{}' \
       bash "$lane_script" prebuild-one '{}' "$logs/{}.log" || true
   echo "::endgroup::"
   echo "Prebuilt $SELECTED_COUNT Swift packages in $((SECONDS - started))s."
