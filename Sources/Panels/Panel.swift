@@ -16,6 +16,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case coderouterGuide
     case notifications
     case cloudVMLoading
     case mobilePairing
@@ -47,6 +48,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.coderouterGuide.rawValue.lowercased() {
+            self = .coderouterGuide
             return
         }
         if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
