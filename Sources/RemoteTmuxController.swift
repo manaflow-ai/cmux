@@ -71,7 +71,7 @@ final class RemoteTmuxController {
     /// Completion callbacks for sessions created through a shared multiplexer stream.
     /// The stream publishes the new mirror asynchronously, so the callback fires from
     /// the reconcile that actually admits the workspace.
-    var pendingMultiplexNewSessionCompletions: [String: () -> Void] = [:]
+    var pendingMultiplexNewSessionCompletions: [String: (Bool) -> Void] = [:]
 
     init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
         self.newSessionEnvironment = newSessionEnvironment
@@ -631,57 +631,61 @@ final class RemoteTmuxController {
         intents.pendingSelect = .init(sessionName: sessionName, originatingTabId: originatingTabId)
         multiplexIntentsByHost[hostHash] = intents
         let completionKey = Self.connectionKey(host: host, sessionName: sessionName)
-        pendingMultiplexNewSessionCompletions[completionKey] = { [weak self, weak manager] in
+        pendingMultiplexNewSessionCompletions[completionKey] = { [weak self, weak manager] admitted in
             guard let self else { return }
             let isCurrent = self.newSessionRequestIDs[managerID] == requestID
                 && self.pendingMultiplexNewSessionRequests[managerID] == requestID
-            self.pendingMultiplexNewSessionRequests.removeValue(forKey: managerID)
             if isCurrent {
+                self.pendingMultiplexNewSessionRequests.removeValue(forKey: managerID)
                 self.newSessionRequestIDs.removeValue(forKey: managerID)
                 self.newSessionTasks.removeValue(forKey: managerID)
-                onCreated?()
+                if admitted {
+                    onCreated?()
+                } else {
+                    if var intents = self.multiplexIntentsByHost[hostHash],
+                       intents.pendingSelect?.sessionName == sessionName {
+                        intents.pendingSelect = nil
+                        self.multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
+                    }
+                    if let manager,
+                       AppDelegate.shared?.mainWindowContexts.values
+                         .contains(where: { $0.tabManager === manager }) == true {
+                        self.newSessionEnvironment.reportFailure(host, .create, manager)
+                    }
+                }
                 return
+            }
+            // A newer request owns this manager's pending state. Never remove that
+            // request's marker or clear its selection while cleaning up this one.
+            if self.pendingMultiplexNewSessionRequests[managerID] == requestID {
+                self.pendingMultiplexNewSessionRequests.removeValue(forKey: managerID)
             }
             // A newer request superseded this one after the command was sent. Remove
             // the mirror that briefly surfaced and kill the stale session on the same
             // shared stream; it must never become an unexpected tab.
-            if let mirror = self.teardownMultiplexedMirror(key: completionKey) {
+            if admitted, let mirror = self.teardownMultiplexedMirror(key: completionKey) {
                 self.closeDeadMirrorWorkspace(mirror.mirroredWorkspace, recordHistory: false)
             }
-            self.multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionName)
-            _ = manager
+            if admitted {
+                self.multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionName)
+            }
         }
-        let sent = view.createDetachedSession(named: sessionName) { [weak self, weak manager] succeeded in
+        let sent = view.createDetachedSession(named: sessionName) { [weak self] succeeded in
             guard let self, !succeeded else { return }
-            self.pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)
-            if self.pendingMultiplexNewSessionRequests[managerID] == requestID {
-                self.pendingMultiplexNewSessionRequests.removeValue(forKey: managerID)
-                if self.newSessionRequestIDs[managerID] == requestID {
-                    self.newSessionRequestIDs.removeValue(forKey: managerID)
-                    self.newSessionTasks.removeValue(forKey: managerID)
-                }
-            }
-            if var intents = self.multiplexIntentsByHost[hostHash] {
-                intents.pendingSelect = nil
-                self.multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
-            }
-            guard let manager,
-                  AppDelegate.shared?.mainWindowContexts.values
-                    .contains(where: { $0.tabManager === manager }) == true else { return }
-            self.newSessionEnvironment.reportFailure(host, .create, manager)
+            self.pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)?(false)
         }
         guard sent else {
-            pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)
             if pendingMultiplexNewSessionRequests[managerID] == requestID {
+                if var intents = multiplexIntentsByHost[hostHash],
+                   intents.pendingSelect?.sessionName == sessionName {
+                    intents.pendingSelect = nil
+                    multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
+                }
                 pendingMultiplexNewSessionRequests.removeValue(forKey: managerID)
                 if newSessionRequestIDs[managerID] == requestID {
                     newSessionRequestIDs.removeValue(forKey: managerID)
                     newSessionTasks.removeValue(forKey: managerID)
                 }
-            }
-            if var intents = multiplexIntentsByHost[hostHash] {
-                intents.pendingSelect = nil
-                multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
             }
             return false
         }

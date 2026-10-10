@@ -570,12 +570,13 @@ extension RemoteTmuxController {
                 // was a routed New Workspace, remove the session over the same shared
                 // stream instead of leaving an unreachable orphan behind.
                 channelsByHostSession.removeValue(forKey: key)
-                if pendingMultiplexNewSessionCompletions.removeValue(forKey: key) != nil {
+                if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
+                    completion(false)
                     view.killWorkspaceSession(named: sessionView.sessionName)
                 }
                 continue
             }
-            pendingMultiplexNewSessionCompletions.removeValue(forKey: key)?()
+            pendingMultiplexNewSessionCompletions.removeValue(forKey: key)?(true)
             pendingMultiplexWorkspaceNamesByHost.removeValue(forKey: hostHash)
         }
     }
