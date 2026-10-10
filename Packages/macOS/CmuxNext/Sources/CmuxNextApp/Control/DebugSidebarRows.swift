@@ -14,7 +14,7 @@ enum DebugSidebarRows {
     static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
         guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
         let menu = services.windows.controllers.first.flatMap {
-            SidebarDebugMenu.menu(in: $0.sidebar.container, windowPoint: CGPoint(x: x, y: y))
+            $0.sidebar.container.debugMenu(atWindowPoint: CGPoint(x: x, y: y))
         }
         return .object(["menu": menu.map { .array($0.items.map { .string($0.isSeparatorItem ? "-" : $0.title) }) } ?? .null])
     }
