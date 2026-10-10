@@ -31,7 +31,6 @@ struct CoderouterAccountState: Equatable {
     private(set) var accounts: [CloudTreeNode.CoderouterAccount] = []
     private(set) var destination: CoderouterAccountDestination?
     private(set) var isLoadingScope = false
-    private(set) var knownOrganizationID: String?
     private(set) var pendingRemovalIDs: Set<String> = []
 
     mutating func select(_ newScope: CoderouterAccountScope?) {
@@ -39,12 +38,11 @@ struct CoderouterAccountState: Equatable {
         scope = newScope
         accounts = []
         destination = nil
-        knownOrganizationID = nil
         pendingRemovalIDs = []
         isLoadingScope = newScope != nil
     }
 
-    mutating func beginRefresh(for refreshScope: CoderouterAccountScope) {
+    mutating func invalidateDestination(for refreshScope: CoderouterAccountScope) {
         guard refreshScope == scope else { return }
         destination = nil
     }
@@ -59,7 +57,6 @@ struct CoderouterAccountState: Equatable {
         guard readScope == scope else { return false }
         accounts = newAccounts.filter { !pendingRemovalIDs.contains($0.id) }
         destination = CoderouterAccountDestination(organizationID: organizationID, teamScope: teamScope)
-        knownOrganizationID = organizationID
         isLoadingScope = false
         return true
     }
@@ -108,20 +105,27 @@ struct CoderouterAccountState: Equatable {
 @MainActor
 final class CoderouterCLIOperationLane {
     private var tail: Task<Void, Never>?
+    private var generation = 0
 
     func run(_ operation: @escaping @MainActor () async -> Void) async {
         let task = enqueue(operation)
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
+        await withTaskCancellationHandler(
+            operation: { await task.value },
+            onCancel: { task.cancel() }
+        )
     }
 
     @discardableResult
     func enqueue(_ operation: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let previous = tail
+        generation += 1
+        let taskGeneration = generation
         let task = Task { @MainActor in
+            defer {
+                if generation == taskGeneration {
+                    tail = nil
+                }
+            }
             await previous?.value
             guard !Task.isCancelled else { return }
             await operation()

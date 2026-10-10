@@ -27,6 +27,11 @@ enum CoderouterCLIAccountReader {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
 
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     static func accounts(
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
@@ -39,10 +44,14 @@ enum CoderouterCLIAccountReader {
     /// Reads the selected team's CodeRouter organization and account rows in
     /// one operation. The organization ID is retained by the sidebar so an
     /// account created from a team row can carry an explicit destination.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     static func snapshot(
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        knownOrganizationID: String? = nil,
         run: Run? = nil
     ) async throws -> Snapshot {
         try Task.checkCancellation()
@@ -54,7 +63,6 @@ enum CoderouterCLIAccountReader {
         guard let organizationID = try await resolvedOrganizationID(
             for: teamID,
             name: cmuxTeamName,
-            knownOrganizationID: knownOrganizationID,
             run: invoke
         ) else {
             logger.error("No CodeRouter organization matched cmux team ID \(teamID, privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
@@ -102,26 +110,25 @@ enum CoderouterCLIAccountReader {
     private static func resolvedOrganizationID(
         for cmuxTeamID: String,
         name cmuxTeamName: String?,
-        knownOrganizationID: String?,
         run: Run
     ) async throws -> String? {
         if UUID(uuidString: cmuxTeamID) != nil {
             return cmuxTeamID
-        }
-        if let knownOrganizationID = normalizedID(knownOrganizationID),
-           UUID(uuidString: knownOrganizationID) != nil {
-            return knownOrganizationID
         }
         return try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run)
     }
 
     /// Removes one account from the selected team. The CLI already reads the
     /// account list to select the provider, so no sidebar preflight is needed.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     static func remove(
         accountID: String,
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        knownOrganizationID: String? = nil,
         run: Run? = nil
     ) async throws {
         try Task.checkCancellation()
@@ -135,7 +142,6 @@ enum CoderouterCLIAccountReader {
         guard let organizationID = try await resolvedOrganizationID(
             for: teamID,
             name: cmuxTeamName,
-            knownOrganizationID: knownOrganizationID,
             run: invoke
         ) else {
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
@@ -204,6 +210,11 @@ enum CoderouterCLIAccountReader {
 
     /// Legacy CLI operations share a private config for their whole sequence.
     /// An intervening terminal `org switch` cannot redirect a read or removal.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     static func withIsolatedConfiguration<T>(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         body: ([String: String]) async throws -> T
@@ -339,6 +350,11 @@ enum CoderouterCLIAccountReader {
     /// fills the kernel pipe buffer (the old sidebar reader did exactly that).
     /// This remains internal so the large-output behavior can be covered without
     /// depending on a real CodeRouter installation.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     static func runProcess(
         executable: String,
         arguments: [String],
@@ -364,8 +380,8 @@ enum CoderouterCLIAccountReader {
         }
         let cancellation = CoderouterProcessCancellation(
             process: process,
-            stdout: output.fileHandleForReading,
-            stderr: error.fileHandleForReading
+            stdoutWriter: output.fileHandleForWriting,
+            stderrWriter: error.fileHandleForWriting
         )
 
         let status: Int32
@@ -385,6 +401,7 @@ enum CoderouterCLIAccountReader {
                         }
                     } catch {
                         process.terminationHandler = nil
+                        cancellation.cancel()
                         continuation.resume(throwing: error)
                     }
                 }
@@ -435,18 +452,19 @@ enum CoderouterCLIAccountReader {
     }
 }
 
-/// Process and pipe handles captured by the cancellation handler. Closing the
-/// readers wakes the drain tasks, while SIGKILL guarantees a child that ignores
-/// SIGTERM cannot keep a team refresh alive after the user switches teams.
+/// The process and writer handles captured by the cancellation handler. Killing
+/// the child closes its copies of both writers, and closing the parent's writer
+/// handles also unblocks the drain tasks if Process.run() never succeeds. The
+/// readers stay owned by their drain tasks for their entire lifetime.
 private final class CoderouterProcessCancellation: @unchecked Sendable {
     private let process: Process
-    private let stdout: FileHandle
-    private let stderr: FileHandle
+    private let stdoutWriter: FileHandle
+    private let stderrWriter: FileHandle
 
-    init(process: Process, stdout: FileHandle, stderr: FileHandle) {
+    init(process: Process, stdoutWriter: FileHandle, stderrWriter: FileHandle) {
         self.process = process
-        self.stdout = stdout
-        self.stderr = stderr
+        self.stdoutWriter = stdoutWriter
+        self.stderrWriter = stderrWriter
     }
 
     func cancel() {
@@ -457,7 +475,7 @@ private final class CoderouterProcessCancellation: @unchecked Sendable {
                 _ = Darwin.kill(identifier, SIGKILL)
             }
         }
-        try? stdout.close()
-        try? stderr.close()
+        try? stdoutWriter.close()
+        try? stderrWriter.close()
     }
 }

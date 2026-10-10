@@ -15,22 +15,20 @@ struct CoderouterCLIAccountReaderTests {
     private static let cmuxOrganizationID = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
     @Test("Account reads pass the selected team directly and verify the response scope")
-    func accountReadUsesSelectedTeam() async {
+    func accountReadUsesSelectedTeam() async throws {
         let commands = CommandRecorder()
         let expected = Self.cmuxTeamID
 
-        await #expect(throws: Never.self) {
-            let accounts = try await CoderouterCLIAccountReader.accounts(
-                for: expected,
-                name: nil,
-                run: { arguments in
-                    await commands.append(arguments)
-                    #expect(arguments == ["accounts", "--json", "--team", expected])
-                    return Data("{\"teamId\":\"\(expected)\",\"accounts\":[]}".utf8)
-                }
-            )
-            #expect(accounts.isEmpty)
-        }
+        let accounts = try await CoderouterCLIAccountReader.accounts(
+            for: expected,
+            name: nil,
+            run: { arguments in
+                await commands.append(arguments)
+                #expect(arguments == ["accounts", "--json", "--team", expected])
+                return Data("{\"teamId\":\"\(expected)\",\"accounts\":[]}".utf8)
+            }
+        )
+        #expect(accounts.isEmpty)
 
         #expect(await commands.value == [["accounts", "--json", "--team", expected]])
     }
@@ -55,22 +53,20 @@ struct CoderouterCLIAccountReaderTests {
     }
 
     @Test("Account removal carries the selected team and does not switch the shared organization")
-    func accountRemovalUsesSelectedTeam() async {
+    func accountRemovalUsesSelectedTeam() async throws {
         let accountID = "a10a7f6a-27b5-4e36-9a71-005d2c0539df"
         let commands = CommandRecorder()
 
-        await #expect(throws: Never.self) {
-            try await CoderouterCLIAccountReader.remove(
-                accountID: accountID,
-                for: Self.cmuxTeamID,
-                name: nil,
-                run: { arguments in
-                    await commands.append(arguments)
-                    #expect(arguments == ["remove", accountID, "--yes", "--team", Self.cmuxTeamID])
-                    return Data()
-                }
-            )
-        }
+        try await CoderouterCLIAccountReader.remove(
+            accountID: accountID,
+            for: Self.cmuxTeamID,
+            name: nil,
+            run: { arguments in
+                await commands.append(arguments)
+                #expect(arguments == ["remove", accountID, "--yes", "--team", Self.cmuxTeamID])
+                return Data()
+            }
+        )
 
         #expect(await commands.value == [["remove", accountID, "--yes", "--team", Self.cmuxTeamID]])
     }
@@ -218,6 +214,20 @@ struct CoderouterCLIAccountReaderTests {
         }
     }
 
+    @Test("Legacy organization matching follows the current catalog")
+    func legacyOrganizationMatchingDoesNotReuseAnOldID() throws {
+        #expect(try CoderouterCLIAccountReader.organizationID(
+            matching: "legacy-team",
+            name: "Shared Team",
+            inCatalog: "Shared Team\t11111111-1111-4111-8111-111111111111\n"
+        ) == "11111111-1111-4111-8111-111111111111")
+        #expect(try CoderouterCLIAccountReader.organizationID(
+            matching: "legacy-team",
+            name: "Shared Team",
+            inCatalog: "Shared Team\t22222222-2222-4222-8222-222222222222\n"
+        ) == "22222222-2222-4222-8222-222222222222")
+    }
+
     @Test("The sidebar runs the same CodeRouter CLI as cmux cr: bundled, then PATH, then the installer's")
     func resolvesTheSameCLIAsCmuxCR() {
         let app = URL(fileURLWithPath: "/Applications/cmux.app")
@@ -233,6 +243,45 @@ struct CoderouterCLIAccountReaderTests {
         #expect(resolve([onPath, installed]) == onPath)
         #expect(resolve([installed]) == installed)
         #expect(resolve([]) == nil)
+    }
+
+    @Test("CLI output drains both pipes before waiting for a chatty child")
+    func drainsLargeOutputWithoutDeadlock() async throws {
+        let result = try await CoderouterCLIAccountReader.runProcess(
+            executable: "/bin/sh",
+            arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null; dd if=/dev/zero bs=1024 count=256 1>&2 2>/dev/null"],
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        #expect(result.stdout.count == 256 * 1024)
+        #expect(result.stderr.count == 256 * 1024)
+    }
+
+    @Test("Canceling a running CLI terminates the child and unblocks its readers")
+    func cancellationTerminatesRunningProcess() async throws {
+        let readyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-ready-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: readyURL) }
+        let task = Task {
+            try await CoderouterCLIAccountReader.runProcess(
+                executable: "/bin/sh",
+                arguments: ["-c", "touch \"$CMUX_TEST_READY\"; exec sleep 1000"],
+                environment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_TEST_READY": readyURL.path,
+                ]
+            )
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !FileManager.default.fileExists(atPath: readyURL.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(FileManager.default.fileExists(atPath: readyURL.path))
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
     }
 
     @Test("A malformed account ID never reaches the CLI")
@@ -433,7 +482,6 @@ struct CoderouterAccountStateTests {
         #expect(state.accounts.isEmpty)
         #expect(state.isLoadingScope)
         #expect(state.destination(for: Self.teamB) == nil)
-        #expect(state.knownOrganizationID == nil)
     }
 
     @Test("Changing the signed-in identity clears rows even when the team is unchanged")
@@ -463,12 +511,21 @@ struct CoderouterAccountStateTests {
     @Test("A same-team failure keeps rows but disables account creation")
     func failureKeepsRowsWithoutDestination() {
         var state = loaded(Self.teamA, ["a1"])
-        state.beginRefresh(for: Self.teamA)
         state.fail(for: Self.teamA)
 
         #expect(state.accounts.map(\.id) == ["a1"])
         #expect(state.destination(for: Self.teamA) == nil)
         #expect(!state.isLoadingScope)
+    }
+
+    @Test("An explicit refresh invalidates the last valid add destination")
+    func explicitRefreshInvalidatesDestination() {
+        var state = loaded(Self.teamA, ["a1"])
+        let destination = state.destination(for: Self.teamA)
+
+        #expect(state.destination(for: Self.teamA) == destination)
+        state.invalidateDestination(for: Self.teamA)
+        #expect(state.destination(for: Self.teamA) == nil)
     }
 
     @Test("An optimistic removal stays hidden from an earlier refresh")

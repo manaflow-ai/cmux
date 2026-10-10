@@ -143,12 +143,6 @@ struct MachinesPanelView: View {
             coderouterState.select(currentCoderouterScope)
             viewModel.refreshAccountScope()
         }
-        // A team selection can be confirmed by another surface before this
-        // view receives its own observation update.
-        .onReceive(NotificationCenter.default.publisher(for: .cmuxCloudTeamScopeDidChange)) { _ in
-            coderouterState.select(currentCoderouterScope)
-            requestCoderouterRefresh()
-        }
         .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
             viewModel.refreshLocalWorkspaces(selectedWorkspaceID: selectedWorkspaceID)
         }
@@ -538,14 +532,12 @@ struct MachinesPanelView: View {
     private func refreshCoderouterAccounts() async {
         coderouterState.select(currentCoderouterScope)
         guard let scope = currentCoderouterScope else { return }
-        coderouterState.beginRefresh(for: scope)
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(scope.teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
             let snapshot = try await CoderouterCLIAccountReader.snapshot(
                 for: scope.teamID,
-                name: teamName,
-                knownOrganizationID: coderouterState.knownOrganizationID
+                name: teamName
             )
             // A team or identity switch can finish while the CLI is running.
             guard !Task.isCancelled, currentCoderouterScope == scope else { return }
@@ -571,7 +563,6 @@ struct MachinesPanelView: View {
         // its removal to whichever team is selected now.
         guard let scope = coderouterState.removalScope(selected: currentCoderouterScope) else { return }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
-        let knownOrganizationID = coderouterState.knownOrganizationID
         guard CloudTreeNodeActions.confirmDestructive(
             title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove \u{201C}%@\u{201D} from coderouter?"), account.title),
             message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
@@ -587,8 +578,7 @@ struct MachinesPanelView: View {
                     try await CoderouterCLIAccountReader.remove(
                         accountID: account.id,
                         for: scope.teamID,
-                        name: teamName,
-                        knownOrganizationID: knownOrganizationID
+                        name: teamName
                     )
                     coderouterState.finishRemoval(accountID: account.id)
                 } catch {
@@ -605,7 +595,7 @@ struct MachinesPanelView: View {
     @MainActor
     private func requestCoderouterRefresh() {
         guard !coderouterIsRefreshing else { return }
-        if let scope = currentCoderouterScope { coderouterState.beginRefresh(for: scope) }
+        if let scope = currentCoderouterScope { coderouterState.invalidateDestination(for: scope) }
         coderouterIsRefreshing = true
         coderouterRefreshRequest += 1
     }
@@ -613,11 +603,11 @@ struct MachinesPanelView: View {
     @MainActor
     private func addCoderouterAccount(_ provider: CoderouterProvider) {
         guard let scope = currentCoderouterScope else {
-            viewModel.noteTreeHint(String(localized: "coderouter.selectTeam", defaultValue: "Select a team before adding a coding agent account."))
+            viewModel.noteTreeHint(String(localized: "teamMembers.error.noTeam", defaultValue: "Select a team first."))
             return
         }
         guard let destination = coderouterState.destination(for: scope) else {
-            viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "CodeRouter is still loading this team's account settings. Try again in a moment."))
+            viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "Account settings are still loading for this team. Try again in a moment."))
             requestCoderouterRefresh()
             return
         }

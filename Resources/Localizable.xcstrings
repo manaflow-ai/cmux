@@ -626243,6 +626243,124 @@
         }
       }
     },
+    "coderouter.loadingTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال إعدادات الحساب تُحمّل لهذا الفريق. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kontoeinstellungen für dieses Team werden noch geladen. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account settings are still loading for this team. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración de cuentas de este equipo todavía se está cargando. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les réglages de compte de cette équipe sont encore en cours de chargement. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチームのアカウント設定を読み込んでいます。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 팀의 계정 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此团队的账户设置仍在加载，请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此團隊的帳號設定仍在載入，請稍後再試。"
+          }
+        }
+      }
+    },
+    "coderouter.selectWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مساحة عمل محلية قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen lokalen Workspace aus, bevor du ein Coding-Agent-Konto hinzufügst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a local workspace before adding a coding agent account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un espacio de trabajo local antes de añadir una cuenta de agente de programación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez un espace de travail local avant d’ajouter un compte d’agent de programmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントのアカウントを追加する前に、ローカルワークスペースを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트 계정을 추가하기 전에 로컬 워크스페이스를 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加编程代理账户前，请选择本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增程式代理程式帳號前，請選取本機工作區。"
+          }
+        }
+      }
+    },
     "coderouter.guide.title": {
       "extractionState": "manual",
       "localizations": {
