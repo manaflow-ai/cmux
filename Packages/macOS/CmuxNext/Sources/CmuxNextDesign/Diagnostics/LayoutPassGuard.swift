@@ -46,7 +46,8 @@ public final class LayoutPassGuard {
     public private(set) var maxPassesInOneTurn = 0
     public private(set) var isInstalled = false
 
-    private var turnCounts: [ObjectIdentifier: Int] = [:]
+    /// Per view this turn; the weak reference tells a reused address apart.
+    private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int)] = [:]
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
     private var observer: CFRunLoopObserver?
@@ -97,8 +98,9 @@ public final class LayoutPassGuard {
             classCounts[typeID] = (type, 1)
         }
         let id = ObjectIdentifier(view)
-        let count = (turnCounts[id] ?? 0) + 1
-        turnCounts[id] = count
+        var count = 1
+        if let entry = turnCounts[id], entry.view.object === view { count = entry.count + 1 }
+        turnCounts[id] = (Weak(view), count)
         if count > maxPassesInOneTurn { maxPassesInOneTurn = count }
         guard count == Self.bound + 1, reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
@@ -113,6 +115,11 @@ public final class LayoutPassGuard {
         reports.append(report)
         Self.log.fault("layout loop: \(report.viewClass, privacy: .public) laid out \(count) times in one turn; window \(report.windowClass ?? "none", privacy: .public); ancestry \(ancestry.joined(separator: " < "), privacy: .public)")
         onLoop?(report)
+    }
+
+    struct Weak {
+        weak var object: NSView?
+        init(_ object: NSView) { self.object = object }
     }
 
     private typealias Layout = @convention(c) (NSView, Selector) -> Void

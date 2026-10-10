@@ -57,6 +57,10 @@ final class WindowOverlayLayer {
     private var layoutDepth = 0
     /// Interactive rects changed during the layout pass: applied after it.
     private var rectsChangedInLayout = false
+    /// Placement and child order checks asked for during the layout pass.
+    private var evaluateAfterLayout = false
+    /// A parent move or resize reported during the layout pass.
+    private var geometryAfterLayout = false
     /// Reorders done (for `debug.layers`).
     var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
@@ -69,12 +73,17 @@ final class WindowOverlayLayer {
         // window's layout pass the pages follow after it.
         WindowOverlayHost.host(for: window).onOccludersChange = { [weak self] in
             guard let self else { return }
-            if self.layoutDepth > 0 { self.pageUpdateAfterLayout = true } else { self.requestPageUpdate() }
+            self.requestPageUpdate()
         }
         observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                self?.evaluate()
-                self?.resyncPanelPlanes()
+                guard let self else { return }
+                // Never inside a layout pass: a depth left over by an
+                // exception AppKit caught mid-pass must not block the
+                // deferred work for the rest of the process.
+                self.layoutDepth = 0
+                self.windowDidLayoutWork()
+                self.evaluate()
             }
         })
         // Any move or resize source (drag, an Accessibility client such as
@@ -157,6 +166,14 @@ final class WindowOverlayLayer {
     }
 
     private func windowDidLayoutWork() {
+        if geometryAfterLayout {
+            geometryAfterLayout = false
+            parentGeometryDidChange()
+        }
+        if evaluateAfterLayout {
+            evaluateAfterLayout = false
+            evaluate()
+        }
         resyncPanelPlanes()
         if rectsChangedInLayout {
             rectsChangedInLayout = false
@@ -247,6 +264,13 @@ final class WindowOverlayLayer {
     /// child window order when a page window was added above the overlay.
     func evaluate() {
         guard !isEvaluating, !isTornDown else { return }
+        // Moving the planes or re-adding child windows from inside a view's
+        // layout re-marks the window: after the pass (same display cycle,
+        // before the commit, so no frame shows a page over the ring).
+        guard layoutDepth == 0 else {
+            evaluateAfterLayout = true
+            return
+        }
         isEvaluating = true
         defer { isEvaluating = false }
         let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
@@ -279,6 +303,10 @@ final class WindowOverlayLayer {
     }
 
     private func parentGeometryDidChange() {
+        guard layoutDepth == 0 else {
+            geometryAfterLayout = true
+            return
+        }
         if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.panel,
            panel.parent === window, panel.frame != window.frame {
             panel.setFrame(window.frame, display: false)
@@ -323,6 +351,11 @@ final class WindowOverlayLayer {
     /// Every Chromium page of this window re-applies geometry, clip and
     /// occlusion (`CEFHostView` posts the fork's geometry notification).
     private func requestPageUpdate() {
+        // Pages move their child windows on this: after the layout pass.
+        guard layoutDepth == 0 else {
+            pageUpdateAfterLayout = true
+            return
+        }
         NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
     }
 

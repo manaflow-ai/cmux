@@ -10,8 +10,11 @@ fails when:
 
 - one view was laid out more than LayoutPassGuard.bound times in one
   run-loop turn (`layout_passes.max_in_one_turn`), or the guard caught a loop;
-- a pane's ring/border rect is not its rounded content rect
-  (`rings[].ring_in_sync`), or a plane is out of sync with its home.
+- a plane is out of sync with its home (`planes[].in_sync`: the plane's
+  frame vs the root's rect in window coordinates; this is the ring offset
+  an ancestor move caused), a ring is off its rounded content rect, or the
+  window counted ring lag passes;
+- no step ran with a plane in the overlay panel, or an action failed.
 
 The app crashing (AppKit layout-pass exception) fails the run too.
 
@@ -70,6 +73,8 @@ def check(step, app, results):
         failures.append("%s: layout loop in %s (%s)" % (step, loop.get("view_class"), " < ".join(loop.get("ancestry") or [])))
     rings = 0
     for window in layers.get("windows") or []:
+        if (window.get("ring_lag_passes") or 0) > 0:
+            failures.append("%s: ring lag passes %s (%s)" % (step, window.get("ring_lag_passes"), window.get("last_ring_lag")))
         for plane in window.get("planes") or []:
             if not plane.get("in_sync"):
                 failures.append("%s: plane (%s) out of sync with its home" % (step, plane.get("host")))
@@ -123,6 +128,8 @@ try:
         steps.insert(15, ("toggleSidebar", "action"))
         for name, _ in steps:
             reply = rpc("action.run", {"id": name})
+            if isinstance(reply, dict) and reply.get("error"):
+                failures.append("action %s failed: %s" % (name, json.dumps(reply)[:200]))
             failures += check("action %s -> %s" % (name, json.dumps(reply)[:80]), app, results)
             if app.poll() is not None:
                 break
@@ -152,6 +159,11 @@ finally:
     subprocess.run([CLI, "server", "stop", "--session", "cmux-app-%s" % TAG, "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
 
+# The browser split must have moved a plane into the overlay panel (the
+# path the deferral and the ancestor-move resync change); a run that never
+# left the root proves nothing about it.
+if results and not any("overlay_panel" in r["placement"] for r in results):
+    failures.append("no step ran with the plane in the overlay panel (browser page window never showed)")
 summary = {"tag": TAG, "steps": len(results), "failures": failures,
            "max_in_one_turn": max([r["max_in_one_turn"] for r in results] or [0]),
            "rings_checked": sum(r["rings"] for r in results), "results": results}
