@@ -24,7 +24,7 @@
     "agent-session/acpmux/DictationLevelMeter.tsx#DictationLevelMeter",
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
     "agent-session/acpmux/EffortTrack.tsx#EffortTrack",
-    "agent-session/acpmux/FileSearch.tsx#FileSearch",
+    "agent-session/acpmux/FolderChoice.tsx#FolderChoice",
     "agent-session/acpmux/HomeLists.tsx#HomeLists",
     "agent-session/acpmux/HostError.tsx#HostError",
     "agent-session/acpmux/Keycap.tsx#Keycap",
