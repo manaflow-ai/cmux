@@ -28,7 +28,11 @@ impl Surface {
 
     /// When the terminal's running shell command started (`terminal-activity-v1`).
     pub(crate) fn terminal_busy_since_ms(&self) -> Option<u64> {
-        self.as_pty()?.terminal_metadata.lock().unwrap().busy_since_ms()
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .busy_since_ms()
     }
 
     /// The terminal's OSC 7501 program status records as the public value

@@ -9,7 +9,7 @@
 //! that sleeps until the earliest deadline and is woken by new deadlines.
 
 use std::collections::HashSet;
-use std::sync::{Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
 use serde_json::json;
@@ -139,6 +139,12 @@ fn clear_now(mux: &Mux, end: &OwnerEnd) {
     }
 }
 
+/// A poisoned lock still guards plain data here (sets and lists of weak
+/// handles), so a panic elsewhere never stops auto-clear.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn mux_key(mux: &Arc<Mux>) -> usize {
     Arc::as_ptr(mux) as usize
 }
@@ -166,20 +172,20 @@ fn spawn_watch(
     wait: impl FnOnce(&Weak<Mux>) -> Watch + Send + 'static,
 ) {
     let key = (mux_key(mux), label);
-    if !watched().lock().unwrap().insert(key.clone()) {
+    if !lock(watched()).insert(key.clone()) {
         return;
     }
     let weak = Arc::downgrade(mux);
     let thread_key = key.clone();
     let spawned = std::thread::Builder::new().name("cmux-status-owner".into()).spawn(move || {
         let outcome = wait(&weak);
-        watched().lock().unwrap().remove(&thread_key);
+        lock(watched()).remove(&thread_key);
         if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
             clear_now(&mux, &end);
         }
     });
     if let Err(error) = spawned {
-        watched().lock().unwrap().remove(&key);
+        lock(watched()).remove(&key);
         eprintln!("cmux-tui: status owner watch failed to start: {error}");
     }
 }
@@ -352,7 +358,7 @@ fn expiry() -> &'static Expiry {
 /// Make the expiry thread look at `mux` again (a new or changed deadline).
 fn schedule_expiry(mux: &Arc<Mux>) {
     let expiry = expiry();
-    let mut guard = expiry.muxes.lock().unwrap();
+    let mut guard = lock(&expiry.muxes);
     let weak = Arc::downgrade(mux);
     if !guard.0.iter().any(|known| known.ptr_eq(&weak)) {
         guard.0.push(weak);
@@ -368,7 +374,7 @@ fn run_expiry() {
     let mut failures: u32 = 0;
     loop {
         let (muxes, generation) = {
-            let mut guard = expiry.muxes.lock().unwrap();
+            let mut guard = lock(&expiry.muxes);
             guard.0.retain(|mux| mux.strong_count() > 0);
             (guard.0.clone(), guard.1)
         };
@@ -398,7 +404,7 @@ fn run_expiry() {
         if failures > 0 {
             next = Some(crate::mux::now_ms().saturating_add(1_000u64 << failures.min(8)));
         }
-        let guard = expiry.muxes.lock().unwrap();
+        let guard = lock(&expiry.muxes);
         if guard.1 != generation {
             continue;
         }
