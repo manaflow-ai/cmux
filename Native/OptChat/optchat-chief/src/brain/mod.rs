@@ -1002,8 +1002,6 @@ fn reply_key_at(first: u64, stamp: &str) -> String {
     format!("turn:optchat:{first}:{stamp}")
 }
 
-/// A turn reply: `message.send` whose client_msg_id is the turn key, so a
-/// retry never posts twice.
 /// An outbox entry for `op` under `key`.
 fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
     OutboxEntry {
@@ -1014,9 +1012,12 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         not_before: None,
         attempted: false,
         rate_attempts: 0,
+        previews_until: None,
     }
 }
 
+/// A turn reply: `message.send` whose client_msg_id is the turn key, so a
+/// retry never posts twice.
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;
