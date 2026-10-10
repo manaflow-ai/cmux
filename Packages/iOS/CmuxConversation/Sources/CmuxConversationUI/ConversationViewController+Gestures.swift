@@ -90,7 +90,11 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let translation = pan.translation(in: collectionView).x
         switch pan.state {
         case .began:
-            if translation > 0, let cell = replySwipeCell(at: pan.location(in: collectionView), velocity: pan.velocity(in: collectionView)), let model = cell.model {
+            // UIKit can report the travel past its slop as 0 at .began
+            // (a fast flick lands its first move right on the threshold),
+            // so the direction comes from the velocity shouldBegin checked.
+            let velocity = pan.velocity(in: collectionView)
+            if translation >= 0, velocity.x > 0, let cell = replySwipeCell(at: pan.location(in: collectionView), velocity: velocity), let model = cell.model {
                 replyDragRowID = model.rowID
                 replyHapticFired = false
             } else {
