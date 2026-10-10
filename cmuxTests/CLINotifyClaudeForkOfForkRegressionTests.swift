@@ -44,6 +44,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
 
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_notifications ") || $0.hasPrefix("set_status claude_code ") },
+            "A fork SessionStart must not reset a parent or child pane's visible status; saw \(context.state.commands)"
+        )
+
         let forkParentRecord = try readForkOfForkHookSession(forkParentSessionId, context: context)
         XCTAssertEqual(
             forkParentRecord["surfaceId"] as? String,

@@ -111,7 +111,9 @@ public struct AgentLifecycleReducer: Sendable {
         // A session may be rebound to another pane. Retire its old projection
         // as soon as the new pane reports activity.
         for location in state.sessionLocations(agentKey: agentKey, sessionKey: sessionKey)
-            where location.surfaceId != surfaceId && !location.state.ended {
+            where location.surfaceId != surfaceId
+                && !location.state.ended
+                && event.sequence > location.state.lastSequence {
             state.retire(
                 surfaceId: location.surfaceId,
                 agentKey: agentKey,

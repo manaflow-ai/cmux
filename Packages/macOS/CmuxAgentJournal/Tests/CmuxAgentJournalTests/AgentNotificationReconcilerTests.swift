@@ -112,6 +112,37 @@ struct AgentNotificationReconcilerTests {
         #expect(recovered.disposition != .accepted || recovered.identity != replacement.identity)
     }
 
+    @Test func lateOlderSessionStartCannotSupersedeTheNewerOwner() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        _ = reconciler.apply(event(2, .sessionStarted, source: "claude", session: "new", notify: false))
+
+        let lateStart = reconciler.apply(
+            event(1, .sessionStarted, source: "claude", session: "old", notify: false)
+        )
+        #expect(lateStart.disposition == .stale)
+        #expect(lateStart.invalidatedCorrelationKeys.isEmpty)
+
+        #expect(
+            reconciler.apply(event(3, .errorReported, source: "claude", session: "new")).disposition
+                == .accepted
+        )
+    }
+
+    @Test func sessionStartOnSiblingSurfacePreservesTheOtherSurfaceSession() throws {
+        var reconciler = AgentNotificationReconciler()
+        let sibling = UUID().uuidString
+        _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        let replacement = reconciler.apply(
+            event(2, .sessionStarted, source: "claude", session: "new", notify: false, surfaceID: sibling)
+        )
+        #expect(replacement.invalidatedCorrelationKeys.isEmpty)
+        #expect(
+            reconciler.apply(event(3, .errorReported, source: "claude", session: "old")).disposition
+                == .accepted
+        )
+    }
+
     @Test func contextPersistsAndIdempotentAppendRejectsChangedEvidence() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }

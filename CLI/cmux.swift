@@ -1547,16 +1547,18 @@ final class ClaudeHookSessionStore {
             // claimant on this pane. Clear its cached StopFailure summary and
             // lifecycle so store readers cannot keep surfacing a superseded
             // error after restart, /clear, or auto-resume.
+            // Surface ownership is authoritative for pane retirement. A
+            // workspace slot is only a routing fallback and may point at a
+            // sibling pane in the same workspace.
             let supersededSessionIDs = Set(
-                [
-                    state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId,
-                    state.activeSessionsByWorkspace[normalizedWorkspaceId]?.sessionId,
-                ]
-                .compactMap { $0 }
-                .filter { $0 != normalizedSessionId }
+                [state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId]
+                    .compactMap { $0 }
+                    .filter { $0 != normalizedSessionId }
             )
             for supersededSessionId in supersededSessionIDs {
                 if var superseded = state.sessions[supersededSessionId] {
+                    let supersededWorkspaceId = superseded.workspaceId
+                    let ownsTargetSurface = superseded.surfaceId == normalizedSurfaceId
                     superseded.agentLifecycle = .idle
                     superseded.lastSubtitle = nil
                     superseded.lastBody = nil
@@ -1565,11 +1567,12 @@ final class ClaudeHookSessionStore {
                     superseded.hadPendingBackgroundWorkAtStop = nil
                     superseded.updatedAt = now
                     state.sessions[supersededSessionId] = superseded
+                    if ownsTargetSurface,
+                       state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
+                        state.activeSessionsByWorkspace.removeValue(forKey: supersededWorkspaceId)
+                    }
                 }
                 state.activeSessionsBySurface = state.activeSessionsBySurface.filter {
-                    $0.value.sessionId != supersededSessionId
-                }
-                state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter {
                     $0.value.sessionId != supersededSessionId
                 }
             }
@@ -1599,6 +1602,12 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: false,
                 now: now
             )
+            // A new authoritative boundary cannot inherit a prior turn's
+            // summary or notification dedupe receipt, even when it reuses the
+            // same native session id after recovery.
+            record.lastEmittedNotificationFingerprint = nil
+            record.lastEmittedNotificationAt = nil
+            record.recentEmittedNotificationFingerprints = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
@@ -29628,12 +29637,11 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            if let acceptedSessionId {
+            if let acceptedSessionId, !isForkSessionLaunch {
                 // A SessionStart is a recovery/ownership boundary. Retire the
                 // previous turn's summary before any notification hook can
-                // reuse its StopFailure text for the recovered session.
-                try? sessionStore.clearNotificationSummary(sessionId: acceptedSessionId)
-                try? sessionStore.clearNotificationEmission(sessionId: acceptedSessionId)
+                // reuse its StopFailure text for the recovered session. The
+                // accepted upsert clears these fields in the same transaction.
                 if let priorSession,
                    priorSession.workspaceId != workspaceId || priorSession.surfaceId != surfaceId {
                     // A moved session leaves a physical notification/status
@@ -29698,7 +29706,9 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if !suppressVisibleMutations {
+            if acceptedSessionId != nil,
+               !isForkSessionLaunch,
+               !suppressVisibleMutations {
                 // SessionStart is the ownership/recovery boundary. Clear the
                 // pane's previous hook notification and status before the
                 // next turn so a StopFailure cannot remain visible while the

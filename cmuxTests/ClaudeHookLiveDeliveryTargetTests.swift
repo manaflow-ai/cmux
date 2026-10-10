@@ -326,6 +326,54 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(record?["agentLifecycle"] as? String == "idle")
     }
 
+    /// Installing a Claude owner in one pane must not retire a live sibling
+    /// pane just because both panes share a workspace-level routing fallback.
+    @Test func sessionStartInSiblingPanePreservesTheOtherOwner() throws {
+        let context = try Harness.makeContext(name: "sibling-session-start")
+        defer { context.cleanup() }
+        let firstSessionId = "sibling-first-session"
+        let secondSessionId = "sibling-second-session"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId, Self.otherSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        let first = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(firstSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        assertSuccessfulHook(first)
+
+        environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
+        let second = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(secondSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(second)
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: context.storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        #expect(sessions[firstSessionId] != nil)
+        #expect(sessions[secondSessionId] != nil)
+        let activeBySurface = try #require(saved["activeSessionsBySurface"] as? [String: Any])
+        let firstActive = try #require(activeBySurface[Self.liveSurfaceId] as? [String: Any])
+        let secondActive = try #require(activeBySurface[Self.otherSurfaceId] as? [String: Any])
+        #expect(firstActive["sessionId"] as? String == firstSessionId)
+        #expect(secondActive["sessionId"] as? String == secondSessionId)
+    }
+
     /// A SessionStart without pid, explicit surface, caller tty, or an existing
     /// session record has no proof of ownership. The workspace's focused pane is
     /// only a UI fallback and must never receive another process's identity.

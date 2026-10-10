@@ -209,6 +209,16 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == .idle)
     }
 
+    @Test func outOfOrderPaneMoveDoesNotRetireNewerOldProjection() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(3, .errorReported, surfaceId: surface),
+            event(2, .sessionStarted, surfaceId: movedSurface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == .unknown)
+    }
+
     @Test func lateSupersededSessionEventsCannotResurrectError() {
         let oldError = event(1, .errorReported, session: "old")
         let replacement = event(2, .sessionStarted, session: "new")

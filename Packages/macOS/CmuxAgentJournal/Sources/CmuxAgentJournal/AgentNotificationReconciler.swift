@@ -8,10 +8,17 @@ internal import CryptoKit
 /// so duplicate stops cannot swallow a later real approval. Replay observes state
 /// through this same fold, but the caller never dispatches replay effects.
 public struct AgentNotificationReconciler: Sendable {
+    /// The newest accepted owner for one surface and agent pair.
+    private struct SessionBoundary: Sendable {
+        let sessionKey: String
+        let sequence: Int64
+    }
+
     private struct Session: Sendable {
         var occurredAtMs: Int64 = -1
         var sequence: Int64 = 0
         var surfaceID: String?
+        var agentKey: String?
         var superseded = false
         var turn: String = "initial"
         var nativeTurn: String?
@@ -47,6 +54,11 @@ public struct AgentNotificationReconciler: Sendable {
         }
     }
     private var sessions: [String: Session] = [:]
+    /// Historical sessions are indexed only while they can receive events.
+    /// Superseded, ended, and moved sessions are removed to keep boundaries
+    /// cheap even when the journal contains a long history.
+    private var sessionKeysBySurfaceAndAgent: [String: Set<String>] = [:]
+    private var sessionBoundaries: [String: SessionBoundary] = [:]
 
     /// Creates an empty reconciler, suitable for live ingestion or journal replay.
     public init() {}
@@ -62,12 +74,27 @@ public struct AgentNotificationReconciler: Sendable {
         }
         guard !draft.isSubagent else { return .init(.subagent) }
         let sessionKey = Self.key([draft.source, sessionID])
+        let boundaryKey = Self.surfaceAgentKey(surfaceID: draft.surfaceId!, agentKey: draft.agentKey)
+        if let boundary = sessionBoundaries[boundaryKey], boundary.sessionKey != sessionKey {
+            // The lifecycle reducer's per-surface boundary is the authority:
+            // an older session cannot invalidate a newer owner's receipts.
+            if draft.kind != .sessionStarted || event.sequence <= boundary.sequence {
+                return .init(.stale)
+            }
+        }
+        if draft.kind == .sessionStarted,
+           let existing = sessions[sessionKey],
+           event.sequence <= existing.sequence {
+            return .init(.stale)
+        }
         var boundaryInvalidations: [String] = []
         if draft.kind == .sessionStarted {
             // A new session boundary supersedes every older session that was
             // attached to this pane. Release their delivered notifications
             // through the same correlation-key path as attention resolution.
-            for (key, var candidate) in sessions where key != sessionKey && candidate.surfaceID == draft.surfaceId {
+            let indexedKeys = sessionKeysBySurfaceAndAgent[boundaryKey, default: []]
+            for key in indexedKeys.sorted() where key != sessionKey {
+                guard var candidate = sessions[key] else { continue }
                 boundaryInvalidations.append(contentsOf: candidate.delivered.values)
                 candidate.delivered.removeAll()
                 candidate.attentionIdentities.removeAll()
@@ -76,6 +103,7 @@ public struct AgentNotificationReconciler: Sendable {
                 candidate.ended = true
                 candidate.superseded = true
                 sessions[key] = candidate
+                sessionKeysBySurfaceAndAgent[boundaryKey]?.remove(key)
             }
         }
         var session = sessions[sessionKey] ?? Session()
@@ -83,6 +111,7 @@ public struct AgentNotificationReconciler: Sendable {
             return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
         }
         session.surfaceID = draft.surfaceId
+        session.agentKey = draft.agentKey
         let context = draft.attention
         if draft.kind == .stateChanged, draft.declaredPhase == nil { return .init(.observation) }
         let incomingTurn = context?.turnIdentity
@@ -157,7 +186,7 @@ public struct AgentNotificationReconciler: Sendable {
             session.sequence = max(session.sequence, event.sequence)
             let pending = session.phase == .idle && !session.ended ? session.pendingCompletion : nil
             if pending != nil { session.pendingCompletion = nil }
-            sessions[sessionKey] = session
+            storeSession(session, for: sessionKey, indexKey: boundaryKey)
             if let pending {
                 var completion = pending.draft
                 completion.occurredAtMs = session.occurredAtMs
@@ -212,7 +241,7 @@ public struct AgentNotificationReconciler: Sendable {
             session.rootStopped = true
             session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
             session.sequence = max(session.sequence, event.sequence)
-            sessions[sessionKey] = session
+            storeSession(session, for: sessionKey, indexKey: boundaryKey)
             guard context?.notification != nil else { return .init(.observation) }
             // A structured idle reminder is a distinct presentation from the
             // completion that settled the turn. Keep the legacy completion
@@ -238,7 +267,7 @@ public struct AgentNotificationReconciler: Sendable {
             if identityKind == "completion" {
                 session.completionIdentity = identity
             }
-            sessions[sessionKey] = session
+            storeSession(session, for: sessionKey, indexKey: boundaryKey)
             return .init(.accepted, identity: identity,
                 projectsLifecycle: context?.notification?.category != "idle-reminder")
         }
@@ -272,6 +301,10 @@ public struct AgentNotificationReconciler: Sendable {
             if session.ended { session.phase = .unknown; session.nativeTurn = nil }
             session.ended = false
             session.superseded = false
+            sessionBoundaries[boundaryKey] = SessionBoundary(
+                sessionKey: sessionKey,
+                sequence: event.sequence
+            )
         case .turnStarted:
             session.rootStopped = false
             if let key = context?.eventIdentity { session.starts.insert(key) }
@@ -340,7 +373,7 @@ public struct AgentNotificationReconciler: Sendable {
         if let turn = session.nativeTurn { session.seenTurns.insert(turn) }
         session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
         session.sequence = max(session.sequence, event.sequence)
-        sessions[sessionKey] = session
+        storeSession(session, for: sessionKey, indexKey: boundaryKey)
         guard context?.notification != nil else { return .init(.observation, invalidatedCorrelationKeys: invalidated) }
         guard !session.ended else { return .init(.stale) }
         let boundary: String
@@ -364,7 +397,7 @@ public struct AgentNotificationReconciler: Sendable {
             if let request = context?.requestIdentity { session.attentionRequestIDs[identity] = request }
         }
         if draft.kind == .turnCompleted { session.completionIdentity = identity }
-        sessions[sessionKey] = session
+        storeSession(session, for: sessionKey, indexKey: boundaryKey)
         return .init(.accepted, identity: identity, invalidatedCorrelationKeys: invalidated)
     }
 
@@ -408,5 +441,37 @@ public struct AgentNotificationReconciler: Sendable {
             bytes.append(digits[Int(byte & 15)])
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// Names the bounded index and lifecycle boundary for one pane/agent pair.
+    private static func surfaceAgentKey(surfaceID: String, agentKey: String) -> String {
+        key([surfaceID, agentKey])
+    }
+
+    /// Persists a session and keeps the bounded surface index in sync.
+    private mutating func storeSession(_ session: Session, for sessionKey: String, indexKey: String) {
+        if let previous = sessions[sessionKey],
+           let previousSurfaceID = previous.surfaceID,
+           let previousAgentKey = previous.agentKey {
+            let previousKey = Self.surfaceAgentKey(
+                surfaceID: previousSurfaceID,
+                agentKey: previousAgentKey
+            )
+            if previousKey != indexKey {
+                sessionKeysBySurfaceAndAgent[previousKey]?.remove(sessionKey)
+                if sessionKeysBySurfaceAndAgent[previousKey]?.isEmpty == true {
+                    sessionKeysBySurfaceAndAgent.removeValue(forKey: previousKey)
+                }
+            }
+        }
+        if session.ended {
+            sessionKeysBySurfaceAndAgent[indexKey]?.remove(sessionKey)
+            if sessionKeysBySurfaceAndAgent[indexKey]?.isEmpty == true {
+                sessionKeysBySurfaceAndAgent.removeValue(forKey: indexKey)
+            }
+        } else {
+            sessionKeysBySurfaceAndAgent[indexKey, default: []].insert(sessionKey)
+        }
+        sessions[sessionKey] = session
     }
 }
