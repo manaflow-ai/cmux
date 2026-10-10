@@ -237,7 +237,8 @@ fn new_store(inner: &Inner, params: Value, copy: bool) -> Result<String, DriverE
 /// in-memory undo of its incognito stores with it.
 impl Drop for Inner {
     fn drop(&mut self) {
-        let contexts = self.proxy_contexts.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let contexts =
+            self.proxy_contexts.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
         for context in contexts.drain() {
             super::incognito_backups::forget(&context);
         }
