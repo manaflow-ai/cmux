@@ -31,7 +31,7 @@ export type LoadChatsPage = (params: {
 }) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
-const ROW_HEIGHT = 32;
+const ROW_HEIGHT = 34;
 
 type State = {
   query: string;
@@ -130,9 +130,9 @@ export function AllChatsList({
     const row = rows[index];
     if (!row) return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
     const title = row.title ?? t("sidebar.newChat");
+    // The project names an untitled chat apart from the others ("New chat · cmux").
     const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
-    const meta =
-      state.design === "age" ? ageLabel(row.updatedAt, now, t) : state.design === "project" ? project : undefined;
+    const age = state.design === "quiet" ? undefined : ageLabel(row.updatedAt, now, t);
     return (
       <div
         key={row.key}
@@ -144,14 +144,19 @@ export function AllChatsList({
         aria-setsize={count}
         onContextMenuCapture={() => (menuKey.current = row.key)}
       >
-        <button type="button" className="nt-all-row" title={row.cwd ?? title} onClick={() => onOpen(row.key)}>
-          {state.design === "quiet" && (
-            <span className="nt-all-glyph">
-              <AgentMark harness={row.harness} />
-            </span>
-          )}
+        <button
+          type="button"
+          className="nt-all-row"
+          data-untitled={row.title ? undefined : true}
+          title={row.cwd ? `${title}\n${row.cwd}` : title}
+          onClick={() => onOpen(row.key)}
+        >
+          <span className="nt-all-glyph">
+            <AgentMark harness={row.harness} />
+          </span>
           <span className="nt-all-title">{title}</span>
-          {meta && <span className="nt-all-meta">{meta}</span>}
+          {project && state.design !== "quiet" && <span className="nt-all-project">{project}</span>}
+          {age && <span className="nt-all-meta">{age}</span>}
         </button>
       </div>
     );
@@ -182,7 +187,7 @@ export function AllChatsList({
       {state.loaded && rows.length === 0 ? (
         state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
       ) : (
-        <ContextMenu items={items} onOpen={() => setMenuTarget(menuKey.current)}>
+        <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"
