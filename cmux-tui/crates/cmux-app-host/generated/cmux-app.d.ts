@@ -276,6 +276,7 @@ declare namespace Cmux {
   type SessionJournalRecord = { sequence: string; event_id: string; schema_version: number; kind: string; class: Cmux.JournalClass; replay: Cmux.JournalReplayPolicy; occurred_at_ms: string; committed_at_ms: string; producer: Cmux.JournalProducer; authority: Cmux.JournalAuthority | null; causation_id: string | null; correlation_id: string | null; causation_depth: number; subjects: Array<Cmux.JournalSubject>; sensitivity: Cmux.JournalSensitivity; payload: Cmux.JsonValue; resource_revision: string | null; previous_resource_revision: string | null }
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
+  type SettingsChange = { keys: Array<string> }
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
@@ -1179,6 +1180,16 @@ interface CmuxGlobal {
         set: CmuxOp<{ machine?: string; session?: string; title: string; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
       }
     }
+  }
+  settings: {
+    /** `settings.get` (read, scope `settings:read`) */
+    get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.list` (read, scope `settings:read`) */
+    list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
+    /** `settings.schema` (read, scope `settings:read`) */
+    schema: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+    /** `settings.snapshot` (read, scope `settings:read`) */
+    snapshot: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
   }
   sidebar_layout: {
     /** `sidebar_layout.get` (read, scope `sidebar_layout:read`) */

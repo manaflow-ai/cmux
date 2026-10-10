@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3bd24d2d267cbc06dc13eab7d462389272f71c6ded6bbe472e3b907f6e758482",
+  "catalog_sha256": "619fd213213596e765bc7cefedce9d12cb9ff361b5cc01fe1f682c17c74bd700",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -420,6 +420,27 @@
     },
     "session.window.title.set": {
       "class": "mutation"
+    },
+    "settings.get": {
+      "class": "read"
+    },
+    "settings.list": {
+      "class": "read"
+    },
+    "settings.reset": {
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "class": "read"
+    },
+    "settings.set": {
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "class": "read"
     },
     "sidebar_layout.get": {
       "class": "read"

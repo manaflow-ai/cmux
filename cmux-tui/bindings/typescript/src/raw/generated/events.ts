@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f73eb9aa1d4e5a1d9a64b4b489a466a76a03c2abd164a01905c024cfa65182b6. */
+/* cmux-tui mux protocol 12, IR 75394848d3241e2b0559cc934560400998cb3fbb669669e6c7230011823db804. */
 
 
 import type * as T from "./types.js";
@@ -361,6 +361,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type SettingsChangedEvent = { event: "settings-changed" } & {
+  "keys": Array<string>;
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
 export type SizeStateEvent = { event: "size-state" } & {
   "self_participant"?: string;
@@ -613,6 +620,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
@@ -678,6 +686,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent

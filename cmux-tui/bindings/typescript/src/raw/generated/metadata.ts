@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f73eb9aa1d4e5a1d9a64b4b489a466a76a03c2abd164a01905c024cfa65182b6. */
+/* cmux-tui mux protocol 12, IR 75394848d3241e2b0559cc934560400998cb3fbb669669e6c7230011823db804. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "f73eb9aa1d4e5a1d9a64b4b489a466a76a03c2abd164a01905c024cfa65182b6" as const;
+export const SDK_IR_SHA256 = "75394848d3241e2b0559cc934560400998cb3fbb669669e6c7230011823db804" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3441,6 +3441,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "settings-changed": {
+    "since": 12,
+    "capability": "settings-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -25660,6 +25668,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "settings-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "settings-changed"
+        }
+      },
+      "keys": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "user",
+            "cli",
+            "mcp",
+            "script",
+            "remote",
+            "app",
+            "file"
+          ]
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

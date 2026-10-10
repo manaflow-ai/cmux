@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// Where the user's Chief runs: the server, its state and its last reply.
@@ -6,7 +7,7 @@ struct ChiefPlacementRow: View {
     @Environment(\.serverColors) private var colors
 
     var body: some View {
-        MetricRow(symbol: "brain", title: ServerStrings.chiefOn(status.serverName), value: value, dot: dot)
+        MetricRow(icon: .agentChief, title: ServerStrings.chiefOn(status.serverName), value: value, dot: dot)
     }
 
     private var value: String {
