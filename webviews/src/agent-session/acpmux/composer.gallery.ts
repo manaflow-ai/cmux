@@ -496,6 +496,16 @@ export default agentPaneEntry({
           const current = search.getAttribute("aria-activedescendant");
           return current !== previous && Boolean(current && ctx.document.getElementById(current));
         });
+        // Past the visible rows the list follows the highlight (Lawrence 2026-10-09: it did not scroll).
+        for (let step = 0; step < 14; step++) await ctx.press("ArrowDown");
+        await ctx.waitFor(() => {
+          const row = ctx.document.getElementById(search.getAttribute("aria-activedescendant") ?? "");
+          const list = row?.closest(".acpmux-mp-models")?.parentElement;
+          if (!row || !list) return false;
+          const r = row.getBoundingClientRect();
+          const v = list.getBoundingClientRect();
+          return r.top >= v.top - 1 && r.bottom <= v.bottom + 1;
+        });
       },
     },
     "picker-toggle": {
