@@ -3,7 +3,7 @@ public import CmuxNextProcessEnvironment
 import CmuxNextWakeups
 import GhosttyNextKit
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Process-wide libghostty app (`ghostty_app_t`) plus the user's Ghostty
 /// configuration.

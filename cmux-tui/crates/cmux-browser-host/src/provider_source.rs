@@ -268,7 +268,20 @@ impl TabSource for ProviderSource {
         method: &str,
         params: &Value,
     ) -> Option<Result<Value, DriverError>> {
-        (method == "download.path").then(|| self.0.downloads.path(params))
+        match method {
+            "download.path" => Some(self.0.downloads.path(params)),
+            // The undo of a clear on an app WebKit tab: the app keeps that
+            // backup (`app:` ids) and knows its profile, so no tab is named.
+            "cookies.restore"
+                if params
+                    .get("restoreId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.starts_with("app:")) =>
+            {
+                Some(Driver::call(&*self.0, method, params))
+            }
+            _ => None,
+        }
     }
 
     fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {

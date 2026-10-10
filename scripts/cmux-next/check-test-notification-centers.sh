@@ -5,8 +5,13 @@
 # gets that post on the posting thread, so one test's notice reaches another
 # test's or the app's observers: a willClose posted off main on
 # NotificationCenter.default trapped a @MainActor observer and killed the
-# whole swift test run with signal 5 (#18771). Inject a NotificationCenter
-# into the type under test and post to it instead.
+# whole swift test run with signal 5 (#18771). Handing one of those centers
+# to a poster is the same post: OffMainPost.send() posted didBecomeKey off main
+# on .default, passed in, and ViewBridge's own observer trapped (#18815). So a
+# global center as an argument (`on: .default`, `center:
+# NotificationCenter.default`, ...) or as a NotificationCenter parameter's
+# default value fails too. Inject a NotificationCenter into the type under
+# test and post to it instead.
 #
 # A hit is allowed only with a reviewed `// global-notice-allow: <reason>` on
 # the same line or the comment line above. Observing a global center is fine.
@@ -20,6 +25,13 @@ import os, re, subprocess, sys
 tests = os.path.join(sys.argv[1], "Tests")
 POST = re.compile(r"(\bNotificationCenter\.default|\bNSWorkspace\.shared\.notificationCenter"
                   r"|\bDistributedNotificationCenter\.default\(\))\s*\.\s*post(NotificationName)?\(")
+GLOBAL = (r"(?:NotificationCenter\.default|NSWorkspace\.shared\.notificationCenter"
+          r"|DistributedNotificationCenter\.default\(\))")
+# A global center handed to a poster: any labeled argument spelled out, a bare
+# `.default` for a center label, or a NotificationCenter parameter default.
+PASSED = re.compile(rf"\b\w+\s*:\s*{GLOBAL}\s*[,)]"
+                    r"|\b(?:on|center|notificationCenter)\s*:\s*\.default\s*[,)]"
+                    rf"|:\s*(?:Distributed)?NotificationCenter\s*=\s*(?:\.default\b|{GLOBAL})")
 ALLOW = re.compile(r"//\s*global-notice-allow:\s*\S")
 
 def code_of(line):
@@ -44,11 +56,13 @@ for path in swift_tests():
         continue
     lines = open(path, encoding="utf-8").read().split("\n")
     for index, line in enumerate(lines):
-        if line.lstrip().startswith("//") or not POST.search(code_of(line)):
+        code = code_of(line)
+        if line.lstrip().startswith("//") or not (POST.search(code) or PASSED.search(code)):
             continue
         if ALLOW.search(line) or (index > 0 and ALLOW.search(lines[index - 1])):
             continue
-        failures.append(f"{os.path.relpath(path, os.path.dirname(tests))}:{index + 1}: posts to a process-global notification center")
+        what = "posts to" if POST.search(code) else "hands a poster"
+        failures.append(f"{os.path.relpath(path, os.path.dirname(tests))}:{index + 1}: {what} a process-global notification center")
 
 for failure in failures:
     print("test-notification-centers: " + failure)
