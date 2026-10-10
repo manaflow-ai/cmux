@@ -51,6 +51,7 @@ export default componentEntry<Props>({
   id: "agent-pane.quick-surface",
   title: "Quick agent surface",
   area: "Agent pane",
+  pane: true,
   height: 360,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-quick-surface-fixture]" }],
