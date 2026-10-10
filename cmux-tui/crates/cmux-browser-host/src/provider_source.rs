@@ -180,7 +180,17 @@ impl ProviderDriver {
     /// when the id is no relayed tab's backup.
     fn restore_relayed(&self, params: &Value) -> Option<Result<Value, DriverError>> {
         let id = params.get("restoreId").and_then(Value::as_str)?;
-        let record = crate::cookie_backups::shared().ok()?.load(id).ok()?;
+        if !id.starts_with(crate::cookie_backups::RESTORE_PREFIX) {
+            return None;
+        }
+        // A restored, purged or expired backup: the same answer a tab's
+        // driver gives (`invalid`), not "needs a targetId".
+        let record = match crate::cookie_backups::shared().and_then(|b| b.load(id)) {
+            Ok(record) => record,
+            Err(message) => {
+                return Some(Err(DriverError::invalid(format!("cookies.restore: {message}"))));
+            }
+        };
         let target = record["relayTarget"].as_str()?.to_owned();
         let tab = self
             .cef_tabs
