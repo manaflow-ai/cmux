@@ -105,3 +105,15 @@ the software keyboard (the `setHardwareLayout:` UI-test trick). Not a device run
 
 Remaining gaps: no real-device run (the coordinator reinstalls); Camera is device-only;
 the real host's zsh `%` marker and `fs.upload` over WebRTC need the deployed host.
+
+## Round 3: review fixes and keyboard row shrink (2026-10-09)
+
+| Item | Change | Evidence | Result |
+| --- | --- | --- | --- |
+| Rows shrink with the keyboard (Aziz's decision, overrides D8) | While the software keyboard is up the grid is the space between the nav bar and the key bar/composer: content slides with the keyboard, then the grid locks and one `term.resize` goes out when the animation settles; on hide the grid grows back first and Ghostty's restored scrollback slides in. | `terminal/round3-keyboard-resize.png`: `top` 50×23 with header visible, shell prompt above the bar, codex-like footer TUI on the bar with its header visible, composer 50×18; `terminal/round3-keyboard-frames.png`: hide/show frames | pass: consecutive-frame row matching over 504 frames shows only translations (residual ≤ 7/255), no unexplained jump |
+| Uploads blocked control replies / could exceed the lane limit | Chunked upload on the bulk lane: `fs.upload.begin {name, mimeType?, size}` → `{uploadId}`, `fileChunk` frames (kind 4, `[u32 seq]` + bytes), `fs.upload.end` → `{path}`, `fs.upload.cancel`. 50 MB checked from the file size before reading; files are read in 64 KiB chunks on the client actor and staged off the main actor. | host `test/files.test.ts` (5 tests: path layout, in-flight chunks at end, out-of-order/overlong/stalled/oversized, kind isolation, retention); simulator photo upload → quoted path | pass |
+| Upload retention | Host removes `uploads/*` older than 7 days at startup and daily. | test | pass |
+| Row reads per draw | The last content row is computed once per drawn frame (cached). | code | done |
+| Orphan terminals | A terminal created for a screen whose attach fails or whose screen is gone is closed on the host. | code | done |
+
+The `top` header lines in the mock wrap at 50 columns (the mock's fixed-width output), so with 23 rows its first lines scroll away; a real `top` redraws for the new size.
