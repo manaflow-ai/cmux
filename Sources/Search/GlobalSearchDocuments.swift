@@ -142,7 +142,8 @@ enum GlobalSearchDocuments {
             kind: .agentSession,
             title: title,
             location: location,
-            anchor: source.sessionID,
+            // The row's label: which agent, in place of a generic kind name.
+            anchor: source.agentKind.displayName,
             text: text
         )
     }
@@ -153,14 +154,30 @@ enum GlobalSearchDocuments {
         return String(text[..<endIndex])
     }
 
-    /// A session row leads with the workspace it runs in, so it reads as that
-    /// terminal ("Work 2 \u{00B7} 1+1"), then the session's own title; one name
-    /// when they're the same.
-    nonisolated static func agentSessionRowTitle(workspaceTitle: String, sessionTitle: String) -> String {
+    /// A session row is titled by the pane it lives in, so searching for a
+    /// pane finds a row with that pane's name on it: the pane's own title when
+    /// it names something (a rename, or the agent's task title), otherwise the
+    /// workspace's. Shell defaults ("lucas@host:~", "Terminal", a bare user
+    /// name or path) and the agent's own name don't count as names.
+    nonisolated static func agentSessionRowTitle(
+        workspaceTitle: String,
+        paneTitle: String,
+        agentName: String,
+        userName: String = NSUserName()
+    ) -> String {
         let workspace = workspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !workspace.isEmpty,
-              workspace.caseInsensitiveCompare(sessionTitle) != .orderedSame else { return sessionTitle }
-        return "\(workspace) \u{00B7} \(sessionTitle)"
+        let pane = paneTitle
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .drop { "\u{2733}\u{2736}\u{273B}\u{273D}\u{2722}\u{273A}\u{2726}\u{2727}\u{2217}\u{27E2}\u{25D0}\u{25D1}\u{25D2}\u{25D3}\u{25CF} ".contains($0) }
+        let isShellDefault = pane.isEmpty
+            || pane.caseInsensitiveCompare("Terminal") == .orderedSame
+            || pane.caseInsensitiveCompare(userName) == .orderedSame
+            || pane.caseInsensitiveCompare(agentName) == .orderedSame
+            || pane.caseInsensitiveCompare("Claude Code") == .orderedSame
+            || (pane.contains("@") && pane.contains(":"))
+            || pane.hasPrefix("~") || pane.hasPrefix("/")
+        if !isShellDefault { return String(pane) }
+        return workspace.isEmpty ? agentName : workspace
     }
 
     nonisolated static func cappedTextKeepingEnd(_ text: String) -> String {

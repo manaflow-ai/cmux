@@ -24,8 +24,7 @@ final class GlobalSearchPanelCaptureManager {
     private struct AgentSessionIndexState: Equatable {
         let sessionID: String
         let revision: Int
-        let paneTitle: String?
-        let conversationTitle: String?
+        let title: String
         let location: String
     }
 
@@ -287,11 +286,15 @@ final class GlobalSearchPanelCaptureManager {
         let revision = await agentSessionTranscripts.refreshedRevision(for: source)
         guard !Task.isCancelled else { return true }
         guard let revision else { return false }
+        let title = GlobalSearchDocuments.agentSessionRowTitle(
+            workspaceTitle: context.workspaceTitle,
+            paneTitle: context.panelTitle,
+            agentName: source.agentKind.displayName
+        )
         let next = AgentSessionIndexState(
             sessionID: source.sessionID,
             revision: revision,
-            paneTitle: source.paneTitle,
-            conversationTitle: source.conversationTitle,
+            title: title,
             location: context.location
         )
         guard next != previous else { return true }
@@ -299,10 +302,6 @@ final class GlobalSearchPanelCaptureManager {
             return false
         }
         let transcriptText = transcript.document
-        let title = GlobalSearchDocuments.agentSessionRowTitle(
-            workspaceTitle: context.workspaceTitle,
-            sessionTitle: source.title(firstPrompt: transcript.firstPrompt)
-        )
         guard !Task.isCancelled else { return true }
         let windowID = context.windowID
         let workspaceID = context.workspaceID

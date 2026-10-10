@@ -43,14 +43,23 @@ struct SearchIndexAgentSessionTests {
     }
 
     @Test(arguments: [
-        ("Work 2", "1+1", "Work 2 \u{00B7} 1+1"),
-        ("Fix the login redirect", "Fix the login redirect", "Fix the login redirect"),
-        ("  ", "Codex", "Codex"),
+        ("work 4", "Work 2", "Work 2"),
+        ("work 2", "lucas", "work 2"),
+        ("work 2", "lucas@Lucass-MacBook-Pro-4:~", "work 2"),
+        ("work 2", "Terminal", "work 2"),
+        ("work 2", "~/code/api", "work 2"),
+        ("api", "\u{2733} Fix the login redirect", "Fix the login redirect"),
+        ("api", "Claude Code", "api"),
+        ("  ", "  ", "Codex"),
     ] as [(String, String, String)])
-    func sessionRowsLeadWithTheirWorkspace(workspaceTitle: String, sessionTitle: String, expected: String) {
+    func sessionRowsAreTitledByTheirPane(workspaceTitle: String, paneTitle: String, expected: String) {
         #expect(
-            GlobalSearchDocuments.agentSessionRowTitle(workspaceTitle: workspaceTitle, sessionTitle: sessionTitle)
-                == expected
+            GlobalSearchDocuments.agentSessionRowTitle(
+                workspaceTitle: workspaceTitle,
+                paneTitle: paneTitle,
+                agentName: "Codex",
+                userName: "lucas"
+            ) == expected
         )
     }
 
@@ -159,7 +168,7 @@ struct SearchIndexAgentSessionTests {
         #expect(document.panelID == panelID)
         #expect(document.title == "Env linter eval cost estimate")
         #expect(document.location == "Window 1 > research pod")
-        #expect(document.anchor == "s-1")
+        #expect(document.anchor == "Claude")
         #expect(document.text == "what would the eval cost")
     }
 
