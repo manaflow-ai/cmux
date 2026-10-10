@@ -267,6 +267,10 @@ pub struct PresentationSnapshot {
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
     /// Key of the store's home workspace (`workspace-kind-v1`), if any.
     pub home_workspace: Option<String>,
+    /// The app of every live app workspace, by workspace key (`app-screens-v1`).
+    pub app_workspaces: HashMap<String, String>,
+    /// App tab records, by public browser id (`app-screens-v1`).
+    pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.

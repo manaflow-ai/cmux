@@ -107,9 +107,10 @@ extension AppControl {
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
             "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
             "card": status.card.map { card in
-                let shown = card.presentation(version: status.version, build: status.build)
+                let shown = status.cardPresentation ?? card.presentation(version: status.version, build: status.build)
                 return .object(["kind": .string(card.kind), "title": .string(shown.title),
                                 "detail": shown.detail.map(JSONValue.string) ?? .null,
+                                "lines": .array(shown.lines.map(JSONValue.string)),
                                 "actions": .array(shown.actions.map { .string($0.rawValue) })])
             } ?? .null,
             "badge": status.badge.map(JSONValue.string) ?? .null,

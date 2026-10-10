@@ -32,6 +32,16 @@ extension DaemonConnection {
         }, as: ResourceMutationResult<Empty>.self)
     }
 
+    /// Cmd-K (`terminal.history.clear`): the terminal's own daemon clears the
+    /// screen and scrollback and every view follows.
+    public func clearTerminalHistory(_ terminal: ResourceID) async throws {
+        let key = "cmux-next-clear-" + UUID().uuidString.lowercased()
+        let params: [String: JSONValue] = ["terminal": .string(terminal.rawValue)]
+        _ = try await resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "terminal.history.clear", params: params, idempotencyKey: key)
+        }, as: ResourceMutationResult<Empty>.self)
+    }
+
     public func readTerminalScreen(_ terminal: ResourceID) async throws -> TerminalScreen {
         let params: [String: JSONValue] = ["terminal": .string(terminal.rawValue)]
         return try await resourceRequest({ id in

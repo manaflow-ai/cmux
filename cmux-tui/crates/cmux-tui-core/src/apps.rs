@@ -131,6 +131,20 @@ impl AppsSlot {
         }
     }
 
+    /// Whether `app` is installed and enabled here (`app-screens-v1`
+    /// refuses a workspace for any other app). Apps never run on Windows.
+    pub(crate) fn app_active(&self, mux: &Arc<crate::Mux>, app: &str) -> bool {
+        #[cfg(unix)]
+        {
+            self.get_or_init(mux).app_active(app)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (mux, app, &self.supervisor);
+            false
+        }
+    }
+
     pub(crate) fn disconnect(&self, client: u64) {
         #[cfg(unix)]
         if let Some(supervisor) = self.supervisor.get() {
