@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextIcons
 
 /// What an Extensions menu item does.
 public enum ExtensionMenuOperation: String, CaseIterable, Sendable {
@@ -86,7 +87,7 @@ public struct ExtensionsMenu {
         for operation in footer {
             let item = self.item(handler.title(for: operation), operation, nil, handler)
             item.identifier = NSUserInterfaceItemIdentifier(ExtensionsMenu.footerIdentifier(operation))
-            item.image = NSImage(systemSymbolName: symbol(for: operation), accessibilityDescription: nil)
+            item.image = NSImage.icon(symbol: symbol(for: operation), size: 16)
             menu.addItem(item)
         }
         return menu
@@ -143,12 +144,19 @@ public struct ExtensionsMenu {
         return item
     }
 
+    /// The puzzle piece for an extension without an icon, named for VoiceOver.
+    private static func fallbackImage(name: String) -> NSImage {
+        let image = NSImage.icon(.extension, size: 16)
+        image.accessibilityDescription = name
+        return image
+    }
+
     func image(for info: BrowserExtensionInfo, png: Data?) -> NSImage? {
         // The bundled icon first: the toolbar PNG carries the badge.
         let image = info.iconPath.flatMap(NSImage.init(contentsOfFile:))
             ?? png.flatMap(NSImage.init(data:))
-            ?? NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: info.name)
-        image?.size = NSSize(width: 16, height: 16)
+            ?? Self.fallbackImage(name: info.name)
+        image.size = NSSize(width: 16, height: 16)
         return image
     }
 

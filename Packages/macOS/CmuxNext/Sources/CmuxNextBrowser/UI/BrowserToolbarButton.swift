@@ -1,3 +1,4 @@
+public import CmuxNextIcons
 import Foundation
 
 /// The five buttons at the trailing end of the browser toolbar, in order
@@ -31,15 +32,15 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
 
 /// What one toolbar button shows.
 public nonisolated struct BrowserToolbarButtonState: Hashable, Sendable {
-    public var symbol: String
+    public var icon: IconName
     /// Tooltip and accessibility label; the reason when disabled.
     public var label: String
     public var isEnabled: Bool
     /// Drawn in the accent color (design mode on, DevTools open).
     public var isActive: Bool
 
-    public init(symbol: String, label: String, isEnabled: Bool = true, isActive: Bool = false) {
-        self.symbol = symbol
+    public init(icon: IconName, label: String, isEnabled: Bool = true, isActive: Bool = false) {
+        self.icon = icon
         self.label = label
         self.isEnabled = isEnabled
         self.isActive = isActive
