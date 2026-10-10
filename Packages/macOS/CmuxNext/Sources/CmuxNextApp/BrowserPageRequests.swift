@@ -305,9 +305,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// restored WebKit page for a reopened tab with a saved history (cx-d0d.59).
     func takeAdoption(for tab: TabModel) -> (any BrowserTab)? {
         if let page = adoptions.removeValue(forKey: tab.surface) { return page }
-        guard tab.browserEngine != BrowserEngineTag.cef.rawValue, let cache = services?.cache, !proxiedTabs.isProxied(tab.id),
-              let state = closedHistories.claim(tab.url, chromium: false) else { return nil }
-        let page = cache.webKit.makeWebKitTab(profile: cache.browserProfile?(tab.id) ?? .default)
+        guard tab.browserEngine != BrowserEngineTag.cef.rawValue, let services, services.machines.daemon(forTab: tab).isLocal,
+              !proxiedTabs.isProxied(tab.id) else { return nil }
+        let cache = services.cache, profile = cache.browserProfile?(tab.id) ?? .default
+        guard let state = closedHistories.claim(tab.url, profile: profile, chromium: false) else { return nil }
+        let page = cache.webKit.makeWebKitTab(profile: profile)
         if !page.restore(state), let url = tab.url.flatMap(URL.init(string:)) { page.load(url) }
         return page
     }
