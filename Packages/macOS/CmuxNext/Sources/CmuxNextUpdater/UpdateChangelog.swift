@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// What a found or staged update says about itself on the update cards
 /// (Lawrence 2026-10-10: "we need more details here like changelog stuff"):
