@@ -158,6 +158,8 @@ pub enum ResourceOperation {
     WorkspaceCreate,
     #[serde(rename = "workspace.ensure_home")]
     WorkspaceEnsureHome,
+    #[serde(rename = "workspace.ensure_app")]
+    WorkspaceEnsureApp,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]

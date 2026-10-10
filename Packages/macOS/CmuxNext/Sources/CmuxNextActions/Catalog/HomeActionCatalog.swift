@@ -35,6 +35,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // The channels Home (webviews/src/pages/home-channels) as a tab next to the native
+            // Home, over the same Home data, so both can be open at once.
+            ActionDescriptor(
+                id: "home.channels", title: t("action.home.channels", "Open Channels"),
+                keywords: ["home", "channels", "threads", "direct messages", "conversations", "messages"],
+                category: .window, symbol: "number", surfaces: [.palette, .menu], cliName: "home channels",
+                mainMenu: .file
+            ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
