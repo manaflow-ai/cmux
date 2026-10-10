@@ -373,9 +373,9 @@ for run in runs:
 
 # ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1, starts at
 # most one cmux-tui artifacts run for <sha> when tree <key> is not published and
-# no active run will publish it. cmux-tui-artifacts.yml coalesces branch pushes
-# (only the tip's tree is published), so a build of an older commit with a
-# changed cmux-tui tree has no publisher otherwise. It points
+# no active run will publish it. cmux-tui-artifacts.yml publishes every
+# feat-cmux-next push (cx-73f2), but a commit of another branch, or one whose
+# run failed for good, has no publisher otherwise. It points
 # refs/heads/cmux-tui-pin-<sha12> at <sha> (a publishing ref) and dispatches the
 # workflow there; a workflow_dispatch run has concurrency group sha-<sha>,
 # which the per-branch push group never cancels. Never fails the caller: a
@@ -863,7 +863,8 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
-  elif [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] && ! tree_published "$key" "$legacy"; then
+  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
+      && ! tree_published "$key" "$legacy"; then
     tree_publisher_sha=""
     ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
     [[ -n "$tree_publisher_sha" ]] && source="commit:$tree_publisher_sha"
@@ -960,9 +961,9 @@ resolve_tree_commit() {
 # The nightly's resolver: the newest commit within the last
 # CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
 # published and whose publishing commit's attested manifest carries the same
-# cmux-tui sha256. It never waits: cmux-tui-artifacts.yml lets a running build
-# finish and a newer push replaces only the pending run, so under steady
-# pushes the tip's own tree may never publish (nightly-next run 37464320457).
+# cmux-tui sha256. It never waits: the tip's own tree may still be building
+# (each feat-cmux-next push has its own cmux-tui-artifacts run since cx-73f2;
+# before that a newer push replaced the pending run, nightly-next run 37464320457).
 # Prints commit=, key=, source_commit= (the branch commit whose tree was
 # used), tip_key=, behind= (commits) and behind_hours= lines, and appends them
 # to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and

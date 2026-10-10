@@ -11,7 +11,7 @@ import QuartzCore
 @MainActor
 final class SidebarGroupEditor {
     var onRename: ((GroupID, String) -> Void)?
-    var onColor: ((GroupID, GroupColor) -> Void)?
+    var onColor: ((GroupID, GroupTint) -> Void)? { didSet { colorPanel.onColor = onColor } }
     var onItem: ((GroupID, String) -> Void)?
     /// The editor closed, after any rename it committed.
     var onClose: ((GroupID) -> Void)?
@@ -22,8 +22,12 @@ final class SidebarGroupEditor {
     private var member: WorkspaceID?
     /// The groups the last update showed (`follow`).
     private var known: Set<GroupID> = []
-    /// The group whose editor closed last, and the event time it closed at.
-    private var lastClosed: (group: GroupID, time: TimeInterval)?
+    /// The group whose editor closed last, the event time it closed at, and
+    /// the click it closed during (a mouse-up has its mouse-down's number).
+    private var lastClosed: (group: GroupID, time: TimeInterval, click: Int?)?
+    /// The shown group's color, where the color panel starts.
+    private var shownTint: GroupTint?
+    private let colorPanel = SidebarGroupColorPanel()
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.
@@ -41,6 +45,13 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.onColor?(id, color)
         }
+        panel.onCustomColor = { [weak self] in
+            guard let self, let id = self.shownGroup else { return }
+            // The panel takes focus and the bubble closes; the color panel keeps the
+            // group, and a new empty group is kept for it (not deleted on close).
+            self.onItem?(id, SidebarGroupEditing.keepGroupItem)
+            self.colorPanel.open(for: id, current: self.shownTint)
+        }
         panel.onItem = { [weak self] item in
             guard let self, let id = self.shownGroup else { return }
             self.onItem?(id, item)
@@ -49,10 +60,12 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.shownGroup = nil
             self.member = nil
-            self.lastClosed = (id, NSApp.currentEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime)
+            let event = NSApp.currentEvent
+            self.lastClosed = (id, event?.timestamp ?? ProcessInfo.processInfo.systemUptime, Self.clickNumber(event))
             self.onClose?(id)
         }
         shownGroup = group.id
+        shownTint = group.tint
         member = group.workspaces.first?.id
         panel.configure(group, items: items)
         panel.adoptThemeScope(of: themeAnchor)
@@ -67,6 +80,7 @@ final class SidebarGroupEditor {
         defer { known = Set(groups.keys) }
         guard let shown = shownGroup else { return }
         if let group = groups[shown] {
+            shownTint = group.tint
             panel?.refresh(group)
             if member == nil { member = group.workspaces.first?.id }
             return
@@ -84,9 +98,20 @@ final class SidebarGroupEditor {
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes
     /// the bubble first): that click toggles it closed, it does not reopen it.
-    func closedByThisClick(_ group: GroupID, at timestamp: TimeInterval?) -> Bool {
-        guard let closed = lastClosed, closed.group == group, let timestamp else { return false }
-        return timestamp - closed.time <= NSEvent.doubleClickInterval
+    /// Clicks are matched by their event number, so fast repeated clicks
+    /// toggle open, closed, open (cx-q5jw); a close outside a click falls
+    /// back to the double-click time.
+    func closedByThisClick(_ group: GroupID, event: NSEvent?) -> Bool {
+        guard let closed = lastClosed, closed.group == group, let event else { return false }
+        if let click = Self.clickNumber(event), let closedClick = closed.click { return click == closedClick }
+        return event.timestamp - closed.time <= NSEvent.doubleClickInterval
+    }
+
+    private static func clickNumber(_ event: NSEvent?) -> Int? {
+        switch event?.type {
+        case .leftMouseDown?, .leftMouseUp?: event?.eventNumber
+        default: nil
+        }
     }
 
     func hide() {
@@ -101,13 +126,18 @@ final class SidebarGroupEditor {
 /// the sidebar's theme scope.
 final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onRename: ((String) -> Void)?
-    var onColor: ((GroupColor) -> Void)?
+    var onColor: ((GroupTint) -> Void)?
+    var onCustomColor: (() -> Void)?
     var onItem: ((String) -> Void)?
     var onClose: (() -> Void)?
 
     let nameField = NSTextField()
     private let field = NSView()
     private(set) var swatches: [SidebarGroupSwatchView] = []
+    /// After the palette dots, icon-only (cx-25az): a custom color and the emoji or icon picker.
+    let customSwatch = SidebarGroupCustomSwatchView()
+    let emojiButton = SidebarIconButton(symbol: "face.smiling", pointSize: { Metrics.smallIconSize },
+                                        label: GroupEditorStrings.emoji)
     private let stack = NSStackView()
     private var name = ""
     private var fieldWidth: NSLayoutConstraint?
@@ -161,6 +191,9 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             swatch.onPick = { [weak self] picked in self?.pick(picked) }
             return swatch
         }
+        customSwatch.onPress = { [weak self] in self?.onCustomColor?() }
+        // The workspace group's Set Icon action: the shared icon picker, emoji included.
+        emojiButton.onPress = { [weak self] in self?.press("workspaceGroup.setIcon") }
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space1
@@ -184,9 +217,9 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     func configure(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]]) {
         name = group.name
         nameField.stringValue = group.name
-        for swatch in swatches { swatch.isChosen = swatch.color == group.color }
+        showChosen(group.tint)
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let dots = NSStackView(views: swatches)
+        let dots = NSStackView(views: swatches + [customSwatch, emojiButton])
         dots.spacing = Metrics.space1
         dots.distribution = .equalSpacing
         var views: [NSView] = [dots]
@@ -220,7 +253,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// The group changed while the editor is open: its color; its name only
     /// when the field is not being edited.
     func refresh(_ group: SidebarGroup) {
-        for swatch in swatches { swatch.isChosen = swatch.color == group.color }
+        showChosen(group.tint)
         // A name the person typed is kept; an untouched field follows the group.
         if nameField.stringValue == name {
             nameField.stringValue = group.name
@@ -240,8 +273,15 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func pick(_ color: GroupColor) {
-        for swatch in swatches { swatch.isChosen = swatch.color == color }
-        onColor?(color)
+        showChosen(.palette(color))
+        onColor?(.palette(color))
+    }
+
+    /// The chosen ring: a palette dot, or the custom dot showing its color.
+    private func showChosen(_ tint: GroupTint) {
+        for swatch in swatches { swatch.isChosen = tint == .palette(swatch.color) }
+        if case .custom = tint { customSwatch.custom = tint } else { customSwatch.custom = nil }
+        customSwatch.isChosen = customSwatch.custom != nil
     }
 
     func press(_ item: String) {

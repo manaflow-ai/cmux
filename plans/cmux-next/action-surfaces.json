@@ -2588,7 +2588,7 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace new-in-group",
+      "cli_name" : "workspace new-like-this",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
@@ -2598,7 +2598,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "workspace.newInGroup",
+      "id" : "workspace.newLikeThis",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -2609,8 +2609,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Workspace in This Group",
-      "title_key" : "action.workspace.newInGroup",
+      "title" : "New Workspace Like This",
+      "title_key" : "action.workspace.newLikeThis",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -2665,33 +2665,6 @@
       "palette_suggested" : null,
       "title" : "New Workspace on Machine…",
       "title_key" : "action.workspace.newOnMachine",
-      "title_table" : "WorkspaceActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "workspace new-in-same-directory",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "workspaceRow"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "workspace.newInSameDirectory",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.workspace",
-        "order" : 101,
-        "title" : "Workspace",
-        "title_key" : "category.workspace",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "New Workspace in Same Directory",
-      "title_key" : "action.workspace.newInSameDirectory",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -5172,6 +5145,33 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "pane toggle-tab-bar",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.toggleTabBar",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Tab Bar",
+      "title_key" : "action.pane.toggleTabBar",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "pane equalize-splits",
       "context_menu" : "offered",
       "context_menus" : [
@@ -6540,9 +6540,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "offered",
+      "context_menu" : "duplicateOfDefault",
       "context_menus" : [
-        "tab"
+
       ],
       "default_aliases" : [
 
@@ -6554,7 +6554,7 @@
           "cmd"
         ]
       },
-      "id" : "newTab.sameKind",
+      "id" : "newTab.default",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -6566,7 +6566,34 @@
       },
       "palette_suggested" : 0,
       "title" : "New Tab",
-      "title_key" : "action.newTab.sameKind",
+      "title_key" : "action.newTab.default",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-of-kind",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.ofKind",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab of the Same Kind",
+      "title_key" : "action.newTab.ofKind",
       "title_table" : "ActionCatalog"
     },
     {
@@ -6594,6 +6621,33 @@
       "palette_suggested" : null,
       "title" : "New Tab Page",
       "title_key" : "action.newTab.page",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-horizontal",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.horizontal",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Horizontal Tab",
+      "title_key" : "action.newTab.horizontal",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13190,6 +13244,33 @@
       "title" : "Allow Agents in This Tab…",
       "title_key" : "action.browser.allowAgentWithExtensions",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser downloads",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.downloads.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Downloads…",
+      "title_key" : "action.browser.downloads.show",
+      "title_table" : "BrowserToolbarActions"
     },
     {
       "cli" : "guiOnly",
@@ -28137,14 +28218,10 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 2
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "column.dock",
+              "id" : "pane.toggleTabBar",
               "kind" : "action",
-              "order" : 3,
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28154,8 +28231,12 @@
               }
             },
             {
+              "kind" : "separator",
+              "order" : 3
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "column.undock",
+              "id" : "column.dock",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -28168,7 +28249,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.float",
+              "id" : "column.undock",
               "kind" : "action",
               "order" : 5,
               "visible_when" : {
@@ -28181,7 +28262,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockLeft",
+              "id" : "column.float",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -28194,7 +28275,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockRight",
+              "id" : "column.dockLeft",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -28207,7 +28288,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockTop",
+              "id" : "column.dockRight",
               "kind" : "action",
               "order" : 8,
               "visible_when" : {
@@ -28220,7 +28301,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockBottom",
+              "id" : "column.dockTop",
               "kind" : "action",
               "order" : 9,
               "visible_when" : {
@@ -28232,14 +28313,10 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 10
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "column.widthOneThird",
+              "id" : "column.dockBottom",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28249,8 +28326,12 @@
               }
             },
             {
+              "kind" : "separator",
+              "order" : 11
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "column.widthHalf",
+              "id" : "column.widthOneThird",
               "kind" : "action",
               "order" : 12,
               "visible_when" : {
@@ -28263,7 +28344,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.widthTwoThirds",
+              "id" : "column.widthHalf",
               "kind" : "action",
               "order" : 13,
               "visible_when" : {
@@ -28276,7 +28357,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.widthFull",
+              "id" : "column.widthTwoThirds",
               "kind" : "action",
               "order" : 14,
               "visible_when" : {
@@ -28289,7 +28370,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.center",
+              "id" : "column.widthFull",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -28302,20 +28383,20 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPaneZoomIn",
+              "id" : "column.center",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "agentPaneFocused"
+
                 ]
               }
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPaneZoomOut",
+              "id" : "agentPaneZoomIn",
               "kind" : "action",
               "order" : 17,
               "visible_when" : {
@@ -28328,9 +28409,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPaneZoomReset",
+              "id" : "agentPaneZoomOut",
               "kind" : "action",
               "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomReset",
+              "kind" : "action",
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30648,7 +30742,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.sameKind",
+          "id" : "newTab.ofKind",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -32639,7 +32733,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newAbove",
+              "id" : "workspace.newLikeThis",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -32652,7 +32746,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newInGroup",
+              "id" : "workspace.newAbove",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -32678,7 +32772,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newInSameDirectory",
+              "id" : "workspace.duplicate",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -32691,7 +32785,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.duplicate",
+              "id" : "workspace.duplicateTerminalsOnly",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -32703,27 +32797,14 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.duplicateTerminalsOnly",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 5
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.openFolderInVSCodeInline",
               "kind" : "action",
-              "order" : 7,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32736,7 +32817,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.openWorkspaceTodoPane",
               "kind" : "action",
-              "order" : 8,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32749,7 +32830,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.layout.open",
               "kind" : "action",
-              "order" : 9,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

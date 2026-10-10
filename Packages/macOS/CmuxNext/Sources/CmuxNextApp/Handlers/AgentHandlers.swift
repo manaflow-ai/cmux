@@ -204,7 +204,7 @@ enum AgentHandlers {
         if let pane = context.scope(invocation).pane { return open(pane) }
         guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
-        _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+        _ = context.registry.perform("newTab.default", invocation: invocation)
         context.registry.track(Task { @MainActor in
             let pane = try? await ControlDeadline.shared.run(
                 method: "agent-pane.mount",
@@ -305,6 +305,12 @@ enum AgentHandlers {
         let line = command + "\n"
         let logger = context.daemon.logger
         let repair = context.services.emptyWorkspaces
+        // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
+        let key = WorkspaceKey.generate()
+        if placement == .newWorkspace {
+            let windows = context.services.windows
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        }
         Task {
             do {
                 let surface: SurfaceID?
@@ -320,7 +326,6 @@ enum AgentHandlers {
                 case .newTab:
                     surface = try await connection.newTab(in: handle, options: options).surface
                 case .newWorkspace:
-                    let key = WorkspaceKey.generate()
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
                         try await connection.createTerminal(in: created, cwd: options.cwd).surface

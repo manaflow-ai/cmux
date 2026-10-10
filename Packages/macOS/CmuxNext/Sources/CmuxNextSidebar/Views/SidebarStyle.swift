@@ -55,9 +55,9 @@ enum SidebarStyle {
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
     static var titleLeading: CGFloat { horizontalInset }
-    /// How far a group member's content moves in: half a row (16 pt at
-    /// the comfortable 32 pt row, the Chrome tab group sidebar).
-    static var groupMemberIndent: CGFloat { (Metrics.sidebarRowHeight * 0.5).rounded() }
+    /// How far a group member's content moves in past the row's own
+    /// leading edge, which already starts right of the line (`groupGutter`).
+    static var groupMemberIndent: CGFloat { Metrics.space1 }
     /// Where a group header's bar starts: the row's leading edge (full width).
     static var groupChipLeading: CGFloat { 0 }
     /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
@@ -70,6 +70,12 @@ enum SidebarStyle {
     /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
     static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
+    /// A member row starts right of its group's line (cx-q5jw, the Edge
+    /// group line): its hover and selection fills never cover the line, so
+    /// the line runs unbroken from the header to the last member.
+    static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    /// The group header's color dot, on the line's x (cx-25az).
+    static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.

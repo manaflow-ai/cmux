@@ -54,12 +54,15 @@ enum TabLifecycle {
         ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
-    /// `newTab.sameKind` (Cmd-T, the strip's +): a tab of the kind of the
+    /// `newTab.default` (Cmd-T, the strip's +): a tab of the kind of the
     /// pane's selected tab (`NewTabKind`) unless `tabs.newTabKind` says
     /// otherwise, through the New Terminal Tab, New Browser Tab and New
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
-    /// MCP) always get the same kind, whatever the user's setting.
-    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+    /// MCP) always get the same kind, whatever the user's setting, and so
+    /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
+    /// `inStrip` (New Horizontal Tab) adds a tab even where Cmd-T would open a workspace.
+    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
+                                 inStrip: Bool = false) {
         // A named tab or pane that resolves to nothing is refused by the
         // lookup. Without one, a missing focused pane is not a refusal yet:
         // the active workspace may still be empty (below).
@@ -101,6 +104,18 @@ enum TabLifecycle {
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
         let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
+        // The user's Cmd-T follows the tab bar (cx-xt5k, cx-soza): a pane that shows its tab bar
+        // gets a tab; one that hides it (`PaneTabBar`: an agent chat alone by default) gets a new
+        // workspace in the current group (New Workspace, on the New Tab page). The strip's + names
+        // its pane and always adds a tab; with `tabs.swapCmdTAndCmdN` on, this action is Cmd-N and
+        // always adds a tab.
+        if user, followsSetting, !named, !inStrip, !(ctx.services.settings?.snapshot.swapCmdTAndCmdN ?? false),
+           let controller, controller.view.hidesStrip {
+            var workspace = ActionInvocation(origin: .user)
+            workspace.keyContext = invocation.keyContext
+            _ = ctx.registry.perform("newTab", invocation: workspace)
+            return
+        }
         var sameKind = NewTabKind.resolve(
             selectedKind: tab?.kind, engine: tab?.browserEngine,
             isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
@@ -108,7 +123,7 @@ enum TabLifecycle {
         if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
         let folder = controller?.selectedTab?.cwd ?? tab?.cwd
         var kind = sameKind
-        if user {
+        if user, followsSetting {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
             kind = NewTabKind.resolve(setting, template: ctx.services.settings?.snapshot.newTabTemplate,
                                       sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))

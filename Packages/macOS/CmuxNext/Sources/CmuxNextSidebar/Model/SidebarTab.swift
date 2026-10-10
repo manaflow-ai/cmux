@@ -32,11 +32,19 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var title: String
     public var kind: SidebarTabKind
     public var isUnread: Bool
+    /// The brand id (CmuxAgentBrands) of the agent running in the tab or the chat's harness;
+    /// the row draws its mark in place of the kind icon.
+    public var brand: String?
+    /// A browser tab's page favicon, drawn as is in the kind icon's place (cx-d0d.8).
+    public var favicon: SidebarFavicon?
 
-    public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false) {
+    public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
+                favicon: SidebarFavicon? = nil) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isUnread = isUnread
+        self.brand = brand
+        self.favicon = favicon
     }
 }

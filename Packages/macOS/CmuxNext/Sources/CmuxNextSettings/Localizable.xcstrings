@@ -132,6 +132,137 @@
         }
       }
     },
+    "settings.choice.tabBarAuto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
     "settings.default.followTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -15717,6 +15848,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "終端機"
+          }
+        }
+      }
+    },
+    "settings.tabs.swapCmdTAndCmdN": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap Cmd-T and Cmd-N"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل Cmd-T وCmd-N"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamijeni Cmd-T i Cmd-N"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Byt om på Cmd-T og Cmd-N"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T und Cmd-N tauschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercambiar Cmd-T y Cmd-N"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inverser Cmd-T et Cmd-N"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scambia Cmd-T e Cmd-N"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T と Cmd-N を入れ替える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរ Cmd-T និង Cmd-N"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T와 Cmd-N 바꾸기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt om Cmd-T og Cmd-N"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamień Cmd-T i Cmd-N"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar Cmd-T e Cmd-N"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поменять местами Cmd-T и Cmd-N"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับ Cmd-T และ Cmd-N"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T ve Cmd-N’yi değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поміняти місцями Cmd-T і Cmd-N"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoán đổi Cmd-T và Cmd-N"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互换 Cmd-T 和 Cmd-N"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換 Cmd-T 與 Cmd-N"
+          }
+        }
+      }
+    },
+    "settings.tabs.swapCmdTAndCmdN.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، يفتح Cmd-T مساحة عمل في المجموعة الحالية ويفتح Cmd-N علامة تبويب. عند الإيقاف، يفتح Cmd-T علامة تبويب، أو مساحة عمل عندما تكون محادثة وكيل أو جزء بلا علامات تبويب في التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je uključeno, Cmd-T otvara radni prostor u trenutnoj grupi, a Cmd-N otvara karticu. Kada je isključeno, Cmd-T otvara karticu, ili radni prostor kada je fokusiran chat agenta ili okno bez kartica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået til, åbner Cmd-T et arbejdsområde i den aktuelle gruppe, og Cmd-N åbner en fane. Når den er slået fra, åbner Cmd-T en fane, eller et arbejdsområde når en agentchat eller en rude uden faner har fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aktiviert, öffnet Cmd-T einen Arbeitsbereich in der aktuellen Gruppe und Cmd-N einen Tab. Wenn deaktiviert, öffnet Cmd-T einen Tab oder einen Arbeitsbereich, wenn ein Agent-Chat oder ein Bereich ohne Tabs fokussiert ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está activado, Cmd-T abre un espacio de trabajo en el grupo actual y Cmd-N abre una pestaña. Si está desactivado, Cmd-T abre una pestaña, o un espacio de trabajo cuando el foco está en un chat de agente o en un panel sin pestañas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, Cmd-T ouvre un espace de travail dans le groupe actuel et Cmd-N ouvre un onglet. Désactivé, Cmd-T ouvre un onglet, ou un espace de travail quand une discussion d’agent ou un volet sans onglets a le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se attivo, Cmd-T apre uno spazio di lavoro nel gruppo corrente e Cmd-N apre una scheda. Se disattivo, Cmd-T apre una scheda, o uno spazio di lavoro quando è attiva una chat dell’agente o un riquadro senza schede."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンのとき、Cmd-T は現在のグループにワークスペースを開き、Cmd-N はタブを開きます。オフのとき、Cmd-T はタブを開きます。エージェントチャットやタブのないペインにフォーカスがあるときはワークスペースを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក Cmd-T បើកកន្លែងធ្វើការក្នុងក្រុមបច្ចុប្បន្ន ហើយ Cmd-N បើកផ្ទាំង។ ពេលបិទ Cmd-T បើកផ្ទាំង ឬកន្លែងធ្វើការ ពេលការជជែកភ្នាក់ងារ ឬផ្ទាំងរងដែលគ្មានផ្ទាំងត្រូវបានផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Cmd-T는 현재 그룹에 작업 공간을 열고 Cmd-N은 탭을 엽니다. 끄면 Cmd-T는 탭을 열고, 에이전트 채팅이나 탭이 없는 패널에 포커스가 있으면 작업 공간을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er på, åpner Cmd-T et arbeidsområde i gjeldende gruppe og Cmd-N en fane. Når den er av, åpner Cmd-T en fane, eller et arbeidsområde når en agentchat eller en rute uten faner har fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy włączone, Cmd-T otwiera obszar roboczy w bieżącej grupie, a Cmd-N otwiera kartę. Gdy wyłączone, Cmd-T otwiera kartę albo obszar roboczy, gdy aktywny jest czat agenta lub panel bez kart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, Cmd-T abre um espaço de trabalho no grupo atual e Cmd-N abre uma aba. Quando desativado, Cmd-T abre uma aba, ou um espaço de trabalho quando um chat de agente ou um painel sem abas está em foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, Cmd-T открывает рабочую область в текущей группе, а Cmd-N — вкладку. Если выключено, Cmd-T открывает вкладку, а когда в фокусе чат агента или панель без вкладок — рабочую область."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด Cmd-T จะเปิดพื้นที่ทำงานในกลุ่มปัจจุบัน และ Cmd-N จะเปิดแท็บ เมื่อปิด Cmd-T จะเปิดแท็บ หรือพื้นที่ทำงานเมื่อโฟกัสอยู่ที่แชทเอเจนต์หรือแผงที่ไม่มีแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken Cmd-T geçerli grupta bir çalışma alanı, Cmd-N bir sekme açar. Kapalıyken Cmd-T bir sekme açar; bir ajan sohbeti veya sekmesiz bir bölme odaktayken bir çalışma alanı açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, Cmd-T відкриває робочий простір у поточній групі, а Cmd-N — вкладку. Якщо вимкнено, Cmd-T відкриває вкладку, а коли у фокусі чат агента чи панель без вкладок — робочий простір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, Cmd-T mở một không gian làm việc trong nhóm hiện tại và Cmd-N mở một tab. Khi tắt, Cmd-T mở một tab, hoặc một không gian làm việc khi đang chọn cuộc trò chuyện tác tử hoặc ngăn không có tab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启时，Cmd-T 在当前分组中打开工作区，Cmd-N 打开标签页。关闭时，Cmd-T 打开标签页；聚焦智能体聊天或没有标签页的窗格时则打开工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，Cmd-T 會在目前群組中開啟工作區，Cmd-N 會開啟分頁。關閉時，Cmd-T 會開啟分頁；聚焦於代理程式聊天或沒有分頁的窗格時則開啟工作區。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabBar.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar in Agent Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات التبويب في محادثات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka kartica u chatovima agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje i agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste in Agent-Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas en chats de agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets dans les discussions d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra delle schede nelle chat dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットのタブバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារផ្ទាំងក្នុងការជជែកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅의 탭 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje i agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek kart w czatach agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de abas em chats de agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок в чатах агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบแท็บในแชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbetlerinde sekme çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок у чатах агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tab trong cuộc trò chuyện tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体聊天中的标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式聊天中的分頁列"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabBar.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar in Browser Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات التبويب في أجزاء المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka kartica u oknima preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje i browserruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste in Browserbereichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas en paneles del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets dans les volets de navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra delle schede nei riquadri del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザペインのタブバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារផ្ទាំងក្នុងផ្ទាំងរងកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 패널의 탭 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje i nettleserruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek kart w panelach przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de abas em painéis do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок в панелях браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบแท็บในแผงเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı bölmelerinde sekme çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок у панелях браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tab trong ngăn trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器窗格中的标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器窗格中的分頁列"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabBar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُظهر الوضع التلقائي شريط علامات التبويب في أجزاء الطرفية والمتصفح، ويخفيه لمحادثة وكيل وحيدة في عمودها. أظهر شريط علامات التبويب لجزء واحد أو أخفه من لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski prikazuje traku kartica u oknima terminala i preglednika, a skriva je za chat agenta koji je sam u svojoj koloni. Prikažite ili sakrijte traku kartica jednog okna iz palete naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk viser fanelinjen i terminal- og browserruder og skjuler den for en agentchat, der er alene i sin kolonne. Vis eller skjul én rudes fanelinje fra kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch zeigt die Tableiste in Terminal- und Browserbereichen und blendet sie für einen Agent-Chat aus, der allein in seiner Spalte ist. Die Tableiste eines Bereichs lässt sich über die Befehlspalette ein- oder ausblenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático muestra la barra de pestañas en los paneles de terminal y navegador, y la oculta en un chat de agente que está solo en su columna. Muestra u oculta la barra de pestañas de un panel desde la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique affiche la barre d’onglets dans les volets de terminal et de navigateur, et la masque pour une discussion d’agent seule dans sa colonne. Affichez ou masquez la barre d’onglets d’un volet depuis la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico mostra la barra delle schede nei riquadri del terminale e del browser e la nasconde per una chat dell’agente da sola nella sua colonna. Mostra o nascondi la barra delle schede di un riquadro dalla palette dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動では、ターミナルとブラウザのペインにタブバーを表示し、列に単独で置かれたエージェントチャットでは非表示にします。ペインごとのタブバーの表示はコマンドパレットから切り替えられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិបង្ហាញរបារផ្ទាំងក្នុងផ្ទាំងរងស្ថានីយ និងកម្មវិធីរុករក ហើយលាក់វាសម្រាប់ការជជែកភ្នាក់ងារដែលនៅតែឯងក្នុងជួរឈររបស់វា។ បង្ហាញ ឬលាក់របារផ្ទាំងរបស់ផ្ទាំងរងមួយពីផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동은 터미널과 브라우저 패널에 탭 막대를 표시하고, 열에 혼자 있는 에이전트 채팅에서는 숨깁니다. 패널별 탭 막대는 명령 팔레트에서 표시하거나 숨길 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk viser fanelinjen i terminal- og nettleserruter og skjuler den for en agentchat som er alene i kolonnen sin. Vis eller skjul én rutes fanelinje fra kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie pokazuje pasek kart w panelach terminala i przeglądarki, a ukrywa go w czacie agenta, który jest sam w swojej kolumnie. Pasek kart jednego panelu pokażesz lub ukryjesz z palety poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático mostra a barra de abas em painéis de terminal e navegador e a oculta em um chat de agente sozinho na coluna. Mostre ou oculte a barra de abas de um painel pela paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В автоматическом режиме панель вкладок видна в панелях терминала и браузера и скрыта в чате агента, который один в своём столбце. Показать или скрыть панель вкладок одной панели можно из палитры команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติจะแสดงแถบแท็บในแผงเทอร์มินัลและเบราว์เซอร์ และซ่อนไว้สำหรับแชทเอเจนต์ที่อยู่ลำพังในคอลัมน์ แสดงหรือซ่อนแถบแท็บของแผงหนึ่งได้จากพาเลตต์คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik, sekme çubuğunu terminal ve tarayıcı bölmelerinde gösterir, sütununda tek başına olan bir ajan sohbetinde gizler. Bir bölmenin sekme çubuğunu komut paletinden gösterin veya gizleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичний режим показує панель вкладок у панелях термінала й браузера і ховає її в чаті агента, що сам у своєму стовпці. Показати або сховати панель вкладок однієї панелі можна з палітри команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động hiển thị thanh tab trong ngăn terminal và trình duyệt, và ẩn nó với cuộc trò chuyện tác tử đứng một mình trong cột. Hiện hoặc ẩn thanh tab của một ngăn từ bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“自动”会在终端和浏览器窗格中显示标签栏，并在单独占据一列的智能体聊天中隐藏它。可在命令面板中显示或隐藏单个窗格的标签栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「自動」會在終端機與瀏覽器窗格中顯示分頁列，並在單獨佔據一欄的代理程式聊天中隱藏它。可從命令面板顯示或隱藏單一窗格的分頁列。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabBar.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar in Terminal Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات التبويب في أجزاء الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka kartica u oknima terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje i terminalruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste in Terminalbereichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas en paneles de terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets dans les volets de terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra delle schede nei riquadri del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルペインのタブバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារផ្ទាំងក្នុងផ្ទាំងរងស្ថានីយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 패널의 탭 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje i terminalruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek kart w panelach terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de abas em painéis de terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок в панелях терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบแท็บในแผงเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal bölmelerinde sekme çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок у панелях термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tab trong ngăn terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端窗格中的标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機窗格中的分頁列"
           }
         }
       }

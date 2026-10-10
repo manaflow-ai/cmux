@@ -6,7 +6,7 @@ import CmuxNextDesign
 struct SidebarGroupLine: Equatable {
     var group: GroupID
     var frame: CGRect
-    var color: GroupColor
+    var color: GroupTint
 }
 
 // The members' line (the Chrome tab group line): ONE layer per open group in
@@ -22,7 +22,9 @@ extension SidebarListView {
 
     /// Every open group in `rows` with shown members: its line from the
     /// header's middle (the opaque header bar covers the top) to the last
-    /// member row's bottom, rounded off just above it. `frame` places a row.
+    /// member row's bottom, rounded off just above it, in the members'
+    /// gutter (`SidebarStyle.groupGutter`), so no row fill covers it
+    /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
     static func groupLines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
         var last: [GroupID: SidebarRow] = [:]
@@ -37,10 +39,10 @@ extension SidebarListView {
         return headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let top = head.midY, bottom = tail.maxY - Metrics.space2
+            let top = head.midY, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
             return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.color ?? end.groupColor ?? .grey)
+                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
         }
     }
 }

@@ -69,7 +69,9 @@ extension HomeNativeTranscriptView {
 /// points a user reaches, for screenshots and recordings.
 extension HomeNativeTranscriptView {
     /// Return in the field: sends the text and the draft attachments.
-    public func sendDraft() { transcript.sendDraft() }
+    /// Nil when the draft went (or waits for the owner as "sending"), else why nothing was sent.
+    @discardableResult
+    public func sendDraft() -> String? { transcript.sendDraft() }
     /// A love tapback on the newest incoming message (the picker's path).
     public func debugTapbackNewestIncoming() -> Bool { transcript.debugTapbackNewestIncoming() }
     /// Plays or pauses the newest video bubble (the click's path).

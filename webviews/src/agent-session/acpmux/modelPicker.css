@@ -163,3 +163,27 @@
     }
   }
 }
+
+/* Nested cascade levels are popups too. Keep their bespoke placement and scrolling, but use the
+   same material as the root model menu and Base UI surfaces. */
+.acpmux-mp-cascade .acpmux-mp-sub {
+  border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  background-color: color-mix(in srgb, var(--acpmux-menu-bg, var(--ui-surface, Canvas)) var(--surface-text-min, 92%), transparent);
+  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  box-shadow: var(--ui-popup-shadow);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-mp-cascade .acpmux-mp-sub {
+    background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+:root[data-reduce-transparency] .acpmux-mp-cascade .acpmux-mp-sub {
+  background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

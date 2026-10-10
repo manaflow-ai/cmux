@@ -795,6 +795,48 @@ def stale_tab_never_shows_another_session():
     show_home()
 
 
+@flow
+def relaunch_keep_sessions_keeps_the_chief():
+    """cx-ebm.54 (P1 2026-10-10): opening a subagent tab, then Quit Keep Sessions and a relaunch, keep
+    the Chief home's acpmux, the Chief host and the subagent's session: the host never logs
+    "acpmux daemon ended", the restored tab shows the same session, the Chief answers, and a new
+    spawn works (no connection refused)."""
+    log_from = len(host_log())
+    answer = spawn(["Reply with only the word keep-probe."], cwd=WORK)
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    session = subs().get(ids[0], {}).get("session_id") if ids else None
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not (session and ws):
+        row("relaunch keeps the Chief", "a subagent with a session and a workspace", f"answer {json.dumps(answer)[:200]}; ws {ws}", False)
+        return
+    # The first open of a subagent tab in this launch (the first handoff in the bug).
+    focus_workspace(ws.get("id"), f"keep-{ids[0]}-before")
+    before = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    rpc("action.run", {"action": "quitKeepSessions"}, timeout=10)
+    try:
+        app.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+    launch_app()
+    show_home()
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    if ws:
+        focus_workspace(ws.get("id"), f"keep-{ids[0]}-restored")
+    after = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 60) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    reply = ask("Reply with only the word keep-pong.")
+    again = spawn(["Reply with only the word keep-probe-2."], cwd=WORK)
+    log = host_log()[log_from:]
+    ended = [line for line in log.splitlines() if "acpmux daemon ended" in line or "the host stops" in line]
+    row("relaunch keeps the Chief", "the host lives; the restored tab shows its session; the Chief answers; a new spawn works",
+        f"session {session}; before {before.get('sessionId')}; after {after.get('sessionId')} missing {after.get('missingSession')}; "
+        f"reply {reply[:60]!r}; spawn again {json.dumps(again)[:120]}; host ended {ended[:2]}",
+        not ended and before.get("sessionId") == session and after.get("sessionId") == session
+        and not after.get("missingSession") and "keep-pong" in reply.lower() and bool(ids_in(again)))
+    show_home()
+
+
 def unix_call(path, request, timeout=30):
     """One JSON line request on a Unix socket (a cmux-tui daemon or a tools socket)."""
     try:

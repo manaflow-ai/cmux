@@ -70,6 +70,45 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.swapCmdTAndCmdN`: Cmd-T opens a workspace and Cmd-N a tab.
+    static func swapCmdTAndCmdN(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            SwapCmdTAndCmdNSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN", "Swap Cmd-T and Cmd-N"),
+            help: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN.help",
+                                     "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."),
+            kind: .toggle,
+            default: .bool(SwapCmdTAndCmdNSetting.fallback),
+            keywords: ["cmd-t", "cmd-n", "swap", "new tab", "new workspace", "shortcut", "keyboard"]
+        )
+    }
+
+    /// `tabs.tabBar.<kind>`: whether a pane of that kind shows its tab bar.
+    static func paneTabBars(group: SettingText) -> [SettingDescriptor] {
+        func title(_ kind: PaneTabBarKind) -> SettingText {
+            switch kind {
+            case .terminal: SettingsText.keyed("settings.tabs.tabBar.terminal", "Tab Bar in Terminal Panes")
+            case .browser: SettingsText.keyed("settings.tabs.tabBar.browser", "Tab Bar in Browser Panes")
+            case .agent: SettingsText.keyed("settings.tabs.tabBar.agent", "Tab Bar in Agent Chats")
+            }
+        }
+        return PaneTabBarKind.allCases.map { kind in
+            SettingDescriptor(
+                PaneTabBarSetting.path(kind), section: .general, group: group,
+                title: title(kind),
+                help: SettingsText.keyed("settings.tabs.tabBar.help",
+                                         "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."),
+                kind: .choice([
+                    SettingChoice(PaneTabBarMode.auto.rawValue, SettingsText.keyed("settings.choice.tabBarAuto", "Automatic")),
+                    SettingChoice(PaneTabBarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(PaneTabBarMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
+                ]),
+                default: .string(PaneTabBarMode.auto.rawValue),
+                keywords: ["tab bar", "tabs", "strip", "horizontal", "show", "hide", kind.rawValue, "pane"]
+            )
+        }
+    }
+
     /// `app.warnBeforeClosingTab` and `app.warnBeforeClosingAgentSession`,
     /// side by side as in classic.
     static func closeWarnings(group: SettingText) -> [SettingDescriptor] {

@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextResources
 import CmuxNextCompat
+import CmuxNextIcons
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
@@ -52,7 +53,7 @@ public final class SidebarView: NSView {
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
-    let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
+    let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// The pointer over the sidebar now (cx-3wu5).

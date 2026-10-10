@@ -3,12 +3,25 @@
 nonisolated enum TabActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
+            // Cmd-T: the kind `tabs.newTabKind` names (the New Tab page by default). Was
+            // `newTab.sameKind`, which named a setting value, not what it does (legacyAliases).
             ActionDescriptor(
-                id: "newTab.sameKind",
-                title: String(localized: "action.newTab.sameKind", defaultValue: "New Tab", bundle: .module),
+                id: "newTab.default",
+                title: String(localized: "action.newTab.default", defaultValue: "New Tab", bundle: .module),
                 keywords: ["tab", "terminal", "browser", "create"], defaultShortcut: Shortcut("t", modifiers: [.command]),
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new", mainMenu: .file
+            ),
+            // New <Kind> Tab (cmuxterm-hq#1829): the selected tab's kind, whatever
+            // `tabs.newTabKind` says. Option-click on the strip's +; the tab menu
+            // shows the kind ("New Browser Tab"). No default key: Opt-Cmd-T closes
+            // other tabs.
+            ActionDescriptor(
+                id: "newTab.ofKind",
+                title: String(localized: "action.newTab.ofKind", defaultValue: "New Tab of the Same Kind", bundle: .module),
+                keywords: ["tab", "terminal", "browser", "agent", "same", "kind", "like this", "create"],
+                category: .tab, symbol: "plus.square.on.square", surfaces: [.palette, .keyboard, .contextMenu],
+                targets: [.tab]
             ),
             ActionDescriptor(
                 id: "newTab.page",
@@ -16,6 +29,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "terminal", "browser", "agent", "chat", "new tab page"],
                 category: .tab, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "tab new-page"
+            ),
+            // New Horizontal Tab (cx-soza): a tab in the focused pane, turning its tab bar on first,
+            // where Cmd-T opens a workspace from a pane that hides it. No default key (Cmd-N stays
+            // New Workspace until Lawrence decides).
+            ActionDescriptor(
+                id: "newTab.horizontal",
+                title: String(localized: "action.newTab.horizontal", defaultValue: "New Horizontal Tab", bundle: .module),
+                keywords: ["tab", "tab bar", "strip", "horizontal", "inside", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.pane]
             ),
             ActionDescriptor(
                 id: "newTab.submit",

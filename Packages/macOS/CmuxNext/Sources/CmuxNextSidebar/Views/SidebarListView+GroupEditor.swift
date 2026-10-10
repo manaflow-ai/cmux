@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 // The group editor (cx-rcby): the chip, its more button, a right-click on
 // the header, Return on a focused header, the Rename action and a new group
@@ -11,19 +12,22 @@ struct SidebarGroupEditing {
 
     /// The id of the editor's trailing row that shows the group's full menu.
     static let moreActionsItem = "sidebar.group.moreActions"
+    /// Not a row: the editor is about to give way to another picker (the
+    /// color panel) that still edits this group, so a new empty group stays.
+    static let keepGroupItem = "sidebar.group.keep"
 
     /// The editor's rows when the App gives none: the shared group actions.
     static func standardItems() -> [[SidebarGroupEditorItem]] {
         [
             [
-                SidebarGroupEditorItem(id: "workspaceGroup.newWorkspace", title: GroupEditorStrings.newWorkspace, symbol: "plus.square.on.square"),
-                SidebarGroupEditorItem(id: "workspaceGroup.moveToNewWindow", title: GroupEditorStrings.moveToNewWindow, symbol: "macwindow.badge.plus"),
-                SidebarGroupEditorItem(id: "workspaceGroup.closeWorkspaces", title: GroupEditorStrings.close, symbol: "xmark.square"),
+                SidebarGroupEditorItem(id: "workspaceGroup.newWorkspace", title: GroupEditorStrings.newWorkspace, icon: .workspaceNew),
+                SidebarGroupEditorItem(id: "workspaceGroup.moveToNewWindow", title: GroupEditorStrings.moveToNewWindow, icon: .windowNew),
+                SidebarGroupEditorItem(id: "workspaceGroup.closeWorkspaces", title: GroupEditorStrings.close, icon: .actionClose),
             ],
             [
-                SidebarGroupEditorItem(id: "workspaceGroup.ungroup", title: GroupEditorStrings.ungroup, symbol: "square.stack.3d.up.slash"),
-                SidebarGroupEditorItem(id: "workspaceGroup.delete", title: GroupEditorStrings.delete, symbol: "trash"),
-                SidebarGroupEditorItem(id: moreActionsItem, title: GroupEditorStrings.moreActions, symbol: "ellipsis.circle"),
+                SidebarGroupEditorItem(id: "workspaceGroup.ungroup", title: GroupEditorStrings.ungroup, icon: .groupUngroup),
+                SidebarGroupEditorItem(id: "workspaceGroup.delete", title: GroupEditorStrings.delete, icon: .actionDelete),
+                SidebarGroupEditorItem(id: moreActionsItem, title: GroupEditorStrings.moreActions, icon: .actionMore),
             ],
         ]
     }
@@ -56,7 +60,7 @@ struct SidebarGroupEditing {
     func open(_ id: GroupID) {
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
         // A click whose mouse-down closed this group's editor toggles it closed.
-        if list.groupEditor.closedByThisClick(id, at: NSApp.currentEvent?.timestamp) { return }
+        if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
         if let row = list.displayed.row(for: .group(id)) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
@@ -77,8 +81,8 @@ struct SidebarGroupEditing {
         open(group.id)
     }
 
-    /// The group's full menu (every group action), under its chip.
-    private func showMenu(_ id: GroupID) {
+    /// The group's full menu under its chip: its more button, a right-click, the editor's last row.
+    func showMenu(_ id: GroupID) {
         guard let menu = list.contextMenuProvider?(.group(id)), let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
         _ = menu.popUp(positioning: nil, at: NSPoint(x: view.labelFrame.minX, y: view.labelFrame.maxY + Metrics.space1), in: view)
     }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Glass find-in-page capsule. Enter finds the next match, Shift-Enter the
 /// previous one, Escape closes.
@@ -27,9 +28,9 @@ final class FindBarView: NSView {
         countLabel.alignment = .right
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        let previous = ChromeIconButton(symbol: "chevron.up", label: Strings.findPrevious, action: #selector(findPrevious), target: self)
-        let next = ChromeIconButton(symbol: "chevron.down", label: Strings.findNext, action: #selector(findNext), target: self)
-        let done = ChromeIconButton(symbol: "xmark", label: Strings.findDone, action: #selector(close), target: self)
+        let previous = ChromeIconButton(icon: .navPreviousMatch, label: Strings.findPrevious, action: #selector(findPrevious), target: self)
+        let next = ChromeIconButton(icon: .disclosureExpanded, label: Strings.findNext, action: #selector(findNext), target: self)
+        let done = ChromeIconButton(icon: .actionClose, label: Strings.findDone, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [icon, field, countLabel, previous, next, done])
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -55,8 +56,7 @@ final class FindBarView: NSView {
             },
         ])
         density.update { [countLabel, icon] in
-            icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold))
+            icon.image = NSImage.icon(.search, size: .iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize - 1))
             countLabel.font = BrowserMetrics.countFont
             stack.spacing = BrowserMetrics.buttonSpacing
             stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)

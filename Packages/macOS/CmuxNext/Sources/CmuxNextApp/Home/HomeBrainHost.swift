@@ -125,9 +125,14 @@ nonisolated struct HomeBrainHost: Sendable {
     /// runs, so it is called only when the host must start.
     @concurrent func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
         // A Chief-home acpmux without this Chief home (an older build, or one an
-        // app started before ACPMUX_CHIEF_MUX_HOME) is handed off; its next start
-        // has the right env (AcpmuxChiefHandoff).
-        if let acpmux { _ = await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path).handOffIfStale() }
+        // app started before ACPMUX_CHIEF_MUX_HOME) is handed off (AcpmuxChiefHandoff).
+        // Only the Chief host starts that daemon (a tab never does, cx-ebm.54): the
+        // host that ran on it ends, and the one launched below starts it with this
+        // Chief home's env.
+        if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path).handOffIfStale(),
+           let pid = await ChiefHostStop.stop(home: ChiefHome(root: muxHome, isolated: false)) {
+            _ = await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(15))
+        }
         // A live host reads the token file at each connect: keep its binding.
         if runningHostHasToken { return .reusedRunningHost }
         let token = try await mintToken()

@@ -78,7 +78,10 @@ Rules:
   `CMUX_LAUNCH_CREDENTIAL` into each request). The dispatcher verifies it per
   request and builds the actor. A caller can never send an actor directly.
 - One rule for stale credentials: a bad MAC, a foreign `host`, or a closed terminal
-  or ACP session is refused with `credential_invalid`. An unknown `kid` (dropped by
+  or ACP session is refused with `validation.invalid` on field `credential`
+  (`details.reason`: `credential_invalid`, `credential_foreign_host`,
+  `credential_closed`; also `credential_malformed`, and
+  `credential_not_local` for a link, WebSocket, remote or page connection). An unknown `kid` (dropped by
   rotation) is not an error: the request falls back to pid ancestry (slice 4) or to
   the user, as if no credential was sent.
 - `credential.verify` and the per-request check read liveness from mux state
@@ -283,6 +286,23 @@ risk class. Token ops are `mcp.expose: never`.
    the journal field. Then the `frontend` actor (launcher fd, `client.hello`
    proof, `forwarded`) and `secret.register|release` with its own store and
    audit record (daemon owner review with this slice).
+   - Status (cx-44j.5, 2026-10-10): the actor stamp landed in landings 1-3b.
+     The credential half is on side branch `feat-cmux-next-orphb-p8cred`:
+     the launch key file (0600 in a 0700 directory, refused and replaced when
+     another user owns it, it is not a plain file, or group or others can
+     read it), `CMUX_LAUNCH_CREDENTIAL` in every terminal child (daemon-owned
+     env key; acpmux, its daemon, agents and hooks drop it; the cmux binary
+     takes it out of its own env at start, so a daemon, owner or TUI never
+     inherits it), `credential.verify|mint|rotate` (mint and rotate: owner
+     only, refused for any request with a credential; rotate replays the
+     same key; mint is for ACP sessions only, valid until two rotations
+     because acpmux owns their lifetime), the envelope member `credential`
+     with `Actor::Terminal` and `Actor::AcpSession`, and the CLI and `cmux
+     mcp` sending it only to their own terminal's session and only to a
+     daemon that advertises `launch-credential-v1`. Not in it: the legacy
+     v1 command protocol does not read a credential; `forwarded`,
+     `secret.register|release` (landing 6); acpmux does not yet call
+     `credential.mint` (slice 4).
    - feed-local-handoff-begin and feed-local-handoff-done (lane 9's new
      local-admin, Unix-only commands) are restricted to the frontend/user
      actor; until then any local agent can call them (coordinator decision

@@ -23,43 +23,63 @@ public final class WhatsNewCenter {
 
     /// Whether the sidebar's What's New item shows (with its unread dot).
     public var showsItem: Bool { isItemEnabled && !unseen.isEmpty }
-    /// This launch's stable or RC version is newer than the last seen one,
-    /// and neither the page nor the "cmux Updated!" card's x has marked it
-    /// seen (cx-7py7). Nightly versions never set it.
+    /// This launch is an update the user has not seen: the update the old
+    /// app recorded (``lastUpdate``), or a version newer than the last seen
+    /// one. Every channel, nightly included (decision D1, 2026-10-10), until
+    /// the page opens or the "cmux Updated!" card's x.
     public private(set) var isUpdated = false
     /// Whether the sidebar shows the "cmux Updated!" card: after any update,
     /// with or without notes, until the page opens or the x; never on a
     /// first install. `updates.showWhatsNew` off hides it too.
     public var showsUpdatedCard: Bool { isItemEnabled && isUpdated }
+    /// The update this build came from, with its changelog (its lines may
+    /// be empty), as the old app recorded it when the update staged. Only
+    /// ``dismissUpdated()`` clears it; nil on a first install and after an
+    /// update the old app did not record.
+    public private(set) var lastUpdate: WhatsNewLastUpdate?
 
     public let current: WhatsNewVersion?
     @ObservationIgnored let seen: WhatsNewSeenStore
     @ObservationIgnored let sources: [any WhatsNewSource]
+    /// This launch's `CFBundleVersion` and where the old app left the update record.
+    @ObservationIgnored let currentBuild: String
+    @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     @ObservationIgnored private var known: [WhatsNewDocument] = []
     @ObservationIgnored private var tracker: WhatsNewTracker?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     /// - Parameter currentVersion: this build's `CFBundleShortVersionString`.
     ///   A version the tracker cannot order (a DEV build's "0") shows nothing.
-    public init(currentVersion: String, defaults: UserDefaults, sources: [any WhatsNewSource]) {
+    /// - Parameter lastUpdates: the update record the previous build wrote
+    ///   (nil: none is read).
+    public init(currentVersion: String, currentBuild: String = "", defaults: UserDefaults, sources: [any WhatsNewSource],
+                lastUpdates: WhatsNewLastUpdateStore? = nil) {
         current = WhatsNewVersion(currentVersion)
+        self.currentBuild = currentBuild
         seen = WhatsNewSeenStore(defaults: defaults)
         self.sources = sources
+        self.lastUpdates = lastUpdates
     }
 
     /// Reads the record and every source once per launch. Idempotent.
     @discardableResult
     public func load() -> Task<Void, Never> {
         if let loadTask { return loadTask }
+        // The record names this build only when this launch is the update it
+        // describes; any other record is stale and removed.
+        lastUpdate = currentBuild.isEmpty ? nil : lastUpdates?.take(for: currentBuild)
         guard let current else {
+            // A version the tracker cannot order (a DEV build): only the record counts.
+            isUpdated = lastUpdate != nil
             isLoaded = true
+            markLoadedForHarness()
             let done = Task<Void, Never> {}
             loadTask = done
             return done
         }
         let tracker = seen.tracker(current: current)
         self.tracker = tracker
-        isUpdated = Self.announcesUpdate(to: current) && (tracker.lastSeen.map { $0 < current } ?? false)
+        isUpdated = lastUpdate != nil || (tracker.lastSeen.map { $0 < current } ?? false)
         let sources = sources
         let task = Task { [weak self] in
             var documents: [WhatsNewDocument] = []
@@ -73,6 +93,7 @@ public final class WhatsNewCenter {
             self.known = WhatsNewTracker.newestFirst(documents)
             self.unseen = tracker.unseen(self.known)
             self.isLoaded = true
+            self.markLoadedForHarness()
         }
         loadTask = task
         return task
@@ -91,22 +112,32 @@ public final class WhatsNewCenter {
         let tracker = tracker ?? current.map { WhatsNewTracker(current: $0, lastSeen: $0) }
         presented = unseen.isEmpty ? (tracker?.recent(known) ?? []) : unseen
         if let current { seen.markSeen(current) }
+        markUpdateSeen()
         unseen = []
-        isUpdated = false
         return presented
     }
 
-    /// Whether an update to `version` shows the "cmux Updated!" card: stable
-    /// and RC versions do; nightly builds update several times a day, so they
-    /// do not (chief, 2026-10-08).
-    static func announcesUpdate(to version: WhatsNewVersion) -> Bool {
-        version.prerelease?.kind != "nightly"
+    /// The update was seen (the changelog opened for it): the card goes and
+    /// the record leaves the disk, so the next launch does not show it
+    /// again. ``lastUpdate`` stays for this launch; only the card's x
+    /// (``dismissUpdated()``) clears it (a939fe59's terms, 2026-10-10).
+    public func markUpdateSeen() {
+        if let current { seen.markSeen(current) }
+        lastUpdates?.clear()
+        isUpdated = false
+    }
+
+    /// The card's x: the record goes, from memory and from disk.
+    private func markRecordSeen() {
+        lastUpdate = nil
+        lastUpdates?.clear()
     }
 
     /// The "cmux Updated!" card's x: this version is seen, so the card and
     /// the sidebar item's dot go together (one seen state).
     public func dismissUpdated() {
         if let current { seen.markSeen(current) }
+        markRecordSeen()
         unseen = []
         isUpdated = false
     }
@@ -123,5 +154,17 @@ public final class WhatsNewCenter {
         unseen = tracker.unseen(known)
         isUpdated = true
         return true
+    }
+}
+
+extension WhatsNewCenter {
+    /// The update harness's evidence (DEV only; no-op without a harness).
+    func markLoadedForHarness() {
+        #if DEBUG
+        UpdateHarness.mark("whats_new.loaded.updated_\(isUpdated).unseen_\(unseen.count)")
+        if let lastUpdate {
+            UpdateHarness.mark("whats_new.last_update.\(lastUpdate.fromBuild)_to_\(lastUpdate.toBuild).lines_\(lastUpdate.changelog.lines.count)")
+        }
+        #endif
     }
 }

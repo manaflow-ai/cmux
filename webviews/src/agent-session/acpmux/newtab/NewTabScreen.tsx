@@ -6,6 +6,7 @@ import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
+import { OpenTabsList } from "./OpenTabsList";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
@@ -30,7 +31,8 @@ export type NewTabScreenActions = {
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
-  onJump(target: "tab" | "workspace", id: string): void;
+  /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
+  onJump(target: "tab" | "workspace" | "here", id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -59,6 +61,8 @@ type Props = NewTabScreenActions & {
   lastAgent?: string;
   home?: string;
   tools?: NewTabHost["tools"];
+  /// The workspace's tabs to move here (a split's page, cx-jfo7).
+  openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
@@ -365,9 +369,13 @@ export function NewTabScreen(props: Props) {
                 activate(row);
               }}
             >
-              <span className="nt-row-glyph" data-kind={row.type}>
-                {rowIcon(row)}
-              </span>
+              {rowFavicon(row) ? (
+                <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+              ) : (
+                <span className="nt-row-glyph" data-kind={row.type}>
+                  {rowIcon(row)}
+                </span>
+              )}
               <span className="nt-row-title">{rowTitle(row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
@@ -378,6 +386,7 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
+      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.tools && (tools.length > 0 || props.onAddHarness) && (
         <ToolsRow tools={tools} onRunAction={props.onRunAction} onAddHarness={props.onAddHarness} />
       )}
@@ -550,6 +559,11 @@ function rowIcon(row: ScreenRow): string {
     case "search":
       return "⌕";
   }
+}
+
+/// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
+function rowFavicon(row: ScreenRow): string | undefined {
+  return row.type === "tab" || row.type === "history" ? row.icon : undefined;
 }
 
 function rowTitle(row: ScreenRow): string {

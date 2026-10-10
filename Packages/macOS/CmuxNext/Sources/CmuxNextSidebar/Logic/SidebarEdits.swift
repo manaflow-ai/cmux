@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
+        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .openHistory, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
              .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated, .layout, .toggleLayoutSection,
              .dropOnLayoutSection, .groupEditorEnded:
             return false
@@ -40,7 +40,7 @@ public nonisolated enum SidebarEdits {
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
-            return mutateGroup(id, in: &sections) { $0.color = color }
+            return mutateGroup(id, in: &sections) { $0.tint = color }
         case let .ungroup(id):
             return ungroup(id, in: &sections)
         case let .toggleCollapse(target):

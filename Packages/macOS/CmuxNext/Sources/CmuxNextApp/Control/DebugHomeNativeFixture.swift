@@ -79,7 +79,10 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
             field.insertText(params["text"]?.stringValue ?? "", replacementRange: field.selectedRange())
             ok = true
-        case "send": view.sendDraft(); ok = true
+        case "send":
+            // A refused send is never ok: a test cannot pass on a dropped send (cx-ebm.55).
+            if let refusal = view.sendDraft() { return .object(["ok": .bool(false), "refused": .string(refusal)]) }
+            ok = true
         case "tapback": ok = view.debugTapbackNewestIncoming()
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
