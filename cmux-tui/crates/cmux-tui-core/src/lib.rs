@@ -18,6 +18,8 @@ mod browser;
 pub mod browser_host;
 mod browser_host_history;
 mod browser_provider;
+/// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
+pub mod first_party_dir;
 mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
@@ -42,6 +44,7 @@ mod journal_ingress;
 mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
+pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;

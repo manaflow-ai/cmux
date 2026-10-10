@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
 import Observation
@@ -70,7 +71,7 @@ final class TitlebarToolbarBand: NSView {
         let store = iconStore
         // task-owner: the band (cancelled in deinit and on a store change); event-driven (Observation)
         iconObservation = Task { [weak self] in
-            for await _ in Observations({ SidebarToggleIcon.tunable.value(in: store) }) {
+            for await _ in ObservationStream({ SidebarToggleIcon.tunable.value(in: store) }) {
                 guard let self else { return }
                 showSidebarState(hidden: showsSidebarHidden)
             }
@@ -146,7 +147,7 @@ final class TitlebarToolbarBand: NSView {
         descriptionObservation?.cancel()
         // task-owner: the band (cancelled in deinit); event-driven (Observation)
         descriptionObservation = Task { [weak self] in
-            for await (title, shortcut) in Observations({ (title(), shortcut()) }) {
+            for await (title, shortcut) in ObservationStream({ (title(), shortcut()) }) {
                 self?.describeToggle(title: title, shortcut: shortcut)
             }
         }

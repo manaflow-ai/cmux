@@ -21,6 +21,8 @@ use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
 };
+mod detached_terminals;
+pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
     insert_restored_terminal_runtime_checked, insert_surface_checked,
@@ -197,7 +199,8 @@ mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
 mod workspace_name;
-use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
+mod launch_identity;
+use kitty_reservation::kitty_image_limits_exceed;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -250,6 +253,7 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
 mod session_paths;
+pub(crate) mod settings;
 mod shell_history_feed;
 mod sidebar_plugin;
 mod startup_restore;
@@ -475,6 +479,8 @@ pub struct Mux {
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
+    /// The launch keys (plans/cmux-next/identity.md section 2).
+    launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Clone of the registry's projection spans, read without its lock.
@@ -700,6 +706,9 @@ pub struct Mux {
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
+    /// The settings owner (the settings file), started on first use or at
+    /// daemon start (mux/settings.rs).
+    settings: settings::SettingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.

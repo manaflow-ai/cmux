@@ -14,7 +14,10 @@ pub(super) enum OperationOwner {
     Git,
     /// The daemon history module (history_ops.rs).
     History,
+    Credential,
     Connection,
+    /// Settings (the settings file): the config owner (resource_router/config.rs).
+    Config,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -24,6 +27,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SessionList
         | ResourceOperation::SessionOpen
         | ResourceOperation::SessionGet => OperationOwner::Machine,
+        ResourceOperation::CredentialVerify
+        | ResourceOperation::CredentialMint
+        | ResourceOperation::CredentialRotate => OperationOwner::Credential,
         ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
         | ResourceOperation::SessionTerminalDefaultsUpdate
@@ -253,6 +259,13 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ConversationDraft
         | ResourceOperation::ConversationEvents
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
+        ResourceOperation::SettingsSchema
+        | ResourceOperation::SettingsList
+        | ResourceOperation::SettingsGet
+        | ResourceOperation::SettingsSnapshot
+        | ResourceOperation::SettingsSet
+        | ResourceOperation::SettingsReset
+        | ResourceOperation::SettingsResetAll => OperationOwner::Config,
     }
 }
 

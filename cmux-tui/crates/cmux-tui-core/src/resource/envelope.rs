@@ -1,12 +1,12 @@
-//! The request and response envelopes of `cmux.protocol/2` (moved out of
-//! resource.rs, behavior unchanged).
+//! The request, response and stream envelopes of `cmux.protocol/2` (moved
+//! out of resource.rs, behavior unchanged).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
     EnvelopeType, OperationClass, PROTOCOL, RequestId, ResourceError, ResourceOperation,
-    validate_idempotency_key,
+    StreamPublicId, WireDecimal, validate_idempotency_key,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +24,11 @@ pub struct RequestEnvelope {
     /// (`origin-claim-v1`; checked before parsing by the connection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<crate::request_origin::OriginClaim>,
+    /// The caller's launch credential (plans/cmux-next/identity.md section
+    /// 3). The connection takes it out and verifies it before validation; it
+    /// is never serialized, logged or part of a fingerprint.
+    #[serde(default, skip_serializing)]
+    pub credential: Option<crate::launch_credential::PresentedCredential>,
 }
 
 impl RequestEnvelope {
@@ -42,6 +47,7 @@ impl RequestEnvelope {
             params,
             idempotency_key,
             origin: None,
+            credential: None,
         }
     }
 
@@ -127,4 +133,50 @@ impl ResponseEnvelope {
             )),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCursor {
+    pub generation: String,
+    pub revision: WireDecimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamItemEnvelope {
+    pub protocol: String,
+    #[serde(rename = "type")]
+    pub envelope_type: EnvelopeType,
+    pub stream_id: StreamPublicId,
+    pub sequence: WireDecimal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ResourceCursor>,
+    pub item: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamEndReason {
+    Completed,
+    Canceled,
+    Closed,
+    Gap,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamEndEnvelope {
+    pub protocol: String,
+    #[serde(rename = "type")]
+    pub envelope_type: EnvelopeType,
+    pub stream_id: StreamPublicId,
+    pub reason: StreamEndReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ResourceCursor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ResourceError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<String>,
 }

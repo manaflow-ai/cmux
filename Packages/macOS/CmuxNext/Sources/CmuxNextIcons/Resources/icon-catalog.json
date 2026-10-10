@@ -199,6 +199,12 @@
    "family": "agent.chat"
   },
   {
+   "name": "agent.chief",
+   "meaning": "The Chief, the agent that runs a server's other agents (server panel, Chief placement row).",
+   "sf": "brain",
+   "family": "agent"
+  },
+  {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
    "sf": "arrow.triangle.branch",
@@ -269,6 +275,24 @@
    "meaning": "Sample app icon: Running agents",
    "sf": "icon.svg",
    "family": "app.sample"
+  },
+  {
+   "name": "appearance.dark",
+   "meaning": "Page color scheme forced dark (browser theme button)",
+   "sf": "questionmark.square.dashed",
+   "family": "appearance"
+  },
+  {
+   "name": "appearance.light",
+   "meaning": "Page color scheme forced light (browser theme button)",
+   "sf": "sun.max",
+   "family": "appearance"
+  },
+  {
+   "name": "appearance.system",
+   "meaning": "Page color scheme follows the app (browser theme button)",
+   "sf": "questionmark.square.dashed",
+   "family": "appearance"
   },
   {
    "name": "apps.stack",
@@ -362,6 +386,18 @@
    "denseStyle": "solid"
   },
   {
+   "name": "checkbox.off",
+   "meaning": "Unchecked box in a multiple-choice list",
+   "sf": "square",
+   "family": "checkbox"
+  },
+  {
+   "name": "checkbox.on",
+   "meaning": "Checked box in a multiple-choice list",
+   "sf": "checkmark.square.fill",
+   "family": "checkbox"
+  },
+  {
    "name": "cloud",
    "meaning": "cmux Cloud / cloud machine / cloud provider",
    "sf": "cloud",
@@ -449,6 +485,12 @@
    "name": "computeruse.observe",
    "meaning": "Computer-use observe screen.",
    "sf": "eye",
+   "family": "computeruse"
+  },
+  {
+   "name": "computeruse.scroll",
+   "meaning": "Computer use: the agent scrolled (Agent Activity event rows).",
+   "sf": "scroll",
    "family": "computeruse"
   },
   {
@@ -841,6 +883,18 @@
    "meaning": "Notifications",
    "sf": "bell",
    "family": "notification"
+  },
+  {
+   "name": "omnibar.answer",
+   "meaning": "Omnibar suggestion: a computed answer (calculator, conversion)",
+   "sf": "equal.circle",
+   "family": "omnibar"
+  },
+  {
+   "name": "omnibar.switchtab",
+   "meaning": "Omnibar suggestion: switch to an open tab",
+   "sf": "rectangle.on.rectangle",
+   "family": "omnibar"
   },
   {
    "name": "overflow.more",

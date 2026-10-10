@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// The menubar panel: one of three prototypes over the same model.
@@ -66,16 +67,16 @@ struct CompactPanel: View {
         let facts = PanelFacts(snapshot: snapshot, model: model)
         VStack(spacing: 0) {
             ServerDivider().padding(.bottom, 4)
-            MetricRow(symbol: "terminal", title: ServerStrings.terminals, value: "\(snapshot.terminals)")
-            MetricRow(symbol: "square.stack.3d.up", title: ServerStrings.apps, value: facts.appsValue,
+            MetricRow(icon: .terminal, title: ServerStrings.terminals, value: "\(snapshot.terminals)")
+            MetricRow(icon: .appsStack, title: ServerStrings.apps, value: facts.appsValue,
                       dot: facts.appsTroubled ? colors.critical : nil)
-            MetricRow(symbol: "cylinder.split.1x2", title: ServerStrings.database, value: facts.databaseValue)
-            MetricRow(symbol: "heart.text.square", title: ServerStrings.health, value: facts.healthValue,
+            MetricRow(icon: .database, title: ServerStrings.database, value: facts.databaseValue)
+            MetricRow(icon: .serverHealth, title: ServerStrings.health, value: facts.healthValue,
                       dot: colors.severity(HealthOrdering.worst(facts.issues)), action: model.openHealth)
             if let offer = snapshot.pairing.offer {
-                MetricRow(symbol: "qrcode", title: ServerStrings.pairThisServer, value: offer.displayCode)
+                MetricRow(icon: .mobilePairQr, title: ServerStrings.pairThisServer, value: offer.displayCode)
             } else if case .unpaired(nil) = snapshot.pairing {
-                MetricRow(symbol: "qrcode", title: ServerStrings.pairThisServer, value: "", action: model.showPairingCode)
+                MetricRow(icon: .mobilePairQr, title: ServerStrings.pairThisServer, value: "", action: model.showPairingCode)
             }
             ServerDivider().padding(.top, 4)
         }

@@ -1,0 +1,1492 @@
+{
+  "family": "cloud",
+  "owner": "app:cmux/cloud",
+  "operations": [
+    {
+      "name": "cloud.auth.status",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "signedIn": {
+            "type": "boolean"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "signedIn"
+        ]
+      },
+      "cli": {
+        "path": "auth status",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Whether cmux is signed in to cmux Cloud and which team requests use. cmux answers from its own sign-in; the app server never sees a token.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.watch",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision now."
+          }
+        },
+        "required": [
+          "revision"
+        ]
+      },
+      "cli": {
+        "path": "machine watch",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "The machine change stream. The catalog has no stream class yet, so this read answers the current projection revision; the server then sends cloud.machine.watch events after each op: {type: upsert, revision, machine} or {type: removed, revision, id}. One revision per projection change; no timer, no polling.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.connect",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string"
+          },
+          "carrier": {
+            "type": "string",
+            "description": "cloud-vm/<machine>#<generation>; a new id after each reconnect."
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "const": "up"
+          },
+          "socket": {
+            "type": "string",
+            "description": "The link's local socket (owner-only directory) until the host passes a carrier fd."
+          }
+        },
+        "required": [
+          "machine",
+          "carrier",
+          "generation",
+          "state",
+          "socket"
+        ]
+      },
+      "cli": {
+        "path": "machine connect",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Connect to Cloud Machine",
+          "ja": "クラウドマシンに接続"
+        }
+      },
+      "docs": "Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.disconnect",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string"
+          },
+          "disconnected": {
+            "type": "boolean",
+            "description": "False when no link existed."
+          }
+        },
+        "required": [
+          "machine",
+          "disconnected"
+        ]
+      },
+      "cli": {
+        "path": "machine disconnect",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Disconnect from Cloud Machine",
+          "ja": "クラウドマシンから切断"
+        }
+      },
+      "docs": "End the link to a machine and forget it, also after a revocation. Every terminal of that machine on this Mac shows the disconnected state. The machine keeps running.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.rescue.open",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "cols": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "focus": {
+            "type": "boolean",
+            "description": "Focus the new terminal. Origin user always focuses it."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "terminal": {
+            "type": "string"
+          },
+          "machine": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "kind": {
+            "const": "cloud-vm-rescue"
+          },
+          "focus": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "terminal",
+          "machine",
+          "backend",
+          "kind",
+          "focus"
+        ]
+      },
+      "cli": {
+        "path": "rescue open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Open Cloud Rescue Shell",
+          "ja": "クラウド救援シェルを開く"
+        }
+      },
+      "docs": "Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true (focuses stays false: focus is not the op's purpose). Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.fs.list",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "path",
+          "entries"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "file",
+                    "directory",
+                    "symlink"
+                  ]
+                },
+                "size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "mode": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "modifiedAt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Epoch milliseconds."
+                }
+              }
+            }
+          }
+        }
+      },
+      "cli": {
+        "path": "fs list",
+        "visible": true,
+        "positional": [
+          "machine",
+          "path"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List a folder on a machine (cmux.fs.provider/1, scheme cloud-vm) through the Cloud API file route. One batch: the route has no cursor.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.fs.stat",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "directory",
+              "symlink"
+            ]
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "modifiedAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          }
+        }
+      },
+      "cli": {
+        "path": "fs stat",
+        "visible": true,
+        "positional": [
+          "machine",
+          "path"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Read the kind, size, mode and change time of one path on a machine.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.fs.read",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "dataBase64",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "dataBase64": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "cli": {
+        "path": "fs read",
+        "visible": true,
+        "positional": [
+          "machine",
+          "path"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Read a whole file of at most 16 MiB (base64). A larger file is refused with cmux.cloud.file_too_large before its bytes move. No ranges: the route reads whole files.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.fs.write",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          },
+          "dataBase64": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "The new file content, at most 16 MiB."
+          },
+          "mode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "baseRevision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Not supported: the Cloud API file route has no revision; a value is refused with cmux.cloud.unsupported."
+          }
+        },
+        "required": [
+          "machine",
+          "path",
+          "dataBase64"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "path",
+          "size"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "cli": {
+        "path": "fs write",
+        "visible": true,
+        "positional": [
+          "machine",
+          "path"
+        ]
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Write a whole file (at most 16 MiB, atomic on the machine). Needs an idempotency key: a retry with the same key writes once. Writes files on the machine, so it needs fs:write. There is no conflict check (no revision on the route).",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.fs.mkdir",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "path"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "cli": {
+        "path": "fs mkdir",
+        "visible": true,
+        "positional": [
+          "machine",
+          "path"
+        ]
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Make a folder on a machine. Needs fs:write.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.fs.remove",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "destructive",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "path"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "cli": {
+        "path": "fs remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Remove File on Cloud Machine…",
+          "ja": "クラウドマシンのファイルを削除…"
+        }
+      },
+      "gesture": "required",
+      "docs": "Remove a file or folder on a machine. Only a person may remove: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.file.push",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "localPath": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute file path on this Mac, without . or .. segments."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "localPath",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "transfer",
+          "state",
+          "machine",
+          "path",
+          "localPath"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "transfer": {
+            "type": "string",
+            "description": "The transfer id; its cloud.file.transfer.changed event carries it."
+          },
+          "state": {
+            "const": "running"
+          },
+          "machine": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "localPath": {
+            "type": "string"
+          }
+        }
+      },
+      "cli": {
+        "path": "file push",
+        "visible": false,
+        "positional": [
+          "machine",
+          "localPath",
+          "path"
+        ]
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "gesture": "required",
+      "docs": "Copy a local file to a machine over SSH through the machine's link. The server makes a new key in memory for each transfer and sends only its public half to the Cloud API; the guest host key is pinned from the Cloud API answer. Needs fs:write. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. The op answers at once with a transfer id (state running) while the copy runs off the op loop; its end is the event cloud.file.transfer.changed {transfer, machine, direction, path, localPath, state: done with bytes, failed with a typed error, or cancelled}. At most 4 transfers run at once; more get cmux.cloud.transfer_busy (retryable). cloud.file.transfer.cancel stops it.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.file.pull",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "localPath": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute file path on this Mac, without . or .. segments."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/",
+            "description": "An absolute path on the machine: no .. segment, no NUL or control characters, at most 4096 bytes."
+          }
+        },
+        "required": [
+          "machine",
+          "localPath",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "transfer",
+          "state",
+          "machine",
+          "path",
+          "localPath"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "transfer": {
+            "type": "string",
+            "description": "The transfer id; its cloud.file.transfer.changed event carries it."
+          },
+          "state": {
+            "const": "running"
+          },
+          "machine": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "localPath": {
+            "type": "string"
+          }
+        }
+      },
+      "cli": {
+        "path": "file pull",
+        "visible": false,
+        "positional": [
+          "machine",
+          "path",
+          "localPath"
+        ]
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "gesture": "required",
+      "docs": "Copy a file from a machine to this Mac, like cloud.file.push in the other direction. Never overwrites: an existing local path gets cmux.cloud.local_exists. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. The op answers at once with a transfer id (state running) while the copy runs off the op loop; its end is the event cloud.file.transfer.changed {transfer, machine, direction, path, localPath, state: done with bytes, failed with a typed error, or cancelled}. At most 4 transfers run at once; more get cmux.cloud.transfer_busy (retryable). cloud.file.transfer.cancel stops it.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.file.transfer.list",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "transfers"
+        ],
+        "properties": {
+          "transfers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "transfer",
+                "machine",
+                "direction",
+                "state",
+                "started_at"
+              ],
+              "properties": {
+                "transfer": {
+                  "type": "string"
+                },
+                "machine": {
+                  "type": "string"
+                },
+                "direction": {
+                  "enum": [
+                    "push",
+                    "pull"
+                  ]
+                },
+                "state": {
+                  "enum": [
+                    "running",
+                    "done",
+                    "failed",
+                    "cancelled"
+                  ]
+                },
+                "started_at": {
+                  "type": "integer",
+                  "description": "Epoch milliseconds."
+                },
+                "ended_at": {
+                  "type": "integer",
+                  "description": "Epoch milliseconds; absent while running."
+                },
+                "error": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "retryable"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "description": "The typed error of a failed transfer, without its message."
+                }
+              }
+            }
+          }
+        }
+      },
+      "cli": {
+        "path": "file transfer list",
+        "visible": true,
+        "positional": []
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "List Cloud File Transfers",
+          "ja": "クラウドのファイル転送を一覧表示"
+        }
+      },
+      "docs": "The file transfers of this server: every running one (oldest start first), then the most recent finished ones (newest end first), so a new page session can show them again. The history keeps at most 32 finished transfers and none older than one hour (by the server's clock; nothing runs on a timer). Each entry: transfer, machine, direction (push or pull), state (running, done, failed or cancelled), started_at and, once ended, ended_at (epoch milliseconds), and error {code, retryable} for a failed one. Local paths and error messages are not listed (they can name local files).",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.file.transfer.cancel",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "transfer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The transfer id from cloud.file.push or cloud.file.pull."
+          }
+        },
+        "required": [
+          "transfer"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "transfer",
+          "state"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "transfer": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "cancelling",
+              "ended"
+            ],
+            "description": "cancelling: the copy is being stopped; one cloud.file.transfer.changed event follows, state cancelled (or done for a push whose copy had already finished). ended: the transfer had already ended; no cancelled event follows."
+          }
+        }
+      },
+      "cli": {
+        "path": "file transfer cancel",
+        "visible": true,
+        "positional": [
+          "transfer"
+        ]
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Stop a running file transfer of this server. The copy stops (its OpenSSH child is killed) and a cancelled pull leaves no file. The op answers at once with state cancelling; the end is one cloud.file.transfer.changed event with state cancelled (a push that had already finished its copy reports done). Idempotent: a transfer that already ended answers state ended and no cancelled event follows (its own done or failed event goes out after the answer when the server had not sent it yet); an id this server never issued answers cmux.cloud.not_found. Never on MCP: agents cannot start transfers.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.port.list",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "forwards"
+        ],
+        "properties": {
+          "forwards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "machine",
+                "port",
+                "host",
+                "localPort",
+                "generation",
+                "state"
+              ],
+              "properties": {
+                "machine": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "integer"
+                },
+                "host": {
+                  "const": "127.0.0.1"
+                },
+                "localPort": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535,
+                  "description": "Connect here, on 127.0.0.1 only."
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The link generation the forward rides; a new link gives a new forward."
+                },
+                "state": {
+                  "enum": [
+                    "up",
+                    "down"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "cli": {
+        "path": "port list",
+        "visible": true,
+        "positional": [
+          "machine"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List this Mac's port forwards to Cloud machines, up or down. It does not list the machine's listening ports (no route for that).",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.port.forward",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "machine",
+          "port"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "machine",
+          "port",
+          "host",
+          "localPort",
+          "generation",
+          "state"
+        ],
+        "properties": {
+          "machine": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "host": {
+            "const": "127.0.0.1"
+          },
+          "localPort": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Connect here, on 127.0.0.1 only."
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The link generation the forward rides; a new link gives a new forward."
+          },
+          "state": {
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "port forward",
+        "visible": true,
+        "positional": [
+          "machine",
+          "port"
+        ]
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Forward Cloud Machine Port",
+          "ja": "クラウドマシンのポートを転送"
+        }
+      },
+      "docs": "Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). One forward per machine and port: a second call returns the same localPort. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.port.close",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "machine",
+          "port"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "machine",
+          "port",
+          "closed"
+        ],
+        "properties": {
+          "machine": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "closed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "cli": {
+        "path": "port close",
+        "visible": true,
+        "positional": [
+          "machine",
+          "port"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Stop Forwarding Cloud Machine Port",
+          "ja": "クラウドマシンのポート転送を停止"
+        }
+      },
+      "docs": "Close a port forward and every connection on it.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.browser.open",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 253,
+            "description": "The machine itself: localhost (default), a name under .localhost, or a loopback IP. Any other host is refused."
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^/"
+          }
+        },
+        "required": [
+          "machine",
+          "port"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "machine",
+          "proxy",
+          "url",
+          "generation"
+        ],
+        "properties": {
+          "machine": {
+            "type": "string"
+          },
+          "proxy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "host",
+              "port"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "http",
+                  "socks5"
+                ]
+              },
+              "host": {
+                "const": "127.0.0.1"
+              },
+              "port": {
+                "type": "integer"
+              }
+            }
+          },
+          "url": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "cli": {
+        "path": "browser open",
+        "visible": true,
+        "positional": [
+          "machine",
+          "port"
+        ]
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Give the browser host a proxy route to the machine's localhost: an HTTP proxy on 127.0.0.1 that reaches only the machine (other hosts get 403) and the URL to load through it. It opens no browser tab; the browser host owns tabs.",
+      "since": "cloud/1"
+    }
+  ]
+}

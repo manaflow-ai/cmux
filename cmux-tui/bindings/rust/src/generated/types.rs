@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR f382884389f70001c1e5211d87278c3a818ed4ecc0519f401288b1837abfa808.
+// cmux-tui mux protocol 12, IR 82bb93e5709e798f69202a6f7322be2cb77395e255510c968afc89fc13ca671f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1550,6 +1550,8 @@ pub struct SetTerminalIdlePolicyResult {
 pub struct SetTerminalKeepResult {
     pub keep: bool,
     pub terminal_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_resource_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2324,6 +2326,8 @@ pub struct TerminalPlacement {
     pub surface: Nullable<Id>,
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
 }
@@ -2421,6 +2425,12 @@ pub enum ViewAttachmentOutcome {
     Passive,
     #[serde(rename = "superseded")]
     Superseded,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewportPaneWidthResult {
+    pub width: f32,
 }
 
 #[rustfmt::skip]

@@ -610,7 +610,7 @@ mod unix {
     use super::shared::host_start::start_host_runtime;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
-    pub(crate) use host_session::host_session_env;
+    pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
@@ -737,7 +737,9 @@ pub use shared::records::{
     validate_terminal_host_record,
 };
 #[cfg(unix)]
-pub(crate) use shared::records::{live_successor_record, record_owner_token};
+pub(crate) use shared::records::{
+    live_successor_record, record_owner_token, wait_for_terminal_host_record_removals,
+};
 #[cfg(unix)]
 pub use shared::unadoptable::*;
 #[cfg(unix)]

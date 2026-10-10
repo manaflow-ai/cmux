@@ -36,8 +36,6 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Opens the existing onboarding import and project/history sync flow.
-    var importAndSync: () -> Void = {}
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
 
@@ -121,7 +119,7 @@ enum NewTabPage {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.welcomeChecklist", "palette.openCmuxSettingsFile", "keybindings.open"]
+        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
         let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
             AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
         }
@@ -153,17 +151,19 @@ enum NewTabPage {
     static func page(_ services: AppServices, selected: TabModel?) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
+        // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
+        let machine = NewTabPageMachine(services, selected: selected)
         return AgentPaneNewTab(
             kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
             // The source tab's folder is what the page's chat or terminal starts in; the field
             // itself always starts empty, with its placeholder (never `~` or a URL).
-            hotkeys: hotkeys, cwd: selected?.cwd,
+            hotkeys: hotkeys, cwd: machine.cwd,
             omnibar: omnibar(services, excluding: selectedID),
             projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id),
+            home: machine.home, tools: tools(services, targetID: selected?.id),
             template: services.settings?.snapshot.newTabTemplate?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
@@ -200,7 +200,7 @@ enum NewTabPage {
             becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
             browseProject: { [weak services] in
                 guard let services else { return nil }
-                return await AppOnboardingServices(owner: services.onboarding).chooseFolder()?.path
+                return await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
@@ -209,7 +209,6 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            importAndSync: { [weak services] in services?.onboarding.show(step: .projects) },
             action: { [weak services] id in
                 guard let services else { return }
                 _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))

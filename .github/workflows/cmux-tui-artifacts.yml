@@ -82,6 +82,7 @@ on:
       - "scripts/ci/macho_weaken.py"
       - "scripts/ci/macos-stubs/**"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-cases.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "backend/packages/home-core/conformance/conversation-search-cases.json"
@@ -103,6 +104,7 @@ on:
       - "schemas/remote-tab/scroll-writer.json"
       - "schemas/remote-tab/session.json"
       - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/settings/settings-schema.json"
       - "scripts/cmux-next/cmux-tui.pin"
       - "skills/cmux-browser/SKILL.md"
       - "skills/cmux-browser/references/authentication.md"
@@ -128,21 +130,26 @@ on:
         type: string
 
 concurrency:
-  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*), per
-  # PR, and per commit for a manual dispatch. For push and dispatch runs
-  # cancel-in-progress stays false: a started run is never cancelled, so no
-  # publish of immutable objects stops mid-upload, and a newer push replaces
-  # only the pending run. A pull_request_target run is cancelled by the next
-  # push to its PR, so a superseded PR head never holds a macOS builder
+  # One group per feat-cmux-next push (cx-73f2), per other pushed branch (main,
+  # each cmux-tui-pin-*), per PR, and per commit for a manual dispatch. For
+  # push and dispatch runs cancel-in-progress stays false: a started run is
+  # never cancelled, so no publish of immutable objects stops mid-upload. A
+  # pull_request_target run is cancelled by the next push to its PR, so a
+  # superseded PR head never holds a macOS builder
   # (tests/test_ci_self_hosted_guard.sh,
-  # check_pr_macos_workflows_cancel_superseded_runs). One group per
-  # feat-cmux-next push (#18175) left 67 runs queued at 05:30Z on 2026-10-07,
-  # each about 2 h behind the macOS builders, so the tip's tree and the
-  # nightly-next build that needs it waited behind every older push. PRs into
-  # feat-cmux-next are retired (direct pushes since 2026-10-03), so no PR
-  # same-tree wait needs an intermediate base tree. tree-preflight still skips
-  # a complete tree, and tree-owner-wait keeps one builder per tree key.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  # check_pr_macos_workflows_cancel_superseded_runs).
+  # feat-cmux-next pushes do not share a group: GitHub replaces the pending run
+  # of a group with the newer one, and that dropped every intermediate merge
+  # train tip (3db7b6626864, nxdog88-v1, 2026-10-10: cancelled while pending, its
+  # tree never published, and the app could not install cmux-tui on an SSH
+  # host). Every dev and dogfood build of a feat-cmux-next tip needs its tree.
+  # The shared group came from #18175's 67-run queue on 2026-10-07, when the
+  # macOS targets built on macOS; they now build on Linux
+  # (scripts/ci/cmux-tui-darwin-builder), and a run whose key is published
+  # stops after the 3 min tree-preflight, while tree-owner-wait keeps one
+  # builder per tree key. cmux-tui-tree-request.yml republishes a commit's tree
+  # on demand.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 permissions: {}

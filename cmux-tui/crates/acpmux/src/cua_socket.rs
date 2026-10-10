@@ -26,6 +26,7 @@ pub const AGENT_SCRUBBED_ENV: &[&str] = &[
     APP_HOST_TOKEN_ENV,
     "CMUX_CUA_SOCKET_AUTH_TOKEN",
     "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN",
+    crate::cua_v2::ENDPOINT_DIR_ENV,
 ];
 
 /// Where this daemon's sessions reach the tag's helper.

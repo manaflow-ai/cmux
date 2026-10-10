@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// A browser pane: toolbar (back, forward, reload, omnibox, extension slot),
 /// a progress line, and the tab's content with find bar, prompt bar, and
@@ -117,9 +118,9 @@ public final class BrowserChromeView: NSView {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
-        backButton = ChromeIconButton(symbol: "arrow.left", label: Strings.back, action: nil, target: nil, toolbar: true)
-        forwardButton = ChromeIconButton(symbol: "arrow.right", label: Strings.forward, action: nil, target: nil, toolbar: true)
-        reloadButton = ChromeIconButton(symbol: "arrow.clockwise", label: Strings.reload, action: nil, target: nil, toolbar: true)
+        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true)
+        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true)
+        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true)
         super.init(frame: .zero)
         wantsLayer = true
         backButton.setAccessibilityIdentifier(BrowserChromeView.backIdentifier)
@@ -331,7 +332,7 @@ public final class BrowserChromeView: NSView {
         let loading = state.isLoading
         if loading != showsStop {
             showsStop = loading
-            reloadButton.setSymbol(loading ? "xmark" : "arrow.clockwise", label: loading ? Strings.stop : Strings.reload)
+            reloadButton.setIcon(loading ? .browserStop : .actionReload, label: loading ? Strings.stop : Strings.reload)
         }
         addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()

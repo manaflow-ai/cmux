@@ -51,6 +51,8 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::CredentialVerify
+                | Self::CredentialMint
                 | Self::ConversationList
                 | Self::ConversationGet
                 | Self::ConversationHistory
@@ -91,6 +93,10 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SettingsSchema
+                | Self::SettingsList
+                | Self::SettingsGet
+                | Self::SettingsSnapshot
                 | Self::SidebarLayoutGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet

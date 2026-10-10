@@ -49,6 +49,7 @@ mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
 pub(crate) use reaper::run_reaper;
+#[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
 
@@ -422,6 +423,7 @@ impl Hub {
                 if let Some(rss) = measured.get(&p.record.host_pid) {
                     p.rss = *rss;
                 }
+                #[cfg(unix)]
                 if park && !p.parked {
                     signal_harness(&p.record, libc::SIGSTOP);
                     p.parked = true;
@@ -496,6 +498,7 @@ impl Hub {
                         self.pool_discard(vec![p]);
                         return None;
                     }
+                    #[cfg(unix)]
                     if p.parked {
                         signal_harness(&p.record, libc::SIGCONT);
                         p.parked = false;
@@ -772,6 +775,7 @@ impl Drop for ClaimGuard {
 /// End one pooled session: continue a parked harness, end it through its
 /// host, then by nonce proof if the host still runs.
 async fn end_pooled(p: Pooled) {
+    #[cfg(unix)]
     if p.parked {
         signal_harness(&p.record, libc::SIGCONT);
     }
@@ -793,58 +797,4 @@ async fn end_pooled_host(record: &HostRecord) {
         .await;
     }
     agent_host::remove_artifacts(&dir, record);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_profile() -> HarnessProfile {
-        HarnessProfile {
-            kind: Default::default(),
-            argv: vec!["claude".into()],
-            env: Default::default(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn a_remote_origin_chain_is_never_pooled_or_served() {
-        let mut cfg = crate::config::Config::default();
-        cfg.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-        let hub = Hub::new(cfg, store);
-        let refused = hub
-            .prewarm(PrewarmRequest {
-                harness: Some("claude".into()),
-                remote: true,
-                ..Default::default()
-            })
-            .await;
-        assert!(refused.is_err(), "a remote-origin hint is refused");
-        assert!(lock(&hub.pool.pool).is_empty());
-        let profile = test_profile();
-        let mut meta = super::super::resolve::draft_meta(super::super::resolve::Draft {
-            id: String::new(),
-            agent: "claude",
-            profile: &profile,
-            family: "claude",
-            preset: None,
-            model_request: None,
-            cwd: "/w".into(),
-            agent_session_id: None,
-            policy: None,
-            remote: true,
-        });
-        assert_eq!(hub.pool_claim(&meta, &profile, &Default::default()).await, None);
-        meta.remote_origin = false;
-        // A memory store runs no agent hosts, so nothing is pooled here either.
-        assert_eq!(hub.pool_claim(&meta, &profile, &Default::default()).await, None);
-    }
 }

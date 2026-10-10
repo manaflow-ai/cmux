@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextOnboarding
 import Observation
 
@@ -22,7 +23,7 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         let (stream, continuation) = AsyncStream<ComputerUsePermissions>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // task-owner: follows the setup's grants until the step's stream ends (onTermination cancels).
         let task = Task { @MainActor in
-            for await value in Observations({ setup.stepPermissions }) {
+            for await value in ObservationStream({ setup.stepPermissions }) {
                 continuation.yield(value)
             }
             continuation.finish()

@@ -13,6 +13,7 @@ use std::time::Duration;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
+use super::codex_app_server;
 use super::resolve::{Failure, call};
 use super::{GlobalArgs, OutputMode, UsageError};
 
@@ -145,12 +146,11 @@ struct Connection {
 
 impl Connection {
     fn open(global: &GlobalArgs) -> Result<Self, Failure> {
-        let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|_| {
-            Failure::Transport(format!(
-                "cmux: {}",
-                crate::localization::catalog().startup.invalid_session_name
-            ))
-        })?;
+        let (socket, derived) =
+            super::wire::resolve_socket_with_origin(global).map_err(|error| Failure::Local {
+                error: super::wire::resolve_failure(&error),
+                exit: super::wire::RESOLVE_FAILURE_EXIT,
+            })?;
         let stream =
             cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
                 Failure::Transport(format!(
@@ -328,11 +328,11 @@ fn send_and_deliver(
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .filter(|recipient| recipient.starts_with("acp:"))
         .map(str::to_owned)
         .collect();
     let mut sent = Sent { message, ..Sent::default() };
-    for recipient in recipients {
+    deliver_to_codex_terminals(&mut connection, &recipients, &mut sent);
+    for recipient in recipients.into_iter().filter(|recipient| recipient.starts_with("acp:")) {
         // The message is stored by now: a failure here is reported with it,
         // so the caller sees its id instead of sending it again.
         let queued = match connection.read(
@@ -366,6 +366,170 @@ fn send_and_deliver(
     Ok(sent)
 }
 
+/// Hand the queued messages of each Codex terminal agent among `recipients`
+/// to Codex through its shared app-server (`codex_app_server`). Other terminal
+/// agents, and a Codex agent the daemon cannot reach now, keep them queued
+/// for their hooks.
+fn deliver_to_codex_terminals(connection: &mut Connection, recipients: &[String], sent: &mut Sent) {
+    let terminals: Vec<&String> =
+        recipients.iter().filter(|recipient| recipient.starts_with("term_")).collect();
+    if terminals.is_empty() {
+        return;
+    }
+    let Ok(agents) = connection.read(ResourceOperation::AgentList, json!({})) else {
+        return;
+    };
+    for terminal in terminals {
+        let Some(thread) = codex_thread(&agents, terminal) else { continue };
+        let session = match codex_app_server::open(&thread) {
+            Ok(session) => session,
+            Err(codex_app_server::Unavailable::NoDaemon) => continue,
+            Err(codex_app_server::Unavailable::Thread(reason)) => {
+                sent.problems
+                    .push(format!("messages for {terminal} stay queued for its hooks: {reason}"));
+                continue;
+            }
+        };
+        let Ok(queued) = connection.read(
+            ResourceOperation::AgentMessageList,
+            json!({
+                "recipient": terminal,
+                "state": "queued",
+                "oldest_first": true,
+                "limit": DELIVERY_BATCH,
+            }),
+        ) else {
+            continue;
+        };
+        deliver_codex_batch(
+            queued.as_array().cloned().unwrap_or_default(),
+            terminal,
+            sent,
+            |text, id| session.send(text, id),
+            |fields| connection.mutate(ResourceOperation::AgentMessageMark, fields, None),
+        );
+    }
+}
+
+/// The Codex thread of the newest live Codex agent in `terminal`, from
+/// `agent.list` (the hooks record it as `agent_session_id`).
+fn codex_thread(agents: &Value, terminal: &str) -> Option<String> {
+    let updated = |agent: &Value| -> f64 {
+        let value = &agent["updated_at_ms"];
+        value.as_f64().or_else(|| value.as_str()?.parse().ok()).unwrap_or(0.0)
+    };
+    agents
+        .as_array()?
+        .iter()
+        .filter(|agent| {
+            agent["terminal_id"] == terminal
+                && agent["extra"]["agent"] == "codex"
+                && agent["state"] != "done"
+        })
+        .max_by(|left, right| updated(left).total_cmp(&updated(right)))
+        .and_then(|agent| agent["extra"]["agent_session_id"].as_str())
+        .filter(|thread| !thread.is_empty())
+        .map(str::to_owned)
+}
+
+/// Claim the oldest queued messages that fit in one input by marking them
+/// delivered, then hand the claimed ones to Codex as one input. A message
+/// another sender or a hook claimed first is not marked again (its attempt
+/// count does not move), so it is left out. Claiming first also means the
+/// hook that the new turn fires finds nothing to repeat. A failed hand-over
+/// marks the claimed messages failed.
+fn deliver_codex_batch(
+    queued: Vec<Value>,
+    terminal: &str,
+    sent: &mut Sent,
+    send: impl FnOnce(&str, &str) -> Result<&'static str, String>,
+    mut mark: impl FnMut(Value) -> Result<Value, Failure>,
+) {
+    let batch = cmux_tui_core::agent_message_prompt::batch(queued);
+    if batch.is_empty() {
+        return;
+    }
+    let ids: Vec<&str> = batch.iter().filter_map(|message| message["id"].as_str()).collect();
+    let claim = mark(json!({
+        "ids": ids,
+        "recipient": terminal,
+        "state": "delivered",
+        "via": "codex.app-server",
+    }));
+    let claimed = match &claim {
+        Ok(marked) => claimed(&batch, marked, terminal),
+        Err(_) => Vec::new(),
+    };
+    record_mark(claim, terminal, &ids.join(", "), sent);
+    let Some(last) = claimed.last() else { return };
+    let client_id = last["id"].as_str().unwrap_or_default().to_owned();
+    let claimed_ids: Vec<&str> =
+        claimed.iter().filter_map(|message| message["id"].as_str()).collect();
+    let text = cmux_tui_core::agent_message_prompt::render(&claimed);
+    if let Err(error) = send(&text, &client_id) {
+        let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
+        sent.failed |= claimed_ids.contains(&own_id.as_str());
+        sent.problems.push(format!(
+            "{} could not be handed to Codex in {terminal}: {error}",
+            claimed_ids.join(", ")
+        ));
+        let failed = mark(json!({
+            "ids": claimed_ids,
+            "recipient": terminal,
+            "state": "failed",
+            "via": "codex.app-server",
+            "error": truncate(&error, 1024),
+        }));
+        record_mark(failed, terminal, &claimed_ids.join(", "), sent);
+    }
+}
+
+/// The messages of `batch` whose receipt for `recipient` this mark moved:
+/// its attempt count went up. The store counts attempts as strings.
+fn claimed(batch: &[Value], marked: &Value, recipient: &str) -> Vec<Value> {
+    let attempts = |message: &Value| -> Option<u64> {
+        message["deliveries"]
+            .as_array()?
+            .iter()
+            .find(|delivery| delivery["recipient"] == recipient)
+            .and_then(|delivery| {
+                let value = &delivery["attempts"];
+                value.as_u64().or_else(|| value.as_str()?.parse().ok())
+            })
+    };
+    let after: Vec<&Value> = marked.as_array().into_iter().flatten().collect();
+    batch
+        .iter()
+        .filter(|message| {
+            after
+                .iter()
+                .find(|value| value["id"] == message["id"])
+                .is_some_and(|value| attempts(value).unwrap_or(0) > attempts(message).unwrap_or(0))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Take the sent message's receipts from a mark result, or report a mark
+/// that failed.
+fn record_mark(marked: Result<Value, Failure>, recipient: &str, ids: &str, sent: &mut Sent) {
+    let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
+    match marked {
+        Ok(marked) => {
+            if let Some(current) =
+                marked.as_array().into_iter().flatten().find(|value| value["id"] == own_id.as_str())
+            {
+                sent.message = current.clone();
+            }
+        }
+        // Another sender may have recorded this delivery first.
+        Err(failure) => sent.problems.push(format!(
+            "could not record the delivery of {ids} to {recipient}: {}",
+            failure_text(&failure)
+        )),
+    }
+}
+
 /// Deliver the queued messages of one acpmux recipient (oldest first, as
 /// listed) and record each outcome. A message an earlier send left queued
 /// goes out here too; its id is the prompt id, so acpmux runs it once even
@@ -394,29 +558,13 @@ fn deliver_queued(
                 fields["error"] = Value::String(truncate(&error, 1024));
             }
         }
-        match mark(fields) {
-            Ok(marked) => {
-                if let Some(current) = marked
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|value| value["id"] == own_id.as_str())
-                {
-                    sent.message = current.clone();
-                }
-            }
-            // Another sender may have recorded this delivery first.
-            Err(failure) => sent.problems.push(format!(
-                "could not record the delivery of {id} to {recipient}: {}",
-                failure_text(&failure)
-            )),
-        }
+        record_mark(mark(fields), recipient, &id, sent);
     }
 }
 
 fn failure_text(failure: &Failure) -> String {
     match failure {
-        Failure::Resource(error) => {
+        Failure::Resource(error) | Failure::Local { error, .. } => {
             error["message"].as_str().map_or_else(|| error.to_string(), str::to_owned)
         }
         Failure::Transport(message) => message.clone(),

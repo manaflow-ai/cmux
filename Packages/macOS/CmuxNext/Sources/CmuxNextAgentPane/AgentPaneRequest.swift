@@ -66,11 +66,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// The empty-chat action opens the existing onboarding project/history import flow.
-    case importAndSync
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
+    /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
+    case openChatInTerminal(String)
+    /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
+    case chatsPage(AgentPaneChatsQuery)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

@@ -4,7 +4,9 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+mod config;
 mod content;
+mod credential;
 mod effects;
 mod mouse;
 mod owner;
@@ -233,6 +235,8 @@ fn dispatch_resource_request(
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::History => crate::history_ops::dispatch(mux, request),
+        OperationOwner::Credential => credential::dispatch(mux, request),
+        OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

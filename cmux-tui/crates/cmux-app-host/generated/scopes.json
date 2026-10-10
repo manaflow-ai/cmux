@@ -385,6 +385,10 @@
       "scope": "coderouter:write",
       "class": "mutation"
     },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
     "coderouter.status": {
       "scope": "coderouter:read",
       "class": "read"
@@ -1201,6 +1205,22 @@
       "scope": "session:write",
       "class": "mutation"
     },
+    "settings.get": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.list": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.schema": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.snapshot": {
+      "scope": "settings:read",
+      "class": "read"
+    },
     "sidebar_layout.get": {
       "scope": "sidebar_layout:read",
       "class": "read"
@@ -1648,6 +1668,9 @@
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
     "conversation.events",
+    "credential.mint",
+    "credential.rotate",
+    "credential.verify",
     "domain.claim",
     "domain.release",
     "domain.verify",
@@ -1699,6 +1722,9 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.set",
     "sidebar_view.attach",
     "sso.connection.activate",
     "sso.connection.create",

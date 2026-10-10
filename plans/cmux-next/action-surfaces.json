@@ -6540,9 +6540,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "offered",
+      "context_menu" : "duplicateOfDefault",
       "context_menus" : [
-        "tab"
+
       ],
       "default_aliases" : [
 
@@ -6554,7 +6554,7 @@
           "cmd"
         ]
       },
-      "id" : "newTab.sameKind",
+      "id" : "newTab.default",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -6566,7 +6566,34 @@
       },
       "palette_suggested" : 0,
       "title" : "New Tab",
-      "title_key" : "action.newTab.sameKind",
+      "title_key" : "action.newTab.default",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-of-kind",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.ofKind",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab of the Same Kind",
+      "title_key" : "action.newTab.ofKind",
       "title_table" : "ActionCatalog"
     },
     {
@@ -8104,6 +8131,60 @@
       "title" : "Go to Home",
       "title_key" : "action.home.show",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.tab",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Home in Tab",
+      "title_key" : "action.home.tab",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.channels",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Channels",
+      "title_key" : "action.home.channels",
+      "title_table" : "HomeActions"
     },
     {
       "cli" : "offered",
@@ -20416,141 +20497,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "settings onboarding",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.welcomeChecklist",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding…",
-      "title_key" : "action.palette.onboarding",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings continue-setup",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "onboarding.continueSetup",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Continue Setup…",
-      "title_key" : "action.onboarding.continueSetup",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "settings import-classic-sessions",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.importClassicSessions",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import Classic cmux Sessions…",
-      "title_key" : "action.palette.importClassicSessions",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action import-and-sync-show",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "importAndSync.show",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import and Sync…",
-      "title_key" : "action.importAndSync.show",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "devOnly",
-      "cli_name" : "settings onboarding-gallery",
-      "context_menu" : "devOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.onboardingGallery",
-      "mcp" : "devOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding Gallery",
-      "title_key" : "action.palette.onboardingGallery",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "settings send-feedback",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -30729,7 +30675,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.sameKind",
+          "id" : "newTab.ofKind",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -33760,10 +33706,6 @@
     {
       "name" : "homeTranscriptRow",
       "source" : "CmuxNextHome\/NativeTranscript\/HomeRowHostView.swift"
-    },
-    {
-      "name" : "onboardingImportProfile",
-      "source" : "CmuxNextOnboarding\/Variants\/Import\/ImportProfileMenu.swift"
     }
   ],
   "version" : 1

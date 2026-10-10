@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -20,8 +21,8 @@ final class SidebarBridge {
     private var widthObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
-    /// The optional Chats section (`sidebar.showChats`, SIDEBAR-NO-RECENTS).
-    let chatsMount = SidebarChatsMount()
+    /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
+    private var appSections: SidebarAppSections?
     var cardsObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
@@ -60,7 +61,10 @@ final class SidebarBridge {
         groupFlow.wireEditor()
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        container.sidebarView.appSections = chatsMount.makeSections(services: services)
+        appSections?.releaseAll()
+        let sections = SidebarAppSections(apps: services.apps)
+        appSections = sections
+        container.sidebarView.appSections = sections
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
@@ -81,7 +85,7 @@ final class SidebarBridge {
         selectionObservation?.cancel()
         widthObservation?.cancel()
         sectionsObservation?.cancel()
-        chatsMount.releaseSections()
+        appSections?.releaseAll()
         cardsObservation?.cancel()
     }
 
@@ -104,7 +108,7 @@ final class SidebarBridge {
             // one slide, not a slide of the old rows and then a row reload.
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
-            for await (sections, launching, failed, profiles, active, shown) in Observations({
+            for await (sections, launching, failed, profiles, active, shown) in ObservationStream({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                     newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
@@ -130,7 +134,7 @@ final class SidebarBridge {
         let state = windowState
         let model = model
         widthObservation = Task { [weak self] in
-            for await (width, presentation) in Observations({ (model.width, model.presentation) }) {
+            for await (width, presentation) in ObservationStream({ (model.width, model.presentation) }) {
                 guard let self else { return }
                 state.sidebarWidth = Double(width)
                 state.sidebarHidden = presentation == .hidden
@@ -139,7 +143,7 @@ final class SidebarBridge {
         }
         selectionObservation = Task { [weak self] in
             // One selection: the shown page's top item, else the shown workspace.
-            for await selected in Observations({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
+            for await selected in ObservationStream({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                                                 creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                                                 layout: layout.document, room: state.profileID.rawValue,
                                                                                 refs: WorkspaceLayoutRefs(machines: machines)) }) {
@@ -182,7 +186,9 @@ final class SidebarBridge {
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
-        let sections = seed.merge(live, launching: launching, failed: failed)
+        var sections = seed.merge(live, launching: launching, failed: failed)
+        // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections)

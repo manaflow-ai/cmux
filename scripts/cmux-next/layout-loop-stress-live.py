@@ -128,7 +128,10 @@ try:
         steps.insert(15, ("toggleSidebar", "action"))
         for name, _ in steps:
             reply = rpc("action.run", {"id": name})
-            if isinstance(reply, dict) and reply.get("error"):
+            error = reply.get("error") if isinstance(reply, dict) else None
+            # "unavailable" is the product's own refusal (no room to split):
+            # a normal outcome at small pane sizes, not a fault.
+            if error and not (isinstance(error, dict) and error.get("code") == "unavailable"):
                 failures.append("action %s failed: %s" % (name, json.dumps(reply)[:200]))
             failures += check("action %s -> %s" % (name, json.dumps(reply)[:80]), app, results)
             if app.poll() is not None:

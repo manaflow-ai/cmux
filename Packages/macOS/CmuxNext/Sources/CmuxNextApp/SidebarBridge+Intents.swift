@@ -199,9 +199,12 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        rows.show(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                       hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
+        var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                     hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                     newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces)
+        // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
+        rows.show(sections)
         model.profiles = Self.profiles(services.machines.local.store)
         groupFlow.openPendingEditor()
     }
