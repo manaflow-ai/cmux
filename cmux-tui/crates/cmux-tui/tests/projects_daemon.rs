@@ -35,6 +35,7 @@ impl Daemon {
             .env("HOME", dir.join("home"))
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_DATA_HOME")
+            .env_remove("CODEX_HOME")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -301,4 +302,69 @@ fn projects_daemon_sync_imports_vscode_family_and_zed_recents() {
     let web = projects.iter().find(|project| project["path"] == "/srv/cx-m0p7-editors/My Web");
     assert!(web.is_none_or(|web| web["sources"]["cursor"].is_null()), "{projects:?}");
     assert!(find(&projects, "/srv/cx-m0p7-editors/app")["sources"]["cursor"].is_object());
+}
+
+#[test]
+fn projects_daemon_sync_imports_codex_app_t3code_and_conductor_projects() {
+    let daemon = Daemon::start("apps");
+    let home = daemon.dir.join("home");
+    let (config, _) = editor_dirs(&home);
+
+    // The Codex desktop app: a project made there, and a folder opened without one.
+    fs::create_dir_all(home.join(".codex")).unwrap();
+    fs::write(
+        home.join(".codex/.codex-global-state.json"),
+        r#"{"local-projects":{"local-1":{"id":"local-1","name":"Site","rootPaths":["/srv/cx-m0p7-apps/site"],
+            "createdAt":1784592037656,"updatedAt":1784592037656}},
+            "electron-saved-workspace-roots":["/srv/cx-m0p7-apps/site","/srv/cx-m0p7-apps/loose"]}"#,
+    )
+    .unwrap();
+    // t3code: a live project and a deleted one.
+    fs::create_dir_all(home.join(".t3/userdata")).unwrap();
+    let db = rusqlite::Connection::open(home.join(".t3/userdata/statev2.sqlite")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, title TEXT NOT NULL,
+           workspace_root TEXT NOT NULL, scripts_json TEXT NOT NULL, created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL, deleted_at TEXT);
+         INSERT INTO projection_projects VALUES ('p1', 'T3', '/srv/cx-m0p7-apps/t3', '[]',
+           '2026-03-25T03:56:09.344Z', '2026-10-06T09:20:40.009Z', NULL);
+         INSERT INTO projection_projects VALUES ('p2', 'Old', '/srv/cx-m0p7-apps/old', '[]',
+           '2026-03-25T03:56:09.344Z', '2026-03-25T03:56:09.344Z', '2026-04-01T00:00:00.000Z');",
+    )
+    .unwrap();
+    drop(db);
+    // Conductor: a shown repo and a hidden one.
+    fs::create_dir_all(config.join("com.conductor.app")).unwrap();
+    let db = rusqlite::Connection::open(config.join("com.conductor.app/conductor.db")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE repos (id TEXT PRIMARY KEY, name TEXT, root_path TEXT,
+           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER DEFAULT 0);
+         INSERT INTO repos VALUES ('r1', 'cond', '/srv/cx-m0p7-apps/cond', '2026-04-16 08:50:04', '2026-04-16 08:50:04', 0);
+         INSERT INTO repos VALUES ('r2', 'hid', '/srv/cx-m0p7-apps/hid', '2026-04-16 08:50:04', '2026-04-16 08:50:04', 1);",
+    )
+    .unwrap();
+    drop(db);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "a-1");
+    let projects = daemon.list(json!({}));
+    let mut paths: Vec<&str> =
+        projects.iter().filter_map(|project| project["path"].as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![
+            "/srv/cx-m0p7-apps/cond",
+            "/srv/cx-m0p7-apps/loose",
+            "/srv/cx-m0p7-apps/site",
+            "/srv/cx-m0p7-apps/t3"
+        ],
+        "{projects:?}"
+    );
+    let site = find(&projects, "/srv/cx-m0p7-apps/site");
+    assert_eq!(site["sources"]["codex-app"]["last_used_ms"], "1784592037656", "{site}");
+    assert_eq!(
+        find(&projects, "/srv/cx-m0p7-apps/t3")["sources"]["t3code"]["last_used_ms"],
+        "1791278440009"
+    );
+    assert!(find(&projects, "/srv/cx-m0p7-apps/cond")["sources"]["conductor"].is_object());
 }
