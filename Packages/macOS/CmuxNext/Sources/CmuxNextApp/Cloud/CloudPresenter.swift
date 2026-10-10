@@ -19,11 +19,16 @@ enum CloudPresenter {
         show(CloudStrings.failedTitle, String(describing: error), in: window)
     }
 
+    /// The money confirmation of a machine create: only the person answers
+    /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
+    static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
-    static func confirm(_ title: String, _ body: String, button: String, in window: NSWindow?, done: @escaping (Bool) -> Void) {
+    static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
+                        in window: NSWindow?, done: @escaping (Bool) -> Void) {
         let spec = CmuxDialogSpec(title: title, lines: [body],
                                   buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
-                                  identifier: "cmux.dialog.cloud.confirm")
+                                  identifier: identifier)
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
     }
 

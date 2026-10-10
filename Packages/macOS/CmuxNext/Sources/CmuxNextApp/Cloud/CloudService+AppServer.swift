@@ -70,7 +70,7 @@ extension CloudPresenter {
         }
         return await withCheckedContinuation { continuation in
             confirm(CloudStrings.createConfirmTitle, body, button: CloudStrings.createConfirmButton,
-                    in: window) { continuation.resume(returning: $0) }
+                    identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
         }
     }
 }
