@@ -825,6 +825,7 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
 /// Start `acpmux router serve` as a detached child unless a router already
 /// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
 /// streams keep running); a later daemon finds and reuses it.
+#[cfg(unix)]
 fn ensure_router() {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
@@ -871,4 +872,11 @@ fn ensure_router() {
         }
         Err(e) => tracing::warn!("could not start the local router: {e}"),
     }
+}
+
+/// Windows port: the router's admin socket and its detached start come with
+/// the daemon start landing; no router is started yet.
+#[cfg(not(unix))]
+fn ensure_router() {
+    tracing::warn!("{}", crate::platform::unsupported("starting the local router"));
 }

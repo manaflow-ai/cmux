@@ -736,20 +736,26 @@ fn reference_value(secret: &str) -> String {
 /// per family per router run (minting the same id again would revoke the key
 /// running harnesses hold), so a spawn's env stays the same and the session
 /// pool's env key still matches.
+pub fn local_router(home: &Path, family: &str) -> Result<(String, String), RouteError> {
+    local_router_with(home, family, false)
+}
+
+/// Windows port: the router's admin socket is Unix only until it is ported;
+/// the route is unavailable.
 #[cfg(not(unix))]
-pub fn local_router(_home: &Path, _family: &str) -> Result<(String, String), RouteError> {
+pub fn local_router_with(
+    _home: &Path,
+    _family: &str,
+    _need_upstream: bool,
+) -> Result<(String, String), RouteError> {
     Err(RouteError::Unavailable(
         crate::platform::unsupported("the local CodeRouter's admin socket").to_string(),
     ))
 }
 
-#[cfg(unix)]
-pub fn local_router(home: &Path, family: &str) -> Result<(String, String), RouteError> {
-    local_router_with(home, family, false)
-}
-
 /// `local_router`, and for the cmux model router also a live upstream (the app
 /// signed the relay in), else `route.unavailable` with the reason.
+#[cfg(unix)]
 pub fn local_router_with(
     home: &Path,
     family: &str,
