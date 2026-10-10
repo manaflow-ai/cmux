@@ -684,6 +684,38 @@ def subagent_link_opens_its_chat():
 
 
 @flow
+def group_move_stays_in_its_row():
+    """A workspace group holds workspaces of one machine row (hq-6d 2026-10-09). A drag refuses a
+    Chief-row subagent workspace into a This Mac group; the palette/CLI move (moveWorkspaceToGroup,
+    `cmux workspace-group add-workspace`) refuses it with the same rule, and writes nothing."""
+    answer = spawn(["Reply with only the word group-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+
+    def topo():
+        return (rpc("snapshot.get") or {}).get("topology") or {}
+    chief = wait(lambda: next((w for w in topo().get("workspaces", []) if ids
+                               and str(w.get("machine") or "").startswith("server-host_chief")
+                               and (w.get("name") or "").lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    local = next((w for w in topo().get("workspaces", [])
+                  if not str(w.get("machine") or "").startswith("server-host_chief")), None)
+    if not (chief and local):
+        row("group move stays in its row", "a Chief-row and a This Mac workspace", f"chief {chief}; local {local}", False)
+        return
+    made = rpc("action.run", {"action": "newWorkspaceGroup", "target": f"workspace:{local['id']}", "args": {"name": "row-probe"}})
+    group = wait(lambda: next((g.get("id") for g in topo().get("workspace_groups", []) if g.get("name") == "row-probe"), None), 30)
+    moved = rpc("action.run", {"action": "moveWorkspaceToGroup", "target": f"workspace:{chief['id']}",
+                               "args": {"group": f"workspace-group:{group}"}}) if group else {"error": "no group"}
+    time.sleep(3)  # test harness: a write that went through would show now
+    after = next((w for w in topo().get("workspaces", []) if w.get("id") == chief["id"]), {})
+    snapshot("group-move-refused")
+    refused = isinstance(moved, dict) and bool(moved.get("error"))
+    row("group move stays in its row", "the move is refused with a reason; the Chief workspace stays out of the group",
+        f"group {group} (made {json.dumps(made)[:80]}); move {json.dumps(moved)[:160]}; group after {after.get('group')}",
+        bool(group) and refused and after.get("group") != group)
+
+
+@flow
 def harness_follows_chief():
     """Subagents run on the Chief's harness: claude, then codex."""
     seen = {}
