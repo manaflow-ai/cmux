@@ -37,7 +37,8 @@ enum HomeMarkdownPolicy {
 /// home id 8 lowercase hex digits, session id 1 to 200 of `A-Za-z0-9-_.`; no user, port,
 /// query or fragment). A click never goes to the system: the host's `onAppLink` runs it
 /// (the app's `link.open`, for its own Chief's subagents only).
-public enum HomeAppLinks {
+public struct HomeAppLinks {
+    public init() {}
     public static let scheme = "cmux"
 
     /// Whether `url` is a Chief subagent link (Home makes it a link and a click opens it in the app).

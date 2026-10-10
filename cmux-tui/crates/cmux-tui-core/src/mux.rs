@@ -127,7 +127,6 @@ pub use results::TerminalMoveResult;
 pub use results::TerminalPlacementResult;
 use results::TerminalReservationRequest;
 pub use results::TerminalResolution;
-pub use results::TerminalSpawnOptions;
 use results::TreeCloseTarget;
 use results::WorkspaceMutationAuthority;
 pub use results::WorkspaceMutationResult;
@@ -154,6 +153,7 @@ mod browser_tab_create;
 mod closed_workspace_replay;
 #[cfg(test)]
 mod legacy_actor_test_wrappers;
+mod spawn_options;
 #[cfg(test)]
 mod test_actor_wrappers;
 mod test_hooks;
@@ -163,6 +163,8 @@ pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, frontend_fields as frontend_browser_fields,
 };
+pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
+pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
