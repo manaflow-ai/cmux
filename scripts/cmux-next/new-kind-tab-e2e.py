@@ -8,7 +8,7 @@ scripts keep working. A browser tab's menu titles the action by its kind ("New B
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket, runs the actions the way the palette and keybindings do
-(`action.run`), counts browser tabs through the daemon socket's `list-workspaces`, and reads the
+(`action.run`, with `focus` so a run may select what it opens, as a keypress does), counts browser tabs through the daemon socket's `list-workspaces`, and reads the
 browser tab row's menu (`debug.sidebar_rows` `menu_x`/`menu_y`, with Show Tabs Under Workspaces
 on). It never launches or quits the app.
 
@@ -71,7 +71,9 @@ def daemon_tabs():
 
 
 def is_browser(tab):
-    return "browser" in str(tab.get("kind") or tab.get("type") or "").lower() or bool(tab.get("url"))
+    """A web page tab. The New Tab page and agent tabs are daemon browser tabs too, with a conversation."""
+    kind = str(tab.get("kind") or tab.get("type") or "").lower()
+    return ("browser" in kind or bool(tab.get("url"))) and not tab.get("conversation")
 
 
 def browsers():
@@ -108,10 +110,10 @@ def row(check, expected, observed, ok):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    print("newTab (workspace):", action("newTab"), flush=True)
+    print("newTab (workspace):", action("newTab", {"focus": True}), flush=True)
     time.sleep(1)  # test harness: the workspace mounts
     start = browsers()
-    print("openBrowser:", action("openBrowser", {"url": "about:blank"}), flush=True)
+    print("openBrowser:", action("openBrowser", {"url": "about:blank", "focus": True}), flush=True)
     if not wait(lambda: browsers() > start, 20):
         sys.exit(f"no browser tab opened; a daemon tab: {json.dumps((daemon_tabs() or [{}])[-1])[:600]}")
     time.sleep(1)  # test harness: the browser tab is selected
