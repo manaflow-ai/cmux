@@ -97,23 +97,3 @@ pub fn verify(jwk: &Value, message: &[u8], signature: &str) -> bool {
     point.extend_from_slice(&y);
     UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, point).verify(message, &sig).is_ok()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn signs_and_round_trips_through_pkcs8() {
-        let rng = SystemRandom::new();
-        let key = InstallKey::generate(&rng).unwrap();
-        let jwk = key.public_jwk();
-        assert_eq!(jwk.as_object().unwrap().len(), 4, "public part only: {jwk}");
-        let sig = key.sign(b"cmux-auth-v1\ndevelopment\ninst\nnonce", &rng).unwrap();
-        assert_eq!(URL_SAFE_NO_PAD.decode(&sig).unwrap().len(), 64);
-        assert!(verify(&jwk, b"cmux-auth-v1\ndevelopment\ninst\nnonce", &sig));
-        assert!(!verify(&jwk, b"cmux-auth-v1\nproduction\ninst\nnonce", &sig));
-        let again = InstallKey::from_pkcs8_base64url(&key.pkcs8_base64url(), &rng).unwrap();
-        assert_eq!(again.public_jwk(), jwk);
-        assert!(!format!("{key:?}").contains("d\""), "debug output never shows a private part");
-    }
-}

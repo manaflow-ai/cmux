@@ -4,6 +4,9 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact: the action contracts and the CI target
 #     graph regenerated on a Mac, at their repository paths) over the checkout;
+#   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
+#     from FILE, the package's `swift package dump-package` output (Swift 6.2
+#     on Linux dumps the same manifest as the Mac);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -13,18 +16,19 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" fmt=1
+generated="" package_dump="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
+    --package-dump) package_dump="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen
@@ -47,6 +51,18 @@ if [[ -n "$generated" && -d "$generated" ]]; then
     cp "$file" "$repo/$rel"
     echo "fixed: regenerated $rel"
   done < <(find "$generated" -type f -print0 | sort -z)
+fi
+
+# 1b. The CI target graph, from the checkout's own generator.
+graph=Packages/macOS/CmuxNext/ci-target-graph.json
+if [[ -n "$package_dump" ]]; then
+  if frozen "$graph"; then
+    echo "skipped (frozen): $graph"
+  else
+    before="$(cksum < "$repo/$graph" 2>/dev/null || true)"
+    python3 -I "$repo/scripts/cmux-next/ci-target-graph.py" --dump "$package_dump" >/dev/null
+    [[ "$before" == "$(cksum < "$repo/$graph")" ]] || echo "fixed: regenerated $graph"
+  fi
 fi
 
 # 2. cmux-tui tree inputs: reported only. Each must also be a pull_request_target

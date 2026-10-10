@@ -195,7 +195,9 @@ fn assert_dead_tabs(tree: &serde_json::Value, names: &[&str], at: &str) {
 #[test]
 fn session_shutdown_signal_exits_keep_tabs_dead() {
     let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start("session-shutdown-keeps-tabs");
+    // Respawn off: this test is about the classification that keeps the
+    // tabs; the next start's respawn of them is host_supervisor.rs.
+    let mut harness = RecoveryHarness::start_without_respawn("session-shutdown-keeps-tabs");
 
     // While the daemon runs normally, a shell killed by a signal is a real
     // end: its tab goes.
@@ -293,6 +295,7 @@ fn session_shutdown_logout_race_keeps_tabs_dead() {
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start_unstarted("session-shutdown-logout-race");
     harness.session_shutdown_lead_ms = Some(30_000);
+    harness.respawn = false;
     harness.restart();
     let names = ["first", "second"];
     let shells = names
@@ -431,3 +434,6 @@ mod terminal_respawn;
 
 #[path = "archive_on_close.rs"]
 mod archive_on_close;
+
+#[path = "host_supervisor.rs"]
+mod host_supervisor;

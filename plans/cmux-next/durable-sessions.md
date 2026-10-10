@@ -254,7 +254,12 @@ tree pushes):
 - `end` (only when `exited`): `{kind: "exited", code}` | `{kind: "signaled", signal, core_dumped}` |
   `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
   `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
-  died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended, other`.
+  died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended,
+  restart_exhausted, restart_failed, other`. The last two come from the respawn supervisor
+  (cx-6so.49): a placed terminal lost with its host respawns after a bounded backoff (0, 2, 10,
+  30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
+  `restart_failed` when a respawn launch fails. The owner start respawns committed respawnable
+  losses an earlier owner never ran (also `session_shutdown`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;
   unknown future values decode as nil / `.other`.
