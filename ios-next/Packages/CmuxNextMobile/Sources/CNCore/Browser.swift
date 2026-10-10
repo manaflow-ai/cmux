@@ -34,8 +34,13 @@ public struct BrowserAttachParams: Codable, Sendable, Hashable {
     /// Ask for the extended frame header with scroll offsets (PROTOCOL.md §3).
     /// Hosts that predate it ignore the field and send plain frames.
     public var frameMeta: Bool?
-    public init(tabId: String, width: Int, height: Int, scale: Double, mobile: Bool = true, frameMeta: Bool? = nil) {
-        self.tabId = tabId; self.width = width; self.height = height; self.scale = scale; self.mobile = mobile; self.frameMeta = frameMeta
+    /// The user picked Request Mobile/Desktop Website: reload the page so it
+    /// loads with the new user agent (otherwise it applies on the next navigation).
+    public var reloadForMode: Bool?
+    public init(tabId: String, width: Int, height: Int, scale: Double, mobile: Bool = true, frameMeta: Bool? = nil,
+                reloadForMode: Bool? = nil) {
+        self.tabId = tabId; self.width = width; self.height = height; self.scale = scale; self.mobile = mobile
+        self.frameMeta = frameMeta; self.reloadForMode = reloadForMode
     }
 }
 

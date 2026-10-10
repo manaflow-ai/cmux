@@ -72,6 +72,8 @@ final class BrowserModel {
     @ObservationIgnored private var viewportInFlight = false
     @ObservationIgnored private var thumbnailRequests: Set<String> = []
     @ObservationIgnored private var pendingAttach: String?
+    /// Next attach follows a Request Mobile/Desktop Website tap.
+    @ObservationIgnored private var explicitModeChange = false
 
     @ObservationIgnored lazy var input = BrowserInputPump { [weak self] in self?.connection.client }
 
@@ -201,7 +203,9 @@ final class BrowserModel {
         input.reset()
         do {
             let result = try await client.attachTab(BrowserAttachParams(tabId: tabId, width: vp.width, height: vp.height,
-                                                                        scale: vp.scale, mobile: vp.mobile, frameMeta: true))
+                                                                        scale: vp.scale, mobile: vp.mobile, frameMeta: true,
+                                                                        reloadForMode: explicitModeChange ? true : nil))
+            explicitModeChange = false
             guard token == attachToken else {
                 try? await client.detachTab(streamId: result.streamId)
                 client.closeStream(id: result.streamId)
@@ -460,6 +464,7 @@ final class BrowserModel {
     func toggleDesktop() {
         guard let id = activeTabId else { return }
         if desktopTabs.contains(id) { desktopTabs.remove(id) } else { desktopTabs.insert(id) }
+        explicitModeChange = true
         // The host applies `mobile` at attach time; attach again.
         Task { await attach(id) }
     }
