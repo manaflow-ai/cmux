@@ -733,14 +733,14 @@ pub(crate) use shared::records::load_terminal_host_records_for_reset;
 #[cfg(unix)]
 pub(crate) use shared::records::record_owner_token;
 #[cfg(any(unix, windows))]
+pub(crate) use shared::records::wait_for_terminal_host_record_removals;
+#[cfg(any(unix, windows))]
 pub use shared::records::{
     acknowledge_terminal_host_exit_record, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_exit_record,
     terminal_host_record_liveness, validate_terminal_host_exit_record,
     validate_terminal_host_record,
 };
-#[cfg(unix)]
-pub(crate) use shared::records::wait_for_terminal_host_record_removals;
 #[cfg(any(unix, windows))]
 pub use shared::unadoptable::*;
 #[cfg(windows)]
