@@ -18,8 +18,17 @@ final class PageInstallCounter {
 final class IncognitoPageMemory {
     let history = InMemoryBrowserHistory()
     let suggestions: OmniboxSuggestionEngine
-    /// The engine was handed to `onSuggestionEngineCreated` (the bookmark feed).
-    var announced = false
+    private var announced = false
+
+    /// The engine, handed to `announce` (the bookmark feed of
+    /// `onSuggestionEngineCreated`) the first time only.
+    func announcedSuggestions(_ announce: (OmniboxSuggestionEngine) -> Void) -> OmniboxSuggestionEngine {
+        if !announced {
+            announced = true
+            announce(suggestions)
+        }
+        return suggestions
+    }
 
     init() {
         suggestions = OmniboxSuggestionEngine(history: history)
