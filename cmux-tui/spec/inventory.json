@@ -453,6 +453,7 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-search",
+      "history-search",
       "conversation-op",
       "conversation-typing",
       "conversation-bind",

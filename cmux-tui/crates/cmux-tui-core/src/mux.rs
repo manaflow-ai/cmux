@@ -165,6 +165,7 @@ pub(crate) use browser_tab_create::{
 };
 pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+mod agent_chat_columns;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -184,6 +185,7 @@ mod exit_settle;
 pub(crate) mod feed_local;
 mod focus;
 mod frontend_projection;
+mod history_search;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
@@ -298,6 +300,10 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
+pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
+pub(crate) use agent_chat_columns::{
+    agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
+};
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
@@ -508,6 +514,9 @@ pub struct Mux {
     /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
     /// a binary that has a cloud transport; absent otherwise.
     cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The history search index (`history-search-v1`), installed by the
+    /// binary with its feeds; absent otherwise.
+    history_search: OnceLock<crate::history_search::HistorySearch>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]

@@ -214,6 +214,7 @@ impl Mux {
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
             cloud_conversations: OnceLock::new(),
+            history_search: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
