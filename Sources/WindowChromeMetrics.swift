@@ -25,9 +25,6 @@ enum WindowChromeMetrics {
 enum WorkspaceCardMetrics {
     static let cornerRadius: CGFloat = 16
     static let borderWidth: CGFloat = 1
-    /// Pane edge to card edge where the card meets the window's trailing
-    /// edge. The panes run flush to the bottom edge.
-    static let paneInset: CGFloat = 8
 }
 
 /// The card surface, filled with the terminal's own background colour.

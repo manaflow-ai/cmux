@@ -1866,12 +1866,10 @@ struct ContentView: View {
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
         }
-        // Panes meet the band and both sidebars, so the band line, the split
-        // dividers and the tab bar hairline join the sidebars' own lines.
-        // They run flush to the window's bottom edge: a browser page has its
-        // own background, so an inset there reads as a dead strip. They keep
-        // an inset only at the trailing window edge.
-        .padding(.trailing, rightSidebarVisible ? 0 : WorkspaceCardMetrics.paneInset)
+        // Panes meet the band, both sidebars and the window's edges, so the
+        // band line, the split dividers and the tab bar hairline join the
+        // sidebars' own lines. No inset at the window's edges: a browser page
+        // has its own background, so one reads as a dead strip.
         // Reserves the titlebar band's height inside the card, so the band
         // (drawn by the window-level overlay at the same fixed position)
         // reads as the card's header.
