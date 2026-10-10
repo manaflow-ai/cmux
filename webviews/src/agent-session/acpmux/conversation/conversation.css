@@ -1438,3 +1438,85 @@ pre.cv-math-source {
   margin: 0;
   border-radius: 0;
 }
+
+/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): a compact bar pinned to the
+   transcript's top right, over the rows, like the minimap; the matches are custom highlights. */
+.acpmux-find {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: 0;
+}
+.acpmux-find__bar {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 3px 0 9px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--acpmux-base, var(--agent-page-bg));
+  box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
+  font-family: var(--cv-font);
+  font-size: 13px;
+}
+.acpmux-find__field {
+  width: 180px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-find__field::placeholder {
+  color: var(--agent-muted);
+}
+.acpmux-find__field::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-find__count {
+  min-width: 0;
+  padding-right: 4px;
+  color: var(--agent-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-find__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-soft, var(--agent-muted));
+  cursor: default;
+}
+.acpmux-find__step:hover:not(:disabled) {
+  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
+}
+.acpmux-find__step:disabled {
+  opacity: 0.4;
+}
+.acpmux-find__step:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+::highlight(acpmux-find) {
+  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+}
+::highlight(acpmux-find-active) {
+  background-color: #f5c542;
+  color: #1d1d1f;
+}

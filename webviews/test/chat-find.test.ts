@@ -3,7 +3,7 @@
 // Find (Cmd-F) sends to an agent pane, then the bar's own keys.
 // - the bar opens with the query and counts the transcript's matches;
 // - the matches draw as custom highlights, with the current one apart;
-// - Enter and Shift-Enter step through the matches, wrapping;
+// - Enter and Shift-Enter step through the matches, wrapping, and the current one scrolls into view;
 // - Escape closes the bar and clears the highlights.
 //
 // Headless Chromium from Playwright; skipped where it is not installed.
@@ -67,6 +67,12 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         count: document.querySelector(".acpmux-find__count")?.textContent ?? "",
         others: highlights.get("acpmux-find")?.size ?? 0,
         active: active.map((range) => range.toString()),
+        // The current match is inside the transcript's viewport.
+        inView: active.every((range) => {
+          const box = range.getBoundingClientRect();
+          const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+          return box.top >= view.top && box.bottom <= view.bottom;
+        }),
       };
     });
   }
@@ -113,7 +119,9 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.keyboard.press("Shift+Enter");
       await page.keyboard.press("Shift+Enter");
-      expect((await state(page)).count).toBe(`${total} of ${total}`);
+      const last = await state(page);
+      expect(last.count).toBe(`${total} of ${total}`);
+      expect(last.inView).toBe(true);
 
       // A query that is nowhere says so.
       await page.fill(".acpmux-find__field", "zzqqxxnotintranscript");
