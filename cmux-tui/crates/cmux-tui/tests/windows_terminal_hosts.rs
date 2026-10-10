@@ -507,3 +507,75 @@ fn a_hosted_terminal_reports_no_fallback() {
         assert!(tab["terminal_host_fallback"].is_null(), "{tab}");
     }
 }
+
+/// `process-info` of `surface` once its foreground executable ends with
+/// `exe` (case-insensitive), or the last reply when it never does.
+fn wait_for_foreground(path: &Path, surface: u64, exe: &str) -> serde_json::Value {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    loop {
+        let info = request(path, serde_json::json!({"cmd": "process-info", "surface": surface}));
+        let matches = info["foreground_executable"]
+            .as_str()
+            .is_some_and(|name| name.to_ascii_lowercase().ends_with(exe));
+        if matches || Instant::now() >= deadline {
+            return info;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The daemon reads a hosted terminal's processes (foreground executable
+/// and directory), although they run in the host's job, not the daemon's:
+/// the shell, a program the shell started, and both again from a daemon
+/// started after a fenced restart.
+#[test]
+fn a_hosted_terminals_processes_are_read_before_and_after_a_restart() {
+    let mut daemon = Daemon::new("procs");
+    let created = request(
+        &daemon.socket,
+        serde_json::json!({"id": 1, "cmd": "run", "argv": ["cmd.exe", "/q", "/k"], "new_workspace": true}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let info = wait_for_foreground(&daemon.socket, surface, "cmd.exe");
+    assert!(
+        info["foreground_executable"].as_str().is_some_and(|n| n.to_ascii_lowercase().ends_with("cmd.exe")),
+        "the shell of a hosted terminal is not read: {info}"
+    );
+    assert!(info["foreground_cwd"].is_string(), "no directory for the hosted shell: {info}");
+
+    // A program the shell started is the foreground.
+    request(
+        &daemon.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": "ping -n 120 127.0.0.1 >nul\r"}),
+    );
+    let info = wait_for_foreground(&daemon.socket, surface, "ping.exe");
+    assert!(
+        info["foreground_executable"].as_str().is_some_and(|n| n.to_ascii_lowercase().ends_with("ping.exe")),
+        "a program in a hosted terminal is not read: {info}"
+    );
+
+    daemon.stop_keeping_terminals();
+    daemon.start();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    let adopted = loop {
+        let resolved = request_response(
+            &daemon.socket,
+            serde_json::json!({"id": 3, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["ok"] == true
+            && resolved["data"]["lifecycle"] == "running"
+            && let Some(surface) = resolved["data"]["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "terminal {terminal_id} was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let info = wait_for_foreground(&daemon.socket, adopted, "ping.exe");
+    assert!(
+        info["foreground_executable"].as_str().is_some_and(|n| n.to_ascii_lowercase().ends_with("ping.exe")),
+        "after a restart the daemon does not read the hosted terminal's processes: {info}"
+    );
+    assert!(info["foreground_cwd"].is_string(), "no directory after a restart: {info}");
+}
