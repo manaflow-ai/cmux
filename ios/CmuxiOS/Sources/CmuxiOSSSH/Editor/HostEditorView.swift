@@ -10,33 +10,18 @@ private struct HostEditorNavigationItem: UIViewRepresentable {
     let isEnabled: Bool
     let action: () -> Void
 
-    final class Coordinator: NSObject {
-        var action: () -> Void
-
-        init(action: @escaping () -> Void) {
-            self.action = action
-        }
-
-        @objc func pressed(_ sender: UIBarButtonItem) {
-            action()
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
-
     func makeUIView(context: Context) -> UIView {
         UIView(frame: .zero)
     }
 
     func updateUIView(_ view: UIView, context: Context) {
-        context.coordinator.action = action
         DispatchQueue.main.async {
             guard let controller = Self.hostingController(for: view) else { return }
             let item = controller.navigationItem.rightBarButtonItem ?? UIBarButtonItem()
             item.title = title
             item.style = .done
-            item.target = context.coordinator
-            item.action = #selector(Coordinator.pressed(_:))
+            let save = action
+            item.primaryAction = UIAction { _ in save() }
             item.isEnabled = isEnabled
             item.accessibilityIdentifier = "ssh.editor.save"
             item.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
