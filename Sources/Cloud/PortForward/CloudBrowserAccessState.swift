@@ -409,12 +409,15 @@ final class CloudBrowserAccessState {
     /// recreated. BrowserPanel calls this for each new service navigation so
     /// recovery replays the current request rather than an older POST.
     func rememberNavigationRequest(_ request: URLRequest) {
-        guard let url = request.url else { return }
+        guard let url = request.url, owns(url),
+              let serviceURL = sessionURL(currentURL: url) else { return }
         pendingNavigationRequest = request
-        remoteURL = url
-        // The next readiness transition must use this request as its replay
-        // template, even when the listener URL has not changed yet.
-        navigationURL = nil
+        // Keep the remote authority stable when WebKit loads a local listener,
+        // but carry the latest path/query/fragment into a replacement forward.
+        remoteURL = serviceURL
+        // This request is about to load. Retain its routed identity so delegate
+        // callbacks can finish it and readiness cannot issue a duplicate load.
+        navigationURL = model?.url(for: serviceURL)
     }
 
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
