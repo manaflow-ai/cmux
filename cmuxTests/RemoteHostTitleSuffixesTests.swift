@@ -124,6 +124,7 @@ import Testing
         #expect(snapshot.displayTitle == "main")
         snapshot.hostTitleSuffix = "web1.us-east"
         #expect(snapshot.displayTitle == "main · web1.us-east")
+        #expect(snapshot.accessibilityLabel(index: 0, workspaceCount: 2).contains("main · web1.us-east"))
         #expect(snapshot.title == "main")
     }
 

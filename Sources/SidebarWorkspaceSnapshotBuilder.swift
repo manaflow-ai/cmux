@@ -113,9 +113,15 @@ struct SidebarWorkspaceSnapshotBuilder {
         }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
-            let position = String(
+            let positionFormat = String(
                 localized: "accessibility.workspacePosition",
-                defaultValue: "\(displayTitle), workspace \(index + 1) of \(workspaceCount)"
+                defaultValue: "%1$@, workspace %2$lld of %3$lld"
+            )
+            let position = String(
+                format: positionFormat,
+                displayTitle,
+                Int64(index + 1),
+                Int64(workspaceCount)
             )
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
