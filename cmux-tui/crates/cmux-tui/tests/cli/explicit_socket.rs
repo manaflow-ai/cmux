@@ -209,6 +209,27 @@ fn a_daemon_socket_named_for_an_app_command_is_the_wrong_kind_and_the_app_is_unt
 }
 
 #[test]
+fn a_daemon_named_by_session_or_env_reaches_no_app_that_does_not_own_it() {
+    let world = World::start("explicit-route");
+    let output = world.cmux(&["--session", "main", "capabilities"], &[]);
+    assert_eq!(failure_code(&output), (Some(3), "socket.no_app".into()));
+    world.assert_app_untouched("--session main capabilities");
+
+    // `CMUX_TUI_SOCKET` names the daemon and nothing names an app: the app
+    // `CMUX_BUNDLE_ID` would name (the default path under HOME) is not used.
+    let daemon = world.daemon.socket.to_str().unwrap().to_owned();
+    let env = [("CMUX_SOCKET_PATH", ""), ("CMUX_TUI_SOCKET", daemon.as_str())];
+    let output = world.cmux(&["capabilities"], &env);
+    assert_eq!(failure_code(&output), (Some(3), "socket.no_app".into()));
+    let created = world.cmux(&["workspace", "create", "--name", "e", "--empty"], &env);
+    assert_success(&created);
+    let created = serde_json::from_slice::<serde_json::Value>(&created.stdout).unwrap();
+    let id = created["value"]["workspace_id"].as_str().expect("workspace_id").to_owned();
+    assert_success(&world.cmux(&["workspace", &id, "focus"], &env));
+    world.assert_app_untouched("CMUX_TUI_SOCKET daemon, capabilities and focus");
+}
+
+#[test]
 fn a_named_app_socket_is_the_only_app_reached() {
     let world = World::start("explicit-app");
     let own_app = Recorder::bind(world.base.join("own-app.sock"), true);

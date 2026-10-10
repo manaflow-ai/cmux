@@ -539,9 +539,15 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
     // with `pong`, anything else is another kind of socket, and no app
     // request runs there. `--app-socket` names the app socket itself.
     if flag == "--socket" {
+        // An app's refusal is an object with a code (a classic app in
+        // password mode refuses ping before `auth.login`); a daemon's
+        // refusal of the unknown line is a plain string.
         let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
-        let is_app =
-            matches!(&pong, Ok(Ok(result)) if result.get("pong") == Some(&Value::Bool(true)));
+        let is_app = match &pong {
+            Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
+            Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
+            Err(_) => false,
+        };
         if !is_app {
             let message = messages.wrong_kind.replace("{path}", &path);
             return Err(typed("socket.wrong_kind", message, Some(&socket)));
@@ -689,7 +695,7 @@ fn busy_retry_delay(error: &Value) -> Duration {
 /// path and never the app the inherited environment names. `--app-socket`
 /// names the app socket. Else `--socket` is the target, as in the classic
 /// CLI, where it names the app socket; a daemon there is
-/// `socket.wrong_kind` ([`call_named`]). Else `--session` reaches only the
+/// `socket.wrong_kind` ([`connect_command`]). Else `--session` reaches only the
 /// app that owns that session. With no explicit route, the app the
 /// environment (`CMUX_SOCKET_PATH`, which is itself never replaced) or the
 /// bundle names.
@@ -701,7 +707,8 @@ pub(super) fn command_socket(global: &GlobalArgs) -> Result<AppSocket, Value> {
         return Ok(AppSocket { path: path.clone(), named_by: Some("--socket") });
     }
     let path = socket_path(global).map_err(|message| {
-        let code = if global.session.is_some() { "socket.no_app" } else { "app.not_found" };
+        let code =
+            if explicit_daemon_route(global).is_some() { "socket.no_app" } else { "app.not_found" };
         json!({ "code": code, "message": message, "details": {}, "retryable": false })
     })?;
     Ok(AppSocket { path, named_by: None })
@@ -728,18 +735,36 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().ok();
     let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    if global.socket.is_none() && global.session.is_none() {
+    let Some(flag) = explicit_daemon_route(global) else {
         return identity
             .map(|identity| identity.control_socket(&home))
             .ok_or_else(|| messages.no_app.to_owned());
-    }
-    let flag = if global.socket.is_some() { "--socket" } else { "--session" };
+    };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);
-    let (daemon, _) = super::wire::resolve_socket_with_origin(global).map_err(|_| no_app())?;
+    let (daemon, _) = super::wire::resolve_socket_with_origin(global)
+        .map_err(|_| crate::localization::catalog().startup.invalid_session_name.to_owned())?;
     match identity {
         Some(identity) if app_owns_daemon(&identity, &daemon) => Ok(identity.control_socket(&home)),
         _ => Err(no_app()),
     }
+}
+
+/// The route that names a daemon explicitly while nothing names the app:
+/// `--socket`, `--session`, or `CMUX_TUI_SOCKET`/`CMUX_MUX_SOCKET` without
+/// `CMUX_SOCKET_PATH` (an app terminal sets both, so its app stays named).
+/// `None`: the app the environment or the bundle names may serve.
+fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
+    if global.socket.is_some() {
+        return Some("--socket");
+    }
+    if global.session.is_some() {
+        return Some("--session");
+    }
+    let set = |key: &str| std::env::var(key).is_ok_and(|value| !value.trim().is_empty());
+    if set("CMUX_SOCKET_PATH") {
+        return None;
+    }
+    ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"].into_iter().find(|key| set(key))
 }
 
 /// Whether `daemon` is the own session socket of the app `identity` names
