@@ -6737,7 +6737,7 @@ impl PtySurface {
                         Err(error) => {
                             self.journal_capture_disabled.store(true, Ordering::Release);
                             mux.try_journal_terminal_output_gap(
-                                terminal_id.clone(),
+                                terminal_id,
                                 self.journal_generation.clone(),
                                 "journal_output_write_failed",
                             );
@@ -6754,7 +6754,7 @@ impl PtySurface {
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
                     self.journal_capture_disabled.store(true, Ordering::Release);
                     mux.try_journal_terminal_output_gap(
-                        terminal_id.clone(),
+                        terminal_id,
                         self.journal_generation.clone(),
                         "journal_output_deadline_expired",
                     );
