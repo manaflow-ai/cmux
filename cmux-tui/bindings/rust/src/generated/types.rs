@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b8080659176dd2ad4dbe5462ac8964ca79ef766e909605a3badf1689087ac5a9.
+// cmux-tui mux protocol 12, IR e6659373670b304a54bc836c41332d90d2466b376974b392eb1a3c781a3042d7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -712,6 +712,26 @@ pub struct GuestUrlOpenResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GuestUrlSubscribeResult {
     pub url_open_ready: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySearchHit {
+    pub at_ms: i64,
+    pub highlights: Vec<HistorySearchRange>,
+    pub key: String,
+    pub kind: String,
+    pub position: Nullable<i64>,
+    pub snippet: String,
+    pub target: String,
+    pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySearchRange {
+    pub end: u32,
+    pub start: u32,
 }
 
 #[rustfmt::skip]

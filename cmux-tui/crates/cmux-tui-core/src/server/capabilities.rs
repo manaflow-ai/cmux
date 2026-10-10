@@ -4,13 +4,17 @@
 use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
-/// when the binary installed a cloud transport, and
+/// when the binary installed a cloud transport, `history-search-v1` when it
+/// installed the search index, and
 /// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
+    }
+    if mux.history_search().is_some() {
+        capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
     }
     #[cfg(unix)]
     capabilities.push(tab_restart::CAPABILITY);

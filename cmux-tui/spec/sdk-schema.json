@@ -8194,6 +8194,101 @@
     }
    },
    "additional_properties": false
+  },
+  "HistorySearchRange": {
+   "kind": "object",
+   "fields": {
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "end": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "HistorySearchHit": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "target": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "position": {
+     "type": {
+      "kind": "scalar",
+      "name": "int64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "snippet": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "highlights": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "HistorySearchRange"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "int64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -19638,6 +19733,73 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md."
+   ]
+  },
+  "history-search": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "history-search-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "query": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "hits": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "HistorySearchHit"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "took_us": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; advertised while the daemon has a search index. query is trimmed, 1-200 characters, no control characters; kinds are chat, command, scrollback, tab or workspace; limit is 1-100 (default 20). See spec/commands.md."
    ]
   },
   "conversation-op": {
