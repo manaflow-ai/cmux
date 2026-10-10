@@ -158,7 +158,7 @@ fn push_arg(line: &mut Vec<u16>, arg: &OsStr) {
 /// (a host override its own environment would not reproduce), without the
 /// nested Claude keys `scrub_nested_claude_env` removes. Sorted, as
 /// CreateProcessW expects (names compare without case).
-fn environment_block(home: &Path) -> Vec<u16> {
+fn environment_block(home: &Path, extra: &[(&str, &OsStr)]) -> Vec<u16> {
     let drop: Vec<String> = crate::config::nested_claude_keys()
         .iter()
         .map(|k| k.to_string_lossy().to_uppercase())
@@ -166,10 +166,13 @@ fn environment_block(home: &Path) -> Vec<u16> {
     let mut vars: Vec<(OsString, OsString)> = std::env::vars_os()
         .filter(|(k, _)| {
             let upper = k.to_string_lossy().to_uppercase();
-            upper != "ACPMUX_HOME" && !drop.contains(&upper)
+            upper != "ACPMUX_HOME"
+                && !drop.contains(&upper)
+                && !extra.iter().any(|(name, _)| name.eq_ignore_ascii_case(&upper))
         })
         .collect();
     vars.push(("ACPMUX_HOME".into(), home.as_os_str().to_owned()));
+    vars.extend(extra.iter().map(|(k, v)| (OsString::from(k), v.to_os_string())));
     vars.sort_by_key(|(k, _)| k.to_string_lossy().to_uppercase());
     let mut block = Vec::new();
     for (k, v) in vars {
@@ -230,48 +233,56 @@ impl Drop for AttributeList {
     }
 }
 
-/// Starts `<exe> [prefix] daemon run --ready-fd <handle>` (see the module
-/// comment) and returns the read end of its readiness pipe.
-pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
+/// Standard handles and further inherited handles of a detached child.
+struct Inherit<'a> {
+    stdin: &'a File,
+    stdout: &'a File,
+    stderr: &'a File,
+    extra: &'a [HANDLE],
+}
+
+/// Starts this executable with `args` detached (see the module comment):
+/// only the handles in `inherit` reach it, in its own process group with a
+/// hidden console, out of this process's job when the job allows it, in
+/// `home` with this process's environment plus ACPMUX_HOME and `env`.
+fn spawn_this(
+    home: &Path,
+    args: &[&OsStr],
+    env: &[(&str, &OsStr)],
+    inherit: Inherit<'_>,
+) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
-    std::fs::create_dir_all(home)?;
-    let log_path = home.join("daemon.log");
-    // Owner-only, as on Unix: the log can carry agent output and requests.
-    let log = crate::owner_only::open_append(&log_path)
-        .with_context(|| format!("open {}", log_path.display()))?;
-    let log_err = log.try_clone()?;
-    let nul = std::fs::OpenOptions::new().read(true).open("NUL").context("open NUL")?;
-    let (reader, writer) = pipe().context("pipe for acpmux daemon readiness")?;
-    let inherited: [HANDLE; 4] =
-        [writer.as_raw_handle(), nul.as_raw_handle(), log.as_raw_handle(), log_err.as_raw_handle()];
+    let mut inherited = vec![
+        inherit.stdin.as_raw_handle(),
+        inherit.stdout.as_raw_handle(),
+        inherit.stderr.as_raw_handle(),
+    ];
+    inherited.extend_from_slice(inherit.extra);
+    inherited.dedup();
     // Inheritable only so the handle list may name them; the list keeps
     // every other inheritable handle of this process out of the child.
-    for handle in inherited {
-        set_inherit(handle, true).context("prepare the daemon's handles")?;
+    for &handle in &inherited {
+        set_inherit(handle, true)?;
     }
     let mut line = Vec::new();
     push_arg(&mut line, exe.as_os_str());
-    for arg in prefix {
+    for arg in args {
         push_arg(&mut line, arg);
     }
-    for arg in ["daemon", "run", "--ready-fd"] {
-        push_arg(&mut line, OsStr::new(arg));
-    }
-    push_arg(&mut line, OsStr::new(&(writer.as_raw_handle() as isize).to_string()));
     line.push(0);
-    let environment = environment_block(home);
+    let environment = environment_block(home, env);
     let application: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
-    // The daemon's own folder (it changes to it at start anyway): on
-    // Windows a process's current folder cannot be removed or renamed.
+    // The child's own folder: on Windows a process's current folder cannot
+    // be removed or renamed.
     let folder: Vec<u16> = home.as_os_str().encode_wide().chain([0]).collect();
     let mut attributes = AttributeList::handle_list(&inherited)?;
     // SAFETY: plain data; every field the call reads is set below.
     let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    startup.StartupInfo.hStdInput = nul.as_raw_handle();
-    startup.StartupInfo.hStdOutput = log.as_raw_handle();
-    startup.StartupInfo.hStdError = log_err.as_raw_handle();
+    startup.StartupInfo.hStdInput = inherit.stdin.as_raw_handle();
+    startup.StartupInfo.hStdOutput = inherit.stdout.as_raw_handle();
+    startup.StartupInfo.hStdError = inherit.stderr.as_raw_handle();
     startup.lpAttributeList = attributes.ptr();
     let flags = CREATE_NO_WINDOW
         | CREATE_NEW_PROCESS_GROUP
@@ -303,15 +314,45 @@ pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
     let info = match spawn(flags | CREATE_BREAKAWAY_FROM_JOB, &mut line) {
         Err(e) if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) => spawn(flags, &mut line),
         other => other,
-    }
-    .map_err(|e| anyhow!("spawn acpmux daemon: {e}"))?;
+    }?;
     // SAFETY: handles CreateProcessW returned to us.
     unsafe {
         CloseHandle(info.hThread);
         CloseHandle(info.hProcess);
     }
     drop(attributes);
+    Ok(())
+}
+
+/// Starts `<exe> [prefix] daemon run --ready-fd <handle>` (see the module
+/// comment) and returns the read end of its readiness pipe.
+pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
+    std::fs::create_dir_all(home)?;
+    let log_path = home.join("daemon.log");
+    // Owner-only, as on Unix: the log can carry agent output and requests.
+    let log = crate::owner_only::open_append(&log_path)
+        .with_context(|| format!("open {}", log_path.display()))?;
+    let log_err = log.try_clone()?;
+    let nul = std::fs::OpenOptions::new().read(true).open("NUL").context("open NUL")?;
+    let (reader, writer) = pipe().context("pipe for acpmux daemon readiness")?;
+    let handle = (writer.as_raw_handle() as isize).to_string();
+    let mut args: Vec<&OsStr> = prefix.iter().map(OsString::as_os_str).collect();
+    args.extend(["daemon", "run", "--ready-fd", &handle].map(OsStr::new));
+    let inherit =
+        Inherit { stdin: &nul, stdout: &log, stderr: &log_err, extra: &[writer.as_raw_handle()] };
+    spawn_this(home, &args, &[], inherit).map_err(|e| anyhow!("spawn acpmux daemon: {e}"))?;
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     Ok(reader)
+}
+
+/// Starts `<exe> router serve` detached for this home, with
+/// `CMUX_ROUTER_BUILD` (what `ensure_router` does with setsid on Unix); its
+/// output goes nowhere, as on Unix.
+pub(super) fn spawn_router(home: &Path, build: &str) -> std::io::Result<()> {
+    let nul_in = std::fs::OpenOptions::new().read(true).open("NUL")?;
+    let nul_out = std::fs::OpenOptions::new().write(true).open("NUL")?;
+    let args = ["router", "serve"].map(OsStr::new);
+    let inherit = Inherit { stdin: &nul_in, stdout: &nul_out, stderr: &nul_out, extra: &[] };
+    spawn_this(home, &args, &[("CMUX_ROUTER_BUILD", OsStr::new(build))], inherit)
 }

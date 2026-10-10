@@ -550,3 +550,92 @@ fn two_starts_at_once_share_one_daemon() {
     assert!(!pids[0].is_empty() && pids[0] == pids[1], "two daemons answered: {pids:?}");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// One JSON line to the router's admin socket and its one-line answer.
+fn router_ask(socket: &Path, line: &str) -> Value {
+    let mut stream = cmux::local_socket::connect_same_user(socket)
+        .unwrap_or_else(|e| panic!("connect {}: {e}", socket.display()));
+    stream.write_all(format!("{line}\n").as_bytes()).unwrap();
+    let answer = read_line(&mut stream, Duration::from_secs(30));
+    serde_json::from_str(&answer).unwrap_or_else(|e| panic!("{e}: {answer}"))
+}
+
+/// Until the router socket answers status, or `deadline`.
+fn router_status(socket: &Path, deadline: Instant) -> Value {
+    loop {
+        if std::fs::symlink_metadata(socket).is_ok()
+            && let Ok(mut stream) = cmux::local_socket::connect_same_user(socket)
+        {
+            stream.write_all(b"{\"op\":\"status\"}\n").unwrap();
+            let answer = read_line(&mut stream, Duration::from_secs(30));
+            return serde_json::from_str(&answer).unwrap_or_else(|e| panic!("{e}: {answer}"));
+        }
+        assert!(Instant::now() < deadline, "the router never answered on {}", socket.display());
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// `acpmux router serve` binds its admin socket in an owner-only router
+/// folder, answers status with its loopback port, and stops on shutdown.
+#[test]
+fn the_router_serves_its_admin_socket_and_stops() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("router");
+    let mut router = acpmux(&exe, &home)
+        .args(["router", "serve"])
+        .env("CMUX_ROUTER_BUILD", "test-build")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn acpmux router serve");
+    let socket = home.join("router").join("router.sock");
+    let status = router_status(&socket, Instant::now() + Duration::from_secs(60));
+    assert_eq!(status.get("build").and_then(Value::as_str), Some("test-build"), "{status}");
+    assert_eq!(status.get("pid").and_then(Value::as_u64), Some(u64::from(router.id())), "{status}");
+    assert!(status.get("port").and_then(Value::as_u64).is_some_and(|p| p > 0), "{status}");
+    assert!(owner_only(&home.join("router")), "the router folder is not owner-only");
+    let stop = router_ask(&socket, r#"{"op":"shutdown"}"#);
+    assert_eq!(stop.get("stopping"), Some(&Value::Bool(true)), "{stop}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let code = loop {
+        if let Some(code) = router.try_wait().unwrap() {
+            break code;
+        }
+        if Instant::now() >= deadline {
+            let _ = router.kill();
+            panic!("the router did not stop after shutdown");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(code.success(), "the router exited with {code}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A daemon started with ACPMUX_LOCAL_ROUTER=1 starts the router detached
+/// (CreateProcessW), with the daemon's build; the router outlives the
+/// daemon and stops on its own shutdown.
+#[test]
+fn the_daemon_starts_the_local_router() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("ensure");
+    let out = acpmux(&exe, &home)
+        .env("ACPMUX_LOCAL_ROUTER", "1")
+        .args(["daemon", "start"])
+        .output()
+        .expect("run acpmux daemon start");
+    assert!(out.status.success(), "acpmux daemon start failed: {}", text(&out));
+    let socket = home.join("router").join("router.sock");
+    let status = router_status(&socket, Instant::now() + Duration::from_secs(60));
+    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    let build = status.get("build").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The router outlives the daemon.
+    let again = router_status(&socket, Instant::now() + Duration::from_secs(10));
+    let stop = router_ask(&socket, r#"{"op":"shutdown"}"#);
+    assert!(!build.is_empty(), "the router has no build: {status}");
+    assert_eq!(again.get("pid"), status.get("pid"), "{again} vs {status}");
+    assert_eq!(stop.get("stopping"), Some(&Value::Bool(true)), "{stop}");
+    let _ = std::fs::remove_dir_all(&home);
+}

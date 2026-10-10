@@ -907,11 +907,12 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
 
 /// Start `acpmux router serve` as a detached child unless a router already
 /// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
-/// streams keep running); a later daemon finds and reuses it.
-#[cfg(unix)]
+/// streams keep running); a later daemon finds and reuses it. Windows starts
+/// it detached through CreateProcessW (`daemon/windows.rs`).
 fn ensure_router() {
+    use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
+    #[cfg(unix)]
     use std::os::unix::process::CommandExt;
     let socket = home().join("router").join("router.sock");
     let ask = |line: &[u8]| -> std::io::Result<Value> {
@@ -932,34 +933,36 @@ fn ensure_router() {
         // the old one has exited, so no sleep is needed here.
         let _ = ask(b"{\"op\":\"shutdown\"}\n");
     }
-    let Ok(exe) = std::env::current_exe() else { return };
-    let mut command = std::process::Command::new(exe);
-    command
-        .args(["router", "serve"])
-        .env("CMUX_ROUTER_BUILD", build)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // Its own session: a daemon exit or a terminal hangup does not stop it.
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
+    #[cfg(windows)]
+    {
+        if let Err(e) = windows::spawn_router(&home(), build) {
+            tracing::warn!("could not start the local router: {e}");
+        }
     }
-    match command.spawn() {
-        Ok(mut child) => {
-            std::thread::spawn(move || {
-                let _ = child.wait();
+    #[cfg(unix)]
+    {
+        let Ok(exe) = std::env::current_exe() else { return };
+        let mut command = std::process::Command::new(exe);
+        command
+            .args(["router", "serve"])
+            .env("CMUX_ROUTER_BUILD", build)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        // Its own session: a daemon exit or a terminal hangup does not stop it.
+        unsafe {
+            command.pre_exec(|| {
+                libc::setsid();
+                Ok(())
             });
         }
-        Err(e) => tracing::warn!("could not start the local router: {e}"),
+        match command.spawn() {
+            Ok(mut child) => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+            Err(e) => tracing::warn!("could not start the local router: {e}"),
+        }
     }
-}
-
-/// Windows port: the router's admin socket and its detached start come with
-/// the daemon start landing; no router is started yet.
-#[cfg(not(unix))]
-fn ensure_router() {
-    tracing::warn!("{}", crate::platform::unsupported("starting the local router"));
 }

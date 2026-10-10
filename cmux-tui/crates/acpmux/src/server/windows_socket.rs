@@ -80,3 +80,50 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     }
     anyhow::bail!("the daemon socket's accept thread ended")
 }
+
+/// The local router's admin socket (`cmux_coderouter::serve_with_admin`):
+/// bound at `path` with the same peer checks, each accepted connection
+/// bridged into tokio and handed to the router.
+pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
+    let listener = cmux::local_socket::listen_explicit(path)
+        .with_context(|| format!("bind {}", path.display()))?;
+    let (sockets_tx, mut sockets) = mpsc::channel::<cmux::local_socket::Stream>(16);
+    std::thread::Builder::new()
+        .name("router-admin-accept".into())
+        .spawn(move || {
+            loop {
+                match listener.accept_with_peer() {
+                    Ok((stream, _peer)) => {
+                        if sockets_tx.blocking_send(stream).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                        tracing::warn!("router admin peer {e}");
+                    }
+                    Err(e) => {
+                        tracing::warn!("router admin accept failed: {e}");
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            }
+        })
+        .context("start the router admin accept thread")?;
+    let (tx, rx) = mpsc::channel(16);
+    tokio::spawn(async move {
+        while let Some(socket) = sockets.recv().await {
+            let connection = crate::local_stream::bridge(socket).map(|stream| {
+                let (read, write) = crate::local_stream::split(stream);
+                (Box::new(read) as _, Box::new(write) as _)
+            });
+            if let Err(e) = &connection {
+                tracing::warn!("router admin connection: {e}");
+                continue;
+            }
+            if tx.send(connection).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(rx)
+}
