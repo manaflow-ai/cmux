@@ -36,6 +36,8 @@ enum DebugOmnibar {
             "profile_badge": bar.profileBadgeName.map(JSONValue.string) ?? .null,
             // The page notice on screen (a fallback, a profile move, "runs on this Mac").
             "notice": entry(params, services: services)?.chrome.noticeText.map(JSONValue.string) ?? .null,
+            // Where it draws: `overlay_host` is above Chromium page windows (cx-whr7).
+            "notice_placement": entry(params, services: services)?.chrome.noticePlacement.map(JSONValue.string) ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
             "pressed_row": pressed,
             "card": bar.debugCard.map { card in
