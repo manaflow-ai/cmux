@@ -619,14 +619,24 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn.
-    if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && steerable) {
+    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
+    // Quick Composer keeps its own ⌘Return and Esc, below.)
+    const quick = Boolean(onOpenInWindow);
+    if (
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      steerable &&
+      !quick
+    ) {
       event.preventDefault();
       send(false, true);
       return;
     }
     // Esc on an empty prompt stops the turn, as Stop does.
-    if (event.key === "Escape" && plain && !open && stop) {
+    if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
       stopTurn();
       return;
@@ -993,7 +1003,10 @@ export function Composer({
                     className="acpmux-steer"
                     aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
                     title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
-                    onClick={() => send(false, true)}
+                    onClick={() => {
+                      send(false, true);
+                      field.current?.focus();
+                    }}
                   >
                     {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
                   </button>

@@ -452,6 +452,9 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
+  /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
+  private queuedSends = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -737,6 +740,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.clear();
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
+    this.queuedSends.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -1204,9 +1208,10 @@ export class AcpmuxDirectClient {
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
-      if (id && event.kind === "queued") {
+      if (id && event.kind === "queued" && this.optimisticPromptRows.has(id)) {
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
         this.optimisticPromptTexts.delete(id);
+        this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
@@ -1599,8 +1604,17 @@ export class AcpmuxDirectClient {
         },
       });
       accept();
+      // Ran or withdrawn: what it held for its bubble is done with.
+      this.queuedSends.delete(promptId);
+      this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
+      // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
+      const queued = this.queuedSends.delete(promptId);
+      if (queued) {
+        this.optimisticPromptRows.set(promptId, rowId);
+        this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+      }
       const code = (error as { code?: unknown } | null)?.code;
       const refused = typeof code === "string" && code.startsWith("transport.");
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
@@ -1609,7 +1623,7 @@ export class AcpmuxDirectClient {
       const held = !taken && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
-      if (isTrustRefusal(error) || held) {
+      if ((isTrustRefusal(error) && !queued) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
