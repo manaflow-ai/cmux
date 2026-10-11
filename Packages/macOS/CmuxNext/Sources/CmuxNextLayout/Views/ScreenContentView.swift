@@ -115,8 +115,9 @@ final class ScreenContentView: NSView {
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
-        // A zoom maps to its one pane while the others stay open: it snaps.
+        // Only panes that are gone: a zoom (its other panes stay open) and a pane moved to another screen snap.
         let closing = animate && structural && arrivals.isEmpty && !zoomed
+            && paneFrames.keys.allSatisfy { baseGeometry.panes[$0] != nil || !context.livePanes.contains($0) }
             && PaneArrival.closing(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value)
         // Strip springs run in strip coordinates: a moved strip origin (a dock that came or went) carries them along.
         let drift = arrivals.isEmpty && !closing ? 0 : before.viewShift(offset: scroll.value) - baseGeometry.viewShift(offset: scroll.value)
