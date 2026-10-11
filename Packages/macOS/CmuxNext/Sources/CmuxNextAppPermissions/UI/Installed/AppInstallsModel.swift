@@ -30,6 +30,7 @@ public final class AppInstallsModel {
     public private(set) var lastReject: AppStateReject?
     /// Apps with an op in flight; taps on them are ignored until it settles.
     public private(set) var sending: Set<String> = []
+    @ObservationIgnored private let makeKey: @MainActor () -> String
 
     public init(source: any AppInstallStateSource, makeKey: @escaping @MainActor () -> String = { UUID().uuidString }) {
         self.source = source
