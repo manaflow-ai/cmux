@@ -42,10 +42,12 @@ jobs:
     # Keep all three evidence stages, but shard each stage. A broad gallery change can select
     # thousands of browser states; sequential rendering otherwise consumes the whole hour.
     # Isolated jobs also avoid competing for renderer memory or CPU while measuring play steps.
+    # All 12 legs run at once: a cap of 6 ran them in two waves and put one extra render
+    # (~5 min) on every gallery PR's critical path.
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 12
       matrix:
         stage: [base, head, repeat]
         shard: [0, 1, 2, 3]
