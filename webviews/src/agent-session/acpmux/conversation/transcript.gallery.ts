@@ -766,6 +766,24 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-row[aria-posinset="1"]'));
       },
     },
+    "jump-latest": {
+      note: "Play: scroll up from the latest reply; Jump to latest shows as a glass circle centered above the composer.",
+      height: 560,
+      snapshot: chat(longChatRows),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+      },
+    },
+    "jump-latest-working": {
+      note: "Play: scrolled up while a reply streams below, Jump to latest shows its dots.",
+      height: 560,
+      snapshot: chat(longChatRows, { isWorking: true }),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown][data-working]"));
+      },
+    },
     selection: {
       note: "Play: select a whole prompt row, then the assistant's rendered prose; both remain browser text selection.",
       snapshot: chat(selectionRows),

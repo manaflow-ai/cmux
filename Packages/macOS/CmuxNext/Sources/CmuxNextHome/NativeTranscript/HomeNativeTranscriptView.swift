@@ -125,6 +125,11 @@ public final class HomeNativeTranscriptView: NSView {
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
+    #if DEBUG
+    /// The first-run panel is on screen (capture scenes settle on it).
+    public var debugFirstRunShown: Bool { !firstRun.isHiddenOrHasHiddenAncestor && firstRun.window != nil }
+    #endif
+
     /// A click on the header's name pill (the Chief's settings sidebar).
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
@@ -135,6 +140,12 @@ public final class HomeNativeTranscriptView: NSView {
     public var avatarText: String? {
         get { transcript.avatarText }
         set { transcript.avatarText = newValue }
+    }
+
+    /// The header avatar's picture, over its text; nil shows the text.
+    public var avatarPicture: NSImage? {
+        get { transcript.avatarPicture }
+        set { transcript.avatarPicture = newValue }
     }
 
     /// The name pill's VoiceOver help.

@@ -279,6 +279,10 @@ final class TerminalThemeBinding: ThemeResponsive {
     private unowned let scope: ThemeScope
     private weak var session: TerminalSession?
 
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
+
     init(scope: ThemeScope, session: TerminalSession) {
         self.scope = scope
         self.session = session

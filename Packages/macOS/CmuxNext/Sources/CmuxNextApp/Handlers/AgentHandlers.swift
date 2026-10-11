@@ -118,6 +118,17 @@ enum AgentHandlers {
                 view.runPermissionAction(command)
             })
         }
+        // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).
+        let turnSteps: [(ActionID, Bool)] = [("agentPane.previousTurn", false), ("agentPane.nextTurn", true)]
+        for (id, forward) in turnSteps {
+            registry.bind(id, run: { invocation in
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.stepTurn(forward: forward)
+            })
+        }
         // Continue in… is a user-facing chooser. Headless callers use the
         // acpmux-owned CLI operation, so automation cannot open this UI unless
         // it explicitly requests focus.

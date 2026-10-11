@@ -225,6 +225,15 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "actions/runs/$OWNER_RUN_ID" in owner_wait
     assert "skipping duplicate build" in owner_wait
     assert "taking over" in owner_wait
+    # The elections read the REST API: $SERVER_URL/repos/... is github.com's
+    # 404 page, which the silent curls took for "no other run", so every
+    # concurrent run of a key built it (cmuxterm-hq#1279).
+    assert "$SERVER_URL/repos/" not in artifacts
+    for body in (preflight, owner_wait):
+        assert "API_URL: ${{ github.api_url }}" in body
+    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # Any branch's run of the same commit owns it, not only feat-cmux-next's.
+    assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)

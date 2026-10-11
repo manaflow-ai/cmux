@@ -18,6 +18,11 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Fired when the queue's head may have changed (a prompt left the queue,
+    /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
+    pub(super) queue_moved: Notify,
+    /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
+    pub(super) restored: StdMutex<Vec<(String, String)>>,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -76,6 +81,10 @@ impl Session {
     }
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
+    }
+    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    pub fn queue_paused(&self) -> bool {
+        self.queue.lock().unwrap().iter().any(|q| q.held)
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions

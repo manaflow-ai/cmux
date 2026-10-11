@@ -32,6 +32,9 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "session/set_mode": ["modeId"],
         "session/set_config_option": ["configId", "value"],
         "session/prompt": ["promptId"],
+        // cx-0q7o: the person's pick of one option of one prompt; only such an allow is signed
+        // for another daemon run.
+        "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
     ]
 
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
@@ -92,6 +95,16 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
         if method == "session/prompt" {
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
+            return
+        }
+        // A permission answer's pick names its session too (the ticket binds the prompt).
+        if method == "_acpmux/permission_respond" {
+            guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
+                  let option = params["optionId"] as? String, params["answers"] == nil else {
+                self.params = nil
+                return
+            }
+            self.params = ["sessionId": .string(session), "permissionId": .string(permission), "optionId": .string(option)]
             return
         }
         var scalars: [String: AgentPaneJSONScalar] = [:]
