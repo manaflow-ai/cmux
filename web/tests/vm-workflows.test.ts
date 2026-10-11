@@ -9004,6 +9004,40 @@ describe("private SCP workflow", () => {
     expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
   });
 
+  // Production 2026-10-11: the guest exec behind SCP setup hung in Freestyle's
+  // background-request poll for 3-4 minutes, then failed 502, while the Mac
+  // client had given up at 60 s. The setup now answers inside that budget.
+  test("answers a hung guest setup within the client's request budget", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-hung", status: "running", billingPlanId: "pro" });
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      prepareSCP: () => Effect.never,
+    });
+    const { error, elapsedMs } = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(prepareScpEndpoint({
+        userId: vm.userId, providerVmId: "vm-scp-hung", publicKey: "client-key", callerPlanId: "pro",
+      }).pipe(Effect.flip, Effect.provide(layer)));
+      let elapsedMs = 0;
+      while (Option.isNone(yield* Fiber.poll(fiber)) && elapsedMs < 300_000) {
+        yield* TestClock.adjust(500);
+        elapsedMs += 500;
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      }
+      const done = yield* Fiber.poll(fiber);
+      if (Option.isNone(done)) {
+        yield* Fiber.interrupt(fiber);
+        return { error: null, elapsedMs };
+      }
+      return { error: yield* Fiber.join(fiber), elapsedMs };
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    // The Mac's URLRequest gives up after 60 s without a response byte.
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    const cause = error && "cause" in error ? error.cause as { name?: string } : null;
+    expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
+  });
+
   test("refuses an inaccessible VM before installing a public key", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running" });
     let calls = 0;

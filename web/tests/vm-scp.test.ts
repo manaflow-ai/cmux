@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { Freestyle } from "freestyle";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { parseSshPublicKey, scpAuthorizedKeyLine } from "../services/vms/drivers/scp";
+import { VmProviderOperationError } from "../services/vms/errors";
+import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 
 const blob = Buffer.concat([Buffer.from("0000000b7373682d6564323535313900000020", "hex"), Buffer.alloc(32, 7)]);
 const key = `ssh-ed25519 ${blob.toString("base64")}`;
@@ -54,5 +56,50 @@ describe("private SCP authentication", () => {
     const provider = new FreestyleProvider({ client: () => client });
     await expect(provider.prepareSCP(vmId, key)).rejects.toThrow("private network");
     expect(execs).toBe(0);
+  });
+});
+
+// Production 2026-10-11: a guest whose provider exec channel stopped answering
+// was reported as "SSH server unavailable" and a generic retryable outage. The
+// SSH service was never checked: the setup command never ran or never exited.
+describe("SCP setup on a machine that does not answer", () => {
+  const unresponsiveProvider = (exec: () => Promise<unknown>) => {
+    const client = { vms: { ref: () => ({
+      data: async () => ({ vpcs: [{ ipv4: "10.4.0.7" }] }),
+      exec,
+    }) } } as unknown as Freestyle;
+    return new FreestyleProvider({ client: () => client });
+  };
+
+  const failure = async (run: () => Promise<unknown>) => {
+    try { await run(); } catch (error) { return error as Error; }
+    throw new Error("expected SCP setup to fail");
+  };
+
+  const stuckExecs: [string, () => Promise<unknown>][] = [
+    ["the provider exec call fails", async () => { throw new Error("Status: 502 (Bad Gateway)"); }],
+    ["the guest command never exits", async () => ({ statusCode: null, stdout: "", stderr: "" })],
+  ];
+  test.each(stuckExecs)("names the machine as unresponsive when %s", async (_label, exec) => {
+    const error = await failure(() => unresponsiveProvider(exec).prepareSCP(vmId, key));
+    expect(error.name).toBe("ProviderGuestUnresponsiveError");
+    expect(error.message).not.toContain("SSH server unavailable");
+
+    const response = await vmWorkflowErrorResponse(
+      new VmProviderOperationError({ provider: "freestyle", operation: "prepareSCP", cause: error }),
+    );
+    expect(response?.status).toBe(503);
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({ error: "vm_guest_unresponsive", retryable: false });
+    expect(String(payload.action)).toContain("cmux vm pause");
+    expect(String(payload.action)).toContain("cmux vm resume");
+    expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable/i);
+  });
+
+  test("keeps the guest's own error when the setup command fails", async () => {
+    const provider = unresponsiveProvider(async () => ({ statusCode: 1, stdout: "", stderr: "Failed to start ssh.service: Unit ssh.service not found.\n" }));
+    const error = await failure(() => provider.prepareSCP(vmId, key));
+    expect(error.name).toBe("ProviderError");
+    expect(error.message).toContain("Unit ssh.service not found");
   });
 });
