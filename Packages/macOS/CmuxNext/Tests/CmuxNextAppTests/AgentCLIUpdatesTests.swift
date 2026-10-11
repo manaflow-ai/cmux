@@ -15,7 +15,7 @@ import Testing
       {"id": "claude", "outdated": true, "update": {"argv": ["/Users/me/My Tools/claude", "update"], "command": "'/Users/me/My Tools/claude' update", "elevated": false}},
       {"id": "opencode", "outdated": true, "update": {"argv": ["npm", "install", "-g", "opencode-ai@latest"], "command": "sudo npm install -g opencode-ai@latest", "elevated": true}},
       {"id": "rooted", "outdated": true, "update": {"argv": ["/usr/bin/sudo", "npm", "install", "-g", "x@latest"], "command": "sudo npm install -g x@latest", "elevated": false}},
-      {"id": "quoted", "outdated": true, "update": {"argv": ["npm", "install", "-g", "it's@latest"], "command": "npm install -g 'it'\''s@latest'", "elevated": false}},
+      {"id": "quoted", "outdated": true, "update": {"argv": ["npm", "install", "-g", "it's@latest"], "command": "npm install -g it's@latest", "elevated": false}},
       {"id": "unsaid", "outdated": true, "update": {"argv": ["npm", "install", "-g", "y@latest"], "command": "npm install -g y@latest"}},
       {"id": "gemini", "outdated": false, "update": {"argv": ["brew", "upgrade", "gemini-cli"], "command": "brew upgrade gemini-cli", "elevated": false}},
       {"id": "grok", "outdated": true, "update": null}
