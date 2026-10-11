@@ -44,6 +44,11 @@
 #               `nonisolated deinit`, with main-actor cleanup in
 #               `guard Thread.isMainThread else { return }` plus
 #               `MainActor.assumeIsolated { ... }`.
+#   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
+#               calls block the main thread in LaunchServices (cx-050n); only
+#               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
+#               task-local and workspace-open rules; CI blocks on it.
 #   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
 #               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
 #               is current, a task local lives in the thread's fallback storage,
@@ -166,8 +171,29 @@ ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
 TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
+# NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
+WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\()")
+WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+
+def crash_class_hits(code, lines, index, module, main_lines, relative):
+    """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
+    hits = []
+    if ISOLATED_DEINIT.match(code):
+        hits.append("isolated deinit (its hop traps inside an action's task-local scope, cx-t7hu; "
+                    "write nonisolated deinit with MainActor.assumeIsolated on the main thread)")
+    if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
+        hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
+                    "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
+    if TASK_LOCAL_BINDING.search(code) and relative != TASK_LOCAL_HELPER and not allowed(lines, index):
+        hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
+                    "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
+    if WORKSPACE_SYNC.search(code) and relative != WORKSPACE_HELPER and not allowed(lines, index):
+        hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
+                    "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
+    return hits
+
 
 def allowed(lines, index, escape=ALLOW):
     if escape.search(lines[index]):
@@ -211,8 +237,15 @@ for dirpath, _, files in os.walk(sources):
                 failures += 1
             if ONLY == "synchronization":
                 continue
-            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
-                    and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
+            hits = crash_class_hits(code, lines, index, module, main_lines, relative.replace(os.sep, "/"))
+            if ONLY == "crash-class":
+                for name in hits:
+                    print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
+                    print(f"    {line.strip()}")
+                    failures += 1
+                continue
+            hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
+                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
@@ -223,16 +256,6 @@ for dirpath, _, files in os.walk(sources):
                 hits += [name for name, rx in rules_wakeup if rx.search(code)]
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
-            if ISOLATED_DEINIT.match(code):
-                hits.append("isolated deinit (its hop traps inside an action's task-local scope, cx-t7hu; "
-                            "write nonisolated deinit with MainActor.assumeIsolated on the main thread)")
-            if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
-                hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
-                            "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
-            if (TASK_LOCAL_BINDING.search(code) and relative.replace(os.sep, "/") != TASK_LOCAL_HELPER
-                    and not allowed(lines, index)):
-                hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
-                            "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
             for name in hits:
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
                 print(f"    {line.strip()}")

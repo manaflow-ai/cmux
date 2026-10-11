@@ -4,6 +4,7 @@ public import CmuxAuthRuntime
 import Foundation
 import os
 public import Observation
+import CmuxNextCompat
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
@@ -118,7 +119,7 @@ public final class CloudAuth {
             callbackRouter: callbackRouter,
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
-            openExternalURL: { NSWorkspace.shared.open($0) }
+            openExternalURL: { NSWorkspace.shared.openInBackground($0) }
         )
     }
 

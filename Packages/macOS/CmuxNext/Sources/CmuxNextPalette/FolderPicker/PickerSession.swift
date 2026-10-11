@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// What a picker needs from its host: the file system, the recents store,
 /// the explainer's memory, and how it asks before replacing a file. Every
@@ -34,7 +35,7 @@ public struct PickerEnvironment {
         createFolder: @escaping @MainActor (URL) throws -> Void = {
             try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: false)
         },
-        openSettings: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
+        openSettings: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
     ) {
         self.home = home
         self.recents = recents

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import Foundation
+import CmuxNextCompat
 
 /// The Chief's settings, a right sidebar inside the Home page that the
 /// header's "Chief >" name pill toggles (Lawrence, 2026-10-05: per-Chief
@@ -176,7 +177,7 @@ final class HomeChiefSidebar: NSView {
     }
 
     @objc private func openTraces() {
-        NSWorkspace.shared.activateFileViewerSelecting([HomeChiefFiles(muxHome: muxHome).traceDirectory])
+        NSWorkspace.shared.revealInBackground([HomeChiefFiles(muxHome: muxHome).traceDirectory])
     }
 
     /// Re-reads the engine and the last turns (a new message or a turn's

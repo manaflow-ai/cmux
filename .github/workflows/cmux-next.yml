@@ -791,6 +791,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Blocking: the crash classes the socket action sweep found (isolated
+      # deinits, task locals bound outside a task, synchronous workspace opens).
+      - name: Crash-class concurrency rules
+        env:
+          CHECK_CONCURRENCY_ONLY: crash-class
+        run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: Crash safety
         id: crash-safety
         continue-on-error: true

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
@@ -68,8 +69,13 @@ extension AppActionContext {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
+    /// runs off the main thread (cx-050n).
     func open(_ url: URL) throws {
-        guard NSWorkspace.shared.open(url) else { throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString)) }
+        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
+            throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
+        }
+        NSWorkspace.shared.openInBackground(url)
     }
 
     /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`
