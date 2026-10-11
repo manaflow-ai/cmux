@@ -6256,6 +6256,17 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "page": {
+          "required": false,
+          "description": "The page a closed page tab showed (`page-tabs-v1`): reopening brings it back. Its `url` is then the tab's `about:blank` placeholder.",
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         }
       },
       "extra": false

@@ -15,7 +15,11 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 /// Returns its exit status and output, or why it did not finish. The pipes
 /// are read as the program writes, and a timeout ends its whole process
 /// group, so a child that keeps the output open cannot hold the check.
-fn run(argv: &[String], env: &BTreeMap<String, String>) -> Result<(bool, String), String> {
+pub(super) fn run(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    limit: Duration,
+) -> Result<(bool, String), String> {
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
     crate::login_env::apply_std(&mut cmd);
@@ -44,10 +48,9 @@ fn run(argv: &[String], env: &BTreeMap<String, String>) -> Result<(bool, String)
     }
     drop(tx);
     let started = Instant::now();
-    let did_not_finish =
-        || format!("`{}` did not finish in {}s", argv.join(" "), TIMEOUT.as_secs());
+    let did_not_finish = || format!("`{}` did not finish in {}s", argv.join(" "), limit.as_secs());
     // Woken by the child's exit (SIGCHLD), not a polling tick.
-    let status = match child.wait_timeout(TIMEOUT) {
+    let status = match child.wait_timeout(limit) {
         Ok(Some(status)) => status,
         Ok(None) => {
             end_group(&mut child);
@@ -57,7 +60,7 @@ fn run(argv: &[String], env: &BTreeMap<String, String>) -> Result<(bool, String)
     };
     let mut text = Vec::new();
     for _ in 0..2 {
-        match rx.recv_timeout(TIMEOUT.saturating_sub(started.elapsed())) {
+        match rx.recv_timeout(limit.saturating_sub(started.elapsed())) {
             Ok(part) => text.extend(part),
             // Both pipes closed.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -94,7 +97,7 @@ pub fn parse_version(text: &str) -> Option<String> {
 
 /// `path --version`: the version, or why there is none.
 pub fn installed_version(path: &str) -> Result<String, String> {
-    let (ok, text) = run(&[path.to_owned(), "--version".into()], &BTreeMap::new())?;
+    let (ok, text) = run(&[path.to_owned(), "--version".into()], &BTreeMap::new(), TIMEOUT)?;
     match parse_version(&text) {
         Some(v) => Ok(v),
         None if ok => Err(format!("`{path} --version` printed no version")),
@@ -107,7 +110,7 @@ pub fn installed_version(path: &str) -> Result<String, String> {
 /// A profile's `auth.check` command, with the profile's `env`: exit 0 means
 /// signed in.
 pub fn auth_check(argv: &[String], env: &BTreeMap<String, String>) -> Result<bool, String> {
-    run(argv, env).map(|(ok, _)| ok)
+    run(argv, env, TIMEOUT).map(|(ok, _)| ok)
 }
 
 /// Whether `latest` is newer than `installed`, by their numeric parts. A

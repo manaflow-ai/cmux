@@ -11,7 +11,8 @@ import os
 /// either way the next show is a fresh chat. With the floating chat on
 /// (cx-b9qi) Return keeps the started chat running in the panel instead,
 /// until ⌘Return or the header moves it to a tab, and a chat tab's Move to
-/// Floating Chat brings its session back into the panel.
+/// Floating Chat brings its session back into the panel. A chat the panel
+/// holds when cmux quits comes back to it on the next show.
 final class QuickComposerController {
     /// A quick chat's page on session `id` (nil: a new chat), nil when this
     /// build has no agent page.
@@ -37,6 +38,11 @@ final class QuickComposerController {
     private(set) var floatingState = AgentPaneFloatingState()
     /// Sends the floating chat's state to its page (`AgentPaneFloatingState.push`).
     private let pushState: (AgentPaneFloatingState, AgentPaneView) -> Void
+    /// What the user is looking at in cmux, for Include focused tab (`FloatingChatContext`).
+    private let context: @MainActor () async -> AgentPaneQuickContext?
+    /// Where the held chat's session is kept, so a quit does not lose it (`heldSessionKey`).
+    private let defaults: UserDefaults
+    static let heldSessionKey = "quickComposer.floatingChatSession"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
@@ -45,7 +51,9 @@ final class QuickComposerController {
         openInWindow: @escaping (String?) -> Bool,
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
-        pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) }
+        pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
+        context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil },
+        defaults: UserDefaults = .standard
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -53,6 +61,8 @@ final class QuickComposerController {
         self.startInBackground = startInBackground
         self.floating = floating
         self.pushState = pushState
+        self.context = context
+        self.defaults = defaults
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -68,6 +78,11 @@ final class QuickComposerController {
     }
 
     func show() {
+        // The chat the floating chat held when cmux quit comes back to it (kept while the floating chat is off).
+        if chat == nil, floating(), let held = defaults.string(forKey: Self.heldSessionKey) {
+            if moveToFloatingChat(session: held) { return }
+            defaults.removeObject(forKey: Self.heldSessionKey)
+        }
         guard let chat = chat ?? makeChat(nil).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
             return
@@ -118,6 +133,11 @@ final class QuickComposerController {
     /// this build has no agent page.
     func moveToFloatingChat(session: String) -> Bool {
         guard floating() else { return false }
+        // The chat it held when cmux quit, not shown since, goes to a tab first, as a held chat does.
+        if chat == nil, let held = defaults.string(forKey: Self.heldSessionKey), held != session {
+            guard openInWindow(held) else { return false }
+            defaults.removeObject(forKey: Self.heldSessionKey)
+        }
         if holdsChat, let held = chat, held.model.sessionId != session {
             openChatInWindow(session: held.model.sessionId)
             // Nowhere to open it: the held chat comes back and the tab stays.
@@ -137,6 +157,7 @@ final class QuickComposerController {
     private func holdChat() {
         guard !holdsChat else { return }
         holdsChat = true
+        defaults.set(chat?.model.sessionId, forKey: Self.heldSessionKey)
         floatingState.holding = true
         window?.holdChat(true)
         window?.setOnTop(floatingState.onTop)
@@ -167,6 +188,7 @@ final class QuickComposerController {
     private func releaseChat() {
         if holdsChat {
             holdsChat = false
+            defaults.removeObject(forKey: Self.heldSessionKey)
             if floatingState.collapsed { window?.setCollapsed(false) }
             floatingState = AgentPaneFloatingState(onTop: floatingState.onTop)
             window?.holdChat(false)
@@ -186,7 +208,14 @@ final class QuickComposerController {
             startInBackground: { [weak self] start in await self?.startChatInBackground(start) },
             setOnTop: { [weak self] onTop in self?.setOnTop(onTop) },
             setCollapsed: { [weak self] collapsed in self?.setCollapsed(collapsed) },
-            floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() })
+            floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() },
+            context: { [weak self] in await self?.context() })
+        // A held chat that moves to another session (a fork, Continue In) is the one a quit keeps.
+        let started = chat.model.onSessionChange
+        chat.model.onSessionChange = { [weak self] session in
+            started?(session)
+            if let self, self.holdsChat { self.defaults.set(session, forKey: Self.heldSessionKey) }
+        }
         self.chat = chat
         return chat
     }

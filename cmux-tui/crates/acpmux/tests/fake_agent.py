@@ -7,6 +7,8 @@ Behaviour per prompt text:
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
+  "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 
@@ -16,6 +18,8 @@ the turn ends only the last prompt gets an answer (the earlier ones never).
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
+
+FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 """
 import json
 import sys
@@ -387,6 +391,25 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "answer-then-exit" answers, then the agent exits between turns.
+    if text == "answer-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answered"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        time.sleep(0.3)
+        os._exit(0)
+    # "until-cancel-then-exit" is "until-cancel", then the agent exits between
+    # turns: a chat whose process is gone with no answer.
+    if text == "until-cancel-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                time.sleep(0.3)
+                os._exit(0)
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -484,6 +507,10 @@ def main():
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
+            # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
+            # before any prompt.
+            if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":
+                os._exit(0)
         elif m == "session/load":
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt

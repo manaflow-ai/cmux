@@ -81,6 +81,7 @@ extension AgentTabStore {
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
@@ -88,9 +89,9 @@ extension AgentTabStore {
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }
-            return NewTabPage.handler(services, cwd: tab.cwd) { [weak controller] key, request in
+            return NewTabPage.handler(services, cwd: tab.cwd) { [weak controller, weak tabs] key, request in
                 guard let controller else { return }
-                NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
+                NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller, keep: tabs?.sessions[key] != nil)
             }
         }
         tabs.firstPageNewTab = { [weak services] cwd in
