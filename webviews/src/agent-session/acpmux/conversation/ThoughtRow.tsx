@@ -15,6 +15,8 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
     () => setOpen(true),
   );
   const body = useId();
+  const text = item.text.trim();
+  if (!text) return null;
   return (
     <>
       <button
@@ -24,12 +26,17 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
         aria-controls={open ? body : undefined}
         onClick={() => setOpen((value) => !value)}
       >
+        {/* Find counts the thought's text only: the label is the row's, and the open text repeats
+            the title, so only the closed title is drawn. */}
         <span className="cv-tool__text">
-          <span className="cv-thought__label">{t("tools.thought")}</span>
-          {/* The open text repeats this line, so Find counts it there. */}
-          <span className="cv-thought__title" data-find-skip={open || undefined}>
-            {firstLine(item.text)}
+          <span className="cv-thought__label" data-find-skip>
+            {t("tools.thought")}
           </span>
+          {!open && (
+            <span className="cv-thought__title" dir="auto">
+              {firstLine(text)}
+            </span>
+          )}
         </span>
         <ChevronRight
           size={14}
@@ -38,8 +45,8 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
         />
       </button>
       {open && (
-        <div id={body} className="cv-thought__body selectable">
-          {item.text.trim()}
+        <div id={body} className="cv-thought__body selectable" dir="auto">
+          {text}
         </div>
       )}
     </>

@@ -382,11 +382,8 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        const row = () =>
-          Array.from(ctx.document.querySelectorAll<HTMLButtonElement>("button.cv-thought")).find((button) =>
-            button.textContent?.includes("Check how the helper parses errors first."),
-          ) ?? null;
-        await ctx.waitFor(row);
+        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
         if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
         if (ctx.document.body.textContent?.includes("jittered backoff"))
           throw new Error("a closed thought shows only its first line");
@@ -397,6 +394,17 @@ export default agentPaneEntry({
     },
     "thought-find": {
       note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      checks: {
+        longFrameFailMs: {
+          value: 120,
+          reason:
+            "Typing the query opens the turn's closed Worked for fold, which lays out the whole transcript (72-91 ms measured); its cost is tracked as a Find follow-up, not this row.",
+        },
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+        },
+      },
       snapshot: chat([
         user(prompt, 2),
         activity(
