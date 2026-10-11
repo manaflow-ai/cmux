@@ -9,17 +9,31 @@ import WebKit
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
 
-    /// Keeps AppKit's AutoFill out of the open menu (``PageMenuSystemItems``).
-    private let menuSystemItems = PageMenuSystemItems()
+    /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
+    private let menuAutoFill = PageMenuAutoFill()
+
+    override var inputContext: NSTextInputContext? {
+        menuAutoFill.hidesInputContext() ? nil : super.inputContext
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        menuAutoFill.noteContextClick(event)
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        menuAutoFill.noteContextClick(event)
+        super.rightMouseDown(with: event)
+    }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
         super.willOpenMenu(menu, with: event)
-        menuSystemItems.watch(menu)
     }
 
     override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
-        menuSystemItems.stop()
+        menuAutoFill.menuDidClose()
         super.didCloseMenu(menu, with: event)
     }
 }
