@@ -41,12 +41,15 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case restore = "_acpmux/harness/restore"
     case doctor = "_acpmux/harness/doctor"
     case registry = "_acpmux/registry"
+    /// Agent CLI health (cx-ny85): version, install channel, newest version, sign-in, update command.
+    case health = "_acpmux/harness/health"
 
-    /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS.
+    /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
+    /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
     var deadline: Duration {
         switch self {
         case .doctor: .seconds(150)
-        case .registry: .seconds(40)
+        case .registry, .health: .seconds(40)
         case .list, .add, .remove, .restore: .seconds(10)
         }
     }
