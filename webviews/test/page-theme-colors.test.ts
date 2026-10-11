@@ -1,8 +1,7 @@
-// First-party pages take their accent and status colors from the host theme, not from macOS or
-// fixed hex values: native checkboxes and sliders, Settings' danger and warning text, destructive
-// menu items, and the diff view's focus accent and primary comment button. The host sends
-// `--cmux-accent` as the text color under the default neutral accent, so the default stays free
-// of system blue; with `appearance.accent` set it's the theme's hue.
+// First-party pages take their accent from the host theme, not from macOS or fixed hex values:
+// native checkboxes and sliders, and the diff view's focus accent and primary comment button.
+// The host sends `--cmux-accent` as the text color under the default neutral accent, so the
+// default stays free of system blue; with `appearance.accent` set it's the theme's hue.
 //
 // The page is the real stylesheets with the variables the host sets (Rose Pine here). The engines
 // come from `playwright install chromium webkit`; where they are not installed, the cases are
@@ -16,7 +15,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("page-theme-colors.test.ts", async () => {
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src");
-  const css = ["pages/shared/desktop.css", "pages/settings/styles.css", "ui/ui.css", "styles.css"]
+  const css = ["pages/shared/desktop.css", "styles.css"]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 
@@ -36,14 +35,9 @@ await requireBrowserLane("page-theme-colors.test.ts", async () => {
   // Rose Pine, as the host sends it with appearance.accent: theme.
   const IRIS = "rgb(196, 167, 231)";
   const ON_ACCENT = "rgb(25, 23, 36)";
-  const LOVE = "rgb(235, 111, 146)";
-  const GOLD = "rgb(246, 193, 119)";
-  const HOST = `--cmux-text:rgb(224,222,244);--cmux-accent:${IRIS};--cmux-on-accent:${ON_ACCENT};--cmux-app-danger:${LOVE};--cmux-app-warning:${GOLD}`;
-  const PAGE = `<!doctype html><html style="${HOST}"><head><style>${css}</style></head><body>
+  const TEXT = "rgb(224, 222, 244)";
+  const pageWith = (accent: string) => `<!doctype html><html style="--cmux-text:${TEXT};--cmux-accent:${accent};--cmux-on-accent:${ON_ACCENT};--cmux-diff-bg:rgb(25,23,36);--cmux-diff-fg:${TEXT}"><head><style>${css}</style></head><body>
 <input type="checkbox" checked id="check">
-<span id="danger" style="color:var(--danger)">Failed</span>
-<span id="warning" style="color:var(--warning)">Needs restart</span>
-<div class="ui-menu-item ui-menu-item-destructive" id="destructive">Delete</div>
 <button class="comment-button comment-button-primary" id="primary">Comment</button>
 </body></html>`;
 
@@ -55,17 +49,24 @@ await requireBrowserLane("page-theme-colors.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      test("controls, status text, destructive items and the diff's primary button follow the host theme", async () => {
+      test("checkboxes and the diff's primary button follow the host accent", async () => {
         const page = await browser.newPage();
-        await page.setContent(PAGE);
+        await page.setContent(pageWith(IRIS));
         const style = (id: string, property: string) =>
           page.$eval(`#${id}`, (node, key) => getComputedStyle(node).getPropertyValue(key), property);
         expect(await style("check", "accent-color")).toBe(IRIS);
-        expect(await style("danger", "color")).toBe(LOVE);
-        expect(await style("warning", "color")).toBe(GOLD);
-        expect(await style("destructive", "color")).toBe(LOVE);
         expect(await style("primary", "background-color")).toBe(IRIS);
         expect(await style("primary", "color")).toBe(ON_ACCENT);
+        await page.close();
+      });
+
+      test("under the neutral accent the primary button still shows its hover", async () => {
+        const page = await browser.newPage();
+        await page.setContent(pageWith(TEXT));
+        const background = () => page.$eval("#primary", (node) => getComputedStyle(node).backgroundColor);
+        const rest = await background();
+        await page.hover("#primary");
+        expect(await background()).not.toBe(rest);
         await page.close();
       });
     });

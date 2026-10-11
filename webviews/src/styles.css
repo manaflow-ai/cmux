@@ -527,7 +527,7 @@ body {
   text-align: center;
 }
 .base-picker-status-error {
-  color: var(--cmux-app-danger, color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg)));
+  color: color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg));
 }
 .base-picker-group-header {
   padding: 8px 8px 4px;
@@ -1211,7 +1211,7 @@ body[data-loading="true"] #status::before {
   animation: cmuxDiffPendingSpin 800ms linear infinite;
 }
 #status[data-error="true"] {
-  color: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
+  color: light-dark(#b42318, #ff8a80);
 }
 @keyframes cmuxDiffPendingSpin {
   to { transform: rotate(360deg); }
@@ -1372,7 +1372,7 @@ body[data-loading="true"] #status::before {
   color: var(--cmux-on-accent, light-dark(#fff, #08233f));
 }
 .comment-button-primary:hover:not(:disabled) {
-  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-fg));
+  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-bg));
   color: var(--cmux-on-accent, light-dark(#fff, #08233f));
 }
 .comment-card-header {

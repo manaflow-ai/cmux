@@ -96,7 +96,7 @@
 }
 
 .ui-menu-item-destructive {
-  color: var(--cmux-app-danger, color-mix(in srgb, var(--ui-fg) 78%, #d44));
+  color: color-mix(in srgb, var(--ui-fg) 78%, #d44);
 }
 
 .ui-context-menu-backdrop {
