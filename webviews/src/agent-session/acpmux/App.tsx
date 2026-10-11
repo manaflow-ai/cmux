@@ -394,10 +394,10 @@ const WorkingRow = memo(
     a.row.durationMs === b.row.durationMs,
 );
 
-/// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
-/// panel) refuses, and the card's address still opens outside the pane.
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
+/// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
+/// panel) refuses, and the card's address still opens outside the pane.
 const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
 /// A turn's local web page, live (conversation/PreviewCard.tsx).
 const PreviewRow = memo(
@@ -1727,17 +1727,27 @@ function AcpmuxPane() {
     [lastEditTurn, turnCountsFor],
   );
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
+  // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
+  const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());
   const previewUrl = useMemo(() => {
     const rows = snapshot.rows;
+    const seen = new Map<string, { key: string; url: string | undefined }>();
+    let found: string | undefined;
     let end = rows.length;
-    for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS; index -= 1) {
-      if (rows[index].kind !== "user") continue;
-      const url = turnPreviewUrl(rows[index], rows.slice(index + 1, end));
-      if (url) return url;
+    for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
+      const user = rows[index];
+      if (user.kind !== "user") continue;
+      const turn = rows.slice(index + 1, end);
+      const key = [user, ...turn].map((row) => `${row.id}:${row.version}`).join("|");
+      const cached = previewTurns.current.get(user.id);
+      const entry = cached?.key === key ? cached : { key, url: turnPreviewUrl(user, turn) };
+      seen.set(user.id, entry);
+      found = entry.url;
       end = index;
       turns += 1;
     }
-    return undefined;
+    previewTurns.current = seen;
+    return found;
   }, [snapshot.rows]);
   const toggleLastChanges = () => {
     if (diffView && diffOpen) return closeDiff();

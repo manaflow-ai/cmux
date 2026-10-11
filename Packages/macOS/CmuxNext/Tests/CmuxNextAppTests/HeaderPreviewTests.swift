@@ -41,7 +41,7 @@ struct HeaderPreviewTests {
         #expect(!row.tabs.contains(preview))
     }
 
-    /// The page names the preview; only a web address reaches the App.
+    /// The page names the preview; only a local page reaches the App, as for the preview card.
     @Test func thePageNamesAWebPageToPreview() {
         let message = { (url: String) in
             AgentPaneRequest(body: ["method": "pane.action", "params": ["id": "preview", "url": url, "mode": "toggle"]])
@@ -51,9 +51,11 @@ struct HeaderPreviewTests {
             return
         }
         #expect(url == Self.page && toggle)
-        guard case .unsupported = message("file:///etc/passwd") else {
-            Issue.record("a file address decoded as a preview")
-            return
+        for address in ["file:///etc/passwd", "https://example.com/", "http://user:secret@localhost:5173/"] {
+            guard case .unsupported = message(address) else {
+                Issue.record("\(address) decoded as a preview")
+                continue
+            }
         }
     }
 }

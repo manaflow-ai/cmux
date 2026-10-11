@@ -47,9 +47,11 @@ final class AgentChatSplitToggles {
             return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
         }
         let splits = splits(in: tabs, chat: chat)
-        if let index = opened.lastIndex(where: { $0.id == id }), let split = splits[index] {
+        if let index = opened.lastIndex(where: { $0.id == id }) {
+            // A split the user closed is forgotten, so this button's older opening never claims a
+            // tab the user makes later.
             opened.remove(at: index)
-            return actions.close(tab: split.id)
+            if let split = splits[index] { return actions.close(tab: split.id) }
         }
         open(id, cwd: cwd, url: url, chat: chat, tabs: tabs, store: store, actions: actions)
     }
