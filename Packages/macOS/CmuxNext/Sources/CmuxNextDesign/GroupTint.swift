@@ -46,13 +46,15 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         }
     }
 
-    /// `headerFill` as an opaque theme color, for contrast math (the solid
-    /// group header's glyph ink, cx-qno.22).
-    @MainActor public var headerRGB: ThemeRGB {
-        switch self {
-        case let .palette(token): token.headerRGB(ThemeContext.active ?? ThemeScope.app.tokens)
+    /// The solid group header chip (cx-qno.22): its rest color and the one
+    /// ink every glyph on it takes (`ThemeTokens.chip`), in the active scope.
+    @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let color = switch self {
+        case let .palette(token): token.headerRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
         }
+        return tokens.chip(color)
     }
 
     /// Black or white text and glyphs on `headerFill`.

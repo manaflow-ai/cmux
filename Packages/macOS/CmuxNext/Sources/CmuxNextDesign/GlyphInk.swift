@@ -36,6 +36,39 @@ extension ThemeTokens {
     }
 }
 
+extension ThemeTokens {
+    /// A colored chip (the solid group header, cx-qno.22) and its one ink:
+    /// the ink is chosen once on `color`, then the chip color is moved away
+    /// from the ink until the ink holds 4.5:1 on the chip, on its hover and
+    /// drop steps, and on its buttons' hover and pressed fills over those.
+    /// The ink never changes with hover, so it cannot flip while a fill fades.
+    ///
+    /// - Parameter color: The chip's color as chosen (opaque).
+    /// - Returns: The chip color to paint at rest and its ink.
+    nonisolated public func chip(_ color: ThemeRGB) -> (fill: ThemeRGB, ink: ThemeRGB) {
+        let candidates = [textPrimary.composited(over: color.withAlpha(1)), ThemeRGB(hex: 0x1F1F1F), .white]
+        func states(_ bar: ThemeRGB) -> [ThemeRGB] {
+            let hovered = hoverFill.composited(over: bar)
+            let dropped = pressedFill.composited(over: bar)
+            return [bar, hovered, dropped] + [bar, hovered, dropped].flatMap {
+                [hoverFill.composited(over: $0), pressedFill.composited(over: $0)]
+            }
+        }
+        func worst(_ ink: ThemeRGB, _ bar: ThemeRGB) -> Double { states(bar).map { ink.contrast(with: $0) }.min() ?? 1 }
+        let bar = color.withAlpha(1)
+        let ink = candidates.first { worst($0, bar) >= Self.minimumTextContrast }
+            ?? candidates.max { worst($0, bar) < worst($1, bar) } ?? .white
+        let pole: ThemeRGB = ink.relativeLuminance > 0.5 ? .black : .white
+        var fill = bar
+        var step = 0.0
+        while worst(ink, fill) < Self.minimumTextContrast, step < 1 {
+            step += 0.02
+            fill = bar.mixed(toward: pole, step)
+        }
+        return (fill, ink)
+    }
+}
+
 extension Palette {
     /// ``CmuxTheme/ThemeTokens/glyphInk(over:base:)`` in the active theme
     /// scope for a sidebar glyph, for a fill named by its token (nil: no
@@ -46,11 +79,5 @@ extension Palette {
         let ground = ThemeScope.app.surfaceBackgrounds.opaqueFill(for: .sidebar, tokens: tokens,
                                                                   base: tokens.sidebarBackground.withAlpha(1))
         return tokens.glyphInk(over: fill.map { tokens[keyPath: $0] }, base: ground).nsColor
-    }
-
-    /// The one glyph ink on an opaque colored surface (the solid group header).
-    @MainActor public static func glyphInk(on surface: ThemeRGB) -> NSColor {
-        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return tokens.glyphInk(base: surface).nsColor
     }
 }

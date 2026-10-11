@@ -8,8 +8,8 @@ import QuartzCore
 /// cx-rcby colored pill chip, one full-width rounded bar in the group's
 /// color (Lawrence 2026-10-08), with the members' line starting under it;
 /// the name lines up with the members' titles. Every glyph on the bar (name,
-/// icon, pin, chevron, + and more) takes one ink from the bar's color
-/// (`Palette.glyphInk(on:)`, 4.5:1 also on hover and pressed). The + and the
+/// icon, pin, chevron, + and more) takes one ink chosen from the bar's color
+/// (`GroupTint.headerChip`, 4.5:1 also on hover, drop and pressed). The + and the
 /// more button show only on hover, keyboard focus or while the editor is
 /// open, in slots that are always reserved, so nothing moves. Hover and a
 /// drop take tonal steps over the bar's color. Type and glyphs scale with the row height
@@ -77,6 +77,11 @@ final class GroupHeaderRowView: SidebarRowView {
                 self?.onMore?()
                 return self?.onMore != nil
             },
+            NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { [weak self] in
+                guard let self, let onAdd = self.onAdd, !self.isEmpty else { return false }
+                onAdd()
+                return true
+            },
         ])
     }
 
@@ -129,7 +134,8 @@ final class GroupHeaderRowView: SidebarRowView {
         collapsed ? .disclosureCollapsed : .disclosureExpanded
     }
 
-    override var debugFill: Bool { super.debugFill || (pill.backgroundColor?.alpha ?? 0) > 0 }
+    /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
+    override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
@@ -152,6 +158,7 @@ final class GroupHeaderRowView: SidebarRowView {
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
         name.isHidden = hidden
+        needsLayout = true
     }
 
     override func updateLayer() {
@@ -159,15 +166,16 @@ final class GroupHeaderRowView: SidebarRowView {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,
             // the open editor and a drop take tonal steps over it.
             let tokens = themeTokens
-            var fill = tint.headerRGB
+            let chip = tint.headerChip
+            var fill = chip.fill
             if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
             if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
-            // chevron, + and more, at text contrast on the bar and on the
-            // buttons' hover and pressed fills.
-            let ink = Palette.glyphInk(on: fill)
+            // chevron, + and more, chosen once on the bar's color; it holds
+            // text contrast on every state above and the buttons' fills.
+            let ink = chip.ink.nsColor
             name.textColor = ink
-            glyph.uncoloredSymbolInk = ink
+            glyph.symbolInk = ink
             pin.contentTintColor = ink
             chevron.contentTintColor = ink
             moreButton.tintOverride = ink

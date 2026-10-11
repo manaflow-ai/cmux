@@ -206,6 +206,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
         title.isHidden = hidden
+        needsLayout = true
         if hidden { title.stopMarquee() }
     }
 
