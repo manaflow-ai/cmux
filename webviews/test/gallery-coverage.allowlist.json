@@ -130,7 +130,6 @@
     "ui/ContextMenu.tsx#ContextMenu",
     "ui/Dialog.tsx#Dialog",
     "ui/Disclosure.tsx#Disclosure",
-    "ui/DrillList.tsx#DrillList",
     "ui/KeyboardScope.tsx#KeyboardScope",
     "ui/Listbox.tsx#Listbox",
     "ui/MinimapTick.tsx#MinimapTick",

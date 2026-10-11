@@ -1,0 +1,95 @@
+.drill-list-gallery-stage {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 380px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.drill-list-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 13px;
+}
+
+.drill-list-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drill-list-gallery-field {
+  width: min(100%, 360px);
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 7px;
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+  font: inherit;
+}
+
+.drill-list-gallery-field:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, Highlight);
+  outline-offset: 1px;
+}
+
+.drill-list-gallery-list {
+  width: min(100%, 360px);
+  max-height: 230px;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
+  border-radius: 9px;
+  background: var(--cmux-elevated-background, Canvas);
+}
+
+.drill-list-gallery-row {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 10px;
+  padding: 0 9px;
+  border-radius: 6px;
+  color: var(--cmux-text, CanvasText);
+  font-size: 13px;
+}
+
+.drill-list-gallery-row > kbd {
+  margin-inline-start: auto;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.drill-list-gallery-row[aria-selected="true"] {
+  background: var(--cmux-selection, color-mix(in srgb, CanvasText 11%, transparent));
+}
+
+.drill-list-gallery-row:hover {
+  background: var(--cmux-hover, color-mix(in srgb, CanvasText 7%, transparent));
+}
+
+.drill-list-gallery-section {
+  padding: 7px 9px 3px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.drill-list-gallery-empty,
+.drill-list-gallery-hint,
+.drill-list-gallery-receipt {
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 12px;
+}
+
+.drill-list-gallery-hint {
+  min-height: 18px;
+}
+
+.drill-list-gallery-receipt {
+  min-height: 18px;
+}
