@@ -72,7 +72,15 @@ export function ThemeStudio() {
     timer: null,
     next: null,
   });
-  useEffect(() => () => void (pendingEdit.current.timer && clearTimeout(pendingEdit.current.timer)), []);
+  // Leaving the page with a token's tuner open ends its preview: the app goes back to what is saved.
+  useEffect(
+    () => () => {
+      const pending = pendingEdit.current;
+      if (pending.timer) clearTimeout(pending.timer);
+      if (pending.timer || pending.next) store.previewEnd(THEME_EDITS_KEY);
+    },
+    [store],
+  );
   const withEdit = (theme: string, token: ThemeEditToken, color: string | null): ThemeEditMap => {
     const next: Record<string, string> = { ...edits };
     if (color) next[themeEditKey(theme, token)] = color;
@@ -84,6 +92,7 @@ export function ThemeStudio() {
     if (color === null) {
       if (pending.timer) clearTimeout(pending.timer);
       pending.timer = null;
+      pending.next = null;
       store.previewEnd(THEME_EDITS_KEY);
       return;
     }

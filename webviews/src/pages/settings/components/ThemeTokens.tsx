@@ -4,7 +4,7 @@
 // falls below its floor, and Reset. The app shows each change live (onPreview); Done or a click
 // outside keeps it as the theme's edit (appearance.themeEdits), Escape reverts. The theme itself
 // never changes: its edits make "<theme> (custom)".
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Popover } from "../../../ui/Popover";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { THEME_EDIT_TOKENS, editsFor, type ThemeEditToken } from "../../../theme/themeEdits";
@@ -147,42 +147,43 @@ function TokenTuner({
   const start = tokenColor(theme, token);
   const [color, setColor] = useState(start);
   const [hex, setHex] = useState(start);
+  // The sliders' own channels: a gray's hue, or a step too small to change the hex, still moves them.
+  const [lch, setLch] = useState(() => oklchFromHex(start));
   const [snaps] = useState(() => snapColors(theme, token, start, others));
-  // Escape reverts; any other close (Done, a click outside) keeps the color.
-  const cancelled = useRef(false);
-  const lch = oklchFromHex(color);
   const floor = contrastFloor(token);
   const ratio = tokenContrast(theme, token, color);
   const low = floor !== null && ratio !== null && ratio < floor.min;
 
-  const show = (next: string) => {
+  const show = (next: string, channels = oklchFromHex(next)) => {
     setColor(next);
     setHex(next);
+    setLch(channels);
     onPreview(next);
   };
-  const slide = (channel: "l" | "c" | "h", value: number) =>
-    show(magnet(hexFromOklch({ ...lch, [channel]: value }), snaps));
-  const close = () => onDone(cancelled.current ? undefined : color === start ? undefined : color);
+  const slide = (channel: "l" | "c" | "h", value: number) => {
+    const channels = { ...lch, [channel]: value };
+    const raw = hexFromOklch(channels);
+    const snapped = magnet(raw, snaps, color);
+    show(snapped, snapped === raw ? channels : oklchFromHex(snapped));
+  };
+  const keep = () => onDone(color === start ? undefined : color);
 
   return (
     <Popover
       open
-      onOpenChange={(open) => !open && close()}
+      // Escape reverts; any other close (a click outside) keeps the color.
+      onOpenChange={(open, details) => !open && (details?.escape ? onDone(undefined) : keep())}
       anchor={anchor}
       label={t("settingsPage.theme.edit.title", tokenLabel(token))}
       className="token-tuner"
     >
-      {/* Escape reaches this handler before the popover's own, so it can mark the close a revert. */}
-      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a key listener for the dialog's own Escape. */}
-      <div
+      {/* Return in the hex field (its one text field) submits: it keeps the color, as Done does. */}
+      <form
         className="token-tuner-body"
         data-token-tuner={token}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") cancelled.current = true;
-          if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
-            event.preventDefault();
-            onDone(color === start ? undefined : color);
-          }
+        onSubmit={(event) => {
+          event.preventDefault();
+          keep();
         }}
       >
         <div className="token-tuner-head">
@@ -197,8 +198,10 @@ function TokenTuner({
               const text = event.currentTarget.value.trim();
               setHex(text);
               if (/^#[0-9a-fA-F]{6}$/.test(text)) {
-                setColor(text.toLowerCase());
-                onPreview(text.toLowerCase());
+                const next = text.toLowerCase();
+                setColor(next);
+                setLch(oklchFromHex(next));
+                onPreview(next);
               }
             }}
           />
@@ -262,15 +265,11 @@ function TokenTuner({
           >
             {t("settingsPage.theme.edit.reset")}
           </button>
-          <button
-            type="button"
-            className="button button-primary"
-            onClick={() => onDone(color === start ? undefined : color)}
-          >
+          <button type="button" className="button button-primary" onClick={keep}>
             {t("settingsPage.theme.edit.done")}
           </button>
         </div>
-      </div>
+      </form>
     </Popover>
   );
 }

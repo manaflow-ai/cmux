@@ -116,12 +116,16 @@ export function snapColors(
   return chosen.slice(0, limit);
 }
 
-/** A slider's color pulled onto a snap color within `radius` (OKLab), as a magnet does; else itself. */
-export function magnet(color: string, snaps: readonly string[], radius = 0.025): string {
+/**
+ * A slider's color pulled onto a snap color within `radius` (OKLab), as a magnet does; else itself.
+ * Only a snap the slider moves toward from `from` pulls, so a step away from a snap leaves it.
+ */
+export function magnet(color: string, snaps: readonly string[], from?: string, radius = 0.025): string {
   let best: string | null = null;
   let distance = radius;
   for (const snap of snaps) {
     const d = colorDistance(color, snap);
+    if (from !== undefined && d >= colorDistance(from, snap)) continue;
     if (d < distance) {
       best = snap;
       distance = d;
