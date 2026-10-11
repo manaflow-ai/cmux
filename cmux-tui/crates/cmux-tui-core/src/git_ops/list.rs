@@ -4,8 +4,9 @@
 //! The candidates are the ones `git.files.search` ranks: tracked files still
 //! in the working tree and untracked files no ignore rule hides. Each is
 //! folded into its first path component; a component with more below it is a
-//! directory, and so is a lone component that is a folder on disk (a
-//! submodule). Directories come first, then names case-insensitively.
+//! directory, and so is a lone component that is a real folder on disk (a
+//! submodule; a symlink is never one). Directories come first, then names
+//! case-insensitively.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -44,7 +45,11 @@ pub(super) fn list(
             continue;
         }
         let directory = children.entry(name).or_insert(false);
-        if nested || (!*directory && listed_folder.join(name).is_dir()) {
+        // A symlink is a leaf, as git records it: following one could list a folder
+        // outside the repository. Only a real folder (a submodule) is a directory.
+        let real_folder =
+            || std::fs::symlink_metadata(listed_folder.join(name)).is_ok_and(|meta| meta.is_dir());
+        if nested || (!*directory && real_folder()) {
             *directory = true;
         }
     }
