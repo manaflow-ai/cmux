@@ -21,7 +21,7 @@ struct BranchAgentPresenceTests {
             try await hook("PreToolUse", #"{"session_id":"presence-1","tool_name":"Read","tool_input":{"file_path":"/repo/src/lib.rs","offset":120}}"#,
                            sentinel: "READ")
             try await h.store.waitUntil("reading presence") { h.store.tab(surface: surface)?.presence?.activity == .reading }
-            let reading = try #require(h.store.tab(surface: surface)?.presence)
+            let reading = try #require(await MainActor.run { h.store.tab(surface: surface)?.presence })
             #expect(reading.agent == "claude")
             #expect(reading.session == "presence-1")
             #expect(reading.tool == "Read")
