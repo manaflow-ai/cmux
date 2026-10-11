@@ -31,9 +31,8 @@ fn candidates(raw: &str) -> Vec<String> {
     add(&mut out, id.split('/').rfind(|part| !part.is_empty()));
     let word = out.last().and_then(|last| last.split_whitespace().next()).map(str::to_owned);
     add(&mut out, word.as_deref());
-    let part = word.as_deref().and_then(|word| {
-        word.split(['-', '_', '.']).find(|part| !part.is_empty())
-    });
+    let part =
+        word.as_deref().and_then(|word| word.split(['-', '_', '.']).find(|part| !part.is_empty()));
     add(&mut out, part);
     out
 }
