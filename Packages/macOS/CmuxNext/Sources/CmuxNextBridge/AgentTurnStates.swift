@@ -16,11 +16,11 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// The agent went away before it answered (`indicator` = `lost`). A
     /// disconnect after an answer stays done: the next prompt respawns it.
     case lost
-    /// The last turn (`turn`, its acpmux turn id) completed: done until the
-    /// user looks at the chat (client seen state, `ProgramStatusSeenStore`),
-    /// like an OSC 7501 done. acpmux `unread` is not enough: an open chat tab
-    /// stays attached in a background workspace.
-    case done(turn: String)
+    /// The last turn completed while no pane showed the chat, and none has
+    /// shown it since (acpmux `unread`, cx-n8ou): a pane tells acpmux whether
+    /// its page is visible, so a chat tab in a background workspace does not
+    /// count as seen.
+    case done
 
     /// The state of one `_acpmux/watch` / `session_changed` session summary,
     /// read from its `indicator`; nil when acpmux shows no dot.
@@ -30,9 +30,7 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
         case "working"?: return .working
         case "failed"?: return .failed
         case "lost"?: return .lost
-        case "done"?:
-            let lastTurn = summary["lastTurn"] as? [String: Any]
-            return .done(turn: lastTurn?["turnId"] as? String ?? (lastTurn?["endedAt"] as? NSNumber)?.stringValue ?? "")
+        case "done"?: return summary["unread"] as? Bool == true ? .done : nil
         default: return nil
         }
     }
@@ -88,18 +86,6 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         guard states[session] != state else { return false }
         states[session] = state
         return true
-    }
-
-    /// The completed turns of a watch result that a client watched as they
-    /// ended (acpmux `unread` false): the app starts them seen, so a
-    /// (re)connect does not light up every old chat; a turn that ended
-    /// unwatched stays done until the chat is opened.
-    public static func settledTurns(_ result: [String: Any]) -> [(session: String, turn: String)] {
-        (result["sessions"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.compactMap { summary in
-            guard let session = summary["sessionId"] as? String, (summary["unread"] as? Bool) != true,
-                  case .done(let turn)? = AgentTurnState.of(summary: summary) else { return nil }
-            return (session, turn)
-        }
     }
 
     /// Nothing is known any more (the watch connection closed).
