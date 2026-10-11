@@ -49,7 +49,7 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
 
   return (
     <ShortcutsContext.Provider value={{ [SHORTCUT_ACTIONS.toggleDictation]: "⇧⌘D" }}>
-      <div className="acpmux-shell" data-dictation-fixture>
+      <div className="acpmux-shell acpmux-dictation-gallery" data-dictation-fixture>
         <div className="acpmux-dictation-notice-host">
           <DictationNotice dictation={dictation} />
         </div>
@@ -63,7 +63,11 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
             </div>
           </div>
         </div>
-        {settingsOpened ? <output data-settings-receipt>System Settings requested</output> : null}
+        {settingsOpened ? (
+          <output className="acpmux-dictation-settings-receipt" data-settings-receipt>
+            System Settings requested
+          </output>
+        ) : null}
       </div>
     </ShortcutsContext.Provider>
   );
@@ -90,6 +94,7 @@ export default componentEntry<Props>({
   id: "agent-pane.dictation",
   title: "Composer dictation",
   area: "Agent pane",
+  pane: true,
   height: 180,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-dictation-fixture]" }],

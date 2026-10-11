@@ -53,6 +53,11 @@
 .acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-dictation-settings:focus-visible,.acpmux-dictation-dismiss:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-dictation-gallery{flex-direction:column}
+/* The gallery keeps the denied notice's slot even after dismissal. Settings feedback is an
+   ephemeral receipt and must not become another flex item that resizes or shifts the fixture. */
+.acpmux-dictation-gallery .acpmux-dictation-notice-host{flex:0 0 38px;min-height:38px}
+.acpmux-dictation-gallery .acpmux-dictation-settings-receipt{position:absolute;right:16px;bottom:2px;color:var(--agent-muted);font-size:11px;line-height:16px;pointer-events:none}
 .acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
 .acpmux-chips-spacer{flex:1}
 /* A registry composerChips override that still draws native selects. */
