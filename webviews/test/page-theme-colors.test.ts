@@ -36,7 +36,9 @@ await requireBrowserLane("page-theme-colors.test.ts", async () => {
   const IRIS = "rgb(196, 167, 231)";
   const ON_ACCENT = "rgb(25, 23, 36)";
   const TEXT = "rgb(224, 222, 244)";
-  const pageWith = (accent: string) => `<!doctype html><html style="--cmux-text:${TEXT};--cmux-accent:${accent};--cmux-on-accent:${ON_ACCENT};--cmux-diff-bg:rgb(25,23,36);--cmux-diff-fg:${TEXT}"><head><style>${css}</style></head><body>
+  const pageWith = (
+    accent: string,
+  ) => `<!doctype html><html style="--cmux-text:${TEXT};--cmux-accent:${accent};--cmux-on-accent:${ON_ACCENT};--cmux-diff-bg:rgb(25,23,36);--cmux-diff-fg:${TEXT}"><head><style>${css}</style></head><body>
 <input type="checkbox" checked id="check">
 <button class="comment-button comment-button-primary" id="primary">Comment</button>
 </body></html>`;
