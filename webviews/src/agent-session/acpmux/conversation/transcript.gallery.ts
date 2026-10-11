@@ -102,6 +102,13 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
+const shellDisclosureChecks = {
+  layoutShiftMax: {
+    value: 0.25,
+    reason: "Opening command details intentionally reveals the shell block below its focused row.",
+  },
+};
+
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
   const at = 3000 - index * 120;
   return [
@@ -799,11 +806,13 @@ export default agentPaneEntry({
     },
     "shell-command-only": {
       note: "A command call with no output still opens a compact Shell block with its command line.",
+      checks: shellDisclosureChecks,
       snapshot: chat(shellRows("gallery-shell-command", "Run the focused test", "bun test src/net --filter retry")),
       play: openSingleShell,
     },
     "shell-success-output": {
       note: "A successful command keeps its output selectable below the command line.",
+      checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-success", "Run the focused test", "bun test src/net --filter retry", {
           output: "3 pass\n0 fail",
@@ -817,6 +826,7 @@ export default agentPaneEntry({
     },
     "shell-failed-exit": {
       note: "A failed command exposes its nonzero exit status alongside its output.",
+      checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-failed", "Run the focused test", "bun test src/net --filter retry", {
           status: "failed",
@@ -831,12 +841,7 @@ export default agentPaneEntry({
     },
     "shell-grouped-commands": {
       note: "Two consecutive commands use the real group disclosure and nested command-row disclosures.",
-      checks: {
-        layoutShiftMax: {
-          value: 0.25,
-          reason: "Opening nested command details intentionally reveals the shell block below its focused row.",
-        },
-      },
+      checks: shellDisclosureChecks,
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
     },
