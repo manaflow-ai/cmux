@@ -194,7 +194,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("github.event_name == 'pull_request'", reuse_env)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", reuse_env)
         self.assertIn("inputs.full_suite != 'true'", reuse_env)
-        self.assertIn("vars.CI_PACKAGE_RESULT_REUSE != '0'", reuse_env)
+        self.assertIn("(vars.CI_PACKAGE_RESULT_REUSE || '1') != '0'", reuse_env)
 
     def test_the_new_scripts_are_job_inputs(self) -> None:
         select = load("select_package_tests")

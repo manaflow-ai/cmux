@@ -3281,7 +3281,7 @@ jobs:
       # A same-repository pull request run skips the packages whose inputs
       # passed on an earlier run of its branch, and publishes what passes.
       # Never on the full suite; CI_PACKAGE_RESULT_REUSE=0 turns it off.
-      CMUX_PACKAGE_REUSE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && inputs.full_suite != 'true' && vars.CI_PACKAGE_RESULT_REUSE != '0' && '1' || '0' }}
+      CMUX_PACKAGE_REUSE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && inputs.full_suite != 'true' && (vars.CI_PACKAGE_RESULT_REUSE || '1') != '0' && '1' || '0' }}
       CMUX_PACKAGE_REUSE_BRANCH: ${{ github.head_ref }}
       PACKAGE_TESTS_VIA_STEP: ${{ github.repository_owner == 'manaflow-ai' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)) && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && '1' || '0' }}
     steps:
