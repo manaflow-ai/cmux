@@ -365,8 +365,14 @@ pub(crate) async fn extract_client_slice(slice: &ClientSlice) -> Result<PathBuf,
         let extraction = EXTRACTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let partial =
             slice.cache.join(format!("{file_name}.{}-{extraction}.partial", std::process::id()));
-        std::fs::write(&partial, &bytes)?;
-        std::fs::rename(&partial, &path)?;
+        if let Err(error) =
+            std::fs::write(&partial, &bytes).and_then(|()| std::fs::rename(&partial, &path))
+        {
+            // Pruning keeps names that start with this build's, so a failed
+            // copy would otherwise stay until the version changes.
+            let _ = std::fs::remove_file(&partial);
+            return Err(error);
+        }
         prune_cache(&slice.cache, &file_name);
         Ok(path)
     })
