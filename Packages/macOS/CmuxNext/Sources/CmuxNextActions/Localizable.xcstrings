@@ -16644,7 +16644,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commit changes…"
+            "value": "Commit Changes…"
           }
         },
         "ja": {
@@ -16775,7 +16775,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Push branch"
+            "value": "Push Branch"
           }
         },
         "ja": {
