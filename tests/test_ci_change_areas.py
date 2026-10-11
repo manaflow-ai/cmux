@@ -2817,6 +2817,32 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     assert route("scripts/ci/test_execution_registry.py") is None
 
 
+def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:
+    # The same walk as the scripts/ci helpers: these run only in dispatched
+    # or scheduled workflows, which a pull request's CI never runs.
+    for path in (
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
+        "scripts/strip-release-bundle.sh",
+    ):
+        assert module.classify_files([path]) == areas(), path
+
+
+def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route() -> None:
+    for path in (
+        # CLI/ names it.
+        "scripts/install-cmux-tui-client.sh",
+        # A native shell test runs it.
+        "scripts/sign-cmux-bundle.sh",
+        # ci.yml's Mac jobs run it.
+        "scripts/reload.sh",
+        # Nothing names it: unknown, so every lane as before.
+        "scripts/showcase-publish.py",
+    ):
+        actual = module.classify_files([path])
+        assert actual.macos and actual.release_build, path
+
+
 def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
