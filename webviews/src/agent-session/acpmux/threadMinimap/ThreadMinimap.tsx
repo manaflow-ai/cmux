@@ -59,6 +59,10 @@ export function ThreadMinimap({
   const root = useRef<HTMLElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [popoverHeight, setPopoverHeight] = useState(0);
+  // A new turn list can be a session switch or older-history replacement. Neither may inherit a
+  // hovered index from the previous list: doing so leaves the new rail without a roving tab stop
+  // and can briefly show a preview for the wrong prompt.
+  const turnSignature = turns.map((turn) => turn.key).join("\u0000");
   const { first, pitch } = tickLayout(turns.length, viewportHeight);
   const current = turns.length ? currentTurn(turns, layout.tops, scrollTop, viewportHeight) : 0;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, scrollTop, viewportHeight);
@@ -73,6 +77,9 @@ export function ThreadMinimap({
     setHovered(undefined);
     setShown(false);
   }, []);
+  useLayoutEffect(() => {
+    close();
+  }, [close, turnSignature]);
   /// Hovers tick `index`. The first popover waits POPOVER_DELAY_MS (keyboard focus shows it at once);
   /// once one shows, the next tick's replaces it on the same frame.
   const hover = useCallback((index: number, immediately: boolean) => {

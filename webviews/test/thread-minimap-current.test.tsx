@@ -118,3 +118,42 @@ test("the minimap draws the turn being read longer than the others, in the accen
     await act(async () => root.unmount());
   }
 });
+
+test("a transcript replacement clears a stale hovered tick and restores one tab stop", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const shortTurns = turns.slice(0, 6);
+  const render = (rows: AcpmuxRow[], sessionId: string) =>
+    root.render(
+      <VirtualTranscript
+        rows={turnView(rows, new Set())}
+        sessionId={sessionId}
+        onToggleActivity={() => {}}
+        expanded={new Set()}
+      />,
+    );
+  try {
+    await act(async () => render(turns, "long-session"));
+    const ticks = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
+    expect(ticks()).toHaveLength(TURNS);
+
+    const lateTick = ticks()[10]!;
+    await act(async () =>
+      lateTick.dispatchEvent(
+        new dom.window.MouseEvent("pointermove", {
+          bubbles: true,
+          clientY: 10 * ((VIEWPORT - 16) / (TURNS - 1)) + 1,
+        }),
+      ),
+    );
+    expect(dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")?.dataset.hovering).toBe("true");
+
+    await act(async () => render(shortTurns, "short-session"));
+    const nextTicks = ticks();
+    expect(nextTicks).toHaveLength(2);
+    expect(nextTicks.filter((tick) => tick.tabIndex === 0)).toHaveLength(1);
+    expect(dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")?.dataset.hovering).toBeUndefined();
+    expect(dom.window.document.querySelector(".acpmux-minimap__popover")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
