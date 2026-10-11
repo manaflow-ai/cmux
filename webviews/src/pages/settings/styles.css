@@ -280,6 +280,11 @@ mark {
   max-width: 60%;
 }
 
+/* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
+.row-control-menu {
+  display: contents;
+}
+
 .notice,
 .banner {
   display: flex;
