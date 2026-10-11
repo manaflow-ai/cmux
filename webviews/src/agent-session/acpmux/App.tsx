@@ -1883,16 +1883,14 @@ function AcpmuxPane() {
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
   // One animation frame after that render, then a task: the task runs once that frame was drawn.
   // Not two frames: WebKit stops animation frames once the window is occluded, so a second frame
-  // may never come and the pane kept its loading state forever (cx-zjtn.6; PagePaintProbe in
-  // CmuxNextPages waits the same way). A hidden page draws nothing to wait for.
+  // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
+  // the same way).
   const paintReported = useRef(false);
   const showsWhatItIs = handshaken || hostError !== undefined;
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    const report = () => void callNative("pane.painted").catch(() => undefined);
-    if (document.visibilityState === "hidden") setTimeout(report, 0);
-    else requestAnimationFrame(() => setTimeout(report, 0));
+    requestAnimationFrame(() => setTimeout(() => void callNative("pane.painted").catch(() => undefined), 0));
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };

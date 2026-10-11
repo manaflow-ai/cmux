@@ -136,6 +136,11 @@ public final class AgentPaneView: NSView {
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            #if DEBUG
+            // Automation launches (capture slots) keep a covered window's page drawing, as
+            // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
+            if PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment) { PageWebView.keepRenderingWhenCovered(webView) }
+            #endif
             page = nil
             pageEvents = nil
             dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
