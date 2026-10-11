@@ -7,7 +7,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-plan.test.ts", async () => {
@@ -76,7 +76,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     updatedAt: START,
   };
 
-  function answer(method: string, params: Record<string, any>): unknown {
+  function answer(method: string): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -110,9 +110,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
-            ws.send(
-              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
-            );
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
       },
     });
