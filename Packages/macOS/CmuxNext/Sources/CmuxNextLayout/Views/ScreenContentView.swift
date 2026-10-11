@@ -306,6 +306,7 @@ final class ScreenContentView: NSView {
     func applyPresentation() {
         let strip = stripShift
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks)
+        var clips: [(host: PaneHostView, scrolls: Bool, revealing: CGRect?)] = []
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -315,7 +316,12 @@ final class ScreenContentView: NSView {
             host.frame = (revealing == nil ? frame.rect : PaneArrival.presentation(shown: frame.rect, target: frame.targetRect)).offsetBy(dx: shift.dx, dy: shift.dy)
             host.alphaValue = frame.alpha.value
             host.isDocked = !scrolls
-            clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing)
+            clips.append((host, scrolls, revealing))
+        }
+        // Once every frame is placed: a pane is clipped by the panes in front of it.
+        for (host, scrolls, revealing) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing) }
+        for pane in covered {
+            if let host = context.hosts[pane], host.superview === self { clipToStrip(host, scrolls: false, clip: nil) }
         }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }

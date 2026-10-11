@@ -22,18 +22,23 @@ extension ScreenContentView {
     /// edge): strip rings and highlights are clipped out of these.
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
-    /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
-    /// and any shown pane stacked above it that overlaps it mid-motion (an unzoom's pane springing
-    /// back over the panes it uncovers), so a ring never draws over the pane in front of it.
-    func ringCovers(of host: PaneHostView, docks: [CGRect]) -> [CGRect] {
-        var rects = isStripHost(host) ? docks : []
-        guard let index = subviews.firstIndex(of: host) else { return rects }
+    /// The frames of shown panes stacked above `host` that overlap it (local coordinates). Only
+    /// mid-motion: an unzoom's pane springing back over the panes it uncovers, a zoom's growing
+    /// over the others. Their headers are see-through, so what is under them is masked out.
+    func panes(above host: PaneHostView) -> [CGRect] {
+        guard let index = subviews.firstIndex(of: host) else { return [] }
+        var rects: [CGRect] = []
         for case let above as PaneHostView in subviews[(index + 1)...] where !above.isHidden && above.alphaValue > 0.99 {
-            let body = above.convert(above.roundedRect, to: self)
-            let shared = body.intersection(host.frame)
-            if shared.width > 0.5 && shared.height > 0.5 { rects.append(body) }
+            let shared = above.frame.intersection(host.frame)
+            if shared.width > 0.5 && shared.height > 0.5 { rects.append(above.frame) }
         }
         return rects
+    }
+
+    /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
+    /// and the panes in front of it (`panes(above:)`).
+    func ringCovers(of host: PaneHostView, docks: [CGRect]) -> [CGRect] {
+        (isStripHost(host) ? docks : []) + panes(above: host)
     }
 
     /// True when the scroll moves this divider or column edge.
@@ -60,9 +65,11 @@ extension ScreenContentView {
     /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
     /// growing in); a pane growing in from an edge is also masked to
     /// `revealing`, the part its spring shows.
+    /// Any part under a pane in front (`panes(above:)`) is cut off too.
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil) {
         var visible = revealing.map(host.frame.intersection) ?? host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
+        for cover in panes(above: host) { visible = visible.remainder(outside: cover) }
         if visible == host.frame { return host.setStripClip(nil) }
         host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
     }
@@ -187,4 +194,22 @@ private nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: Un
     let x = table.ranks[ObjectIdentifier(a)] ?? 0
     let y = table.ranks[ObjectIdentifier(b)] ?? 0
     return x < y ? .orderedAscending : (x > y ? .orderedDescending : .orderedSame)
+}
+
+extension CGRect {
+    /// What is left outside `cover` when that is one rect (`cover` spans this rect's full height or
+    /// width from one side, as a pane springing over its neighbors does); else this rect.
+    func remainder(outside cover: CGRect) -> CGRect {
+        let shared = intersection(cover)
+        guard !shared.isNull, shared.width > 0.5, shared.height > 0.5 else { return self }
+        if shared.height >= height - 0.5 {
+            if shared.minX <= minX + 0.5 { return CGRect(x: shared.maxX, y: minY, width: maxX - shared.maxX, height: height) }
+            if shared.maxX >= maxX - 0.5 { return CGRect(x: minX, y: minY, width: shared.minX - minX, height: height) }
+        }
+        if shared.width >= width - 0.5 {
+            if shared.minY <= minY + 0.5 { return CGRect(x: minX, y: shared.maxY, width: width, height: maxY - shared.maxY) }
+            if shared.maxY >= maxY - 0.5 { return CGRect(x: minX, y: minY, width: width, height: shared.minY - minY) }
+        }
+        return self
+    }
 }
