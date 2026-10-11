@@ -62,9 +62,7 @@ enum BrowserDownloadsMenu {
                 NSPasteboard.general.setString(source.absoluteString, forType: .string)
             })
         }
-        // A row with nothing to do (a failed download with no web source) is drawn disabled, never
-        // as a live row that does nothing.
-        if submenu.items.isEmpty { item.isEnabled = false } else { item.submenu = submenu }
+        if !submenu.items.isEmpty { item.submenu = submenu }
         return item
     }
 

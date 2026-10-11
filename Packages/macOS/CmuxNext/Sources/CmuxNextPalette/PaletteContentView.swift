@@ -144,7 +144,11 @@ final class PaletteContentView: NSView {
         listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
         // The hint is about the typed search; a page that is empty with nothing typed shows only its title.
-        emptyHint.isHidden = !showEmpty || model.query.isEmpty
+        let hintHidden = !showEmpty || model.query.isEmpty
+        if emptyHint.isHidden != hintHidden {
+            emptyHint.isHidden = hintHidden
+            needsLayout = true
+        }
 
         searchBar.update(
             query: model.query,
@@ -231,10 +235,11 @@ final class PaletteContentView: NSView {
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = PaletteText.height(emptyTitle)
-        let hintHeight = PaletteText.height(emptyHint)
+        // With the hint hidden the title alone is centered (the negative height cancels its gap).
+        let hintHeight = emptyHint.isHidden ? -Metrics.space2 : PaletteText.height(emptyHint)
         let emptyTop = listFrame.midY - (titleHeight + Metrics.space2 + hintHeight) / 2
         emptyTitle.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop, width: width, height: titleHeight))
-        emptyHint.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: hintHeight))
+        emptyHint.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: max(0, hintHeight)))
         y += PaletteLayout.listHeight - fieldHintHeight
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness

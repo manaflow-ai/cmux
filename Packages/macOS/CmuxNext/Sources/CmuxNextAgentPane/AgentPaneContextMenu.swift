@@ -174,11 +174,13 @@ enum AgentPaneContextMenu {
         return [parent]
     }
 
-    /// A link as its host and path, cut in the middle past 60 characters; the full address is the
-    /// item's tooltip.
+    /// A link as its address without `http(s)://` (port, query and fragment kept, so two links stay
+    /// apart), cut in the middle past 60 characters; the full address is the item's tooltip.
     static func linkTitle(_ link: URL) -> String {
         let limit = 60
-        let bare = link.host.map { $0 + link.path + (link.query.map { "?" + $0 } ?? "") } ?? link.absoluteString
+        let address = link.absoluteString
+        let web = link.scheme == "http" || link.scheme == "https"
+        let bare = web ? String(address.drop(while: { $0 != ":" }).dropFirst(3)) : address
         guard bare.count > limit else { return bare }
         let tail = limit / 3
         return String(bare.prefix(limit - tail - 1)) + "…" + String(bare.suffix(tail))
