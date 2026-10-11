@@ -292,7 +292,9 @@ extension AgentPaneTransport {
                 granted = gestures.consume()
                 if granted { remoteStartCredit = (id, ProcessInfo.processInfo.systemUptime) }
             } else {
-                granted = !facts.needsGesture || gestures.consume() || takeRemoteStartCredit(facts, connection: id)
+                // The start's credit is spent by the first prompt, whatever grants it.
+                let credit = takeRemoteStartCredit(facts, connection: id)
+                granted = !facts.needsGesture || gestures.consume() || credit
             }
             if !granted {
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")

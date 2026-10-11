@@ -464,7 +464,7 @@ export class HarnessSwitch {
     if (!port || intent.running) return;
     let sessionId = intent.sessionId;
     // A chat on another machine starts with the first send, never with a pick (cx-k21v).
-    if (!sessionId && !intent.shown && port.startsOnSend?.()) return;
+    if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
     intent.running = port;
     if (!sessionId) {
       try {

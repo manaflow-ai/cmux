@@ -197,7 +197,8 @@ extension AgentTabStore {
     /// change another device made first) removes it again with a reason.
     func sendSession(_ session: String, for key: String) {
         // Not created yet: the creation answer binds it (``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)``).
-        guard !ProvisionalTab.isProvisional(key) else { return }
+        // A chat of another machine: its daemon bound the session it started (cx-k21v).
+        guard !ProvisionalTab.isProvisional(key), bindsHere(key) else { return }
         guard let record = lookup(key)?.record else {
             // The store answered but its tree does not list the tab yet: bind once it does.
             guard tabStores[key] != nil else { return }
