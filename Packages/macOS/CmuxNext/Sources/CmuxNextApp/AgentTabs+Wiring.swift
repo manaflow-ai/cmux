@@ -115,8 +115,16 @@ extension AgentTabStore {
             let daemon = services.machines.daemon(forTab: tab)
             guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach),
                   let endpoint = daemon.remoteEndpoint else { return nil }
-            return AgentTabRemoteHost(surface: tab.surface.rawValue, session: session,
-                                      machine: tab.agentSession?.hostName ?? daemon.machineID, endpoint: endpoint)
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session,
+                                          machine: tab.agentSession?.hostName ?? daemon.machineID, endpoint: endpoint)
+            // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
+            if let link = services.machines.sshSession(daemon.machineID) ?? services.machines.server(daemon.machineID)?.link {
+                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label) { [weak services, weak link] in
+                    guard let services, let link else { return .failed("") }
+                    return await services.ssh.restartWithApprovals(link)
+                }
+            }
+            return host
         }
         tabs.listTabs = { [weak services] in
             guard let services else { return [] }

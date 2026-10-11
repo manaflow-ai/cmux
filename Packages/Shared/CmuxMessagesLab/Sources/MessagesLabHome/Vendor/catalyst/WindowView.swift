@@ -55,6 +55,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var fillSpan: RowCell.FillSpan { RowCell.FillSpan(viewport: bounds.height, margin: cvHeight) }
     /// Engine time now (live: the media clock; capture: virtual time).
     var clock: () -> Double = { 0 }
+    /// Engine time of the input (the click or key in the message menu) that chose my next tapback;
+    /// the app sets it around that dispatch. Messages times the badge's pop and the rows' move from
+    /// that input; our action comes when AppKit has closed the menu, 0.40-0.45 s after the press and
+    /// not the same in two takes (main-thread load, the menu window's teardown), so the tapback's
+    /// animations start `menuTapbackStart` after the input, not at the commit. nil: from the commit
+    /// (the picker, a script, an older caller).
+    var tapbackInput: Double?
+    /// The tapback's time origin after the choosing input (AppKit's current event at the action: the
+    /// press of the click in the menu, takes 811/812): `transcript.tapback` and RowCell.popDisc are
+    /// timed from it. springs.json transcript.tapback has Messages' rows start 0.0897 s after an origin
+    /// 0.410 s after the press (its first frames, tapback-menu-heart-take1); our frames show about
+    /// 20 ms after an animation's begin time (rows 10/50/90 % +21/+10/+23 and +23/+20/+30 ms late at
+    /// 0.410, takes 841/842), so the origin is 0.390 s.
+    static let menuTapbackStart = 0.390
     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
     var requestWake: (Double) -> Void = { _ in }
     var onScrollPosition: () -> Void = {}
@@ -600,9 +614,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             guard case .send = action else { return 0 }
             return Springs.sendPhase(fieldShrinks: compose.fieldRect.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         }()
-        let begin = beginTime(t) + sendPhase
-        // My new tapback pops in its row's badge (RowCell.configureBadge).
-        if case let .react(ref, _, nil) = action { RowCell.badgePop = (ref, begin) }
+        var begin = beginTime(t) + sendPhase
+        // My new tapback pops in its row's badge (RowCell.configureBadge); chosen in the menu, it and
+        // the rows are timed from the choosing input (tapbackInput).
+        if case let .react(ref, _, nil) = action {
+            if let input = tapbackInput { begin = beginTime(input + Self.menuTapbackStart) }
+            RowCell.badgePop = (ref, begin)
+        }
         defer { RowCell.badgePop = nil }
         var rowsChange = true, paging = false, animate = true, rowsUnchanged = false
         switch action {
