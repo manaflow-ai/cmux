@@ -1,7 +1,8 @@
 #![cfg(unix)]
 //! `git.files.list` over a real session socket: the children of one folder
 //! of a repository, the way a file explorer tree shows them. Folders come
-//! first, ignored files never show, and a nested folder is a directory.
+//! first, ignored files never show, a nested folder is a directory, and a
+//! symlink is never one.
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
@@ -144,6 +145,14 @@ fn cmux_next_git_files_list_lists_one_folder() {
     let first = client.read("git.files.list", json!({"path": repo.to_string_lossy(), "limit": 1}));
     assert_eq!(entries(&first), [entry("src", "directory")], "{first}");
     assert_eq!(first["truncated"], true, "{first}");
+
+    // A symlink to a folder outside the repository is a leaf: the tree never
+    // lists through it.
+    let outside = dir.join("outside");
+    write(&outside, "secret.txt", "outside\n");
+    std::os::unix::fs::symlink(&outside, repo.join("linked")).unwrap();
+    let linked = client.read("git.files.list", json!({"path": repo.to_string_lossy()}));
+    assert!(entries(&linked).contains(&entry("linked", "file")), "{linked}");
 
     mux.shutdown();
     server::cleanup(&socket);
