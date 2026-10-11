@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""scripts/cmux-next/bead-autoclose.py closes the beads merged pull requests name.
+
+Runs the script against a fake gh (canned GraphQL answers) and a fake bd
+(BEADS_BD_COMMAND, which logs its arguments), with a PATH whose ssh records any
+call: the test never reaches GitHub or the real board.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cmux-next/bead-autoclose.py"
+
+MERGED = [
+    {"number": 1, "title": "fix: a (cx-task1)", "mergedAt": "2026-10-10T01:00:00Z",
+     "mergeCommit": {"oid": "a" * 40}, "baseRefName": "feat-cmux-next"},
+    {"number": 2, "title": "feat: b (cx-epic1, cx-done1)", "mergedAt": "2026-10-10T02:00:00Z",
+     "mergeCommit": {"oid": "b" * 40}, "baseRefName": "feat-cmux-next"},
+    {"number": 3, "title": "fix: c part 1 (cx-multi)", "mergedAt": "2026-10-10T03:00:00Z",
+     "mergeCommit": {"oid": "c" * 40}, "baseRefName": "main"},
+]
+OPEN = [{"number": 9, "title": "fix: c part 2 (cx-multi)", "baseRefName": "feat-cmux-next"}]
+BEADS = {
+    "cx-task1": {"status": "in_progress", "issue_type": "task", "assignee": "op-lane"},
+    "cx-epic1": {"status": "open", "issue_type": "epic", "assignee": ""},
+    "cx-done1": {"status": "closed", "issue_type": "task", "assignee": "op-lane"},
+    "cx-multi": {"status": "open", "issue_type": "bug", "assignee": "unassigned"},
+}
+
+FAKE_GH = """#!/usr/bin/env python3
+import json, sys
+query = next(arg[2:] for arg in sys.argv if arg.startswith("q="))
+nodes = json.loads(open(%(open)r).read()) if "is:open" in query else json.loads(open(%(merged)r).read())
+print(json.dumps({"data": {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}))
+"""
+FAKE_BD = """#!/usr/bin/env python3
+import json, sys
+args = sys.argv[1:]
+open(%(log)r, "a").write(json.dumps(args) + "\\n")
+beads = json.loads(open(%(beads)r).read())
+if args[0] == "show":
+    bead = beads.get(args[1])
+    if bead is None:
+        sys.exit(1)
+    print(json.dumps([dict(bead, id=args[1])]))
+elif args[0] == "children":
+    print("[]")
+"""
+RECORDING = "#!/bin/sh\necho \"$0 $*\" >> %(log)r\nexit 1\n"
+
+
+class BeadAutocloseTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="cmux-bead-autoclose-")
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        self.bd_log, self.ssh_log = root / "bd.log", root / "ssh.log"
+        (root / "merged.json").write_text(json.dumps(MERGED))
+        (root / "open.json").write_text(json.dumps(OPEN))
+        (root / "beads.json").write_text(json.dumps(BEADS))
+        self.write(self.bin / "gh", FAKE_GH % {"open": str(root / "open.json"), "merged": str(root / "merged.json")})
+        self.fake_bd = root / "fake-bd"
+        self.write(self.fake_bd, FAKE_BD % {"log": str(self.bd_log), "beads": str(root / "beads.json")})
+        self.write(self.bin / "ssh", RECORDING % {"log": str(self.ssh_log)})
+        self.state = root / "state"
+        self.env = {"PATH": f"{self.bin}{os.pathsep}{os.path.dirname(sys.executable)}{os.pathsep}/usr/bin:/bin",
+                    "HOME": str(root), "BEAD_AUTOCLOSE_STATE": str(self.state)}
+
+    @staticmethod
+    def write(path, text):
+        path.write_text(text)
+        path.chmod(0o755)
+
+    def run_script(self, *args, **env):
+        return subprocess.run([sys.executable, "-I", str(SCRIPT), *args], env=dict(self.env, **env),
+                              text=True, capture_output=True)
+
+    def bd_calls(self, verb):
+        lines = self.bd_log.read_text().splitlines() if self.bd_log.exists() else []
+        return [json.loads(line) for line in lines if verb in json.loads(line)]
+
+    def test_closes_landed_beads_and_comments_on_partial_ones(self):
+        result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        closes = self.bd_calls("close")
+        self.assertEqual(len(closes), 1, closes)
+        self.assertEqual(closes[0][:4], ["--actor", "op-lane", "close", "cx-task1"])
+        self.assertIn(f"landed {'a' * 12} (#1): fix: a (cx-task1)", closes[0][5])
+        comments = {call[3]: call for call in self.bd_calls("comment")}
+        self.assertEqual(sorted(comments), ["cx-epic1", "cx-multi"])
+        self.assertEqual(comments["cx-epic1"][1], "leo")
+        self.assertEqual(comments["cx-multi"][1], "leo")  # "unassigned" acts as leo
+        self.assertIn("#9", comments["cx-multi"][4])
+        self.assertEqual(self.state.read_text().strip(), "2026-10-10T03:00:00Z")
+        self.assertFalse(self.ssh_log.exists(), "the test reached ssh")
+
+    def test_dry_run_changes_nothing(self):
+        result = self.run_script("--dry-run", "--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("close cx-task1 as op-lane", result.stdout)
+        self.assertEqual(self.bd_calls("close") + self.bd_calls("comment"), [])
+        self.assertFalse(self.state.exists())
+
+    def test_refuses_without_a_board(self):
+        result = self.run_script("--since", "2026-10-10T00:00:00Z")
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.ssh_log.exists(), "the test reached ssh")
+        self.assertFalse(self.bd_log.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
