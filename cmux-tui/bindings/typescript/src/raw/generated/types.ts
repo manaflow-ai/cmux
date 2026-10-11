@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc. */
+/* cmux-tui mux protocol 12, IR c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -224,6 +224,8 @@ export type ConversationImportMessage = {
 };
 
 export type ConversationMessage = {
+  "answers"?: Array<string>;
+  "answers_pending"?: Array<string>;
   "author": string;
   "client_msg_id": string;
   "conversation": string;
@@ -473,7 +475,9 @@ export type IdMapping = {
 export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
+  "build_id"?: (string) | null;
   "capabilities"?: Array<string>;
+  "cli_path"?: (string) | null;
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
