@@ -4,10 +4,12 @@
 // links) and the selected transcript text under the pointer to the host's `cmuxAgentContextMenu`
 // handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
 // report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
-// one report for one menu.
+// one report for one menu. On a code block, a command, a path or a link the report adds that
+// `part` (menuParts.ts), even outside a prompt or reply (a tool row).
 import { lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
+import { menuPartAt, type MenuPart } from "./menuParts";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -23,7 +25,7 @@ export type MessageMenuTarget = {
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
-export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true };
+export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true; part?: MenuPart };
 
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
@@ -169,9 +171,15 @@ export function installMessageMenuReporter(
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
     const selection = selectionAt(doc, target);
+    const part = selection ? undefined : menuPartAt(target);
     const body: MessageMenuReport | null =
-      message || selection || reportedImage
-        ? { ...message, ...(selection ? { selection } : {}), ...(reportedImage ? { openImage: true as const } : {}) }
+      message || selection || reportedImage || part
+        ? {
+            ...message,
+            ...(selection ? { selection } : {}),
+            ...(reportedImage ? { openImage: true as const } : {}),
+            ...(part ? { part } : {}),
+          }
         : null;
     handler()?.postMessage(body);
   };
