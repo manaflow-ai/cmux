@@ -65,9 +65,9 @@ previews, variant selection, and deliberate before/after evidence. Relevant note
    cards, and reduced-motion behavior. Evidence: real pane fixtures, gallery variants, and matrix
    action-settle rows.
 3. **Gallery scanning**: Browse is a contact sheet over real stages. It must support title/surface
-   filtering, static versus motion filtering, and controlled variant cycling without changing the
-   URL identity of the opened entry. Evidence: `gallery-browse.test.ts` and the narrow-shell layout
-   lane.
+   filtering, static versus motion filtering, an all-variants contact sheet, and controlled variant
+   cycling without changing the URL identity of the opened entry. Evidence: `gallery-browse.test.ts`
+   and the narrow-shell layout lane.
 4. **Reference-grade comparison**: when a mismatch is visual or temporal, add a typed experiment arm
    or a named fixture variant, then publish a matrix before/after run. Do not make a screenshot-only
    claim about latency.

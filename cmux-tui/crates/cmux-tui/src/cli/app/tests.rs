@@ -266,6 +266,57 @@ fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
     assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
 }
 
+// `cmux browser <tab|page> tabs|new-tab|select|close` reach the app as the
+// browser.page tab methods; runs that open, select or close carry an
+// idempotency key, so a busy retry is one run, and `--no-wait` asks the app
+// not to wait.
+#[test]
+fn browser_tab_verbs_reach_the_app_and_runs_carry_a_key() {
+    let listed = json!({ "id": 1, "ok": true, "result": { "tabs": [] } });
+    let opened = json!({ "id": 1, "ok": true, "result": { "ran": true, "created": ["tab_02cd"] } });
+    let closed = json!({ "id": 1, "ok": true, "result": { "ran": true } });
+    for (words, response, method, params) in [
+        (
+            vec!["browser", "page", "tabs", "--all"],
+            listed,
+            "browser.page.tabs",
+            json!({ "all": true }),
+        ),
+        (
+            vec!["browser", "tab_01ab", "new-tab", "https://cmux.com"],
+            opened,
+            "browser.page.new_tab",
+            json!({ "tab": "tab_01ab", "url": "https://cmux.com" }),
+        ),
+        (
+            vec!["browser", "tab_01ab", "switch"],
+            json!({ "id": 1, "ok": true, "result": { "ran": true } }),
+            "browser.page.select_tab",
+            json!({ "tab": "tab_01ab" }),
+        ),
+        (
+            vec!["browser", "tab_01ab", "close", "--no-wait"],
+            closed,
+            "browser.page.close",
+            json!({ "tab": "tab_01ab", "wait": false }),
+        ),
+    ] {
+        let (socket, app) = fake_app(vec![response]);
+        let command = parse(&args(&words)).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 0, "{words:?}");
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], method, "{words:?}");
+        let mut sent = request["params"].clone();
+        let key = sent.as_object_mut().unwrap().remove("idempotency_key");
+        sent.as_object_mut().unwrap().remove("after");
+        assert_eq!(sent, params, "{words:?}");
+        assert_eq!(key.is_some(), method != "browser.page.tabs", "{words:?}");
+    }
+    assert!(parse(&args(&["browser", "page", "close", "tab_02"])).is_err());
+    assert!(parse(&args(&["browser", "tab_01ab", "select", "--all"])).is_err());
+}
+
 #[test]
 fn settings_set_takes_json_or_a_plain_string() {
     let (_, params) =
