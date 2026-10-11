@@ -111,7 +111,9 @@ fn a_dirty_repo_arrives_with_its_git_state_and_without_ignored_files_or_secrets(
     let repo = dirty_repo(&root);
     let home = root.join("home");
     std::fs::create_dir_all(home.join("work")).unwrap();
-    let socket = root.join("fs.sock");
+    // A socket path must stay under SUN_LEN; the temp folder can be deep.
+    let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("fs.sock");
     serve_fs(&socket, &home);
     let remote = home.join("work/app");
 
