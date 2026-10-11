@@ -70,6 +70,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (
             vec![
+                "git",
+                "commit",
+                "--path",
+                "/repo",
+                "--message",
+                "m",
+                "--all",
+                "--include-untracked",
+            ],
+            "git.commit",
+        ),
+        (
+            vec![
                 "terminal",
                 TERMINAL,
                 "mouse",

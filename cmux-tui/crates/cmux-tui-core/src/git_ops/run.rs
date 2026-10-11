@@ -55,7 +55,10 @@ pub(super) fn run_git(
             command.env_remove(name);
         }
     }
+    // `log.showSignature` would print signature checks into parsed output
+    // and run the signing program.
     command.args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false"]);
+    command.args(["-c", "log.showSignature=false"]);
     for setting in overrides {
         command.args(["-c", setting]);
     }

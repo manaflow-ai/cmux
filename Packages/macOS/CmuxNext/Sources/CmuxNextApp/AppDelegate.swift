@@ -283,6 +283,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? await settings.migrateLegacyQuitBehavior()
             // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
             _ = try? await settings.migrateLegacyWorkspaceRowKeys()
+            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
+            _ = try? await settings.migrateClassicSettings()
             // Shortcuts recorded in classic cmux's Settings (`ClassicShortcutImport`).
             _ = try? await settings.importClassicShortcuts(marker: .standard)
             do {
