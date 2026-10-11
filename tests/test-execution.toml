@@ -26,6 +26,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_surface_handle_ignores_stale_workspace.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
