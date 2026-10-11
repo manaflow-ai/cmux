@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
+import { defaultModel } from "./harnessSwitch";
 import {
   isDefaultChoice,
   loadResolvedDefaults,
@@ -324,11 +325,38 @@ export function ComposerPickers({
   useEffect(() => {
     if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
   }, [harness, resolvedNow]);
-  const resolvedId = defaulted ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
+  // Before the session reports a model (a new chat whose agent is still starting), the chip draws
+  // the model this harness's default last resolved to, so the name never widens in place (cx-ncc.58).
+  // A new chat draws its chips for the harness its first prompt starts: the one named, else the
+  // catalog's first, as the model picker's face does.
+  const chipHarness = harness ?? pickerEntries[0]?.id;
+  const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
+  // Before the session reports, the default this harness last resolved to, else the model catalog's
+  // default for it, else the first model it lists (defaultModel: its last session's).
+  const predictedId = unreported
+    ? (loadResolvedDefaults()[chipHarness] ??
+      pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
+      defaultModel(chipHarness, snapshot.catalog))
+    : undefined;
+  const resolvedId = unreported
+    ? predictedId
+    : defaulted
+      ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined))
+      : undefined;
   const resolvedName =
     resolvedId &&
-    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
+    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
+      snapshot.catalog
+        .find((entry) => entry.id === chipHarness)
+        ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
+      modelIdName(resolvedId));
+  const modelName =
+    defaulted || unreported ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
+  // Until the session reports its options (a new chat, an agent still starting), the ring, the
+  // effort and the access controls hold their places as quiet skeletons: controls never appear one
+  // by one beside the model (cx-ncc.58).
+  const awaiting =
+    chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -365,7 +393,7 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {showContextUsage && (usage || summary?.sessionId) && (
+      {showContextUsage && (usage || summary?.sessionId || awaiting) && (
         <ContextMenu
           className="acpmux-context-usage-menu"
           items={[{ id: "hide", label: t("context.hide"), onSelect: () => showUsage(false) }]}
@@ -402,7 +430,9 @@ export function ComposerPickers({
           }}
         />
       )}
+      {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
       <span className="acpmux-chips-spacer" />
+      {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -451,6 +481,18 @@ export function ComposerPickers({
     >
       {chips}
     </ContextMenu>
+  );
+}
+
+/// A control's place while the session has not reported it yet: the chip's own box, inert and
+/// unlabeled, so the real control takes the same place when it arrives (cx-ncc.58).
+function ChipSkeleton({ kind }: { kind: "effort" | "mode" }) {
+  return (
+    <span className={`acpmux-picker acpmux-${kind} acpmux-chip-skeleton`} aria-hidden="true">
+      <span className="acpmux-picker-button acpmux-chip-skeleton-face">
+        <span className="acpmux-chip-skeleton-bar" />
+      </span>
+    </span>
   );
 }
 

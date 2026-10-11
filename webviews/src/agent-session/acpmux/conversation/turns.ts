@@ -22,6 +22,9 @@ export const DATE = "date";
 /// "Working for 42s" line over its work, where "Worked for" lands when the turn ends.
 export const THINKING = "thinking";
 export const WORKING = "working";
+/// The last turn's Thinking line has one id from send to the first output: the sent prompt's row
+/// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
+const LIVE_THINKING = `${THINKING}-live`;
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
 /// preview card, with the page's address as its text.
 export const PREVIEW = "preview";
@@ -100,6 +103,16 @@ export function turnView(
     // Only the last turn can still be running.
     const last = at === turns.length - 1;
     const live = working && last;
+    // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
+    // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
+    // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
+    if (!live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0) {
+      const { status, queued } = user;
+      const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
+      if (status) Object.assign(line, { status, queued });
+      out.push(status ? { ...user, status: undefined } : user, line);
+      return;
+    }
     out.push(user, ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset), ...held);
   });
   return out;
@@ -257,7 +270,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
   const last = rows.at(-1);
-  if (!last) return [{ id: `${THINKING}-${user.id}`, version: 1, at: user.at, kind: THINKING }];
+  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
   // The status ticks on this computer's clock, from the prompt moved onto it.
