@@ -130,6 +130,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
+        "sidebar.showCloudDeviceIcons",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
@@ -238,5 +239,7 @@ extension CmuxSettingsFileStore {
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
         "remoteTmux.multiplexer.beta.enabled",
+        "remoteTmux.beta.originHostTitles.enabled",
+        "remoteTmux.beta.originColors.enabled",
     ]
 }

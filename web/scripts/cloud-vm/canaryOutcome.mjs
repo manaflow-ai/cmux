@@ -31,3 +31,33 @@ export function classifyCodexCanaryOutcome(output, { zeroToken }) {
 
   return "failed";
 }
+
+/**
+ * Returns the failures that should make the guest edge canary red.
+ *
+ * The provider's TLS implementation may steer an alias through mechanisms
+ * other than a particular `/etc/hosts` marker. A successful authenticated
+ * request to `vm-usage/self` is the behavioral proof that the edge injected
+ * the VM-bound credential, so the canary judges that contract instead of the
+ * provider's guest file layout.
+ */
+export function edgeCanaryProblems({
+  tokenOnDisk,
+  modelsStatus,
+  codexOutcome,
+  claudeCheck,
+  claudeOutcome = "",
+  codexTail = "",
+  claudeTail = "",
+}) {
+  const problems = [];
+  if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
+  if (modelsStatus !== "200") {
+    problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
+  }
+  if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${codexTail ?? ""}`);
+  if (claudeCheck && claudeOutcome !== "answered") {
+    problems.push(`claude turn through the edge did not answer: ${claudeTail ?? ""}`);
+  }
+  return problems;
+}

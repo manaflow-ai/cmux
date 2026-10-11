@@ -1049,6 +1049,8 @@ describe("account deletion route", () => {
         publicationId: "00000000-0000-4000-8000-000000000100",
         provider: "freestyle",
         hostname: "account.preview.example.test",
+        providerVmId: "vm-1",
+        hostnameClaimed: true,
         providerTlsRuleId: "tls-rule-account",
       },
     ];
@@ -1072,6 +1074,8 @@ describe("account deletion route", () => {
         publicationId: "00000000-0000-4000-8000-000000000101",
         provider: "freestyle",
         hostname: "account.preview.example.test",
+        providerVmId: "vm-1",
+        hostnameClaimed: true,
         providerTlsRuleId: "tls-rule-account",
       },
     ];

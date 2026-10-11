@@ -2185,6 +2185,7 @@
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。",
           "showAgentUsage": "在 Claude Code 或 Codex 的狀態項目後附加程式碼代理的用量：所用模型與已佔用的脈絡視窗，並在 Claude Code 上依 Anthropic 公布的標價估算 API 費用（主執行緒與子代理）。該費用僅為估算，並非你的訂閱帳單；批次／優先等級、合作夥伴定價、快速模式以及伺服器工具費用皆未計入。",
+          "showCloudDeviceIcons": "無論 Git 分支和目錄詳細資訊為何，都在遠端工作區標題旁顯示 Cloud 電腦和裝置圖示。",
           "beta": {
             "conversations": {
               "enabled": "在側邊欄選擇器中顯示整合的對話檢視。"

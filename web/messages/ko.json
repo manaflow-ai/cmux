@@ -2185,6 +2185,7 @@
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다.",
           "showAgentUsage": "Claude Code 또는 Codex 상태 항목에 코딩 에이전트 사용량을 덧붙입니다. 모델과 사용한 컨텍스트 창을 표시하고, Claude Code에서는 Anthropic이 공개한 정가를 기준으로 한 API 비용 추정치(메인 스레드와 서브에이전트)도 함께 표시합니다. 이 비용은 추정치이며 구독 청구액이 아닙니다. 배치 및 우선 처리 등급, 파트너 가격, 고속 모드, 서버 도구 요금은 반영하지 않습니다.",
+          "showCloudDeviceIcons": "Git 브랜치 및 디렉터리 세부 정보와 관계없이 원격 워크스페이스 제목 옆에 Cloud 컴퓨터 및 기기 아이콘을 표시합니다.",
           "beta": {
             "conversations": {
               "enabled": "사이드바 선택기에 통합 대화 보기를 표시합니다."
