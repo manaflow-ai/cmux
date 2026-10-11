@@ -11,6 +11,7 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { useOpenSide } from "../../ui/openSide";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -172,15 +173,14 @@ export function ComposerContext({
 }
 
 function BranchPicker({ branch }: { branch: string }) {
-  const [open, setOpen] = useState(false);
-  const [control, anchor] = useControlAnchor();
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
     <span ref={control} className="acpmux-location-picker" title={branch}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
-        <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
           <MenuRadioGroup value={branch} onValueChange={() => undefined}>
             <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
               <span className="acpmux-menu-text">
@@ -308,9 +308,11 @@ function FolderIcon() {
 
 /// The location menus open next to their control: on its top side, the way the model menu opens
 /// above its chip (Lawrence 2026-10-08: "popover is not next to the button"; this replaces
-/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). With too
-/// little room above, the positioner flips the menu under the row.
-function useControlAnchor() {
+/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). Every
+/// location menu decides its side once, when it opens, by the shared rule (`useOpenSide`): above
+/// unless the menu's full height does not fit there and below has more room. It keeps that side
+/// while open (a filter shrinking the folder list never moves it, cx-ncc.53) and fits the room.
+function useLocationPopover() {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
@@ -321,8 +323,12 @@ function useControlAnchor() {
     }),
     [],
   );
-  return [control, anchor] as const;
+  return { control, anchor, ...useOpenSide(control, "top", LOCATION_MENU_HEIGHT) };
 }
+
+/// A location menu at its tallest: the folder list's cap (composerLocation.css), a field or
+/// Choose folder…, and the menu's padding.
+const LOCATION_MENU_HEIGHT = 320;
 
 /// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
 /// as a click does: the focus leaves the prompt, then the menu opens. A label (a started chat)
@@ -362,9 +368,8 @@ function FolderMenu({
   localName?: string;
   peers?: string[];
 }) {
-  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [control, anchor] = useControlAnchor();
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
@@ -373,7 +378,7 @@ function FolderMenu({
         <MenuButton className="acpmux-location-button" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
         </MenuButton>
-        <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
+        <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
           {folders.length > 0 && (
             <>
               <div className="acpmux-location-folders">
@@ -459,9 +464,8 @@ function LocationPicker({
   extras?: { id: string; label: string; onSelect(): void }[];
   onPick(id: string): void;
 }) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [control, anchor] = useControlAnchor();
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   const press = usePopoverTrigger(open, setOpen);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
@@ -495,7 +499,13 @@ function LocationPicker({
           <MenuButton className="acpmux-location-button" label={label}>
             {button}
           </MenuButton>
-          <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
+          <MenuPopup
+            side={side}
+            flip={false}
+            anchor={anchor}
+            className="acpmux-menu acpmux-location-menu"
+            align="start"
+          >
             <MenuRadioGroup value={selected ?? ""} onValueChange={pick}>
               {options.map((option) => (
                 <MenuRadioItem key={option.id} value={option.id} className="acpmux-menu-item">
@@ -548,7 +558,8 @@ function LocationPicker({
         anchor={open ? anchor : null}
         label={label}
         className="acpmux-menu acpmux-location-menu"
-        side="top"
+        side={side}
+        flip={false}
       >
         <Combobox
           suggestions={suggestions}
@@ -558,7 +569,7 @@ function LocationPicker({
           label={label}
           placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
-          listClassName="m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
+          listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
           itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
