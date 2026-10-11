@@ -65,8 +65,10 @@ struct PaneArrival: Equatable {
     /// screen edge the column docks to, and the strip springs aside with it.
     /// Overlay columns float on glass that does not grow, so they land in place.
     static func docking(_ pane: PaneID, target: CGRect, from old: ScreenGeometry, to new: ScreenGeometry) -> PaneArrival? {
+        // Only a column the new pane opens alone: a pane moved in beside it would fly in unlinked.
         guard let entry = new.dockFrame(containing: pane), entry.dock.mode != .overlay,
-              !old.dock.contains(where: { $0.column == entry.column }) else { return nil }
+              !old.dock.contains(where: { $0.column == entry.column }),
+              new.fixedPanes.allSatisfy({ $0 == pane || new.dockFrame(containing: $0)?.column != entry.column }) else { return nil }
         if target.maxX <= new.clipMinX + 1 {
             return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: 0, height: target.height),
                                edgeOffset: CGVector(dx: -target.width, dy: 0))
@@ -125,13 +127,19 @@ struct PaneArrival: Equatable {
         arrivals.isEmpty ? [] : Set(new.dock.map(\.column)).subtracting(old.dock.map(\.column))
     }
 
-    /// The frames of the docked panes of `arriving` inside one of the new dock columns `docks`.
+    /// The frames that move the strip's clip and covers while a new dock column (`docks`) grows
+    /// in: one per docked column, the new columns' arriving pane and any dock still springing to
+    /// its new size (a second dock shrinks the first, both sharing the width), so the strip never
+    /// shows past a dock's moving edge.
     static func growing(_ arriving: Set<PaneID>, frames: [PaneID: AnimatedFrame], in geometry: ScreenGeometry,
                         docks: Set<ColumnID>) -> [AnimatedFrame] {
-        let fresh = geometry.dock.filter { docks.contains($0.column) }
-        guard !fresh.isEmpty else { return [] }
-        return arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { frames[$0] }
-            .filter { frame in fresh.contains { $0.frame.intersects(frame.targetRect) } }
+        guard geometry.dock.contains(where: { docks.contains($0.column) }) else { return [] }
+        var moving: [ColumnID: AnimatedFrame] = [:]
+        for pane in geometry.fixedPanes {
+            guard let frame = frames[pane], let column = geometry.dockFrame(containing: pane)?.column, moving[column] == nil else { continue }
+            if docks.contains(column) ? arriving.contains(pane) : frame.rect != frame.targetRect { moving[column] = frame }
+        }
+        return Array(moving.values)
     }
 
     /// What each docked column hides of the strip, its inner edge moved with
