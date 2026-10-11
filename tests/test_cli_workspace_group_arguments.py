@@ -139,6 +139,33 @@ class WorkspaceGroupArgumentTests(unittest.TestCase):
         ):
             self.assert_rejected(args, f"unexpected argument {stray}")
 
+    def test_blank_window_is_rejected(self) -> None:
+        # An unset `--window "$VAR"` must not fall back to the caller's window.
+        for args in (
+            ["create", "--name", "G", "--window", ""],
+            ["create", "--name", "G", "--window", "  "],
+            ["delete", G1, "--close-workspaces", "--window", ""],
+            ["rename", G1, "--name", "New", "--window", ""],
+        ):
+            self.assert_rejected(args, "Window handle is blank")
+
+    def test_bare_dash_is_not_silently_dropped(self) -> None:
+        for args in (["create", "-"], ["rename", G1, "-"], ["collapse", "-"]):
+            self.assert_rejected(args, "unexpected argument -")
+        # As an option value or after -- it is literal text.
+        self.assert_sends(["create", "--name", "-"], "workspace.group.create", {"name": "-"})
+        self.assert_sends(["create", "--", "-"], "workspace.group.create", {"name": "-"})
+        self.assert_sends(["rename", G1, "--", "-"], "workspace.group.rename", {"group_id": G1, "name": "-"})
+
+    def test_delete_leaves_what_follows_the_terminator_alone(self) -> None:
+        # CLIWorkspaceGroupSafetyTests pins this: after -- a token is not an
+        # option, so it cannot ask for the workspaces to be closed, and the
+        # delete still runs as an ungroup.
+        self.assert_sends(["delete", G1, "--", "--close-workspaces"], "workspace.group.ungroup", {"group_id": G1})
+        self.assert_sends(["delete", "--", G1], "workspace.group.ungroup", {"group_id": G1})
+        # Before the terminator delete is still strict.
+        self.assert_rejected(["delete", G1, G2, "--", "x"], f"unexpected argument {G2}")
+
     def test_documented_forms_still_send_the_request(self) -> None:
         self.assert_sends(["delete", G1, "--close-workspaces"], "workspace.group.delete",
                           {"group_id": G1, "close_workspaces": True})
