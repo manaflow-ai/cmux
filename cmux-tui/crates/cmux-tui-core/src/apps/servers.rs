@@ -702,6 +702,10 @@ impl Supervisor {
             for timer in [server.idle.take(), server.kill.take()].into_iter().flatten() {
                 self.timers.cancel(timer);
             }
+            // Its temporary and socket folder goes with the process (a restart makes it again).
+            if let Ok(tmp) = self.server_dirs(app).1 {
+                super::server_tmp::remove_server_tmp(&tmp);
+            }
             let queued: Vec<(String, Vec<u8>)> = std::mem::take(&mut server.queued);
             // Calls this process received fail; queued ones go to the next one.
             let (keep, sent): (HashMap<String, Responder>, HashMap<String, Responder>) =
@@ -821,12 +825,13 @@ impl Supervisor {
 
 impl Supervisor {
     /// The data and temporary directories of `app`'s server:
-    /// `<state>/apps-data/<namespace>` and `<state>/apps-tmp/<namespace>`.
-    pub(super) fn server_dirs(&self, app: &str) -> (PathBuf, PathBuf) {
+    /// `<state>/apps-data/<namespace>`, and the temporary (and socket) folder
+    /// of server_tmp.rs, or why there is none (cx-wmd8x).
+    pub(super) fn server_dirs(&self, app: &str) -> (PathBuf, Result<PathBuf, String>) {
         let base =
             self.config.state_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("cmux-apps"));
         let namespace = cmux_app_manifest::app_namespace(app);
-        (base.join("apps-data").join(&namespace), base.join("apps-tmp").join(&namespace))
+        (base.join("apps-data").join(&namespace), super::server_tmp::server_tmp_dir(&base, &namespace))
     }
 
     /// Creates the server's directories and returns its environment (the
@@ -870,7 +875,10 @@ impl Supervisor {
                     .map_err(failed)?;
             }
         }
-        fresh(&tmp).map_err(failed)?;
+        // The socket folder is a trust boundary: checked before it is emptied and after it is made.
+        let tmp = tmp.map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
+        super::server_tmp::fresh_server_tmp(&tmp)
+            .map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
         let mut env = vec![
             ("CMUX_APP_ID".to_string(), app.to_string()),
             ("CMUX_APP_DATA_DIR".to_string(), data.to_string_lossy().into_owned()),
@@ -887,6 +895,8 @@ impl Supervisor {
     pub(super) fn remove_server_dirs(&self, app: &str) {
         let (data, tmp) = self.server_dirs(app);
         let _ = std::fs::remove_dir_all(data);
-        let _ = std::fs::remove_dir_all(tmp);
+        if let Ok(tmp) = tmp {
+            super::server_tmp::remove_server_tmp(&tmp);
+        }
     }
 }

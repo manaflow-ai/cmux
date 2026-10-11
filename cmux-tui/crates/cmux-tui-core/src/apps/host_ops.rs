@@ -11,7 +11,9 @@
 //!   socket_dir, device_name}` from the daemon's own values (see
 //!   [`Supervisor::host_link`]; `hub_socket` is the live link
 //!   registration's socket, else `null`); event `cmux.host.link.changed`
-//!   with the same value. Needs server scope `op:cmux.host.link.get` and a
+//!   with the same value. `socket_dir` is checked on every answer
+//!   (server_tmp.rs): a folder that is no longer the user's private folder
+//!   answers `host.error` `apps.socket_dir_unsafe`. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
 //! - `cmux.credential.relay` as a `host.request` answers `host.error`
 //!   `unavailable`: the relay is served for the server's `relay.op` and
@@ -36,17 +38,21 @@ impl Supervisor {
     /// otherwise `null`, and the Cloud server answers `link_unavailable`.
     /// The daemon never spawns the link and never reads it from its launch
     /// environment.
-    pub(super) fn host_link(&self, app: &str) -> Value {
+    /// The socket folder is checked on every answer (cx-wmd8x, server_tmp.rs):
+    /// one that is no longer this user's private folder refuses.
+    pub(super) fn host_link(&self, app: &str) -> Result<Value, String> {
         let (data, tmp) = self.server_dirs(app);
+        let tmp = tmp?;
+        super::server_tmp::check_server_tmp(&tmp)?;
         let state_dir = data.join("link");
         let _ = std::fs::create_dir_all(&state_dir);
-        json!({
+        Ok(json!({
             "binary": std::env::current_exe().ok(),
             "hub_socket": hub_socket(),
             "state_dir": state_dir,
             "socket_dir": tmp,
             "device_name": device_name(),
-        })
+        }))
     }
 
     /// Whether `app` may call the host op `op`: a first-party app whose
@@ -69,7 +75,10 @@ impl Supervisor {
         match request["op"].as_str().unwrap_or_default() {
             op @ "cmux.host.link.get" => {
                 if Self::host_op_allowed(inner, app, op) {
-                    json!({ "t": "host.result", "id": id, "value": self.host_link(app) })
+                    match self.host_link(app) {
+                        Ok(value) => json!({ "t": "host.result", "id": id, "value": value }),
+                        Err(message) => error("apps.socket_dir_unsafe", &message, false),
+                    }
                 } else {
                     error(
                         "apps.scope_missing",
@@ -93,10 +102,13 @@ impl Supervisor {
     pub(super) fn host_link_changed(&self) {
         let inner = self.inner.lock().unwrap();
         for (app, server) in &inner.servers {
+            // A folder that fails its check gets no event; the next link.get answers the refusal.
             if !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get") {
-                server.process.send(line(&json!({
-                    "t": "host.event", "op": "cmux.host.link.changed", "data": self.host_link(app),
-                })));
+                if let Ok(data) = self.host_link(app) {
+                    server.process.send(line(&json!({
+                        "t": "host.event", "op": "cmux.host.link.changed", "data": data,
+                    })));
+                }
             }
         }
     }
