@@ -64,14 +64,6 @@ public nonisolated enum AppJSON: Sendable, Hashable {
         case .object(let v): v.mapValues(\.foundation)
         }
     }
-
-    /// Compact JSON text (sorted keys, so equal values serialize equally).
-    public var jsonText: String {
-        guard let data = try? JSONSerialization.data(withJSONObject: foundation, options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes]) else {
-            return "null"
-        }
-        return String(decoding: data, as: UTF8.self)
-    }
 }
 
 nonisolated extension AppJSON: Codable {

@@ -217,15 +217,33 @@ function colorful(palette: ReadonlyArray<RGB>, normal: number, bright: number): 
  * surface is the background, where a passing text color always exists. */
 const TINT_SCALES = [1, 0.7, 0.45, 0.25, 0.1, 0];
 
+/** The ANSI slot of a hue (1-6) as a theme shows it: its bright variant (slot + 8) when that is
+ * clearly more colorful, else the normal slot. */
+export function colorfulSlot(palette: ReadonlyArray<RGB>, slot: number): number {
+  return colorful(palette, slot, slot + 8) === palette[slot] ? slot : slot + 8;
+}
+
+/** The slot the `theme` accent takes its hue from: magenta, else blue, else cyan, whichever first
+ * reads as a hue; null for a palette without one (the accent stays neutral). */
+export function themeAccentSlot(palette: ReadonlyArray<RGB>): number | null {
+  for (const hue of [ACCENT_SLOTS.magenta, ACCENT_SLOTS.blue, ACCENT_SLOTS.cyan]) {
+    const slot = colorfulSlot(palette, hue);
+    if (toOklch(palette[slot]!).c >= HUED_CHROMA) return slot;
+  }
+  return null;
+}
+
+/** The 16 ANSI colors of `colors`, with Ghostty's defaults for missing slots. */
+export function resolvedPalette(colors: TerminalColors): RGB[] {
+  return GHOSTTY_DEFAULT_PALETTE.map((fallback, index) => rgbOf(colors.palette[index], fallback));
+}
+
 /** The accent's starting color: see APP_ACCENTS. */
 function accentSeed(accent: AppAccent, fg: RGB, palette: ReadonlyArray<RGB>): RGB {
   if (accent === "neutral") return neutral(fg);
   if (accent !== "theme") return colorful(palette, ACCENT_SLOTS[accent], ACCENT_SLOTS[accent] + 8);
-  for (const slot of [ACCENT_SLOTS.magenta, ACCENT_SLOTS.blue, ACCENT_SLOTS.cyan]) {
-    const color = colorful(palette, slot, slot + 8);
-    if (toOklch(color).c >= HUED_CHROMA) return color;
-  }
-  return neutral(fg);
+  const slot = themeAccentSlot(palette);
+  return slot === null ? neutral(fg) : palette[slot]!;
 }
 
 /** The app tokens of a terminal palette. Every pair in APP_THEME_CONTRACT meets its minimum. */
@@ -241,7 +259,7 @@ export function deriveAppTheme(colors: TerminalColors, accent: AppAccent = "neut
 function derive(colors: TerminalColors, accent: AppAccent, tint: number): AppTheme {
   const bg = rgbOf(colors.background, "#282c34");
   const fg = rgbOf(colors.foreground, "#ffffff");
-  const palette = GHOSTTY_DEFAULT_PALETTE.map((fallback, index) => rgbOf(colors.palette[index], fallback));
+  const palette = resolvedPalette(colors);
   const isDark = luminance(bg) < luminance(fg);
 
   const tokens = {} as Record<AppTokenName, RGB>;

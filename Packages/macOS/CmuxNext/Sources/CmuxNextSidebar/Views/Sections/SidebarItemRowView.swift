@@ -33,8 +33,6 @@ class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
-    /// The glyph's tint (tests): secondary at rest, primary on hover.
-    var glyphTint: NSColor? { icon.contentTintColor }
     /// Modifier-aware activation for controls whose action has a one-shot
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
@@ -95,13 +93,6 @@ class SidebarItemRowView: NSView {
     private var observesNotificationIcon = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    /// The unread badge draws (tests).
-    var isBadgeShown: Bool { !badge.isHidden }
-    /// The glyph's frame (tests).
-    var glyphFrame: CGRect { icon.frame }
-    /// The badge's frame while it draws (tests).
-    var badgeFrame: CGRect? { badge.isHidden ? nil : badge.frame }
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }

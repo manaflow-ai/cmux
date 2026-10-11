@@ -20,9 +20,6 @@ extension BrowserChromeView {
         syncPageOverlays()
     }
 
-    /// The notice's action title on screen (tests, diagnostics).
-    public var noticeActionTitle: String? { currentNotice?.action?.title }
-
     /// Removes the notice, if any.
     public func hideNotice() {
         guard let notice = currentNotice else { return }

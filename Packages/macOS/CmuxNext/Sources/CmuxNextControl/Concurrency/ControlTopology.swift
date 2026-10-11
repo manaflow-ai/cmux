@@ -36,9 +36,6 @@ public struct ControlTopology: Sendable, Hashable {
         return sessions.first { $0.id == id }
     }
 
-    /// The home session, when the App reported one.
-    public var homeSession: ControlSessionInfo? { sessions.first(where: \.isHome) }
-
     public func workspace(id: String) -> ControlWorkspaceInfo? {
         workspaces.first { $0.id == id || $0.handle == id || ($0.resourceID != nil && $0.resourceID == id) }
     }

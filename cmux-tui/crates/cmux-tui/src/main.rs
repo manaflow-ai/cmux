@@ -1651,6 +1651,7 @@ static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::On
 /// Records this daemon's build id and its own binary (which is also its CLI)
 /// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
 /// path cannot be resolved reports its build id only.
+#[cfg(unix)]
 fn install_daemon_build() {
     // cmux-remote (which stamps the source revision) is a Unix-only
     // dependency; a Windows daemon reports its package version until the
@@ -1664,6 +1665,13 @@ fn install_daemon_build() {
         build_id, cli_path,
     ));
 }
+
+/// The build id comes from cmux-remote's build script, and cmux-remote is a
+/// unix-only dependency. A Windows daemon installs no build, so `identify`
+/// reports `null` for both fields and leaves out `daemon-build-v1`, as an
+/// embedder does.
+#[cfg(not(unix))]
+fn install_daemon_build() {}
 
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {

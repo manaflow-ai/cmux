@@ -42,9 +42,6 @@ final class SidebarIconView: NSView {
     /// The chip behind a colored emoji: the color, light enough that the emoji reads.
     static let chipAlpha: CGFloat = 0.35
 
-    /// The emoji drawn now, or nil (tests).
-    var emojiText: String? { emoji.isHidden ? nil : emoji.text }
-
     /// Whether the emoji sits on a color chip (tests).
     var showsChip: Bool {
         if case .emoji(_, _?)? = icon { !swatch.isHidden } else { false }
