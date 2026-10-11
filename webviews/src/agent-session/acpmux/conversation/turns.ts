@@ -100,6 +100,14 @@ export function turnView(
     // Only the last turn can still be running.
     const last = at === turns.length - 1;
     const live = working && last;
+    // A prompt waiting for its agent to start (harnessSwitch: "Starting Claude Code…") draws its
+    // status on the Thinking line, where "Thinking" then takes over in place: the line never
+    // jumps from under the bubble to the turn's status row (cx-ncc.58).
+    if (!live && last && user.pending && user.status && turn.length === 0 && held.length === 0) {
+      const { status, queued } = user;
+      out.push({ ...user, status: undefined }, { id: `${THINKING}-${user.id}`, version: 0, at: user.at, kind: THINKING, status, queued });
+      return;
+    }
     out.push(user, ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset), ...held);
   });
   return out;
