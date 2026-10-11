@@ -3671,6 +3671,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/icon_assets.rs"]
+mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
 #[cfg(unix)]
@@ -3681,6 +3683,9 @@ mod lone_width;
 #[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
+#[cfg(unix)]
+#[path = "cli/status.rs"]
+mod status;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

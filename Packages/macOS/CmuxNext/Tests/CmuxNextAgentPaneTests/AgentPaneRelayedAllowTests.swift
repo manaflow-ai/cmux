@@ -148,7 +148,10 @@ struct AgentPaneRelayedAllowTests {
         defer { AcpmuxRemotePersonKeys.shared.drop(machine: machine) }
         let approvals = AgentPaneRemoteApprovals(machineID: machine, label: "host") { nil }
 
-        for withTicket in [true, false] {
+        // A bound key with the ticket: the proof. A bound key without one: no proof and no notice
+        // (approvals are on). No key bound for that machine and run: no proof, and the notice.
+        for (withTicket, keyBound) in [(true, true), (false, true), (true, false)] {
+            if !keyBound { AcpmuxRemotePersonKeys.shared.drop(machine: machine) }
             let wire = RemoteWire()
             let route = AgentPaneRemoteRoute(machine: "host", approvals: approvals) { wire }
             let inbox = PageInbox()
@@ -174,14 +177,15 @@ struct AgentPaneRelayedAllowTests {
             let object = try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any]
             let params = try #require(object?["params"] as? [String: Any])
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            if withTicket {
+            #expect((params["_meta"] as? [String: Any])?["cmuxGesture"] == nil, "the ticket reached the wire: \(sent)")
+            if withTicket && keyBound {
                 #expect(acpmux?["decisionNonce"] as? String == Self.nonce)
                 #expect(acpmux?["personDecision"] as? String
                     == key.decisionProof(instance: Self.instance, session: "s", permission: "p1", option: "yes", nonce: Self.nonce))
                 #expect(!bannerShown)
             } else {
-                #expect(acpmux == nil, "an allow without the person's ticket carried a proof: \(sent)")
-                #expect(bannerShown)
+                #expect(acpmux == nil, "an allow without the person's ticket or key carried a proof: \(sent)")
+                #expect(bannerShown == !keyBound)
             }
         }
     }

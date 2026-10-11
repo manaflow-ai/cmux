@@ -142,6 +142,11 @@ typedef enum {
   // watched once its request context is initialized; {"op": "loaded"} asks
   // the host to sync (cmux_shim_bookmarks_sync).
   CMUX_SHIM_BOOKMARKS_EVENT = 39,
+  // A main-frame navigation to a scheme neither Chromium nor cmux loads
+  // (mailto:, an app's own scheme; CEFShim/src/external_url.h). The shim
+  // cancelled it; s1 = url, a = 1 when the user's gesture started it. The
+  // host opens it in its app or asks first (BrowserExternalApps).
+  CMUX_SHIM_EXTERNAL_URL = 40,
 } cmux_shim_event_kind_t;
 
 typedef enum {

@@ -51,6 +51,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The shim cancelled a main-frame navigation to a local file cmux shows
     /// elsewhere (`LocalFileHandoff`).
     case localFileHandoff(browser: Int32, url: String)
+    /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it.
+    case externalURL(browser: Int32, url: String, userGesture: Bool)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -121,6 +123,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             self = download.map(Self.download) ?? .unknown(kind: kind)
         case 38: self = .localFileHandoff(browser: browser, url: s1)
         case 39: self = .bookmarks(json: s1, profilePath: s2)
+        case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
         default: self = .unknown(kind: kind)
         }
     }
