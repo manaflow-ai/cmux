@@ -17,9 +17,12 @@ A commit-addressed prefix is kept when its commit is any of:
 
 - on main or feat-cmux-next (--trunk-commits, from `git rev-list`): the app resolvers, nightly and
   nightly-next pick trunk commits, and a release pin is one;
-- named by a pin file at a tip (--pin-file: cmux-tui.pin, the VM image locks), any 40-hex in it;
-- named by a `<family>/latest/manifest.json`, or by a tree's `source.json` (a tree serves the
-  binaries of its source commit, and republishing copies from it);
+- named anywhere in a pin file's history on either branch (--pin-file: `git log -p` of
+  cmux-tui.pin and the VM image locks), any 40-hex in it: a Release build installs its pin's prefix,
+  and some pins were PR heads squashed away;
+- named by a `<family>/latest/manifest.json`, or by a tree's `source.json` or
+  `completion-windows.json` (a tree serves the binaries of its source commit, and republishing copies
+  from it and from the Windows build it recorded);
 - a relay commit that is kept, for its `cmux-tui/<sha>/` (a chatmux-relay manifest depends on it);
 - published within the last 14 days, so a dev build of a branch keeps its remote install that long.
 
@@ -28,7 +31,8 @@ Everything else is a branch head nobody pins: deleted, metadata first (`manifest
 at most MAX_DELETES objects a run. A write-once upload only checks that the key exists, so a pruned
 prefix can be published again. Trees are kept until their owner's rule lands. The run stops before
 any delete when the listing is incomplete, the trunk list looks truncated, or a `latest` manifest or
-tree `source.json` cannot be read.
+tree's metadata cannot be read, or the pin history names no commit. A deployment pinned through
+CMUX_VM_CMUX_TUI_MANIFEST_URL is not visible here; point it at a trunk commit.
 
 Without --delete this is a dry run. Credentials come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
 """
@@ -170,10 +174,12 @@ def latest_commits(bucket, keys: set[str]) -> set[str]:
 def tree_commits(bucket, trees: list[Group]) -> set[str]:
     commits = set()
     for tree in trees:
-        if not any(item["key"].endswith("/source.json") for item in tree.objects):
-            continue  # an unfinished publish: no source to protect
-        data = read_json(bucket, tree.prefix + "source.json") or {}
-        commits.update(SHA.findall(json.dumps(data.get("commit", ""))))
+        names = {item["key"].rsplit("/", 1)[1] for item in tree.objects}
+        # An unfinished publish has no source.json yet: nothing to protect.
+        for name, field_name in (("source.json", "commit"), ("completion-windows.json", "sourceCommit")):
+            if name in names:
+                data = read_json(bucket, tree.prefix + name) or {}
+                commits.update(SHA.findall(str(data.get(field_name, ""))))
     return commits
 
 
@@ -260,7 +266,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--delete", action="store_true")
     args = parser.parse_args(argv)
     trunk = set(SHA.findall(args.trunk_commits.read_text()))
-    pins = {sha for path in args.pin_file if path.exists() for sha in SHA.findall(path.read_text())}
+    pins = {sha for path in args.pin_file for sha in SHA.findall(path.read_text())}
+    if not pins:
+        raise SystemExit("the pin files name no commit; refusing to prune without them")
     summary = prune(Bucket(args.endpoint_url, args.bucket), dt.datetime.now(dt.timezone.utc),
                     trunk=trunk, pins=pins, delete=args.delete)
     print(render(summary, args.delete))

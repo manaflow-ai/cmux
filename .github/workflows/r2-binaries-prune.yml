@@ -3,7 +3,7 @@ name: Prune R2 binaries
 # feat-cmux-next publishes commit-addressed cmux-tui and relay builds for every
 # branch push, write-once, and nothing deleted them. This removes a branch
 # head's prefixes once nothing pins them (see scripts/ci/cmux_binaries_prune.py):
-# trunk commits, pins at the main and feat-cmux-next tips, latest manifests,
+# trunk commits, any commit a pin file ever named, latest manifests,
 # tree sources and anything under 14 days old are kept. It is a dry run unless
 # a dispatch asks to delete or the repository variable R2_BINARIES_PRUNE_DELETE
 # is 1.
@@ -48,12 +48,11 @@ jobs:
           git fetch --quiet --filter=blob:none origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
           git rev-list origin/main origin/feat-cmux-next > "$RUNNER_TEMP/trunk-commits.txt"
           wc -l < "$RUNNER_TEMP/trunk-commits.txt"
-          : > "$RUNNER_TEMP/pins.txt"
-          for tip in origin/main origin/feat-cmux-next; do
-            for path in scripts/cmux-next/cmux-tui.pin images/cmux-vm/inputs.lock.json web/services/vms/images/manifest.json; do
-              git show "$tip:$path" >> "$RUNNER_TEMP/pins.txt" 2>/dev/null || true
-            done
-          done
+          # Every commit a pin file ever named on either branch, not only the tips: a Release build of
+          # an older commit installs its pin's prefix, and some pins were PR heads squashed away.
+          git log -p --format= origin/main origin/feat-cmux-next -- \
+            scripts/cmux-next/cmux-tui.pin images/cmux-vm/inputs.lock.json web/services/vms/images/manifest.json \
+            > "$RUNNER_TEMP/pins.txt"
 
       - name: Prune
         env:

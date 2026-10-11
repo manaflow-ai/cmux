@@ -4,6 +4,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 import urllib.error
 
@@ -78,6 +79,7 @@ class Prune(unittest.TestCase):
         bucket = FakeBucket(bodies={
             "cmux-tui/latest/manifest.json": json.dumps({"commit": sha(4)}),
             "cmux-tui/tree/v2-abc/source.json": json.dumps({"commit": sha(5), "family": "branch"}),
+            "cmux-tui/tree/v2-abc/completion-windows.json": json.dumps({"sourceCommit": sha(9)}),
         })
         bucket.add_build("cmux-tui", MAIN, 400)
         bucket.add_build("cmux-tui", sha(2), 90)
@@ -85,6 +87,7 @@ class Prune(unittest.TestCase):
         bucket.add_build("cmux-tui", sha(4), 90)
         bucket.add_build("cmux-tui", sha(5), 90)
         bucket.add_build("cmux-tui-windows", sha(5), 90)
+        bucket.add_build("cmux-tui-windows", sha(9), 90)
         run(bucket, pins=[sha(2)])
         self.assertEqual(bucket.deleted, [])
 
@@ -133,6 +136,17 @@ class Prune(unittest.TestCase):
         self.assertEqual(bucket.deleted + broken.deleted, [])
 
 
+class Main(unittest.TestCase):
+    def test_an_empty_pin_history_stops_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trunk, pins = Path(tmp, "trunk"), Path(tmp, "pins")
+            trunk.write_text("\n".join(TRUNK))
+            pins.write_text("")
+            with self.assertRaises(SystemExit):
+                prune.main(["--endpoint-url", "https://r2.invalid", "--trunk-commits", str(trunk),
+                            "--pin-file", str(pins)])
+
+
 class Workflow(unittest.TestCase):
     def test_only_main_prunes_and_only_on_an_explicit_opt_in(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/r2-binaries-prune.yml").read_text())
@@ -145,6 +159,9 @@ class Workflow(unittest.TestCase):
         run_step = next(step for step in job["steps"] if "cmux_binaries_prune.py" in str(step.get("run", "")))
         self.assertIn("--delete", run_step["run"])
         condition = run_step["env"]["PRUNE_DELETE"]
+        pins_step = next(step for step in job["steps"] if "pins.txt" in str(step.get("run", "")))
+        self.assertIn("git log -p", pins_step["run"])
+        self.assertNotIn("|| true", pins_step["run"])
         self.assertIn("vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
