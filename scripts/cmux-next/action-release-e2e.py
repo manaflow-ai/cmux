@@ -127,7 +127,7 @@ def main():
         return
     for step, icon in zip(range(1, opts.icon_rounds + 1), ["star", "flame", "bolt", "heart", "leaf"] * 4):
         reply = rpc("action.run", {"action": "tab.setIcon", "target": f"tab:{tab}", "args": {"icon": icon}})
-        time.sleep(1)  # test harness: let the change and its undo toast settle
+        time.sleep(1)  # test harness: let the change settle (a script origin offers no undo toast)
         up = alive()
         row(f"icon {step}: tab.setIcon {icon}", "the icon changes and the app answers",
             f"alive={up} reply={json.dumps(reply)[:160]}", up and "error" not in (reply or {}))
