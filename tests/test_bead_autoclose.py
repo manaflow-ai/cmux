@@ -97,8 +97,26 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(comments["cx-epic1"][1], "leo")
         self.assertEqual(comments["cx-multi"][1], "leo")  # "unassigned" acts as leo
         self.assertIn("#9", comments["cx-multi"][4])
-        self.assertEqual(self.state.read_text().strip(), "2026-10-10T03:00:00Z")
         self.assertFalse(self.ssh_log.exists(), "the test reached ssh")
+
+    def test_a_second_run_does_not_repeat_comments_or_closes(self):
+        # The search starts at (or before) the last merge handled, so it sees that merge again.
+        first = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before = len(self.bd_calls("close")) + len(self.bd_calls("comment"))
+        second = self.run_script(BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(len(self.bd_calls("close")) + len(self.bd_calls("comment")), before, second.stdout)
+
+    def test_an_unreachable_board_keeps_the_merges_for_the_next_run(self):
+        down = Path(self.temporary.name) / "board-down"
+        self.write(down, "#!/bin/sh\nexit 255\n")  # ssh's own failure status
+        result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(down))
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("not on the board", result.stdout)
+        later = self.run_script(BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(later.returncode, 0, later.stderr)
+        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-task1"], later.stdout)
 
     def test_dry_run_changes_nothing(self):
         result = self.run_script("--dry-run", "--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
