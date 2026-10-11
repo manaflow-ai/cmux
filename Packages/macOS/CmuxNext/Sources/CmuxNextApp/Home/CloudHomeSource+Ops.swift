@@ -30,9 +30,11 @@ nonisolated extension CloudHomeSource {
         }
         switch intent.op {
         case .sendMessage(let conversation, let parts, let threadRoot):
-            // The owner's message.send key must equal client_msg_id; a thread reply replies to the root's first part.
+            // The owner's message.send key must equal client_msg_id. `thread_root` is the thread
+            // (cx-59n8.4); the reply to the root's first part keeps it on an owner from before threads.
             return try await edit(.send(clientMsgID: key, parts: CloudHomeMapping.parts(parts, identity: identity),
-                                        replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) }),
+                                        replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) },
+                                        threadRoot: threadRoot?.rawValue),
                                   in: conversation)
         case .editMessage(let message, let conversation, let parts):
             return try await edit(.edit(messageID: message.rawValue, parts: CloudHomeMapping.parts(parts, identity: identity)),
