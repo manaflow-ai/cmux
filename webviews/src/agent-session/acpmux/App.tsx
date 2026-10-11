@@ -320,6 +320,7 @@ const changesSource: ChangesSource = {
   status: () => callNative("git.status", {}),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
   commit: (message) => callNative("git.commit", { message }),
+  pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
@@ -2612,6 +2613,7 @@ function AcpmuxPane() {
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           "git.commit": ({ message }) => client.gitCommit(typeof message === "string" ? message : ""),
+          "git.pullRequest": () => client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };

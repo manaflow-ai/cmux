@@ -103,6 +103,8 @@ const loadedSource: ChangesSource = {
       setTimeout(() => resolve("Fix the scope menu's focus ring\n\nThe ring followed the pointer, not the key."), 600),
     ),
   commit: () => new Promise((resolve) => setTimeout(resolve, 400)),
+  pullRequest: () =>
+    new Promise((resolve) => setTimeout(() => resolve({ url: "https://github.com/o/r/pull/7", number: 7 }), 900)),
 };
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {

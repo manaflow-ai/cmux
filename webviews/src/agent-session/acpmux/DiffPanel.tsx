@@ -390,7 +390,12 @@ export function DiffPanel({
         <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
       )}
       {scope === "staged" && source?.commit && (
-        <CommitBar commit={source.commit} draft={source.draftCommit} onCommitted={retry} />
+        <CommitBar
+          commit={source.commit}
+          draft={source.draftCommit}
+          pullRequest={source.pullRequest}
+          onCommitted={retry}
+        />
       )}
       {files.length > 0 && !scopeState && <DiffKeyHints />}
     </section>

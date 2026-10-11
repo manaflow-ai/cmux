@@ -144,12 +144,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case turnUndo(AgentPaneTurnUndo)
     /// `turn.undo` whose params break its contract; nothing is read or written.
     case invalidTurnUndo
-    /// `git.stage` / `git.unstage`: the Changes view's Stage and Unstage (AgentPaneGitStage.swift);
-    /// nil when its params break the contract, and nothing runs.
-    case gitStage(AgentPaneGitStage?)
-    /// `git.commit`: the Changes view's Commit (AgentPaneGitCommit.swift); nil when its params
-    /// break the contract, and nothing runs.
-    case gitCommit(AgentPaneGitCommit?)
+    /// `git.stage`, `git.unstage`, `git.commit`, `git.pullRequest`: the Changes view's git writes
+    /// (AgentPaneGitWrite.swift).
+    case gitWrite(AgentPaneGitWrite)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen

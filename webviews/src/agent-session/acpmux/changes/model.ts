@@ -63,6 +63,8 @@ export type ChangesSource = {
   commit?: (message: string) => Promise<unknown>;
   /// Asks the agent for a commit message for what is staged and resolves with its reply.
   draftCommit?: () => Promise<string>;
+  /// Pushes the branch and opens its pull request: `{url, number}`.
+  pullRequest?: () => Promise<unknown>;
   status?: () => Promise<unknown>;
   turn?: (turn: { rowId: string }) => Promise<unknown>;
 };
