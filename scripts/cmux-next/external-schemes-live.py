@@ -143,6 +143,11 @@ def run_engine(engine, url):
         return
     time.sleep(1)
 
+    # 4. A script, not a click (first: a click before it would leave Chromium's user activation on).
+    before = len(opens())
+    run(engine, f"location.href = {json.dumps(MAIL)}; true", gesture=False)
+    got = settled_opens(before)
+    check(got == [] and not asked(), f"{engine}: a script's mailto: navigation opens nothing ({got})")
     # 1. mailto: opens at once.
     before = len(opens())
     click(engine, "mail")
@@ -179,11 +184,6 @@ def run_engine(engine, url):
     got = settled_opens(before)
     check(got == [] and not asked(), f"{engine}: a scheme no app opens does nothing and asks nothing ({got}, {prompts()})")
 
-    # 4. A script, not a click.
-    before = len(opens())
-    run(engine, f"location.href = {json.dumps(MAIL)}; true", gesture=False)
-    got = settled_opens(before)
-    check(got == [] and not asked(), f"{engine}: a script's mailto: navigation opens nothing ({got})")
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None
 

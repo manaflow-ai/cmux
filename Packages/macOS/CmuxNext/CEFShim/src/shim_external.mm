@@ -5,6 +5,7 @@
 // EXTERNAL_URL with whether the navigation came from the user's click, and
 // the host opens it in its app or asks first (BrowserExternalApps).
 
+#include <cstdio>
 #include <map>
 #include <utility>
 
@@ -31,6 +32,7 @@ class ExternalURLTask : public CefTask {
     auto& gestures = navigation_gestures();
     auto it = gestures.find(browser_id_);
     const bool gesture = it != gestures.end() && it->second.first == url_ && it->second.second;
+    fprintf(stderr, "DIAG external %s recorded=%s gesture=%d\n", url_.c_str(), it != gestures.end() ? it->second.first.c_str() : "-", gesture);
     Emit(CMUX_SHIM_EXTERNAL_URL, browser_id_, 0, gesture ? 1 : 0, 0, url_);
   }
 
@@ -57,6 +59,7 @@ class MainFrameNavigation : public CefResourceRequestHandler {
 }  // namespace
 
 void RecordNavigationGesture(int browser_id, const std::string& url, bool gesture) {
+  fprintf(stderr, "DIAG navigation %s gesture=%d\n", url.c_str(), gesture);
   navigation_gestures()[browser_id] = {url, gesture};
 }
 
