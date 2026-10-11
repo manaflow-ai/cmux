@@ -72,9 +72,7 @@ fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
     // Any stamp or bake id counts as Cloud evidence here, trusted or not: a
     // tampered one makes the kind stricter (unknown), never looser.
     let present = |path: &str| std::fs::symlink_metadata(path).is_ok();
-    let cloud = present(IMAGE_STAMP)
-        || present(BAKE_INSTANCE_FILE)
-        || vm_id;
+    let cloud = present(IMAGE_STAMP) || present(BAKE_INSTANCE_FILE) || vm_id;
     match (cloud, kind.as_deref()) {
         (false, _) => AgentStartHost::Allowed,
         (true, Some("owner")) => AgentStartHost::Allowed,
