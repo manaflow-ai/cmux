@@ -128,12 +128,15 @@ final class HistoryService {
         closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries() + daemonClosedEntries()
     }
 
-    /// A daemon closed item's title and detail line.
+    /// A daemon closed item's title and detail line. A page tab (a diff,
+    /// Settings) is named by its page and has no address to show: its
+    /// `url` is the `about:blank` placeholder (cx-h7y9).
     static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
         let tab = item.tabs.first
+        let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
-        return (title, tab?.url ?? tab?.cwd)
+            ?? item.name ?? tab?.name ?? page ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+        return (title, page == nil ? tab?.url ?? tab?.cwd : nil)
     }
 
     /// Closed tabs, screens and workspaces a daemon records
@@ -148,7 +151,7 @@ final class HistoryService {
             }
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
-                                                    machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.url)
+                                                    machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.page == nil ? tab?.url : nil)
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
