@@ -19,6 +19,9 @@ impl Hub {
         if let Some(preset) = meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
             env.extend(preset.env.clone());
         }
+        if let Some((var, dir)) = meta.chat_store_env() {
+            env.insert(var.to_owned(), dir);
+        }
         (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
     }
 
@@ -127,6 +130,8 @@ impl Hub {
             remote_origin: parent_meta.remote_origin,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
+            // The fork resumes the parent from its store, and its conversation lands there.
+            chat_store: parent_meta.chat_store.clone(),
             harness_roots: vec![],
             composer_draft: None,
         };

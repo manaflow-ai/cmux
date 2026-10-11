@@ -46,10 +46,11 @@ impl Hub {
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
-        let (recorded, fork) = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
-            Adoption::Existing(existing) => return Ok(existing),
-            Adoption::Found { cwd, fork } => (cwd, fork),
-        };
+        let (recorded, fork, chat_store) =
+            match self.adoption(adopt.as_ref(), agent, &family, &env, remote).await? {
+                Adoption::Existing(existing) => return Ok(existing),
+                Adoption::Found { cwd, fork, store } => (cwd, fork, store),
+            };
         // A fork resumes nothing as itself: its process forks the adopted id
         // into a new conversation, so the adopted id is not this session's.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
@@ -80,6 +81,7 @@ impl Hub {
             remote,
         });
         meta.session_env = session_env;
+        meta.chat_store = chat_store;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -985,7 +987,9 @@ fn claude_resume_refusal(
     }
     let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
     if ran_elsewhere {
-        let store = crate::adopt::HarnessHomes::from_env().with_env(&[&profile.env]).claude;
+        let mut env = profile.env.clone();
+        env.extend(meta.chat_store_env().map(|(var, dir)| (var.to_owned(), dir)));
+        let store = crate::adopt::HarnessHomes::from_env().with_env(&[&env]).claude;
         if !crate::adopt::claude_session_exists(&store, sid) {
             return Some("is not in this profile's Claude store");
         }

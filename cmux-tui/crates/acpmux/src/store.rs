@@ -157,6 +157,12 @@ pub struct SessionMeta {
     /// every spawn. Never copied to a fork or a handoff.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_env: BTreeMap<String, String>,
+    /// The harness store of an adopted chat that no profile's store holds
+    /// (a subrouter account home, a root the person added; cx-vx54). acpmux
+    /// found it in its own chat index, never in a request; every spawn runs
+    /// the harness on it (``SessionMeta::chat_store_env``).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_store: Option<PathBuf>,
     /// Chat store roots the harness's launch env named at its last spawn
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -164,6 +170,20 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+}
+
+impl SessionMeta {
+    /// `chat_store` as the harness's store variable (`CLAUDE_CONFIG_DIR` or
+    /// `CODEX_HOME`), set over the profile's at every spawn.
+    pub fn chat_store_env(&self) -> Option<(&'static str, String)> {
+        let dir = self.chat_store.as_ref()?;
+        let var = match self.family.as_deref() {
+            Some("claude") => "CLAUDE_CONFIG_DIR",
+            Some("codex") => "CODEX_HOME",
+            _ => return None,
+        };
+        Some((var, dir.to_string_lossy().into_owned()))
+    }
 }
 
 /// One chat store root a spawn's env named: `harness` is a chat index
