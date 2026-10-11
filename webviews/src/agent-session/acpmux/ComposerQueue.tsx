@@ -12,6 +12,7 @@ import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -116,7 +117,7 @@ export function ComposerQueue({
       if (!ok) onLost?.(next);
     });
   };
-  const rowKeyDown = (event: React.KeyboardEvent<HTMLLIElement>, entry: QueuedEntry, index: number) => {
+  const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     const done = () => {
@@ -268,9 +269,8 @@ export function ComposerQueue({
           className="acpmux-queued"
           key={entry.id}
           data-prompt-id={entry.id}
-          tabIndex={-1}
           aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
-          onKeyDown={(event) => rowKeyDown(event, entry, index)}
+          {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
         >
           {editing === entry.id ? (
             cells(entry, index)
@@ -329,6 +329,7 @@ function QueuedEdit({
         fit();
         onInput(event.currentTarget.value);
       }}
+      // ui-allow: the edit field's own editing keys (Return saves, Shift-Return adds a line, Esc cancels).
       onKeyDown={(event) => {
         // Every key belongs to the input method while it composes (WebKit sends its Return as 229).
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;

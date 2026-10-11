@@ -1,4 +1,6 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -83,20 +85,54 @@ import os
 
     /// Waits until the renewal time, or less: a relay process that ends (a
     /// daemon replaced it) wakes the loop at once, because the new relay has
-    /// no bearer. A relay that cannot be watched leaves only the clock.
+    /// no bearer. A relay that cannot be watched leaves only the clock. The
+    /// first of the three (the clock, the relay's exit, cancellation) resumes
+    /// the loop; the watch is cancelled, never waited for.
     private func waitForRenewal(_ wait: Duration) async throws {
-        let clock = clock
         let router = router
         let pid = routerPID
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            // task-owner: the group; cancelled when the other wait ends first
-            group.addTask { try await clock.sleep(for: wait, tolerance: .seconds(1)) }
-            // task-owner: the group; ends when the relay exits, or sleeps like the clock when it cannot be watched
-            group.addTask {
-                if await !router.waitUntilGone(pid: pid) { try await clock.sleep(for: wait, tolerance: .seconds(1)) }
+        let wake = RenewalWake()
+        let renewal = DemandTimer(owner: "ModelRouterLease.renewal", clock: clock)
+        // task-owner: this wait; cancelled when it ends, ends when the relay exits
+        let watch = Task { if await router.waitUntilGone(pid: pid) { wake.wake() } }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                wake.begin(continuation)
+                renewal.schedule(after: wait) { wake.wake() }
             }
-            _ = try await group.next()
-            group.cancelAll()
+        } onCancel: {
+            wake.wake()
         }
+        watch.cancel()
+        renewal.cancel()
+        try Task.checkCancellation()
+    }
+}
+
+/// Resumes the renewal wait once, for whichever of its wakes comes first;
+/// a wake before the wait begins resumes it at once.
+private nonisolated final class RenewalWake: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Void, Never>?
+        var woken = false
+    }
+
+    private let state = Mutex(State())
+
+    func begin(_ continuation: CheckedContinuation<Void, Never>) {
+        let woken = state.withLock { state -> Bool in
+            if !state.woken { state.continuation = continuation }
+            return state.woken
+        }
+        if woken { continuation.resume() }
+    }
+
+    func wake() {
+        let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            state.woken = true
+            defer { state.continuation = nil }
+            return state.continuation
+        }
+        continuation?.resume()
     }
 }

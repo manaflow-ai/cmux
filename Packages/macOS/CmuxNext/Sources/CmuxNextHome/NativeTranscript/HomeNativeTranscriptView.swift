@@ -63,6 +63,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
+    /// An agent row of the first-run panel was picked: the host opens that
+    /// tab (its daemon tab id).
+    public var onFirstRunAgent: (String) -> Void = { _ in }
     /// The host is still loading the conversation's first page: the
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
@@ -90,12 +93,8 @@ public final class HomeNativeTranscriptView: NSView {
         addSubview(noticeLabel)
         connectAttachments()
         firstRun.isHidden = true
-        firstRun.onSuggestion = { [weak self] prompt in
-            guard let self else { return }
-            self.transcript.setDraft(prompt)
-            self.window?.makeFirstResponder(self.transcript.primaryInput)
-        }
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
+        firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
@@ -176,13 +175,17 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func layout() {
         super.layout()
-        // Showing the tab again re-attaches the same views: nothing to do
-        // unless the size changed (no layout, bitmap or backdrop rebuild).
-        guard transcript.frame != bounds else { layoutNotice(); return }
-        transcript.frame = bounds
-        transcript.layoutSubtreeIfNeeded()
+        // Showing the tab again re-attaches the same views: the transcript is
+        // laid out only when the size changed (no bitmap or backdrop rebuild).
+        if transcript.frame != bounds {
+            transcript.frame = bounds
+            transcript.layoutSubtreeIfNeeded()
+        }
+        // Every pass: the field can grow (a multi-line draft) without a size
+        // change, and the first-run panel fits its agent rows above it.
         let top = transcript.headerHeight
-        firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
     }
 
@@ -227,6 +230,13 @@ public final class HomeNativeTranscriptView: NSView {
     /// registry shows them; nil hides one.
     public func setFirstRunShortcuts(terminal: String?, agent: String?, tabs: String?) {
         firstRun.setShortcuts(terminal: terminal, agent: agent, tabs: tabs)
+    }
+
+    /// The user's agents for the first-run panel's glance (the host maps
+    /// them from the tab status the strip and the sidebar draw); empty lists
+    /// none.
+    public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
+        firstRun.setAgents(agents)
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
@@ -285,8 +295,9 @@ public final class HomeNativeTranscriptView: NSView {
             Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
         }
         performWithTheme {
-            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
-                                 fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
+            firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
+                                 hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
+                                 danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
         }
     }
