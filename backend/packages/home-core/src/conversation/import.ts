@@ -77,7 +77,7 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number, previo
     const target = findById(reply.message_id)
     if (!target || target.seq >= seq || (reply.part_index as number) < 0 || (reply.part_index as number) >= target.parts.length) return bad()
   }
-  const threadRoot = raw.thread_root
+  const threadRoot = raw.thread_root ?? undefined
   if (threadRoot !== undefined) {
     // As message.send: an earlier top-level message of this conversation (a thread has one level).
     if (typeof threadRoot !== "string") return bad()

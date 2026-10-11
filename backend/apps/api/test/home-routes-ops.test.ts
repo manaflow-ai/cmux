@@ -38,7 +38,7 @@ const signIn = async (sub: string, email: string, name: string) => {
   return { token, user: userIdFor(testEnv.STACK_PROJECT_ID, sub) }
 }
 const refused = (r: { json: any }) => r.json.error?.code as string | undefined
-type Message = { id: string; seq: number; author: string; parts: Array<{ type: string; text?: string }>; reactions: Array<{ author: string; part_index: number; kind: unknown }>; edited_at?: string; retracted_at?: string }
+type Message = { id: string; seq: number; author: string; parts: Array<{ type: string; text?: string }>; reactions: Array<{ author: string; part_index: number; kind: unknown }>; edited_at?: string; retracted_at?: string; thread_root?: string }
 const history = async (token: string, conversation: string) => (await read(token, "conversation.history", { conversation, limit: 50 })).json.value.messages as Array<Message>
 const head = async (token: string, conversation: string) => (await read(token, "conversation.snapshot", { conversation, tail: 0 })).json.value.state as homeConversation.ConversationHead
 
@@ -123,6 +123,38 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect(state.read_cursors[bob.user]).toBe(2)
     // A send moves the sender's own cursor (cx-59n8.4): Alice has read her two messages.
     expect(state.read_cursors[alice.user]).toBe(2)
+  })
+
+  it("threads: thread_root over HTTP, one level, the sender's cursor, and no root below the since_join floor (cx-59n8.4)", async () => {
+    const send = (token: string, conversation: string, key: string, extra: Record<string, unknown> = {}) =>
+      op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text: key }], ...extra }, key)
+    const { alice, bob, id } = await twoPersonGroup("threads")
+    const root = (await send(alice.token, id, "root")).json.value.message_id as string
+    expect((await op(bob.token, "read_cursor.set", { conversation: id, seq: 1 }, "bob-read")).json.ok).toBe(true)
+    const reply = await send(bob.token, id, "reply", { thread_root: root })
+    expect(reply.json.ok).toBe(true)
+    const replyId = reply.json.value.message_id as string
+    expect((await history(alice.token, id)).find((m) => m.id === replyId)?.thread_root).toBe(root)
+    expect(refused(await send(bob.token, id, "nested", { thread_root: replyId }))).toBe("invalid_thread_root")
+    expect(refused(await send(bob.token, id, "nowhere", { thread_root: `msg_${"0".repeat(26)}` }))).toBe("invalid_thread_root")
+    // Alice is behind (Bob's reply is unread to her): her send keeps her cursor; Bob was caught up: his moves.
+    await send(alice.token, id, "behind")
+    const state = await head(alice.token, id)
+    expect(state.read_cursors[alice.user]).toBe(1)
+    expect(state.read_cursors[bob.user]).toBe(2)
+
+    // since_join: a member who joined after the root cannot reply in its thread (as if it did not exist).
+    const carol = await signIn("home-ops-threads-carol", "carol-threads@example.com", "Carol Example")
+    expect((await op(alice.token, "conversation.settings.set", { conversation: id, history_visible: "since_join" })).json.ok).toBe(true)
+    const invited = await op(alice.token, "invite.create", { conversation: id, address: { email: "carol-threads@example.com" }, display_name: "Carol" })
+    expect(invited.json.ok).toBe(true)
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizeEmail("carol-threads@example.com") as invites.Address)
+    const stash = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
+    const secret = await runInDurableObject(stash, async (_i, st) => String(st.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
+    expect((await op(carol.token, "invite.accept", { code: invites.linkCode(id), secret })).json.ok).toBe(true)
+    expect(refused(await send(carol.token, id, "late", { thread_root: root }))).toBe("invalid_thread_root")
+    const fresh = (await send(alice.token, id, "fresh")).json.value.message_id as string
+    expect((await send(carol.token, id, "in-fresh", { thread_root: fresh })).json.ok).toBe(true)
   })
 
   it("title.set: any member of a group; refused in a DM", async () => {

@@ -3,7 +3,7 @@
  "notes": [
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
   "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, thread_target, last_message) plus actor_addresses (cloud only).",
-  "message.send: thread_root must name a message of this conversation (request.thread_target) that has no thread_root itself, else invalid_thread_root (checked after reply_to). Every committed send sets read_cursors[actor] = max(read_cursors[actor], new seq); the change stays kind message.",
+  "message.send: thread_root must name a message of this conversation (request.thread_target) that has no thread_root itself, else invalid_thread_root (checked after reply_to). A committed send sets read_cursors[actor] = new seq when read_cursors[actor] (absent = 0) >= the head's last_seq before the send, else leaves it; the change stays kind message. A null thread_root is absent.",
   "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 and sets last_agent_text_at, a human text resets the streak to 0, a text-less work card changes neither; an agent text is refused with agent_budget at streak >= 4 and agent_rate within 2000 ms of last_agent_text_at, after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
@@ -609,7 +609,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "remote_inst_1": 2,
        "user_local": 1
       },
       "agent_text_streak": 0
@@ -680,7 +679,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "remote_inst_1": 2,
      "user_local": 1
     },
     "agent_text_streak": 0
@@ -771,7 +769,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "remote_inst_1": 2,
        "user_local": 1
       },
       "agent_text_streak": 0
@@ -852,7 +849,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "remote_inst_1": 2,
      "user_local": 1
     },
     "agent_text_streak": 0
@@ -944,7 +940,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "remote_inst_1": 2,
      "user_local": 1
     },
     "agent_text_streak": 0
@@ -1030,7 +1025,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "remote_inst_1": 2,
        "user_local": 1
       },
       "agent_text_streak": 0
@@ -1119,7 +1113,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "remote_inst_1": 2,
      "user_local": 1
     },
     "agent_text_streak": 0
@@ -1200,8 +1193,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "remote_inst_1": 2,
-       "user_local": 3
+       "user_local": 1
       },
       "agent_text_streak": 0
      },
@@ -2233,7 +2225,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "agent_mux": 3,
        "user_local": 2
       },
       "agent_text_streak": 1,
@@ -2313,7 +2304,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "agent_mux": 3,
      "user_local": 2
     },
     "agent_text_streak": 1,
@@ -2392,7 +2382,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "agent_mux": 3,
      "user_local": 2
     },
     "agent_text_streak": 1,
@@ -2485,7 +2474,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "agent_mux": 3,
      "user_local": 2
     },
     "agent_text_streak": 1,
@@ -2574,7 +2562,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -2625,7 +2612,7 @@
    }
   },
   {
-   "name": "thread: a reply carries thread_root and moves the sender's cursor",
+   "name": "thread: the agent reads the root",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -2648,6 +2635,100 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "th0r",
+    "op": {
+     "kind": "read_cursor.set",
+     "seq": 1
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "agent_mux": 1,
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "change": {
+      "kind": "read-cursor",
+      "participant": "agent_mux",
+      "seq": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "thread: a caught-up sender's reply carries thread_root and moves its cursor",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "agent_mux": 1,
      "user_local": 1
     },
     "agent_text_streak": 0
@@ -2721,7 +2802,7 @@
        }
       ],
       "last_seq": 2,
-      "rev": 3,
+      "rev": 4,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
@@ -2770,7 +2851,7 @@
    }
   },
   {
-   "name": "thread: a human reply moves its cursor past the agent's message",
+   "name": "thread: a human behind the last seq replies and keeps its cursor",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -2789,7 +2870,7 @@
      }
     ],
     "last_seq": 2,
-    "rev": 3,
+    "rev": 4,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
@@ -2869,12 +2950,12 @@
        }
       ],
       "last_seq": 3,
-      "rev": 4,
+      "rev": 5,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
        "agent_mux": 2,
-       "user_local": 3
+       "user_local": 1
       },
       "agent_text_streak": 0,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -2918,7 +2999,7 @@
    }
   },
   {
-   "name": "thread: read_cursor.set to the sender's own seq is no regression",
+   "name": "thread: read_cursor.set catches the human up",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -2937,12 +3018,12 @@
      }
     ],
     "last_seq": 3,
-    "rev": 4,
+    "rev": 5,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
      "agent_mux": 2,
-     "user_local": 3
+     "user_local": 1
     },
     "agent_text_streak": 0,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -2996,7 +3077,7 @@
        }
       ],
       "last_seq": 3,
-      "rev": 5,
+      "rev": 6,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
@@ -3015,7 +3096,7 @@
    }
   },
   {
-   "name": "thread: reply_to and thread_root together",
+   "name": "thread: reply_to and thread_root together; the caught-up sender's cursor moves",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -3034,7 +3115,7 @@
      }
     ],
     "last_seq": 3,
-    "rev": 5,
+    "rev": 6,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
@@ -3133,7 +3214,7 @@
        }
       ],
       "last_seq": 4,
-      "rev": 6,
+      "rev": 7,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
@@ -3209,7 +3290,7 @@
      }
     ],
     "last_seq": 4,
-    "rev": 6,
+    "rev": 7,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
@@ -3283,7 +3364,7 @@
      }
     ],
     "last_seq": 4,
-    "rev": 6,
+    "rev": 7,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
@@ -3372,7 +3453,7 @@
      }
     ],
     "last_seq": 4,
-    "rev": 6,
+    "rev": 7,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
@@ -3460,7 +3541,7 @@
      }
     ],
     "last_seq": 4,
-    "rev": 6,
+    "rev": 7,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
@@ -3515,142 +3596,7 @@
    }
   },
   {
-   "name": "thread: retract the root",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 6,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "th6",
-    "op": {
-     "kind": "message.retract",
-     "message_id": "msg_00000000000000000000000001"
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": {
-     "id": "msg_00000000000000000000000001",
-     "conversation": "conv_TEST",
-     "seq": 1,
-     "client_msg_id": "th0",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "root"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:00.000Z",
-     "reactions": []
-    },
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_00000000000000000000000002",
-      "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 4,
-      "rev": 7,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:02.000Z",
-      "read_cursors": {
-       "agent_mux": 2,
-       "user_local": 4
-      },
-      "agent_text_streak": 0,
-      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000001",
-      "conversation": "conv_TEST",
-      "seq": 1,
-      "client_msg_id": "th0",
-      "author": "user_local",
-      "parts": [],
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "reactions": [],
-      "retracted_at": "2026-10-01T12:00:02.000Z"
-     },
-     "change": {
-      "kind": "message-updated",
-      "message": {
-       "id": "msg_00000000000000000000000001",
-       "conversation": "conv_TEST",
-       "seq": 1,
-       "client_msg_id": "th0",
-       "author": "user_local",
-       "parts": [],
-       "created_at": "2026-10-01T12:00:00.000Z",
-       "reactions": [],
-       "retracted_at": "2026-10-01T12:00:02.000Z"
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "thread: a reply to a retracted root is accepted",
+   "name": "thread: a bad reply_to is reported before a bad root",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -3681,17 +3627,95 @@
    },
    "request": {
     "actor": "user_local",
-    "idempotency_key": "th7",
+    "idempotency_key": "th5",
     "op": {
      "kind": "message.send",
-     "client_msg_id": "th7",
+     "client_msg_id": "th5",
      "parts": [
       {
        "type": "text",
-       "text": "still here"
+       "text": "x"
       }
      ],
-     "thread_root": "msg_00000000000000000000000001"
+     "reply_to": {
+      "message_id": "msg_nope",
+      "part_index": 0
+     },
+     "thread_root": "msg_nope"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000005",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000004",
+     "conversation": "conv_TEST",
+     "seq": 4,
+     "client_msg_id": "th4",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "quoting"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000002",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "unknown_message"
+   }
+  },
+  {
+   "name": "thread: a loaded root with another id",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 4,
+    "rev": 7,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 4
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "thread_root": "msg_other"
     },
     "now": "2026-10-01T12:00:02.000Z",
     "new_message_id": "msg_00000000000000000000000005",
@@ -3703,11 +3727,89 @@
      "seq": 1,
      "client_msg_id": "th0",
      "author": "user_local",
-     "parts": [],
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
      "created_at": "2026-10-01T12:00:00.000Z",
-     "reactions": [],
-     "retracted_at": "2026-10-01T12:00:02.000Z"
+     "reactions": []
     },
+    "last_message": {
+     "id": "msg_00000000000000000000000004",
+     "conversation": "conv_TEST",
+     "seq": 4,
+     "client_msg_id": "th4",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "quoting"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000002",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_thread_root"
+   }
+  },
+  {
+   "name": "thread: a null thread_root is no thread",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 4,
+    "rev": 7,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 4
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "plain"
+      }
+     ],
+     "thread_root": null
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000005",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000004",
      "conversation": "conv_TEST",
@@ -3763,15 +3865,14 @@
       "id": "msg_00000000000000000000000005",
       "conversation": "conv_TEST",
       "seq": 5,
-      "client_msg_id": "th7",
+      "client_msg_id": "th5",
       "author": "user_local",
       "parts": [
        {
         "type": "text",
-        "text": "still here"
+        "text": "plain"
        }
       ],
-      "thread_root": "msg_00000000000000000000000001",
       "created_at": "2026-10-01T12:00:02.000Z",
       "reactions": []
      },
@@ -3781,6 +3882,427 @@
        "id": "msg_00000000000000000000000005",
        "conversation": "conv_TEST",
        "seq": 5,
+       "client_msg_id": "th5",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "plain"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:02.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "thread: a sender behind the last seq keeps its cursor",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 5
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "th8",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th8",
+     "parts": [
+      {
+       "type": "text",
+       "text": "late answer"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001"
+    },
+    "now": "2026-10-01T12:00:04.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "th5",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "plain"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 9,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:04.000Z",
+      "read_cursors": {
+       "agent_mux": 2,
+       "user_local": 5
+      },
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:04.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000006",
+      "conversation": "conv_TEST",
+      "seq": 6,
+      "client_msg_id": "th8",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "text",
+        "text": "late answer"
+       }
+      ],
+      "thread_root": "msg_00000000000000000000000001",
+      "created_at": "2026-10-01T12:00:04.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000006",
+       "conversation": "conv_TEST",
+       "seq": 6,
+       "client_msg_id": "th8",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "late answer"
+        }
+       ],
+       "thread_root": "msg_00000000000000000000000001",
+       "created_at": "2026-10-01T12:00:04.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "thread: retract the root",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:04.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 5
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:04.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th6",
+    "op": {
+     "kind": "message.retract",
+     "message_id": "msg_00000000000000000000000001"
+    },
+    "now": "2026-10-01T12:00:04.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th8",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "late answer"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:04.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 10,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:04.000Z",
+      "read_cursors": {
+       "agent_mux": 2,
+       "user_local": 5
+      },
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:04.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_TEST",
+      "seq": 1,
+      "client_msg_id": "th0",
+      "author": "user_local",
+      "parts": [],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": [],
+      "retracted_at": "2026-10-01T12:00:04.000Z"
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_TEST",
+       "seq": 1,
+       "client_msg_id": "th0",
+       "author": "user_local",
+       "parts": [],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-01T12:00:04.000Z"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "thread: a reply to a retracted root is accepted",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 10,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:04.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 5
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:04.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th7",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th7",
+     "parts": [
+      {
+       "type": "text",
+       "text": "still here"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001"
+    },
+    "now": "2026-10-01T12:00:04.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": [],
+     "retracted_at": "2026-10-01T12:00:04.000Z"
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th8",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "late answer"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:04.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 7,
+      "rev": 11,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:04.000Z",
+      "read_cursors": {
+       "agent_mux": 2,
+       "user_local": 5
+      },
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:00:04.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000007",
+      "conversation": "conv_TEST",
+      "seq": 7,
+      "client_msg_id": "th7",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "still here"
+       }
+      ],
+      "thread_root": "msg_00000000000000000000000001",
+      "created_at": "2026-10-01T12:00:04.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000007",
+       "conversation": "conv_TEST",
+       "seq": 7,
        "client_msg_id": "th7",
        "author": "user_local",
        "parts": [
@@ -3790,7 +4312,7 @@
         }
        ],
        "thread_root": "msg_00000000000000000000000001",
-       "created_at": "2026-10-01T12:00:02.000Z",
+       "created_at": "2026-10-01T12:00:04.000Z",
        "reactions": []
       }
      }
@@ -3821,7 +4343,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -3901,7 +4422,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -3985,7 +4505,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4074,7 +4593,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -4174,7 +4692,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4275,7 +4792,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4372,7 +4888,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -4488,7 +5003,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4597,7 +5111,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4706,7 +5219,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4815,7 +5327,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -4902,7 +5413,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -5000,7 +5510,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5109,7 +5618,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5214,7 +5722,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -5314,7 +5821,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5415,7 +5921,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5485,7 +5990,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5587,7 +6091,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5659,7 +6162,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5756,7 +6258,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -5854,7 +6355,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -5922,7 +6422,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6019,7 +6518,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6112,7 +6610,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:02.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 2
       },
       "agent_text_streak": 2,
@@ -6170,7 +6667,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6246,7 +6742,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6328,7 +6823,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6408,7 +6902,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6488,7 +6981,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -6554,7 +7046,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 2
     },
     "agent_text_streak": 2,
@@ -7386,7 +7877,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:10.000Z",
       "read_cursors": {
-       "agent_mux": 2,
        "user_local": 1
       },
       "agent_text_streak": 1,
@@ -7452,7 +7942,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {
-     "agent_mux": 2,
      "user_local": 1
     },
     "agent_text_streak": 1,
@@ -7516,7 +8005,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:20.000Z",
       "read_cursors": {
-       "agent_mux": 3,
        "user_local": 1
       },
       "agent_text_streak": 2,
@@ -7582,7 +8070,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:20.000Z",
     "read_cursors": {
-     "agent_mux": 3,
      "user_local": 1
     },
     "agent_text_streak": 2,
@@ -7646,7 +8133,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:30.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 1
       },
       "agent_text_streak": 3,
@@ -7712,7 +8198,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:30.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 1
     },
     "agent_text_streak": 3,
@@ -7776,7 +8261,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:40.000Z",
       "read_cursors": {
-       "agent_mux": 5,
        "user_local": 1
       },
       "agent_text_streak": 4,
@@ -7842,7 +8326,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -7910,7 +8393,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -7975,7 +8457,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:50.000Z",
       "read_cursors": {
-       "agent_mux": 6,
        "user_local": 1
       },
       "agent_text_streak": 4,
@@ -8043,7 +8524,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {
-     "agent_mux": 6,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -8108,8 +8588,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:50.000Z",
       "read_cursors": {
-       "agent_mux": 6,
-       "user_local": 7
+       "user_local": 1
       },
       "agent_text_streak": 0,
       "last_agent_text_at": "2026-10-01T12:00:40.000Z"
@@ -8174,8 +8653,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {
-     "agent_mux": 6,
-     "user_local": 7
+     "user_local": 1
     },
     "agent_text_streak": 0,
     "last_agent_text_at": "2026-10-01T12:00:40.000Z"
@@ -8238,8 +8716,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:50.000Z",
       "read_cursors": {
-       "agent_mux": 8,
-       "user_local": 7
+       "user_local": 1
       },
       "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:50.000Z"
@@ -8304,8 +8781,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {
-     "agent_mux": 8,
-     "user_local": 7
+     "user_local": 1
     },
     "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:50.000Z"
@@ -8372,8 +8848,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {
-     "agent_mux": 8,
-     "user_local": 7
+     "user_local": 1
     },
     "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:50.000Z"
@@ -8435,8 +8910,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {
-     "agent_mux": 8,
-     "user_local": 7
+     "user_local": 1
     },
     "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:50.000Z"
@@ -8499,8 +8973,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:52.000Z",
       "read_cursors": {
-       "agent_mux": 9,
-       "user_local": 7
+       "user_local": 1
       },
       "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:52.000Z"
@@ -8627,7 +9100,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:10.000Z",
       "read_cursors": {
-       "agent_mux": 2,
        "user_local": 1
       },
       "agent_text_streak": 1,
@@ -8693,7 +9165,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {
-     "agent_mux": 2,
      "user_local": 1
     },
     "agent_text_streak": 1,
@@ -8758,7 +9229,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:10.000Z",
       "read_cursors": {
-       "agent_mux": 3,
        "user_local": 1
       },
       "agent_text_streak": 1,
@@ -8826,7 +9296,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {
-     "agent_mux": 3,
      "user_local": 1
     },
     "agent_text_streak": 1,
@@ -8891,7 +9360,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:20.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 1
       },
       "agent_text_streak": 2,
@@ -8957,7 +9425,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:20.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 1
     },
     "agent_text_streak": 2,
@@ -9022,7 +9489,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:20.000Z",
       "read_cursors": {
-       "agent_mux": 5,
        "user_local": 1
       },
       "agent_text_streak": 2,
@@ -9090,7 +9556,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:20.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 2,
@@ -9155,7 +9620,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:30.000Z",
       "read_cursors": {
-       "agent_mux": 6,
        "user_local": 1
       },
       "agent_text_streak": 3,
@@ -9221,7 +9685,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:30.000Z",
     "read_cursors": {
-     "agent_mux": 6,
      "user_local": 1
     },
     "agent_text_streak": 3,
@@ -9286,7 +9749,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:30.000Z",
       "read_cursors": {
-       "agent_mux": 7,
        "user_local": 1
       },
       "agent_text_streak": 3,
@@ -9354,7 +9816,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:30.000Z",
     "read_cursors": {
-     "agent_mux": 7,
      "user_local": 1
     },
     "agent_text_streak": 3,
@@ -9419,7 +9880,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:40.000Z",
       "read_cursors": {
-       "agent_mux": 8,
        "user_local": 1
       },
       "agent_text_streak": 4,
@@ -9485,7 +9945,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 8,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -9550,7 +10009,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:40.000Z",
       "read_cursors": {
-       "agent_mux": 9,
        "user_local": 1
       },
       "agent_text_streak": 4,
@@ -9618,7 +10076,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 9,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -16749,7 +17206,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:10.000Z",
       "read_cursors": {
-       "agent_mux": 2,
        "user_local": 1
       },
       "agent_text_streak": 1,
@@ -16875,7 +17331,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {
-     "agent_mux": 2,
      "user_local": 1
     },
     "agent_text_streak": 1,
@@ -16993,7 +17448,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:20.000Z",
       "read_cursors": {
-       "agent_mux": 3,
        "user_local": 1
       },
       "agent_text_streak": 2,
@@ -17119,7 +17573,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:20.000Z",
     "read_cursors": {
-     "agent_mux": 3,
      "user_local": 1
     },
     "agent_text_streak": 2,
@@ -17237,7 +17690,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:30.000Z",
       "read_cursors": {
-       "agent_mux": 4,
        "user_local": 1
       },
       "agent_text_streak": 3,
@@ -17363,7 +17815,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:30.000Z",
     "read_cursors": {
-     "agent_mux": 4,
      "user_local": 1
     },
     "agent_text_streak": 3,
@@ -17481,7 +17932,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:40.000Z",
       "read_cursors": {
-       "agent_mux": 5,
        "user_local": 1
       },
       "agent_text_streak": 4,
@@ -17607,7 +18057,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -17729,7 +18178,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -17827,7 +18275,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 4,
@@ -17969,7 +18416,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:40.000Z",
       "read_cursors": {
-       "agent_mux": 5,
        "user_local": 1
       },
       "agent_text_streak": 0,
@@ -18125,7 +18571,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:40.000Z",
     "read_cursors": {
-     "agent_mux": 5,
      "user_local": 1
     },
     "agent_text_streak": 0,
@@ -18234,7 +18679,6 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:50.000Z",
       "read_cursors": {
-       "agent_mux": 6,
        "user_local": 1
       },
       "agent_text_streak": 1,
@@ -18300,7 +18744,6 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {
-     "agent_mux": 6,
      "user_local": 1
     },
     "agent_text_streak": 1,

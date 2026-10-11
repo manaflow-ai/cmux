@@ -76,7 +76,8 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         if (!replied || replied.id !== replyTo.message_id || replied.conversation !== head.id) fail("unknown_message")
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
       }
-      const threadRoot = op.thread_root
+      // A null thread_root is no thread (as serde reads it in Rust).
+      const threadRoot = op.thread_root ?? undefined
       if (threadRoot !== undefined) {
         const root = request.thread_target
         // A thread has one level: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
@@ -112,9 +113,11 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         created_at: now,
         reactions: []
       }
-      // The sender has read its own message (and what came before it), for every client of
-      // this owner. The change stays `message`; clients read the cursor from the head.
-      next.read_cursors = sortedRecord({ ...head.read_cursors, [request.actor]: Math.max(head.read_cursors[request.actor] ?? 0, next.last_seq) })
+      // A sender that had read everything before its send has read its own message too, for
+      // every client of this owner. One that had not keeps its cursor, so a message it never
+      // read (an agent's unhandled turn, a channel message behind a thread reply) stays unread.
+      // The change stays `message`; clients read the cursor from the head.
+      if ((head.read_cursors[request.actor] ?? 0) >= head.last_seq) next.read_cursors = sortedRecord({ ...head.read_cursors, [request.actor]: next.last_seq })
       return { head: next, message, change: { kind: "message", message } }
     }
     // Edits, retractions and reactions change a message, not the list order,
