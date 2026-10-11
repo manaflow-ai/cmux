@@ -21,8 +21,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-fn scratch() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("acpmux-health-{}", std::process::id()));
+fn scratch(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("acpmux-health-{name}-{}", std::process::id()));
     if root.exists() {
         // A read-only prefix from an earlier run must be writable to go.
         let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
@@ -119,6 +119,19 @@ impl Client {
     }
 }
 
+/// A hub over the profiles in `user`, with no newest-version lookups.
+fn hub_for(root: &Path, user: &Path, home: &Path) -> Arc<Hub> {
+    let sources = ProfileSources { managed: vec![], user_dir: Some(user.into()), cmux_json: None };
+    std::fs::create_dir_all(root.join("acpmux")).unwrap();
+    std::fs::write(root.join("acpmux/config.json"), "{}").unwrap();
+    let mut cfg = Config::load_from_with(&root.join("acpmux/config.json"), &sources).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.health.attach(Settings { sources: None, cache: None, home: home.into() });
+    hub
+}
+
 fn row<'a>(reply: &'a Value, id: &str) -> &'a Value {
     reply["harnesses"]
         .as_array()
@@ -128,7 +141,7 @@ fn row<'a>(reply: &'a Value, id: &str) -> &'a Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn health_reads_version_channel_newest_signin_and_update_per_install() {
-    let root = scratch();
+    let root = scratch("installs");
     let home = root.join("home");
     let user = root.join("config").join("harnesses");
 
@@ -323,5 +336,110 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     web.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect_err("web origin");
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Installs whose file sits in a `node_modules` folder npm does not own, and
+/// programs that only run another one, are not npm installs: a one-click
+/// `npm install -g` would add a second copy and leave this one as it was.
+/// Sign-in follows the profile's check (with the profile's env) over a stale
+/// probe error, and only an error about signing in reads as signed out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn health_reads_node_formulas_wrappers_and_signin_evidence() {
+    let root = scratch("evidence");
+    let home = root.join("home");
+    let user = root.join("config").join("harnesses");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // A Homebrew formula that bundles its node package.
+    let gemini = root.join("brew/bin/gemini");
+    program(
+        &root.join(
+            "brew/Cellar/gemini-cli/0.9.0/libexec/lib/node_modules/@google/gemini-cli/dist/index.js",
+        ),
+        &gemini,
+        "0.9.0",
+    );
+    profile(&user, "gemini", &format!("command = \"{}\"\n", gemini.display()));
+    // Claude's older local installer, a node_modules folder of its own.
+    let claude = home.join(".claude/local/claude");
+    program(
+        &home.join(".claude/local/node_modules/@anthropic-ai/claude-code/cli.js"),
+        &claude,
+        "2.0.5 (Claude Code)",
+    );
+    profile(
+        &user,
+        "claude",
+        &format!("protocol = \"claude-stdio\"\ncommand = \"{}\"\n", claude.display()),
+    );
+    // A pnpm global install: no npm package of that name, no npm update.
+    let codex = root.join("pnpm/codex");
+    program(
+        &root.join(
+            "pnpm/global/5/node_modules/.pnpm/@openai+codex@0.5.0/node_modules/@openai/codex/bin/codex.js",
+        ),
+        &codex,
+        "codex-cli 0.5.0",
+    );
+    profile(&user, "codex", &format!("command = \"{}\"\n", codex.display()));
+    // An interpreter running an adapter: node is not the harness.
+    let node = root.join("node/bin/node");
+    program(&root.join("node/Cellar/node/22.0.0/bin/node"), &node, "v22.0.0");
+    profile(&user, "wrapped", &format!("command = \"{} /x/adapter.js\"\n", node.display()));
+    // Signed in since the probe failed: the check passes, with the profile's env.
+    let tool = root.join("tools/tool");
+    program(&root.join("tools/tool-1.0.0"), &tool, "1.0.0");
+    profile(
+        &user,
+        "fresh",
+        &format!(
+            "command = \"{}\"\n[env]\nHEALTH_MARK = \"yes\"\n[auth]\ncheck = [\"/bin/sh\", \"-c\", \"test \\\"$HEALTH_MARK\\\" = yes\"]\n",
+            tool.display()
+        ),
+    );
+    // A probe error that is not about signing in.
+    profile(&user, "other", &format!("command = \"{}\"\n", tool.display()));
+
+    let hub = hub_for(&root, &user, &home);
+    {
+        let mut errors = hub.probe_errors.lock().unwrap();
+        errors.insert("fresh".into(), "Please log in again".into());
+        errors.insert("other".into(), "failed to read catalog in /x: EACCES".into());
+    }
+    let mut app = Client::open(&hub, Origin::LocalApp);
+    let reply = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+
+    let r = row(&reply, "gemini");
+    assert_eq!(
+        (r["channel"].as_str(), r["package"].as_str(), r["version"].as_str()),
+        (Some("brew"), Some("gemini-cli"), Some("0.9.0")),
+        "{r}"
+    );
+    assert_eq!(r["update"]["argv"], json!(["brew", "upgrade", "gemini-cli"]), "{r}");
+
+    let r = row(&reply, "claude");
+    assert_eq!(
+        (r["channel"].as_str(), r["package"].as_str()),
+        (Some("native"), Some("@anthropic-ai/claude-code")),
+        "{r}"
+    );
+    assert_eq!(r["update"]["argv"], json!([claude.to_string_lossy(), "update"]), "{r}");
+
+    let r = row(&reply, "codex");
+    assert_eq!(
+        (r["channel"].as_str(), r["version"].as_str()),
+        (Some("standalone"), Some("0.5.0")),
+        "{r}"
+    );
+    assert!(r["update"].is_null(), "{r}");
+
+    let r = row(&reply, "wrapped");
+    assert_eq!(r["channel"], "launcher", "{r}");
+    assert!(r["update"].is_null() && r["version"].is_null(), "{r}");
+
+    assert_eq!(row(&reply, "fresh")["auth"], "signedIn", "{reply}");
+    assert_eq!(row(&reply, "other")["auth"], "unknown", "{reply}");
+
     let _ = std::fs::remove_dir_all(&root);
 }
