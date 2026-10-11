@@ -1128,5 +1128,34 @@
    ],
    "note": "the mean of the two takes' fits (send-typed: 0.258 s, 0.263 s, [0.331, 0, 0.228, 0.828], rms 1.11 %; typing-unfocused: 0.276 s, 0.290 s, [0.272, 0.005, 0.251, 0.970], rms 0.81 %)"
   }
+ },
+ "transcript.receiveThreadRoot": {
+  "event": "receive of the first inline reply to the last message (the rows above the new thread root make room)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -57.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.3062,
+    "curve": [
+     0.461,
+     0.001,
+     0.578,
+     0.781
+    ],
+    "delta": -57.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 0.49
+  },
+  "fit": {
+   "method": "lossless typing-unfocused-take1 (window inactive), the bottom of the bubble above the root at x 598-601 pt (right padding, no text), every frame 10.10-10.60 s: on the arrival's first frame (10.158 s) it drops 7 pt (881 -> 888, the gap above the root closes, Springs.threadRootDip), then rises 28.5 pt to 859.5 on one curve; progress against time after Messages' first changed frame of the arrival (10.15 s); a 4-frame hold of Messages at 10.33-10.36 s left out. Time 0 = ours: the receive commit.",
+   "takes": [
+    "typing-unfocused-take1"
+   ],
+   "note": "ours moved the rows above the root with transcript.receive from the first frame without the drop and ended 150 ms early (b5bd5f4, take 8402); a fit of the rise alone (from 881 pt, 0.113 s delay, 0.2 s; 1ef4cb2, take 8403) matched the rise but not the first frame's drop"
+  }
  }
 }

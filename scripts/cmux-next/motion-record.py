@@ -105,13 +105,15 @@ def paced_drag(x, y, to_x, to_y, seconds=0.45):
     return {"frames": frames}
 
 
-def first_pill():
-    """The focused pane's first tab pill in window points (`debug.pane_chrome`)."""
-    for window in (rpc("debug.pane_chrome") or {}).get("windows") or []:
-        for pane in window.get("panes") or []:
-            if pane.get("pill"):
-                return pane["pill"]
-    return None
+def first_pill(busiest=False):
+    """The first pane's first tab pill in window points (`debug.pane_chrome`);
+    with `busiest`, the narrowest first pill of any pane (tabs narrow as a
+    pane fills)."""
+    pills = [pane["pill"] for window in (rpc("debug.pane_chrome") or {}).get("windows") or []
+             for pane in window.get("panes") or [] if pane.get("pill")]
+    if busiest and pills:
+        return min(pills, key=lambda pill: pill[2])
+    return pills[0] if pills else None
 
 
 def tabs():
@@ -136,6 +138,9 @@ def tabs():
 
 
 def panes():
+    # A fresh workspace: a clean profile opens on Home, where no pane has focus.
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
     save_layout("panes")
     record("panes", "split-right", lambda: action("splitRight"))
     record("panes", "split-down", lambda: action("splitDown"))
@@ -146,9 +151,85 @@ def panes():
 
 
 def focus():
+    # Focus moves between split panes in a fresh workspace (a restored
+    # session's columns would fill the screen), then between strip columns.
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    action("splitRight")
+    time.sleep(0.8)  # test harness: the split settles
+    action("splitDown")
+    time.sleep(0.8)  # test harness: the split settles
     save_layout("focus")
     record("focus", "left", lambda: action("focusLeft"))
     record("focus", "right", lambda: action("focusRight"))
+    record("focus", "up", lambda: action("focusUp"))
+    record("focus", "down", lambda: action("focusDown"))
+
+
+def groups():
+    # A tab group of two tabs collapses into its chip and expands again.
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(3):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 2}})
+    created = rpc("action.run", {"action": "tabGroup.create", "args": {"name": "Motion"}}) or {}
+    group = (created.get("created") or [None])[0]
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 4}})
+    rpc("action.run", {"action": "tabGroup.addTab", "args": {"group": group}})
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 1}})
+    time.sleep(0.8)  # test harness: the strip settles
+    save_layout("groups")
+    target = {"kind": "tabGroup", "id": group}
+    record("groups", "collapse", lambda: rpc("action.run", {"action": "tabGroup.collapse", "target": target}))
+    record("groups", "expand", lambda: rpc("action.run", {"action": "tabGroup.expand", "target": target}))
+
+
+def drag():
+    # A tab lifted, carried past two tabs and dropped, at pointer pace.
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(3):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    save_layout("drag")
+    pill = first_pill(busiest=True)
+    if not pill:
+        print("drag: skipped, pane_chrome reports no tab pill", flush=True)
+        return
+    left, top, width, height = pill
+    x, y = left + width / 2, top + height / 2
+    record("drag", "reorder", lambda: paced_drag(x, y, x + width * 2.2, y), seconds=2.0)
+    record("drag", "back", lambda: paced_drag(x + width * 2, y, x, y), seconds=2.0)
+
+
+def newtab():
+    # The New Tab page's template dots switch its layout in place. The dots
+    # show with newTab.templateSwitcher on, in a page warmed after it is set:
+    # the tunable stays on in this build tag's own slot store, so record on a
+    # second launch of the same tag (the first only sets it). Clicks land on
+    # the dots: 18 pt wide, 4 pt apart, centered at the pane's bottom
+    # (screen.css). A pick saves tabs.newTabTemplate to the host user's
+    # shared settings, so the run ends on "default", the value it had.
+    rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": True})
+    rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
+    action("newTabPage")
+    time.sleep(2.0)  # test harness: the page loads
+    save_layout("newtab")
+    panes = [pane for window in (rpc("debug.pane_chrome") or {}).get("windows") or [] for pane in window.get("panes") or []]
+    if not panes:
+        print("newtab: skipped, pane_chrome reports no pane", flush=True)
+        return
+    left, top, width, height = panes[0]["border"]
+    dots = ["default", "composer", "threads", "console", "classic", "terminal"]
+
+    def pick(template):
+        x = left + width / 2 - 55 + 22 * dots.index(template)
+        return rpc("debug.mouse", {"action": "click", "x": x, "y": top + height - 21})
+
+    for template in ("threads", "composer", "console", "default"):
+        record("newtab", template, lambda: pick(template))
 
 
 def key(name, *modifiers):
@@ -258,7 +339,7 @@ def hover():
     # hover fill clearing at once (the default) and over 120 ms
     # (`motion.fade.hoverOut`; absent on builds before cx-f6i7's hover pass).
     for _ in range(5):
-        action("newWorkspace")
+        action("workspace.newAtBottom")
         time.sleep(0.3)  # test harness: one workspace at a time
     for _ in range(4):
         action("newTab")
@@ -273,7 +354,51 @@ def hover():
     rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": None})
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover}
+def dock():
+    # A tab moved into a new dock column (the chat dock's path: a lone chat
+    # moves into a left dock when it opens a tool), then the column undocks.
+    save_layout("dock")
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    for edge in ("left", "right"):
+        record("dock", "dock-" + edge, lambda: rpc("action.run", {"action": "tab.moveToNewDockColumn", "args": {"edge": edge}}))
+        record("dock", "undock-" + edge, lambda: action("column.undock"))
+
+
+def sidebar():
+    # Workspace rows open and close their slots: a new one at the end, one
+    # closed in the middle (rows below close the gap), the last one closed.
+    for _ in range(3):
+        action("workspace.newAtBottom")
+        time.sleep(0.4)  # test harness: one workspace at a time
+    save_layout("sidebar")
+    record("sidebar", "insert", lambda: action("workspace.newAtBottom"))
+    # The second workspace row is selected with a click (no action selects it by place).
+    rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    workspaces = [r for r in rows if str(r.get("key", "")).startswith("workspace")]
+    print("workspace rows:", len(workspaces), flush=True)
+    if len(workspaces) > 2:
+        f = workspaces[1]["window_frame"]
+        rpc("debug.mouse", {"action": "click", "x": f["x"] + 40, "y": f["y"] + f["height"] / 2})
+        time.sleep(0.4)  # test harness: the selection settles
+    record("sidebar", "remove-middle", lambda: action("closeWorkspace", args={"confirm": True}))
+    action("workspace.selectLast")
+    time.sleep(0.3)  # test harness: the selection settles
+    record("sidebar", "remove-last", lambda: action("closeWorkspace", args={"confirm": True}))
+
+
+def palette():
+    # The palette opens over the window and closes again (its panel is a
+    # child window, so stills by window id back the recording up).
+    save_layout("palette")
+    record("palette", "open", lambda: action("commandPalette"))
+    print("palette open:", json.dumps(rpc("debug.windows"))[:400], flush=True)
+    record("palette", "close", lambda: key("escape"))
+    print("palette closed:", json.dumps(rpc("debug.windows"))[:400], flush=True)
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette}
 
 
 def main():

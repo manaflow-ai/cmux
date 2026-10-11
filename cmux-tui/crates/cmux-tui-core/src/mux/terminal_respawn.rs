@@ -25,20 +25,23 @@
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent resume command or the terminal's
-//! command line is typed on the new prompt without a newline.
+//! command line is typed on the new prompt without a newline. The manual
+//! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
+//! `restart-tab`) runs the same worker.
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) mod launch;
-#[cfg(unix)]
+pub(crate) mod manual;
+#[cfg(any(unix, windows))]
 mod prefill;
 mod supervisor;
 
 use std::time::{Duration, Instant};
 
 use super::*;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::TerminalExit;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
 
 pub(crate) use supervisor::RespawnGuard;
@@ -69,9 +72,10 @@ pub(crate) struct TerminalRespawns {
     /// Wakes respawn workers that wait out a backoff delay when the owner
     /// shuts down ([`TerminalRespawns::wake_all`]).
     wake: (Mutex<()>, Condvar),
-    /// Full argv of command terminals this daemon process launched; it is
-    /// never persisted, so a later daemon only names the program. Entries go
-    /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
+    /// Full argv of command terminals this daemon process launched. A later
+    /// daemon reads the relaunch record's argv instead, which leaves out
+    /// credential-like arguments. Entries go when their terminal is closed;
+    /// [`ARGV_LIMIT`] bounds the rest.
     argv: Mutex<ArgvMemory>,
     /// VT replay a new terminal's host applies before its shell's first
     /// byte, by the reserved terminal id of a creation that has not launched
@@ -158,7 +162,7 @@ impl TerminalRespawns {
 }
 
 /// What the respawn decision found for a committed host loss.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) enum RespawnDecision {
     /// Respawn after the plan's delay.
     Planned(RespawnPlan),
@@ -167,7 +171,7 @@ pub(super) enum RespawnDecision {
 }
 
 /// One respawn, decided by [`Mux::plan_terminal_respawn_locked`].
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) struct RespawnPlan {
     pub(super) terminal_id: String,
     pub(super) public_id: TerminalPublicId,
@@ -183,6 +187,9 @@ pub(super) struct RespawnPlan {
     pub(super) delay: Duration,
     /// The committed host-loss receipt this attempt answers.
     pub(super) recorded: TerminalExit,
+    /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
+    /// the incarnation reopens, not only a host loss.
+    pub(super) user_restart: bool,
 }
 
 impl Mux {
@@ -190,7 +197,7 @@ impl Mux {
     /// placed and the loss qualifies, take its dead runtime out of the tabs,
     /// mark it respawning and start the respawn worker. Never fails the exit
     /// commit; a refused respawn leaves the tab dead.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn schedule_terminal_respawn(
         &self,
         terminal_id: &str,
@@ -205,7 +212,7 @@ impl Mux {
     /// Act on a decision made under the registry and state locks: start the
     /// respawn worker, or end a terminal that used up its attempts. Runs
     /// with no lock held.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn start_terminal_respawn(
         &self,
         terminal_id: &str,
@@ -238,7 +245,7 @@ impl Mux {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn respawn_enabled(&self) -> bool {
         !self.terminal_respawns.disabled
             && !self.shutting_down.load(Ordering::Acquire)
@@ -248,7 +255,7 @@ impl Mux {
 
     /// The checks that need no lock: a host loss with a respawnable reason,
     /// an incarnation, and an owner that respawns. `(cause, incarnation)`.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn respawn_candidate(
         &self,
         incarnation: Option<&str>,
@@ -262,7 +269,7 @@ impl Mux {
         Some((cause, incarnation?.to_string()))
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn plan_terminal_respawn(
         &self,
         terminal_id: &str,
@@ -285,7 +292,7 @@ impl Mux {
     /// calls it in its own critical section, so no tree read ever sees the
     /// dead runtime of a terminal that respawns: the tabs read adopting from
     /// the commit on.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn plan_terminal_respawn_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -351,12 +358,13 @@ impl Mux {
             old_runtime,
             delay,
             recorded: end.exit().clone(),
+            user_restart: false,
         }))
     }
 
     /// The respawn worker: respawn, then pre-fill; on failure or a refused
     /// respawn the tab shows the terminal ended.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn run_terminal_respawn(self: &Arc<Self>, plan: RespawnPlan) {
         let terminal_id = plan.terminal_id.clone();
         let public_id = plan.public_id.clone();
@@ -409,7 +417,7 @@ impl Mux {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn terminal_host_root(&self) -> Option<std::path::PathBuf> {
         let options = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
         options.terminal_host_root.clone()
@@ -417,7 +425,7 @@ impl Mux {
 
     /// Reopen the row, launch the new host and put it in the tabs. `None`
     /// when a close or another end won, or the owner is shutting down.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn respawn_terminal(
         self: &Arc<Self>,
         mut plan: RespawnPlan,
@@ -426,6 +434,14 @@ impl Mux {
             return Ok(None);
         }
         let old_runtime = plan.old_runtime.take();
+        // A user restart may replace a runtime whose host still runs (a
+        // process end kept by `on_exit` keep keeps its host until the last
+        // client stream leaves): end it, then wait below for its exit.
+        if plan.user_restart
+            && let Some(old) = old_runtime.as_ref()
+        {
+            old.kill();
+        }
         let geometry = old_runtime.as_ref().map(|old| (old.size(), old.cell_pixel_size()));
         if let Some(old) = old_runtime.as_ref() {
             self.unregister_kitty_image_surface(old)?;
@@ -440,8 +456,11 @@ impl Mux {
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let Some(revision) =
-                registry.begin_terminal_respawn(&plan.terminal_id, &plan.old_incarnation)?
+            let Some(revision) = registry.begin_terminal_respawn(
+                &plan.terminal_id,
+                &plan.old_incarnation,
+                plan.user_restart,
+            )?
             else {
                 return Ok(None);
             };
@@ -449,6 +468,11 @@ impl Mux {
             registry.terminal_record(&plan.terminal_id)?.map(|terminal| terminal.workspace_key)
         };
         if let Some(root) = self.terminal_host_root() {
+            // Only a Unix owner restarts a dead tab (`manual.rs`).
+            #[cfg(unix)]
+            if plan.user_restart {
+                wait_for_old_hosts(&root, &plan.terminal_id);
+            }
             remove_dead_host_records(&root, &plan.terminal_id);
             // Another thread (startup reconciliation, an adoption thread)
             // may be between removing the old record and its endpoint: the
@@ -501,7 +525,7 @@ impl Mux {
     /// Put the new runtime in the terminal's tabs and commit the new
     /// incarnation in one registry + state critical section. False when a
     /// close won.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn install_respawned_runtime(
         &self,
         plan: &RespawnPlan,
@@ -560,13 +584,29 @@ impl Mux {
 /// Remove the dead host records of `terminal_id` under `root`, so the new
 /// host can publish its own. A live record is left alone (the launch then
 /// fails and the loss stands).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn remove_dead_host_records(root: &Path, terminal_id: &str) {
     let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
         return;
     };
     for (path, record) in records.iter().filter(|(_, record)| record.terminal_id == terminal_id) {
         let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(path, record);
+    }
+}
+
+/// Wait for every host of `terminal_id` under `root` to exit (its live
+/// marker's lease is the exit event), so the new host can take the
+/// terminal's identity. A user restart ended them first.
+#[cfg(unix)]
+fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
+    let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+        return;
+    };
+    for (path, record) in records.iter().filter(|(_, record)| record.terminal_id == terminal_id) {
+        if let Err(error) = crate::terminal_host_runtime::wait_for_terminal_host_exit(path, record)
+        {
+            eprintln!("cmux-tui: could not wait for the old host of {terminal_id}: {error:#}");
+        }
     }
 }
 

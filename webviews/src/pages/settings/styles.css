@@ -280,6 +280,11 @@ mark {
   max-width: 60%;
 }
 
+/* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
+.row-control-menu {
+  display: contents;
+}
+
 .notice,
 .banner {
   display: flex;
@@ -494,7 +499,6 @@ mark {
   background: transparent;
   padding: 3px 10px;
   white-space: nowrap;
-  transition: background var(--motion-hover);
 }
 
 .link-button {
@@ -510,9 +514,11 @@ mark {
   color: var(--muted-text);
 }
 
+/* As the section links: the fill eases in under the pointer and clears at once when it leaves. */
 .button:hover,
 .icon-button:hover {
   background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .danger {

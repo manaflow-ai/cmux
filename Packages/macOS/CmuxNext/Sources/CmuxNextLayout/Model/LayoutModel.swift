@@ -88,6 +88,10 @@ public final class LayoutModel {
     /// once per request; `sequence` distinguishes repeats of the same pane.
     public private(set) var centerRequest: ColumnCenterRequest?
 
+    /// The latest one-shot "show this column" request (``revealColumn(containing:)``). The view applies it
+    /// once the pane's column is in the strip, which may be a later snapshot than the request's.
+    public private(set) var revealRequest: ColumnCenterRequest?
+
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
@@ -247,13 +251,6 @@ public final class LayoutModel {
         emit(.selectScreen(id))
     }
 
-    /// Selects the next (or previous) screen, wrapping.
-    public func selectAdjacentScreen(forward: Bool) {
-        guard let index = screens.firstIndex(where: { $0.id == activeScreenID }), screens.count > 1 else { return }
-        let next = (index + (forward ? 1 : -1) + screens.count) % screens.count
-        selectScreen(screens[next].id)
-    }
-
     /// Scrolls the column holding `pane` (default: the focused pane) to the
     /// center of the viewport and focuses that pane. Client-local: scroll offsets are never sent to the
     /// daemon. Returns false when the pane is not in a columns screen.
@@ -263,6 +260,13 @@ public final class LayoutModel {
         focus(pane)
         centerRequest = ColumnCenterRequest(pane: pane, sequence: (centerRequest?.sequence ?? 0) &+ 1)
         return true
+    }
+
+    /// Scrolls the column holding `pane` into view, the least that shows it, and leaves focus where it
+    /// is: a tab opened beside a chat that keeps focus (cx-27j7). The strip otherwise follows focus
+    /// only, so a column added out of view would stay there. Client-local, like ``centerColumn(containing:)``.
+    public func revealColumn(containing pane: PaneID) {
+        revealRequest = ColumnCenterRequest(pane: pane, sequence: (revealRequest?.sequence ?? 0) &+ 1)
     }
 
     // MARK: Divider and column gestures
@@ -293,19 +297,6 @@ public final class LayoutModel {
         widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
         let intent = LayoutIntent.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)
         record(intent, key: .column(column), phase: phase)
-    }
-
-    /// Cycles the focused pane's column through the width presets.
-    public func cycleColumnWidthPreset(forward: Bool = true) {
-        guard let focusedPane, let column = screen(containing: focusedPane)?.layout.column(containing: focusedPane) else { return }
-        let preset = ColumnWidthPreset.next(after: column.width, forward: forward)
-        setColumnWidth(column.id, width: preset.rawValue, transaction: .make(), phase: .ended)
-    }
-
-    /// Sets the focused pane's column to `preset`.
-    public func setFocusedColumnWidth(_ preset: ColumnWidthPreset) {
-        guard let focusedPane, let column = screen(containing: focusedPane)?.layout.column(containing: focusedPane) else { return }
-        setColumnWidth(column.id, width: preset.rawValue, transaction: .make(), phase: .ended)
     }
 
     /// Marks the start and end of a pointer gesture so views skip animation
@@ -361,12 +352,6 @@ public final class LayoutModel {
     }
 
     // MARK: Structure
-
-    /// Requests a split of the focused pane.
-    public func splitFocusedPane(axis: SplitAxis) {
-        guard let focusedPane else { return }
-        emit(.split(focusedPane, axis: axis))
-    }
 
     public func dropTab(_ tab: TabID, on target: DropTarget) {
         emit(.dropTab(tab, target))

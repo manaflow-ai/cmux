@@ -13,6 +13,14 @@ extension AgentPaneRequest {
         return .preview(url: text, toggle: toggle)
     }
 
+    /// The chat folder a header action names: an absolute path, or one written from the home
+    /// folder (`~/code/cmux`, as acpmux may record it), expanded (cx-awk8). Else none.
+    private static func headerFolder(_ text: String) -> String? {
+        guard !text.contains("\0") else { return nil }
+        let path = text == "~" || text.hasPrefix("~/") ? NSHomeDirectory() + text.dropFirst() : text
+        return path.hasPrefix("/") ? String(path.prefix(maximumOpenTabText)) : nil
+    }
+
     /// Decodes a `WKScriptMessage.body` (a dictionary once bridged).
     public init(body: Any) {
         guard let object = body as? [String: Any], let method = object["method"] as? String else {
@@ -26,6 +34,12 @@ extension AgentPaneRequest {
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "chat.unsentDraft":
+            if let text = params?["text"] as? String {
+                self = .unsentDraft(text)
             } else {
                 self = .unsupported(method)
             }
@@ -163,7 +177,7 @@ extension AgentPaneRequest {
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
+                let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
                 self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
                 self = .unsupported(method)
@@ -208,6 +222,9 @@ extension AgentPaneRequest {
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
         case "quick.startInBackground":
             self = AgentPaneQuickStart(params: params).map(AgentPaneRequest.quickStartInBackground) ?? .unsupported(method)
+        case "quick.setOnTop": self = (params?["onTop"] as? Bool).map(AgentPaneRequest.quickSetOnTop) ?? .unsupported(method)
+        case "quick.setCollapsed": self = (params?["collapsed"] as? Bool).map(AgentPaneRequest.quickSetCollapsed) ?? .unsupported(method)
+        case "quick.floatingState": self = .quickFloatingState
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {

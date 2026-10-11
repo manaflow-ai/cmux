@@ -13,6 +13,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
+    /// keeps it with the tab, so a relaunch opens the chat with it.
+    case unsentDraft(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -127,6 +130,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The quick panel's page (Start Agent's Return): its chat started;
     /// hand the session to the sidebar in the background and hide the panel.
     case quickStartInBackground(AgentPaneQuickStart)
+    /// The floating chat's page (cx-b9qi): `quick.setOnTop {onTop}` floats the
+    /// panel over other windows or not; `quick.setCollapsed {collapsed}` folds it
+    /// to its compact bar or opens it again.
+    case quickSetOnTop(Bool)
+    case quickSetCollapsed(Bool)
+    /// `quick.floatingState`: the page, once loaded, reads the floating chat's state.
+    case quickFloatingState
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)

@@ -57,6 +57,8 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
+        context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
         // Settings card and the onboarding step. Setup opens the guided step; the two grant
         // actions open their Privacy & Security list.
@@ -116,6 +118,17 @@ enum AgentHandlers {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
                 view.runPermissionAction(command)
+            })
+        }
+        // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).
+        let turnSteps: [(ActionID, Bool)] = [("agentPane.previousTurn", false), ("agentPane.nextTurn", true)]
+        for (id, forward) in turnSteps {
+            registry.bind(id, run: { invocation in
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.stepTurn(forward: forward)
             })
         }
         // Continue in… is a user-facing chooser. Headless callers use the

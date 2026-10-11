@@ -244,6 +244,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            // The app's resign and become-active path without activating it (DebugAppActivation).
+            .mainActor("debug.app_activation") { call in
+                .value(DebugAppActivation.send(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
@@ -377,6 +381,10 @@ final class AppControl {
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
+            // Every window's toasts (R96): list, a person's action run, the undo key.
+            .mainActor("debug.toast") { [weak services] call in
+                .value(services.map { DebugToast.run(call.params, $0) } ?? .null)
+            },
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
@@ -413,11 +421,6 @@ final class AppControl {
         let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
         self.publisher = publisher
         publisher.start()
-    }
-
-    /// Publishes the control snapshot synchronously (after compat intents).
-    func publishSnapshotNow() {
-        publisher?.publishNow()
     }
 
     func stop() {

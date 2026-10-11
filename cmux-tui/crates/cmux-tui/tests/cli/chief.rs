@@ -599,3 +599,309 @@ fn identify_names_the_daemon_build_and_its_cli() {
     assert!(cli.is_absolute(), "{identity}");
     assert_eq!(cli.canonicalize().unwrap(), std::path::Path::new(bin()).canonicalize().unwrap());
 }
+
+/// A stand-in daemon of another build: every request gets an `identify`
+/// answer that lacks the session journal and names `cli_path` as its CLI.
+/// The test process is the socket's peer, so its pid is the daemon's.
+fn skew_daemon(dir: &std::path::Path, cli_path: &std::path::Path) -> PathBuf {
+    skew_daemon_as(dir, cli_path, std::process::id())
+}
+
+/// [`skew_daemon`] whose `identify` names process `pid`: another pid than the
+/// socket's peer is a daemon behind a tunnel (`cmux remote ssh`).
+fn skew_daemon_as(dir: &std::path::Path, cli_path: &std::path::Path, pid: u32) -> PathBuf {
+    let socket = dir.join("skew.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let identity = json!({
+        "app": "cmux-tui", "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+        "capabilities": ["daemon-build-v1"], "build_id": "skew-test-other-build",
+        "cli_path": cli_path.to_str().unwrap(), "pid": pid,
+    });
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let identity = identity.clone();
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let Ok(request) = serde_json::from_str::<Value>(&line) else { return };
+                    let answer = json!({"id": request["id"], "ok": true, "data": identity});
+                    if writeln!(writer, "{answer}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    socket
+}
+
+/// This CLI copied into a tagged DEV bundle, so the skew checks run as they
+/// do for an installed app (an unbundled CLI never re-execs).
+fn bundled_cli(dir: &std::path::Path, name: &str) -> PathBuf {
+    let bin_dir = dir.join(format!("{name}.app/Contents/Resources/bin"));
+    fs::create_dir_all(&bin_dir).unwrap();
+    // Named cmux-tui: the full command surface (a `cmux` name is the app CLI).
+    let cli = bin_dir.join("cmux-tui");
+    fs::copy(bin(), &cli).unwrap();
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+    cli
+}
+
+/// The daemon's "CLI": a script that says it ran, at `path` with `mode`.
+fn fake_daemon_cli(path: &std::path::Path, mode: u32) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, "#!/bin/sh\necho \"REEXECED $CMUX_CLI_REEXEC $*\"\n").unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+fn journal_list(cli: &std::path::Path, socket: &std::path::Path, guard: Option<&str>) -> Output {
+    let mut command = Command::new(cli);
+    command
+        .arg("--socket")
+        .arg(socket)
+        .args(["session", "current", "journal", "producer", "list"])
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_CLI_REEXEC");
+    if let Some(guard) = guard {
+        command.env("CMUX_CLI_REEXEC", guard);
+    }
+    command.output().unwrap()
+}
+
+/// Version skew step 3 at the CLI boundary: at a dead end the CLI runs the
+/// daemon's own CLI only when every check passes, and otherwise refuses
+/// with the reason and the one exact fix command; a re-exec'd CLI never
+/// re-execs again.
+#[test]
+fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
+    let dir = unique_temp_dir("skew-reexec");
+    fs::create_dir_all(&dir).unwrap();
+    let cli = bundled_cli(&dir, "cmux DEV skewme");
+    let target = |name: &str| dir.join(format!("{name}/Contents/Resources/bin/cmux"));
+    let stderr = |o: &Output| String::from_utf8_lossy(&o.stderr).into_owned();
+
+    // Every check passes: one re-exec line, the daemon's CLI runs with the
+    // same arguments and the loop guard set to the daemon's build.
+    let good = target("cmux DEV skewother.app");
+    fake_daemon_cli(&good, 0o755);
+    let ok_dir = dir.join("ok");
+    fs::create_dir_all(&ok_dir).unwrap();
+    let output = journal_list(&cli, &skew_daemon(&ok_dir, &good), None);
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        out.contains("REEXECED skew-test-other-build --socket"),
+        "stdout {out} stderr {}",
+        stderr(&output)
+    );
+    assert_eq!(
+        stderr(&output).matches("running the daemon's CLI").count(),
+        1,
+        "{}",
+        stderr(&output)
+    );
+
+    // A command this build does not know is a dead end too (live run on
+    // cmux-lawrence-2: an unknown-action hint used to end it first).
+    let unknown_dir = dir.join("unknown");
+    fs::create_dir_all(&unknown_dir).unwrap();
+    let output = Command::new(&cli)
+        .arg("--socket")
+        .arg(skew_daemon(&unknown_dir, &good))
+        .args(["nosuchscope", "nosuchverb"])
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_CLI_REEXEC")
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        out.contains("REEXECED skew-test-other-build --socket"),
+        "unknown command: stdout {out} stderr {}",
+        stderr(&output)
+    );
+
+    // Each refusal: nothing runs, the reason and the fix command are named.
+    let writable = target("cmux DEV skewgw.app");
+    fake_daemon_cli(&writable, 0o775);
+    let outside = dir.join("loose/bin/cmux");
+    fake_daemon_cli(&outside, 0o755);
+    let release = target("cmux NIGHTLY.app");
+    fake_daemon_cli(&release, 0o755);
+    for (case, path, reason) in [
+        ("group-writable", &writable, "is writable by group or other"),
+        ("outside a cmux app", &outside, "is not inside a cmux app"),
+        ("another install family", &release, "belongs to another cmux install family"),
+    ] {
+        let case_dir = dir.join(case.replace(' ', "-"));
+        fs::create_dir_all(&case_dir).unwrap();
+        let output = journal_list(&cli, &skew_daemon(&case_dir, path), None);
+        let text = stderr(&output);
+        assert!(
+            !String::from_utf8_lossy(&output.stdout).contains("REEXECED"),
+            "{case} ran: {text}"
+        );
+        assert_ne!(output.status.code(), Some(0), "{case}: {text}");
+        assert!(text.contains(reason), "{case}: {text}");
+        assert_eq!(text.matches("fix: ").count(), 1, "{case}: {text}");
+        assert!(!text.contains("update the"), "{case}: {text}");
+    }
+
+    // The refusal speaks the CLI's language; the fix command stays literal.
+    let ja_dir = dir.join("ja");
+    fs::create_dir_all(&ja_dir).unwrap();
+    let output = Command::new(&cli)
+        .arg("--socket")
+        .arg(skew_daemon(&ja_dir, &writable))
+        .args(["session", "current", "journal", "producer", "list"])
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_CLI_REEXEC")
+        .output()
+        .unwrap();
+    let text = stderr(&output);
+    assert!(text.contains("書き込めます") && text.contains("修正: "), "ja: {text}");
+    assert!(text.contains("daemon stop --socket"), "ja: {text}");
+
+    // The loop guard: a CLI started by a re-exec never re-execs again.
+    let guard_dir = dir.join("guard");
+    fs::create_dir_all(&guard_dir).unwrap();
+    let output = journal_list(&cli, &skew_daemon(&guard_dir, &good), Some("skew-test-other-build"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("REEXECED"), "{}", stderr(&output));
+    assert!(!stderr(&output).contains("running the daemon's CLI"), "{}", stderr(&output));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Home streams the Chief's running reply: a trusted local connection that
+/// echoes `conversation-draft-events-v1` in `set-client-info` gets each
+/// `conversation-draft` on `subscribe`; a connection that did not ask never
+/// sees one (an old Home keeps its typing-only stream).
+#[test]
+fn subscribe_carries_drafts_only_to_a_home_that_asked_for_them() {
+    let (server, mut home, conversation, token) = chief_daemon("chief-draft-events");
+    home.request(
+        "set-client-info",
+        json!({"name": "home", "capabilities": ["conversation-draft-events-v1"]}),
+    );
+    home.request("subscribe", json!({}));
+    let mut plain = Conn::open(&server.socket);
+    plain.request("subscribe", json!({}));
+    let mut brain = bound_brain(&server.socket, &token);
+
+    brain.request(
+        "conversation-draft",
+        json!({"conversation": conversation, "turn": "turn:optchat:1", "segment": 0, "seq": 1,
+               "kind": "talk", "text": "Tests at the", "fresh": true, "done": false}),
+    );
+    // The typing event after the draft marks where the draft would be.
+    typing(&mut brain, &conversation, true);
+
+    let until_typing = |conn: &mut Conn| {
+        let mut seen = Vec::new();
+        loop {
+            let event = conn.event();
+            if event["event"] == "conversation-typing" {
+                return seen;
+            }
+            seen.push(event);
+        }
+    };
+    let drafts: Vec<Value> = until_typing(&mut home)
+        .into_iter()
+        .filter(|event| event["event"] == "conversation-draft")
+        .collect();
+    assert_eq!(drafts.len(), 1, "{drafts:?}");
+    assert_eq!(drafts[0]["conversation"], conversation.as_str());
+    assert_eq!(drafts[0]["participant"], "agent_mux");
+    assert_eq!(drafts[0]["item"]["turn"], "turn:optchat:1");
+    assert_eq!(drafts[0]["item"]["text"], "Tests at the");
+    assert_eq!(drafts[0]["item"]["fresh"], true);
+    let leaked: Vec<Value> = until_typing(&mut plain)
+        .into_iter()
+        .filter(|event| event["event"] == "conversation-draft")
+        .collect();
+    assert!(leaked.is_empty(), "a connection that did not ask got drafts: {leaked:?}");
+}
+
+/// cx-rhf2: a `cmux.protocol/2` request on a v1 line connection (bound as
+/// an agent, so its client numbers its ids as v1 does) gets an explicit
+/// refusal under the id it sent. Before, the refusal said `"id":"invalid"`
+/// and the client waited for its own id until it timed out.
+#[test]
+fn a_v2_request_on_a_bound_v1_connection_is_answered_under_its_id() {
+    let (server, _home, conversation, token) = chief_daemon("chief-v2-on-v1");
+    let mut brain = bound_brain(&server.socket, &token);
+    typing(&mut brain, &conversation, true);
+    let params = json!({"conversation": conversation, "turn": "turn:optchat:1", "segment": 0,
+                        "seq": 1, "kind": "talk", "text": "Tests at the", "fresh": true, "done": false});
+    for id in [json!(7), json!("rhf2-draft")] {
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+            "operation": "conversation.draft", "params": params});
+        writeln!(brain.writer, "{frame}").unwrap();
+        let answer = loop {
+            let line = brain.line();
+            if line.get("event").is_none() {
+                break line;
+            }
+        };
+        assert_eq!(answer["id"], id, "{answer}");
+        assert_eq!(answer["protocol"], "cmux.protocol/2", "{answer}");
+        assert_eq!(answer["type"], "response", "{answer}");
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["error"]["code"], "validation.invalid", "{answer}");
+    }
+}
+
+/// cx-ytw1: a socket that tunnels to another machine's daemon of another
+/// build never runs that daemon's (remote) CLI. The dead end names the remote
+/// build and, when the client runtime recorded an SSH route, the exact
+/// `cmux remote ssh … --upgrade`; a record another user could write, or a
+/// destination that is not one plain word, is never printed as a command.
+#[test]
+fn a_tunnel_to_another_build_names_the_remote_build_and_the_ssh_upgrade() {
+    let dir = unique_temp_dir("skew-tunnel");
+    fs::create_dir_all(&dir).unwrap();
+    let cli = bundled_cli(&dir, "cmux DEV skewtunnel");
+    let stderr = |o: &Output| String::from_utf8_lossy(&o.stderr).into_owned();
+    // A remote CLI path that would pass every local check if it were run.
+    let remote_cli = dir.join("cmux DEV remote.app/Contents/Resources/bin/cmux");
+    fake_daemon_cli(&remote_cli, 0o755);
+    let tunnel = |name: &str, record: Option<(&str, u32)>| {
+        let case = dir.join(name);
+        fs::create_dir_all(&case).unwrap();
+        // identify comes through the tunnel: the daemon's pid is not the peer's.
+        let socket = skew_daemon_as(&case, &remote_cli, std::process::id().wrapping_add(7919));
+        if let Some((route, mode)) = record {
+            let path = case.join("skew.sock.route");
+            fs::write(&path, route).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        journal_list(&cli, &socket, None)
+    };
+
+    let ssh = tunnel("ssh", Some(("ssh://alice@build-host:2222", 0o600)));
+    let text = stderr(&ssh);
+    assert!(!String::from_utf8_lossy(&ssh.stdout).contains("REEXECED"), "{text}");
+    assert!(text.contains("another machine that runs build skew-test-other-build"), "{text}");
+    assert!(text.contains("fix: cmux remote ssh alice@build-host:2222 --upgrade"), "{text}");
+    assert!(!text.contains("daemon stop --socket"), "{text}");
+    assert!(!text.contains("running the daemon's CLI"), "{text}");
+
+    for (name, record) in [
+        ("no-record", None),
+        ("writable", Some(("ssh://alice@build-host", 0o666))),
+        ("option", Some(("ssh://-oProxyCommand=evil", 0o600))),
+        ("spaces", Some(("ssh://host; rm -rf ~", 0o600))),
+    ] {
+        let output = tunnel(name, record);
+        let text = stderr(&output);
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("REEXECED"), "{name}: {text}");
+        assert!(text.contains("runs build skew-test-other-build"), "{name}: {text}");
+        assert!(text.contains("install build"), "{name}: {text}");
+        assert!(!text.contains("cmux remote ssh"), "{name}: {text}");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

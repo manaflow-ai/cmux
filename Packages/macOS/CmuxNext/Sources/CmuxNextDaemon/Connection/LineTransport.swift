@@ -146,12 +146,6 @@ final class LineTransport: Sendable {
         return fd
     }
 
-    /// The bridge child's pid (tests).
-    var bridgePIDForTesting: pid_t? { child?.pid }
-
-    /// The socket descriptor (tests: close-on-exec).
-    var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
-
     deinit {
         writer.close()
         socket.withLock { socket in

@@ -235,6 +235,29 @@ CefRefPtr<CefDownloadHandler> DownloadHandler();
 // Releases every waiting and running download callback (before CefShutdown).
 void ForgetDownloads();
 
+// Permission prompts (shim_permissions.mm, UI thread). The page clients'
+// permission handler: location requests wait for the host's answer
+// (PERMISSION_PROMPT, cmux_shim_permission_continue).
+CefRefPtr<CefPermissionHandler> PermissionHandler();
+// Releases every waiting prompt callback (before CefShutdown).
+void ForgetPermissionPrompts();
+
+// A Proceed the host asked for on a certificate warning
+// (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the
+// browser's next certificate error with that host and error code.
+enum class CertificateProceed { kNone, kContinue, kChromium };
+CertificateProceed TakeCertificateProceed(int browser_id, const std::string& host, int code);
+// The browser's certificate error `code` and its answer: cancelled (the host
+// shows its warning) or left to Chromium's interstitial.
+void NoteCertificateError(int browser_id, int code, bool chromium_interstitial);
+// The main-frame load error the host sees: Chromium may end a cancelled
+// certificate request as ERR_ABORTED, which reports the certificate error
+// instead; `chromium_interstitial` when Chromium shows its own page for it.
+// Every main-frame load start or error ends the browser's pending
+// certificate state (a Proceed covers only its own load).
+int CertificateLoadError(int browser_id, int code, std::string* text, bool* chromium_interstitial);
+void ForgetCertificateState(int browser_id);
+
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);
 CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token);

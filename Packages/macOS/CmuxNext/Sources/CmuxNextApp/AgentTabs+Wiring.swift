@@ -17,7 +17,18 @@ extension AgentTabStore {
     func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService,
                        chat: AgentPaneSeed? = nil) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: localHost, hostName: localHostName)
+        // A workspace of another machine: its chat runs there (cx-k21v), never in this Mac's acpmux,
+        // and it gets no New Tab page (that page runs here). Callers open a terminal there instead
+        // of a first page (``opensFirstPage(on:chat:)``).
+        let remote = !daemon.isLocal
+        guard !remote || chat != nil else { throw DaemonError.notConnected }
+        let record: AgentSessionRef
+        if remote {
+            guard let registry = Self.registryHost(of: daemon) else { throw DaemonError.notConnected }
+            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon))
+        } else {
+            record = AgentSessionRef(host: localHost, hostName: localHostName)
+        }
         let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: UUID().uuidString)
         if var chat {
             chat.cwd = chat.cwd ?? cwd
@@ -44,6 +55,12 @@ extension AgentTabStore {
         return response.surface
     }
 
+    /// Whether a new or empty workspace of `daemon` opens with an agent tab: this Mac's opens the
+    /// New Tab page; another machine's opens only a chat it asked for (its terminal otherwise).
+    func opensFirstPage(on daemon: DaemonService, chat: Bool = false) -> Bool {
+        canHost(on: daemon) && (daemon.isLocal || chat)
+    }
+
     /// The chat seed of new `workspace`, held before its tab is known: the
     /// tree can list the tab before new-conversation-tab replies, and a view
     /// built then takes it (``firstChatSeed(of:in:)``).
@@ -64,6 +81,7 @@ extension AgentTabStore {
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
@@ -108,15 +126,82 @@ extension AgentTabStore {
             guard let services else { return nil }
             guard let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession,
                   AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .remote else { return services.agentGit.local }
-            return services.agentGit.link(for: services.machines.daemon(forTab: tab))
+            // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
+            guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
+            return services.agentGit.link(for: daemon)
         }
-        tabs.remoteHost = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTab(key), let session = tab.agentSession?.session else { return nil }
-            let daemon = services.machines.daemon(forTab: tab)
-            guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach),
-                  let endpoint = daemon.remoteEndpoint else { return nil }
-            return AgentTabRemoteHost(surface: tab.surface.rawValue, session: session,
-                                      machine: tab.agentSession?.hostName ?? daemon.machineID, endpoint: endpoint)
+        tabs.remoteMachineName = { [weak services] daemon in
+            services?.machines.machineName(daemon.machineID).flatMap(AgentTabStore.displayName)
+        }
+        // A new chat on another machine with no folder in its seed starts in a folder of its
+        // workspace there (a terminal's), never a folder of this Mac.
+        tabs.remoteFolder = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key),
+                  let workspace = services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle) else { return nil }
+            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+            return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
+        }
+        tabs.remoteFolders = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key) else { return [] }
+            let store = services.machines.daemon(forTab: tab).store
+            var folders: [String] = []
+            for folder in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
+                where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
+            return folders
+        }
+        tabs.remoteHost = { [weak services, weak tabs] key in
+            guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
+            let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
+            let daemon: DaemonService
+            do {
+                daemon = try services.machines.agentDaemon(forTab: tab)
+            } catch {
+                return AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: record.hostName ?? ""))
+            }
+            let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
+            let session = record.session ?? tabs.sessions[tabs.resolve(key)]
+            guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach), let endpoint = daemon.remoteEndpoint else {
+                // A chat this app started on that machine says what to do there; an older tab
+                // recorded for another Mac keeps the "runs on" notice.
+                guard started else { return nil }
+                return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
+            }
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint)
+            if started {
+                // The tab may still be provisional here: each handshake reads its store surface.
+                host.existing = { [weak tabs] in
+                    guard let tabs else { throw CancellationError() }
+                    return try await tabs.existingRemoteChat(key)
+                }
+            }
+            if session == nil {
+                // Only a new chat this app opened on that machine starts there, and only through a
+                // daemon that serves the verb; never a fallback to this Mac (cx-k21v). It starts at
+                // the page's first send, never when the tab opens.
+                guard started else { return nil }
+                guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
+                    return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
+                }
+                host.start = { [weak tabs] cwd, harness in
+                    guard let tabs else { throw CancellationError() }
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
+                }
+            }
+            // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
+            if let link = services.machines.sshSession(daemon.machineID) ?? services.machines.server(daemon.machineID)?.link {
+                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label) { [weak services, weak link] in
+                    guard let services, let link else { return .failed("") }
+                    return await services.ssh.restartWithApprovals(link)
+                }
+            } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil {
+                // cx-psxg: a Cloud machine on the /api/vm link; the Cloud service's keyed start.
+                // A machine on the Cloud app server link gets it later (cx-kvmz).
+                host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title) { [weak services, weak cloud] in
+                    guard let services, let cloud else { return .failed("") }
+                    return await services.cloud.restartWithApprovals(cloud)
+                }
+            }
+            return host
         }
         tabs.listTabs = { [weak services] in
             guard let services else { return [] }

@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.themeEdits": {
+      "comment": "Settings row: the user's per-color edits to themes (appearance.themeEdits).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme Edits"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعديلات السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izmjene teme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temaændringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme-Anpassungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ediciones del tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifications du thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiche al tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの編集"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកែប្រែរចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 편집"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temaendringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmiany motywu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edições do tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменения темы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแก้ไขธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema Düzenlemeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміни теми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉnh sửa chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题编辑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題編輯"
+          }
+        }
+      }
+    },
+    "settings.appearance.themeEdits.help": {
+      "comment": "Help for appearance.themeEdits. Keep the JSON example verbatim.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغييراتك على ألوان سمة، مثل \"Rose Pine/background\": \"#1f1d2e\". لا تتغير السمة نفسها أبدًا؛ احذف إدخالًا لإعادة تعيين ذلك اللون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaše izmjene boja teme, npr. \"Rose Pine/background\": \"#1f1d2e\". Sama tema se nikad ne mijenja; uklonite unos da vratite tu boju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine farveændringer til et tema, fx \"Rose Pine/background\": \"#1f1d2e\". Selve temaet ændres aldrig; fjern en post for at nulstille farven."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Farbänderungen an einem Theme, etwa \"Rose Pine/background\": \"#1f1d2e\". Das Theme selbst ändert sich nie; entferne einen Eintrag, um die Farbe zurückzusetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus cambios de color en un tema, como \"Rose Pine/background\": \"#1f1d2e\". El tema nunca cambia; elimina una entrada para restablecer ese color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos modifications de couleur d’un thème, comme \"Rose Pine/background\": \"#1f1d2e\". Le thème lui-même ne change jamais ; supprimez une entrée pour rétablir cette couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue modifiche ai colori di un tema, come \"Rose Pine/background\": \"#1f1d2e\". Il tema non cambia mai; rimuovi una voce per ripristinare quel colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの色の変更（例: \"Rose Pine/background\": \"#1f1d2e\"）。テーマ自体は変わりません。項目を削除するとその色が元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរពណ៌របស់អ្នកលើរចនាប័ទ្ម ដូចជា \"Rose Pine/background\": \"#1f1d2e\"។ រចនាប័ទ្មខ្លួនឯងមិនផ្លាស់ប្ដូរទេ។ លុបធាតុមួយ ដើម្បីកំណត់ពណ៌នោះឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마의 색상 변경 사항(예: \"Rose Pine/background\": \"#1f1d2e\"). 테마 자체는 바뀌지 않으며, 항목을 지우면 그 색상이 원래대로 돌아갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fargeendringene dine i et tema, for eksempel \"Rose Pine/background\": \"#1f1d2e\". Selve temaet endres aldri; fjern en oppføring for å tilbakestille fargen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje zmiany kolorów motywu, np. \"Rose Pine/background\": \"#1f1d2e\". Sam motyw nigdy się nie zmienia; usuń wpis, aby przywrócić ten kolor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas alterações de cor em um tema, como \"Rose Pine/background\": \"#1f1d2e\". O tema em si nunca muda; remova uma entrada para redefinir essa cor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши изменения цветов темы, например \"Rose Pine/background\": \"#1f1d2e\". Сама тема не меняется; удалите запись, чтобы вернуть цвет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนสีของธีมที่คุณทำ เช่น \"Rose Pine/background\": \"#1f1d2e\" ตัวธีมเองไม่เปลี่ยน ลบรายการเพื่อคืนค่าสีนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir temada yaptığınız renk değişiklikleri, örneğin \"Rose Pine/background\": \"#1f1d2e\". Temanın kendisi asla değişmez; bir rengi sıfırlamak için girdisini kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші зміни кольорів теми, наприклад \"Rose Pine/background\": \"#1f1d2e\". Сама тема не змінюється; видаліть запис, щоб повернути колір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các thay đổi màu của bạn cho một chủ đề, như \"Rose Pine/background\": \"#1f1d2e\". Bản thân chủ đề không bao giờ thay đổi; xóa một mục để đặt lại màu đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你对主题颜色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。主题本身不会改变；删除某一项即可恢复该颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你對主題顏色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。主題本身不會改變；刪除某一項即可還原該顏色。"
+          }
+        }
+      }
+    },
     "settings.appearance.appTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -11922,268 +12186,6 @@
         }
       }
     },
-    "settings.layout.defaultColumnWidth": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Column Width"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新規カラムの幅"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عرض العمود الجديد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Širina nove kolone"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bredde på ny kolonne"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Breite neuer Spalten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ancho de columna nueva"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Largeur des nouvelles colonnes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Larghezza nuove colonne"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទទឹងជួរឈរថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새 열 너비"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bredde på ny kolonne"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szerokość nowej kolumny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Largura de nova coluna"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ширина новой колонки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ความกว้างคอลัมน์ใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni Sütun Genişliği"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ширина нової колонки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Độ rộng cột mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新列宽度"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新欄寬度"
-          }
-        }
-      }
-    },
-    "settings.layout.defaultColumnWidth.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A share of the window width."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ウインドウ幅に対する割合。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نسبة من عرض النافذة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udio širine prozora."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En andel af vinduets bredde."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein Anteil der Fensterbreite."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una fracción del ancho de la ventana."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Une part de la largeur de la fenêtre."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una frazione della larghezza della finestra."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សមាមាត្រនៃទទឹងបង្អួច។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "윈도우 너비에 대한 비율."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En andel av vindusbredden."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Część szerokości okna."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma fração da largura da janela."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Доля ширины окна."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สัดส่วนของความกว้างหน้าต่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pencere genişliğinin bir oranı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Частка ширини вікна."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tỷ lệ so với độ rộng cửa sổ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "窗口宽度的比例。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "視窗寬度的比例。"
-          }
-        }
-      }
-    },
     "settings.layout.paneBorder": {
       "extractionState": "manual",
       "localizations": {
@@ -22009,137 +22011,6 @@
         }
       }
     },
-    "settings.default.ghosttyConfig": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty config"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعدادات Ghostty"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty konfiguracija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty-konfiguration"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty-Konfiguration"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuración de Ghostty"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration Ghostty"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurazione di Ghostty"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghosttyの設定"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការកំណត់ Ghostty"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 설정"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty-konfigurasjon"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konfiguracja Ghostty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuração do Ghostty"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Конфигурация Ghostty"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกำหนดค่า Ghostty"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty yapılandırması"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Конфігурація Ghostty"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cấu hình Ghostty"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 配置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 設定"
-          }
-        }
-      }
-    },
     "settings.appearance.backgroundOpacity": {
       "extractionState": "manual",
       "localizations": {
@@ -23446,530 +23317,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "預設"
-          }
-        }
-      }
-    },
-    "settings.window.rail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action Rail"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "شريط الإجراءات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Traka radnji"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Handlingsbjælke"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktionsleiste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra de acciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barre d’actions"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra delle azioni"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "アクションレール"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "របារសកម្មភាព"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 레일"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Handlingslinje"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pasek akcji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra de ações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Панель действий"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แถบการทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eylem çubuğu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Панель дій"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thanh thao tác"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "操作栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "操作列"
-          }
-        }
-      }
-    },
-    "settings.window.rail.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows the sidebar's pinned sections as a column of icons beside it."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض الأقسام المثبتة في الشريط الجانبي كعمود من الأيقونات بجانبه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikazuje prikvačene odjeljke bočne trake kao stupac ikona pored nje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viser sidepanelets fastgjorte sektioner som en kolonne af ikoner ved siden af det."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zeigt die angehefteten Bereiche der Seitenleiste als Symbolspalte daneben."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Muestra las secciones fijadas de la barra lateral como una columna de iconos junto a ella."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Affiche les sections épinglées de la barre latérale sous forme de colonne d’icônes à côté."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra le sezioni fissate della barra laterale come una colonna di icone accanto."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "サイドバーの固定セクションを、その横のアイコン列として表示します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញផ្នែកដែលបានខ្ទាស់របស់របារចំហៀង ជាជួរឈររូបតំណាងនៅក្បែរវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사이드바의 고정된 섹션을 옆에 아이콘 열로 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viser sidefeltets festede seksjoner som en kolonne med ikoner ved siden av."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokazuje przypięte sekcje paska bocznego jako kolumnę ikon obok niego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra as seções fixadas da barra lateral como uma coluna de ícones ao lado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывает закреплённые разделы боковой панели столбцом значков рядом с ней."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงส่วนที่ปักหมุดของแถบด้านข้างเป็นคอลัมน์ไอคอนข้างแถบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kenar çubuğunun sabitlenmiş bölümlerini yanında bir simge sütunu olarak gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показує закріплені розділи бічної панелі стовпцем значків поруч із нею."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiển thị các phần đã ghim của thanh bên dưới dạng một cột biểu tượng bên cạnh."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "将边栏中固定的分区显示为旁边的一列图标。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "將側邊欄中釘選的區段顯示為旁邊的一欄圖示。"
-          }
-        }
-      }
-    },
-    "settings.choice.railLeading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Window Edge"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "حافة النافذة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rub prozora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vindueskant"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fensterrand"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Borde de la ventana"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bord de la fenêtre"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bordo della finestra"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ウインドウの端"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គែមបង្អួច"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "윈도우 가장자리"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vinduskant"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Krawędź okna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Borda da janela"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Край окна"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ขอบหน้าต่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pencere kenarı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Край вікна"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cạnh cửa sổ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "窗口边缘"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "視窗邊緣"
-          }
-        }
-      }
-    },
-    "settings.choice.railAfterSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "After Sidebar"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بعد الشريط الجانبي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nakon bočne trake"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Efter sidepanelet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nach der Seitenleiste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Después de la barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Après la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dopo la barra laterale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "サイドバーの後"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ទាប់ពីរបារចំហៀង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사이드바 다음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Etter sidepanelet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Za paskiem bocznym"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Depois da barra lateral"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "После боковой панели"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ถัดจากแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kenar çubuğundan sonra"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Після бічної панелі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sau thanh bên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "边栏之后"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "側邊欄之後"
           }
         }
       }
@@ -36022,137 +35369,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Một bức tranh thuộc phạm vi công cộng phía sau lớp vật liệu cửa sổ. Giảm độ mờ để nhìn thấy tranh. Liên kết ghi công ở phía trên."
-          }
-        }
-      }
-    },
-    "settings.choice.wheatField": {
-      "comment": "Optional public-domain backdrop art and its museum attribution.",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wheat Field with Cypresses"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weizenfeld mit Zypressen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Champ de blé avec cyprès"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حقل قمح مع أشجار السرو"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Campo de trigo con cipreses"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有絲柏的麥田"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有柏树的麦田"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이프러스가 있는 밀밭"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "糸杉のある麦畑"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pšenično polje s čempresima"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hvedemark med cypresser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Campo di grano con cipressi"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "វាលស្រូវសាលីជាមួយដើមស៊ីព្រេស"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hveteåker med sypresser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pole pszenicy z cyprysami"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Campo de trigo com ciprestes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пшеничное поле с кипарисами"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ทุ่งข้าวสาลีกับต้นไซเปรส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Servilerle buğday tarlası"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пшеничне поле з кипарисами"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cánh đồng lúa mì với những cây bách"
           }
         }
       }
@@ -60920,399 +60136,6 @@
         }
       }
     },
-    "settings.sidebar.showCounts": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار عدد علامات التبويب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži broj kartica"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis antal faner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anzahl der Tabs anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Tab Counts"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar número de pestañas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher le nombre d’onglets"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra numero di schede"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブ数を表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញចំនួនផ្ទាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "탭 개수 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis antall faner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż liczbę kart"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar número de abas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать число вкладок"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงจำนวนแท็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sekme sayısını göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати кількість вкладок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện số tab"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示标签页数量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示分頁數量"
-          }
-        }
-      }
-    },
-    "settings.sidebar.showWorkspaceDirectory": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار مجلد مساحة العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži mapu radnog prostora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis arbejdsområdets mappe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereichsordner anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Workspace Folder"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar carpeta del espacio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher le dossier de l’espace de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra cartella dello spazio di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのフォルダを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញថតរបស់កន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 폴더 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis mappen til arbeidsområdet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż folder obszaru roboczego"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar pasta do espaço de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать папку рабочей области"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงโฟลเดอร์ของพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanı klasörünü göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати теку робочого простору"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiển thị thư mục của không gian làm việc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示工作区文件夹"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示工作區資料夾"
-          }
-        }
-      }
-    },
-    "settings.sidebar.showWorkspaceDirectory.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض مجلد كل مساحة عمل تحت اسمها. تظهر حالة الوكيل المباشرة دائمًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikazuje mapu svakog radnog prostora ispod njegovog naziva. Status agenta uživo se uvijek prikazuje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser hvert arbejdsområdes mappe under dets navn. En agents aktuelle status vises altid."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt den Ordner jedes Arbeitsbereichs unter seinem Namen. Ein aktueller Agentenstatus wird immer angezeigt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows each workspace's folder under its name. A live agent status always shows."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra la carpeta de cada espacio de trabajo bajo su nombre. El estado en vivo de un agente siempre se muestra."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche le dossier de chaque espace de travail sous son nom. L’état en direct d’un agent s’affiche toujours."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra la cartella di ogni spazio di lavoro sotto il suo nome. Lo stato in tempo reale di un agente è sempre visibile."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "各ワークスペースの名前の下にフォルダを表示します。エージェントの実行中ステータスは常に表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញថតរបស់កន្លែងធ្វើការនីមួយៗនៅក្រោមឈ្មោះរបស់វា។ ស្ថានភាពផ្ទាល់របស់ភ្នាក់ងារតែងតែបង្ហាញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "각 작업 공간의 폴더를 이름 아래에 표시합니다. 에이전트의 실시간 상태는 항상 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser mappen til hvert arbeidsområde under navnet. En agents gjeldende status vises alltid."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuje folder każdego obszaru roboczego pod jego nazwą. Bieżący stan agenta jest zawsze widoczny."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra a pasta de cada espaço de trabalho abaixo do nome. O status ao vivo de um agente sempre aparece."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает папку каждой рабочей области под её названием. Текущий статус агента показывается всегда."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงโฟลเดอร์ของแต่ละพื้นที่ทำงานใต้ชื่อ สถานะสดของเอเจนต์จะแสดงเสมอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Her çalışma alanının klasörünü adının altında gösterir. Bir ajanın canlı durumu her zaman gösterilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує теку кожного робочого простору під його назвою. Поточний стан агента показується завжди."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiển thị thư mục của mỗi không gian làm việc dưới tên của nó. Trạng thái trực tiếp của tác tử luôn hiển thị."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在每个工作区名称下方显示其文件夹。代理的实时状态始终显示。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在每個工作區名稱下方顯示其資料夾。代理的即時狀態一律顯示。"
-          }
-        }
-      }
-    },
     "settings.source.ghostty": {
       "extractionState": "manual",
       "localizations": {
@@ -62937,27 +61760,27 @@
     "settings.workspaceRow.agentStatus.help": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "needs_review", "value": "سطر الحالة الذي يبلغ عنه الوكلاء والخطافات." } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Statusna linija koju prijavljuju agenti i hookovi." } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Statuslinjen, som agenter og hooks rapporterer." } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Die Statuszeile, die Agenten und Hooks melden." } },
-        "en": { "stringUnit": { "state": "translated", "value": "The status line agents and hooks report." } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "La línea de estado que informan los agentes y hooks." } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "La ligne d'état signalée par les agents et les hooks." } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "La riga di stato riportata da agenti e hook." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとフックが報告するステータス行。" } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "បន្ទាត់ស្ថានភាពដែលភ្នាក់ងារ និង hook រាយការណ៍។" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트와 훅이 보고하는 상태 줄." } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "Statuslinjen som agenter og hooks rapporterer." } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Wiersz stanu zgłaszany przez agentów i hooki." } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "A linha de status que agentes e hooks informam." } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Строка статуса, которую сообщают агенты и хуки." } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "บรรทัดสถานะที่เอเจนต์และ hook รายงาน" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Ajanların ve kancaların bildirdiği durum satırı." } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Рядок стану, який повідомляють агенти й хуки." } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Dòng trạng thái do tác tử và hook báo cáo." } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理和钩子报告的状态行。" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式與掛鉤回報的狀態列。" } }
+        "ar": { "stringUnit": { "state": "needs_review", "value": "الحالة التي يبلغ عنها الوكلاء والخطافات، كل منها في سطر." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Status koji prijavljuju agenti i hookovi, svaki u svom redu." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Status, som agenter og hooks rapporterer, én linje hver." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Der Status, den Agenten und Hooks melden, je eine Zeile." } },
+        "en": { "stringUnit": { "state": "translated", "value": "The status agents and hooks report, one line each." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "El estado que informan los agentes y hooks, una línea cada uno." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "L'état signalé par les agents et les hooks, une ligne chacun." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Lo stato riportato da agenti e hook, una riga ciascuno." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとフックが報告するステータス(1 件ごとに 1 行)。" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ស្ថានភាពដែលភ្នាក់ងារ និង hook រាយការណ៍ មួយបន្ទាត់ម្ដង។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트와 훅이 보고하는 상태(항목마다 한 줄)." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Statusen agenter og hooks rapporterer, én linje hver." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Stan zgłaszany przez agentów i hooki, każdy w osobnym wierszu." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "O status que agentes e hooks informam, uma linha cada." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Статус, который сообщают агенты и хуки, по строке на запись." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "สถานะที่เอเจนต์และ hook รายงาน บรรทัดละหนึ่งรายการ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Ajanların ve kancaların bildirdiği durum, her biri bir satırda." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Стан, який повідомляють агенти й хуки, по рядку на запис." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Trạng thái do tác tử và hook báo cáo, mỗi mục một dòng." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理和钩子报告的状态，每项一行。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式與掛鉤回報的狀態，每項一行。" } }
       }
     },
     "settings.workspaceRow.ports.help": {
@@ -76577,6 +75400,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "工作區列只顯示圖示、名稱與未讀標記，區段標題變成細線。"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.log": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Protokoll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Journal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ហេតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dziennik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Журнал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Günlük"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Журнал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhật ký"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "日誌"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.log.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The newest line agents and scripts log: cmux workspace log append <text>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントやスクリプトが記録した最新の行: cmux workspace log append <text>。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أحدث سطر يسجله الوكلاء والبرامج النصية: cmux workspace log append <text>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najnoviji red koji zapisuju agenti i skripte: cmux workspace log append <text>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nyeste linje, som agenter og scripts logger: cmux workspace log append <text>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die neueste Zeile, die Agenten und Skripte protokollieren: cmux workspace log append <text>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La línea más reciente que registran los agentes y scripts: cmux workspace log append <text>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dernière ligne journalisée par les agents et les scripts : cmux workspace log append <text>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'ultima riga registrata da agenti e script: cmux workspace log append <text>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់ថ្មីបំផុតដែលភ្នាក់ងារ និងស្គ្រីបកត់ត្រា៖ cmux workspace log append <text>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트와 스크립트가 기록한 최신 줄: cmux workspace log append <text>."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nyeste linjen agenter og skript logger: cmux workspace log append <text>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najnowszy wiersz zapisany przez agentów i skrypty: cmux workspace log append <text>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A linha mais recente que agentes e scripts registram: cmux workspace log append <text>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последняя строка, которую записали агенты и скрипты: cmux workspace log append <text>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บรรทัดล่าสุดที่เอเจนต์และสคริปต์บันทึก: cmux workspace log append <text>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanların ve betiklerin kaydettiği en yeni satır: cmux workspace log append <text>."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найновіший рядок, який записали агенти й скрипти: cmux workspace log append <text>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dòng mới nhất mà tác tử và script ghi lại: cmux workspace log append <text>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理和脚本记录的最新一行：cmux workspace log append <text>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理程式與指令碼記錄的最新一行：cmux workspace log append <text>。"
           }
         }
       }

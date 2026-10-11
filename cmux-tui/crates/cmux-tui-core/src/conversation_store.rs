@@ -472,15 +472,6 @@ fn apply_op_in(
         // head's loop-guard counters (no row window to fill with work cards).
         cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
     }
-    if op.is_send() {
-        // The sender has read its own message, for every client of this
-        // owner (cx-59n8.2). The host does it, not the reducer: the reducer
-        // stays equal to the cloud reducer's conformance corpus. The change
-        // stays `message`; clients read the cursor from the summary.
-        let seq = commit.head.last_seq;
-        let cursor = commit.head.read_cursors.entry(actor.to_string()).or_insert(0);
-        *cursor = (*cursor).max(seq);
-    }
     let origin = stamp_origin(&mut commit, actor, op);
     write_head(transaction, &commit.head)?;
     if let Some(message) = &commit.message {
@@ -751,7 +742,8 @@ impl ConversationEvent {
         }
     }
 
-    /// Drafts travel only on `conversation.events`.
+    /// Drafts travel on `conversation.events`, and on `subscribe` only to a
+    /// connection that asked for them (`conversation-draft-events-v1`).
     pub(crate) const fn is_draft(&self) -> bool {
         matches!(self, Self::Draft { .. })
     }

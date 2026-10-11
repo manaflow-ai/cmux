@@ -158,6 +158,7 @@ mod feed_local;
 mod frontend_browser_history;
 mod history_search;
 mod home;
+mod icon_assets;
 mod launch_snapshot;
 mod new_screen;
 mod personal;
@@ -180,6 +181,7 @@ mod cmd_server;
 use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
+use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -194,6 +196,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -1019,6 +1022,7 @@ enum Command {
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
+    RestartTab(tab_restart::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -1594,6 +1598,9 @@ enum Command {
     FeedLocalHandoffBegin(feed_local::ItemParams),
     FeedLocalHandoffAbort(feed_local::ItemParams),
     FeedLocalHandoffDone(feed_local::DoneParams),
+    /// Asset blobs for icons (`icon-assets-v1`, server/icon_assets.rs).
+    PutBlob(icon_assets::PutParams),
+    GetBlob(icon_assets::GetParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -1604,6 +1611,7 @@ enum Command {
     HistorySearch(history_search::HistorySearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
+    ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
     /// Cloud conversations proxy (`cloud-conversations-v1`,
@@ -2411,11 +2419,13 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    PendingServer, SocketStartLock, connect_session_socket, prepare_socket_parent, serve,
-    serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
+    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
+mod restoring;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
+pub use restoring::RestoringServer;
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;
@@ -2805,22 +2815,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
-    cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
-}
-
-fn paired_surface_size(
-    command: &str,
-    cols: Option<u16>,
-    rows: Option<u16>,
-) -> anyhow::Result<Option<(u16, u16)>> {
-    match (cols, rows) {
-        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
-        (None, None) => Ok(None),
-        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
-    }
-}
-
 fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
@@ -3182,6 +3176,7 @@ fn handle_command_with_cancellation(
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
+        Command::RestartTab(params) => tab_restart::restart(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }
@@ -3475,6 +3470,8 @@ fn handle_command_with_cancellation(
         | Command::FeedLocalHandoffBegin(_)
         | Command::FeedLocalHandoffAbort(_)
         | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
+        Command::PutBlob(params) => icon_assets::put(mux, params),
+        Command::GetBlob(params) => icon_assets::get(mux, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
@@ -3483,6 +3480,7 @@ fn handle_command_with_cancellation(
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
+        Command::ConversationDraft(params) => conversations::draft(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),

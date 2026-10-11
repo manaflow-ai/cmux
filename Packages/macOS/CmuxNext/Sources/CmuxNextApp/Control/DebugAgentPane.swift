@@ -98,6 +98,18 @@ enum DebugAgentPane {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
+        if action == "snapshot" {
+            // The page as WebKit draws it (`WKWebView.takeSnapshot`), PNG at `path`: a window
+            // snapshot draws no web content, and a build host may have no screen recording.
+            let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
+            guard let image = try? await view.webView.takeSnapshot(configuration: nil),
+                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]),
+                  (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
+                return .object(["pane": .string(pane), "error": .string("snapshot failed")])
+            }
+            return .object(["pane": .string(pane), "path": .string(path), "width": .number(Double(rep.pixelsWide)), "height": .number(Double(rep.pixelsHigh))])
+        }
         if action == "readiness" {
             return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
@@ -177,7 +189,9 @@ enum DebugAgentPane {
         });
         """
         do {
-            let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
+            let result = try await view.webView.callAsyncJavaScript(script, arguments: ["waitForAnimations": waitForAnimations],
+                                                                    in: nil, contentWorld: .page)
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),

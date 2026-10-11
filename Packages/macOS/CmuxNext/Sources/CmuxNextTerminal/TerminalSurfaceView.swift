@@ -42,9 +42,6 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Grid the PTY owner announced last (``applyAnnouncedGrid(_:)``).
-    var announcedGrid: TerminalGridSize? { geometry.announced }
-
     /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
         didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
@@ -362,7 +359,7 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    var hasSelection: Bool {
+    public var hasSelection: Bool {
         guard let surface else { return false }
         return ghostty_surface_has_selection(surface)
     }

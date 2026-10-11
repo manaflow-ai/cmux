@@ -63,8 +63,8 @@ public final class AgentPresenceTagView: NSView {
     override public func updateLayer() {
         guard let presence else { return }
         performWithTheme {
-            layer?.backgroundColor = AgentPresenceColor.color(forKey: presence.colorKey).cgColor
-            label.textColor = AgentPresenceColor.ink(forKey: presence.colorKey)
+            layer?.backgroundColor = AgentPresenceColor(key: presence.colorKey).color.cgColor
+            label.textColor = AgentPresenceColor(key: presence.colorKey).ink
         }
     }
 }

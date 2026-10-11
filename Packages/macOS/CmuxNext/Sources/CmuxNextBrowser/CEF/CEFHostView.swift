@@ -72,7 +72,18 @@ final class CEFHostView: NSView {
                 if !local.isNull, !local.isEmpty { rects.append(local) }
             }
         }
-        return rects
+        return Self.outermost(rects)
+    }
+
+    /// `rects` without those inside another (one of equal rects stays): a
+    /// hole inside a hole, such as the error page's in the New Tab page's,
+    /// would cancel it in an even-odd mask and show the page there again.
+    static func outermost(_ rects: [CGRect]) -> [CGRect] {
+        rects.enumerated().filter { index, rect in
+            !rects.enumerated().contains { other, outer in
+                other != index && outer.contains(rect) && (outer != rect || other < index)
+            }
+        }.map(\.element)
     }
 
     override func viewDidMoveToWindow() {
@@ -179,19 +190,5 @@ final class CEFTabContentView: NSView {
             if subview.frame != frame { subview.frame = frame }
         }
         tab?.applyOcclusion()
-    }
-
-    /// Shows `image` over the page area (nil removes it).
-    func showSnapshot(_ image: CGImage?) {
-        if let image {
-            let page = tab?.devToolsController.frames(in: bounds).page ?? bounds
-            snapshotView.image = NSImage(cgImage: image, size: page.size)
-            snapshotView.frame = page
-            if snapshotView.superview == nil { addSubview(snapshotView) }
-            snapshotView.isHidden = false
-        } else {
-            snapshotView.isHidden = true
-            snapshotView.image = nil
-        }
     }
 }

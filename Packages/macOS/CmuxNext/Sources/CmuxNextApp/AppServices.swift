@@ -71,8 +71,9 @@ final class AppServices {
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
-    /// Reopen Closed Tab history; set when the tab handlers bind.
-    var closedTabs: ClosedTabTracker?
+    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind.
+    /// The daemon owns the closed history itself (`DaemonClosedHistory`).
+    var closedTabs: ClosedTabsFeed?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
@@ -92,8 +93,6 @@ final class AppServices {
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
-    /// Recently closed workspaces (history lists).
-    private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
@@ -115,8 +114,6 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// Recently closed screens (Reopen Closed Screen).
-    let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
     /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
@@ -350,9 +347,9 @@ final class AppServices {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps
-                    // its first id; links name it by the resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                    // A tab first seen without a `tab_` resource id keeps its first id; links
+                    // (and TabMirror's wait) name it by the observed resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
                         return (tab, pane)
                     }
                 }

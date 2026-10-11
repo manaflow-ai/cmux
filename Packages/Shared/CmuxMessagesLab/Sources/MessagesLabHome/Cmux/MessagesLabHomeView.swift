@@ -142,6 +142,13 @@ public final class MessagesLabHomeView: NSView {
         set { projection.initialsOverride = newValue }
     }
 
+    /// The header avatar's picture, drawn over `avatarText` and the
+    /// initials; nil shows those.
+    public var avatarPicture: NSImage? {
+        get { projection.pictureOverride }
+        set { projection.pictureOverride = newValue }
+    }
+
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)
@@ -235,10 +242,10 @@ public final class MessagesLabHomeView: NSView {
     @discardableResult
     public func sendDraft() -> String? { projection.send() }
 
-    /// Automation (DEBUG socket): a love tapback on the newest incoming
-    /// message through the picker's path (`ChatIntents.react`).
-    public func debugTapbackNewestIncoming() -> Bool {
-        guard let hit = controller.demo?.lastTextRow(mine: false) else { return false }
+    /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
+    /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
+        guard let hit = controller.demo?.lastTextRow(mine: mine) else { return false }
         projection.react(hit.row.ref, .tapback("love"))
         return true
     }

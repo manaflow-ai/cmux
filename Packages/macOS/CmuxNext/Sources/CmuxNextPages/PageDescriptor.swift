@@ -173,6 +173,11 @@ public extension PageDescriptor {
         "home.show", "appStore.show", "newBrowserWorkspace", "space.new",
     ]
 
+    /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and
+    /// opens a file; the only native op copies a path.
+    static let files = PageDescriptor(
+        id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
+
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],

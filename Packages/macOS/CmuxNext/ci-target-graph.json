@@ -211,8 +211,10 @@
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextLayout",
         "CmuxNextProcessEnvironment",
         "CmuxNextTabs",
+        "CmuxNextTasks",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -728,6 +730,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"

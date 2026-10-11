@@ -8,7 +8,6 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { ContextMenu } from "../../../ui/ContextMenu";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
@@ -24,6 +23,7 @@ import {
 import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -69,6 +69,9 @@ type Props = NewTabScreenActions & {
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
+  /// The folder a prompt with no pick starts in (the host's start folder, a private folder in a
+  /// fresh workspace); the composer chip names it, not the inherited `cwd` (nxdog91 F0).
+  startCwd?: string;
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
@@ -151,6 +154,11 @@ export function NewTabScreen(props: Props) {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) return props.onOpenChat(key);
     props.onOpenSession(id);
+  };
+  // A card's Open in Terminal, by its chat's key, as All chats opens one (only cards with a key offer it).
+  const openCardInTerminal = (id: string) => {
+    const key = cards.find((card) => card.sessionId === id)?.chatKey;
+    if (key) props.onOpenChatInTerminal?.(key);
   };
   const list = useRef<HTMLDivElement>(null);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
@@ -287,7 +295,8 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  const chatFolder = project ?? props.cwd;
+  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
+  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
 
   return (
     <div
@@ -395,7 +404,13 @@ export function NewTabScreen(props: Props) {
       )}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
-        <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
+        <ChatCards
+          cards={cards}
+          variant={sections.chats}
+          onOpen={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          onShowAll={props.onShowAll}
+        />
       )}
       {allChats && props.loadChatsPage && props.onOpenChat && (
         <AllChatsList
@@ -436,7 +451,7 @@ function ownsKeys(element: Element): boolean {
 
 /// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
 /// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
-/// down) are in its right-click menu. "Integrate a harness" ends the row.
+/// down) are in its trailing disclosure menu. "Integrate a harness" ends the row.
 function ToolsRow({
   tools,
   onRunAction,
@@ -465,13 +480,27 @@ function ToolsRow({
           </button>
         );
         return tool.menu.length > 0 ? (
-          <ContextMenu
-            key={tool.id}
-            className="nt-tool-host"
-            items={tool.menu.map((id) => ({ id, label: toolMenuTitle(t, id), onSelect: () => onRunAction?.(id) }))}
-          >
+          <div className="nt-tool-host nt-tool-host-with-menu" key={tool.id}>
             {button}
-          </ContextMenu>
+            <span className="nt-tool-menu">
+              <Menu>
+                <MenuButton className="nt-tool-menu-button" label={t("newTabPage.moreOptions")} aria-haspopup="menu">
+                  …
+                </MenuButton>
+                <MenuPopup
+                  className="nt-tool-menu-popover"
+                  label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
+                  align="end"
+                >
+                  {tool.menu.map((id) => (
+                    <MenuItem className="nt-tool-menu-item" key={id} onSelect={() => onRunAction?.(id)}>
+                      {toolMenuTitle(t, id)}
+                    </MenuItem>
+                  ))}
+                </MenuPopup>
+              </Menu>
+            </span>
+          </div>
         ) : (
           <React.Fragment key={tool.id}>{button}</React.Fragment>
         );

@@ -215,6 +215,44 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
     },
+    "tool-menu-open": {
+      note: "A tool's extra actions open from its trailing disclosure without moving the page or clipping the popup.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The tool menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening a portaled tool menu must not move the page." },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".nt-tool-menu-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
+      },
+    },
+    "tool-menu-keyboard": {
+      note: "Arrow navigation and Escape keep the tool menu's focus contract explicit.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "Keyboard tool menus must remain on top of the page." },
+        layoutShiftMax: { value: 0, reason: "Keyboard menu navigation must not move page content." },
+      },
+      play: async (ctx) => {
+        const trigger = { selector: ".nt-tool-menu-button" };
+        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
+        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
+        await ctx.focus(trigger);
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(0));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(1));
+        await ctx.press("Escape");
+        await ctx.waitFor(
+          () =>
+            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
+            ctx.document.activeElement === ctx.find(trigger),
+        );
+      },
+    },
     "typed-prompt": {
       note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",
       ready: newTab({ projects: [CWD] }),
@@ -293,7 +331,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(4)),
     },
     "switcher-off": {
-      note: "The template switcher is off by default until it is styled (cx-7qqu): no dots.",
+      note: "With Debug Settings newTab.templateSwitcher off (it is on by default, cx-l1jv): no dots.",
       ready: newTab(),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
@@ -303,12 +341,35 @@ export default agentPaneEntry({
       },
     },
     "switcher-on": {
-      note: "With Debug Settings newTab.templateSwitcher on, a dot switches the page in place (cx-7qqu).",
+      note: "The template dots, drawn like the space dots: a dot switches the page in place and the chip slides to it (cx-l1jv).",
       ready: newTab({ templateSwitcher: true }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
         await ctx.click({ selector: '.nt-template-dot[data-template="threads"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="threads"]'));
+      },
+    },
+    "switcher-keys": {
+      note: "The arrow keys switch templates from a focused dot and keep focus there, through Classic; arrowing onto Terminal only focuses it (cx-l1jv).",
+      ready: newTab({ templateSwitcher: true }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        const onDot = (template: string) =>
+          ctx.document.activeElement?.matches(`.nt-template-input[value="${template}"]`);
+        await ctx.focus({ role: "radio", name: "Default" });
+        for (const template of ["composer", "threads", "console"]) {
+          await ctx.press("ArrowRight");
+          await ctx.waitFor(() => ctx.document.querySelector(`.nt-screen[data-template="${template}"]`));
+          if (!onDot(template)) throw new Error(`switching to ${template} with the keys moved focus off the dots`);
+        }
+        // Classic is another page, which focuses its field as it mounts: focus stays on the dots.
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-screen") && onDot("classic"));
+        // Terminal would turn the page into a terminal: the keys only focus it.
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => onDot("terminal"));
+        if (!ctx.document.querySelector('.nt-template-input[value="classic"]:checked'))
+          throw new Error("arrowing onto Terminal switched the page");
       },
     },
   }),

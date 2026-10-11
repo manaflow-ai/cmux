@@ -57,8 +57,20 @@
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
     "git.diff",
+    "git.files.list",
     "git.files.search",
     "git.status",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -287,6 +299,7 @@
       "focus-direction",
       "focus-pane",
       "forget-session",
+      "get-blob",
       "get-frontend-browser-history",
       "get-frontend-projection",
       "get-size-state",
@@ -344,6 +357,7 @@
       "pin-workspace",
       "ping",
       "process-info",
+      "put-blob",
       "put-frontend-projection",
       "put-session",
       "read-screen",
@@ -364,6 +378,7 @@
       "report-focus",
       "resize-surface",
       "resolve-terminal",
+      "restart-tab",
       "run",
       "save-screen-group",
       "save-tab-group",
@@ -468,6 +483,7 @@
       "history-search",
       "conversation-op",
       "conversation-typing",
+      "conversation-draft",
       "conversation-bind",
       "conversation-agent-token",
       "conversation-import",
@@ -525,6 +541,12 @@
       ]
     },
     {
+      "name": "history-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "browser-state",
       "streams": [
         "attach-browser"
@@ -575,6 +597,12 @@
     },
     {
       "name": "conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-draft",
       "streams": [
         "subscribe"
       ]

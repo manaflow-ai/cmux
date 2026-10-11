@@ -224,6 +224,11 @@ struct ThreadPreview: Hashable {
     /// The root part, when it is loaded (else a generic preview).
     var part: Part?
     var count: Int
+    /// The root is mine: the preview shows on the right (macOS 27, outgoing-thread-reply-take4, the
+    /// "Maybe: Instinct" reference of 2026-10-11): an outlined outgoing bubble at the right edge in blue,
+    /// "N Replies" right-aligned under it, no stub. A preview follows its root's side, not the reply's
+    /// (a reply of mine to Instinct's "Charlie." shows its preview on the left, reply-from-menu-send).
+    var outgoing = false
     /// Measured layout (points, relative to the row's content top).
     var box: CGSize
     static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
@@ -238,8 +243,8 @@ struct ThreadPreview: Hashable {
     /// Measured on 2x screenshots of macOS 26 Messages: link/text card
     /// 180.5 x 48.5 (text 39 pt in, 15 pt right padding); photo thumbnail
     /// 48 pt wide at the photo's aspect.
-    static func make(root: PartRef, part: Part?, count: Int) -> ThreadPreview {
-        var p = ThreadPreview(root: root, part: part, count: count, box: .zero)
+    static func make(root: PartRef, part: Part?, count: Int, outgoing: Bool = false) -> ThreadPreview {
+        var p = ThreadPreview(root: root, part: part, count: count, outgoing: outgoing, box: .zero)
         if p.isThumbnail, case let .attachment(a) = part {
             p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
         } else if p.isText {
@@ -688,8 +693,25 @@ enum RowBuilder {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
         }
+        // A message's thread: a reply's root, or the message itself when the message after it is its inline reply (a
+        // thread root with its replies under it). Messages separates such a thread from the messages around it like a
+        // sender change: when the first inline reply to a message arrives, the gap above that root grows to 32 pt
+        // (macOS 27, lossless typing-unfocused-take1: root top minus the bubble above, tail included, 7.5 -> 30.0 pt
+        // while the reply arrives). A root whose replies are elsewhere ("2 Replies", a preview at the reply) keeps
+        // its group (real still scenes). No thread view: one thread.
+        // `i`: x's index. x is a root when the messages right after it (deleted ones skipped) are its replies and one
+        // of them is not unsent: a root whose last inline reply is unsent or deleted returns to its group gap.
+        func thread(_ x: Message, at i: Int) -> ID? {
+            if let r = x.replyTo { return r.messageId }
+            guard !threadMode else { return nil }
+            for n in messages.dropFirst(i + 1) where n.deletedAt == nil {
+                guard n.replyTo?.messageId == x.id else { break }
+                if n.retractedAt == nil { return x.id }
+            }
+            return nil
+        }
         // The message above the range: the nearest one that is not deleted.
-        var prevIndex = span.lowerBound - 1
+        var prevIndex = messages.prefix(max(0, span.lowerBound)).lastIndex { $0.deletedAt == nil } ?? -1
         var prev: Message? = messages.prefix(max(0, span.lowerBound)).last { $0.deletedAt == nil } // no index math
         for (idx, m) in zip(span, messages.dropFirst(span.lowerBound)) {
             if m.deletedAt != nil { continue }
@@ -712,15 +734,19 @@ enum RowBuilder {
                 case .receipt: gap = 4
                 default: gap = 3.5
                 }
-                if !threadMode { connector = "part:\(r.messageId):\(r.partIndex)" }
-            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, p.replyTo == m.replyTo {
+                // My reply right under my own root draws no connector: Messages draws thread lines on the
+                // incoming side only (outgoing-thread-reply-take4: my reply under the preview of my root
+                // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
+                // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
+                if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
+            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, thread(p, at: prevIndex) == thread(m, at: idx) {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
             } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
                 // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
                 // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
                 // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
                 gap = 7
-            } else if let p = prev, p.senderId != m.senderId || p.replyTo != m.replyTo {
+            } else if let p = prev, p.senderId != m.senderId || thread(p, at: prevIndex) != thread(m, at: idx) {
                 gap = 32     // a new sender, or a change of thread (measured on macOS 26)
             } else {
                 gap = 12
@@ -734,7 +760,7 @@ enum RowBuilder {
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
-                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0)
+                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me)
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height))
                 gap = ThreadPreview.replyGap
             }
@@ -744,7 +770,8 @@ enum RowBuilder {
             } else {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
-                    || next.retractedAt != nil || next.replyTo != m.replyTo } ?? true
+                    || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || thread(next, at: messages.dropFirst(idx + 1).firstIndex { $0.deletedAt == nil } ?? idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                     let (size, tl) = (measured.size, measured.text)
@@ -788,7 +815,7 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
                 }
             }
-            prev = m
+            prev = m; prevIndex = idx
         }
         // cmux: the host's notice, centered like the date row, under the newest message.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {

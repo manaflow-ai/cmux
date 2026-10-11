@@ -5,12 +5,19 @@ import CmuxNextDesign
 /// and every Space. Unlike `ActiveAppKeyPanel` it takes the keys while cmux
 /// is in the background, without activating cmux, so the summoning hot key
 /// leaves the user in their app.
-final class QuickComposerPanel: NSPanel, QuickComposerWindow {
+final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     static let size = CGSize(width: 680, height: 220)
 
     var onResignKey: (() -> Void)?
     var onCancel: (() -> Void)?
     private let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
+    /// The floating chat (cx-b9qi, `QuickComposerPanel+Floating`).
+    var holdsChat = false
+    /// Folded to its compact bar; `expandedHeight` is the height it opens back to.
+    var isCollapsed = false
+    var expandedHeight: CGFloat?
+    let frames = FloatingChatFrames(defaults: .standard)
+    let grip = FloatingChatGrip()
 
     init() {
         super.init(
@@ -28,7 +35,6 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow {
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = true
-        animationBehavior = .utilityWindow
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         setAccessibilityIdentifier("cmux.quickComposer")
@@ -36,12 +42,19 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow {
         surface.autoresizingMask = [.width, .height]
         surface.frame = NSRect(origin: .zero, size: Self.size)
         contentView = surface
+        grip.frame = NSRect(x: 0, y: Self.size.height - FloatingChatGrip.height, width: Self.size.width, height: FloatingChatGrip.height)
+        grip.autoresizingMask = [.width, .minYMargin]
+        grip.isHidden = true
+        surface.addSubview(grip)
+        delegate = self
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     func present(_ content: NSView, focus: NSView?) {
+        // Read per show: the panel is reused, and motion settings change live.
+        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         if content.superview !== surface.contentView {
             surface.contentView.subviews.forEach { $0.removeFromSuperview() }
             content.frame = surface.contentView.bounds
@@ -53,7 +66,8 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow {
             content.layer?.masksToBounds = true
             surface.contentView.addSubview(content)
         }
-        if !isVisible, let screen = Self.screenUnderPointer() {
+        // The floating chat stays where it was moved to.
+        if !isVisible, !holdsChat, let screen = Self.screenUnderPointer() {
             setFrame(Self.placement(size: frame.size, in: screen.visibleFrame), display: false)
         }
         // Raise never activates the app; under no-activate it does not take the keys either.
@@ -76,9 +90,20 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow {
         return CGRect(x: x.rounded(), y: y.rounded(), width: width, height: height)
     }
 
-    private static func screenUnderPointer() -> NSScreen? {
+    static func screenUnderPointer() -> NSScreen? {
         let point = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
+    }
+
+    /// ⌘-drag anywhere moves the floating chat, as it moves any background
+    /// window; the page never sees that press.
+    override func sendEvent(_ event: NSEvent) {
+        if holdsChat, event.type == .leftMouseDown,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function]) == .command {
+            performDrag(with: event)
+            return
+        }
+        super.sendEvent(event)
     }
 
     override func resignKey() {

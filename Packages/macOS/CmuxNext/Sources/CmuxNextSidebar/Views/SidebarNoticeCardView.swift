@@ -118,6 +118,27 @@ final class SidebarNoticeCardView: NSView {
         applyColors()
     }
 
+    /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss), as menu items.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let notice else { return nil }
+        let menu = NSMenu()
+        for action in notice.actions.prefix(2) {
+            let item = menu.addItem(withTitle: action.title, action: #selector(menuAction(_:)), keyEquivalent: "")
+            (item.target, item.representedObject) = (self, action.id)
+        }
+        if let dismiss = notice.dismissLabel {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            menu.addItem(withTitle: dismiss, action: #selector(menuDismiss), keyEquivalent: "").target = self
+        }
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    @objc private func menuAction(_ item: NSMenuItem) {
+        if let id = notice?.id, let action = item.representedObject as? String { onAction?(id, action) }
+    }
+
+    @objc private func menuDismiss() { if let id = notice?.id { onDismiss?(id) } }
+
     private func rebuildButtons(_ actions: [SidebarNoticeCard.Action]) {
         actionButtons.forEach { $0.removeFromSuperview() }
         actionButtons = actions.prefix(2).map { action in
@@ -245,12 +266,6 @@ final class SidebarNoticeCardView: NSView {
     }
 
     // MARK: Tests
-
-    /// The text lines shown (heading, title, detail, shortcut).
-    var lineViews: [NSView] { [eyebrowLabel, titleLabel, detailLabel, shortcutLabel].filter { !$0.isHidden } }
-
-    /// Whether the icon (or the spinner) shows beside the title.
-    var showsSymbol: Bool { !icon.isHidden || !spinner.isHidden }
 
     /// Every line as shown, top to bottom.
     var shownText: [String] {

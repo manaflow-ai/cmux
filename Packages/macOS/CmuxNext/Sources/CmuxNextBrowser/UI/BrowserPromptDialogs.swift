@@ -42,14 +42,15 @@ final class BrowserPromptDialogs {
         shown = (key, id)
     }
 
-    /// The dialog for a JavaScript dialog; nil for a permission request.
+    /// The dialog for a JavaScript dialog; nil for a permission request or a
+    /// link to another app, which stay in the prompt bar.
     static func spec(for prompt: BrowserPrompt) -> CmuxDialogSpec? {
         let title = Strings.dialogFrom(prompt.origin)
         let ok = CmuxDialogButton(id: "ok", title: Strings.ok, role: .default)
         let cancel = CmuxDialogButton(id: "cancel", title: Strings.cancel, role: .cancel)
         let identifier = "browser.dialog.javascript"
         switch prompt.kind {
-        case .permission:
+        case .permission, .openExternalApp:
             return nil
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)

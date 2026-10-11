@@ -5,12 +5,15 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod aside;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
+mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
+mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -26,6 +29,7 @@ mod models_view;
 mod paging;
 mod pool;
 mod queue;
+mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -55,6 +59,8 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_in;
+mod transfer_out;
 mod turns;
 mod warm;
 mod xai;
@@ -157,6 +163,9 @@ pub struct PromptOptions {
     /// session cannot steer now (no running turn, or an agent that does not
     /// steer).
     pub steer_only: bool,
+    /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
+    /// running turn and run this next" instead of waiting behind the queue.
+    pub interrupt: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -256,6 +265,8 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
+    pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
@@ -307,6 +318,7 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
         });
@@ -408,6 +420,8 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
+        // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
+        self.resume_queues();
         // The last live model lists, before anything slow.
         self.load_live_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
@@ -423,6 +437,13 @@ impl Hub {
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
+        // Probes of earlier runs left transcripts in the unattended folder: remove them.
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::probe_cleanup::remove_probe_transcripts(
+                &crate::protected_folders::unattended_cwd(),
+            )
+        })
+        .await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
@@ -507,6 +528,7 @@ impl Hub {
         drop(sessions);
         // A turn whose agent host still runs is not lost: the host is adopted.
         self.mark_unknown_outcomes(&Self::live_host_sessions());
+        self.restore_queues();
     }
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
@@ -523,6 +545,9 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
+            restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
@@ -612,10 +637,24 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
     ) -> (EventRecord, bool) {
+        self.append_at(session, dir, kind, msg, host_seq, None)
+    }
+
+    /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
+    /// None: now), as a fork's copy of its parent's turns did.
+    pub(super) fn append_at(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let record =
-            EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
+        let at = at.unwrap_or_else(now_ms);
+        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
@@ -649,6 +688,9 @@ impl Hub {
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
+                | "queue_order"
+                | "queue_paused"
+                | "queue_resumed"
                 | "created"
                 | "tags"
                 | "rules"
@@ -742,6 +784,9 @@ impl Hub {
                 "composer draft exceeds {} characters",
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
+        }
+        if session.moving().is_some() {
+            return Err(queue::moving_error().message);
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
@@ -905,5 +950,13 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
+    }
+}
+
+/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
+/// chat's draft. Any other prompt leaves the draft as it is.
+fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
+    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
+        meta.composer_draft = None;
     }
 }

@@ -33,9 +33,6 @@ public final class TitleFade {
         mask.actions = ["bounds": NSNull(), "position": NSNull(), "locations": NSNull(), "transform": NSNull()]
     }
 
-    /// The gradient mask while the title is clipped (tests and layer budgets).
-    public var activeMask: CAGradientLayer? { textLayer.mask === mask ? mask : nil }
-
     /// Lays out the title. `frame` is its rest frame in the superlayer: the
     /// first glyph at `minX`, `width` equal to `geometry.span`. Call inside
     /// a transaction with actions disabled. `animated` fades the mask stops

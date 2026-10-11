@@ -41,6 +41,6 @@ final class AgentCursorPresenceColors {
               let key = SidebarMapping.shared.presenceColorKey(tab) else {
             return AgentCursorStack.sessionColor(session)
         }
-        return AgentPresenceColor.color(forKey: key).cgColor
+        return AgentPresenceColor(key: key).color.cgColor
     }
 }

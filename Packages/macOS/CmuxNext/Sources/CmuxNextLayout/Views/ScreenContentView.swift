@@ -9,6 +9,8 @@ final class ScreenContentView: NSView {
     let context: LayoutViewContext
 
     private(set) var layout: ScreenLayout
+    /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
+    private(set) var zoomed = false
     /// Frames before the rows' vertical offsets: what the springs target.
     private(set) var baseGeometry: ScreenGeometry
     /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
@@ -17,8 +19,8 @@ final class ScreenContentView: NSView {
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
-    /// Panes growing in from a split's edge (`PaneArrival.presentation`).
-    private var arriving: Set<PaneID> = []
+    /// Panes growing in from a split's edge (`PaneArrival.presentation`), and the dock columns that change added.
+    private var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
@@ -89,17 +91,17 @@ final class ScreenContentView: NSView {
 
     /// Applies a new layout. Returns true if springs need frames.
     ///
-    /// A split grows its new pane in from the edge of the pane it split, on
-    /// `move` with the split pane and the divider (`PaneArrival`, cx-f6i7).
-    /// Other structural changes (close, move, new column) land in one frame:
-    /// panes and dividers snap to their targets.
+    /// A split or a new dock column grows in from its edge (`PaneArrival`, cx-f6i7;
+    /// a dock moves the strip's origin, so strip frames start where they show), and the panes
+    /// left by a close grow over its space; other structural changes snap.
     /// Ratio and width changes (equalize, width presets, another client's
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
-    func update(layout: ScreenLayout, animated: Bool) -> Bool {
+    func update(layout: ScreenLayout, zoomed: Bool = false, animated: Bool) -> Bool {
         let structural = !self.layout.hasSameStructure(as: layout)
         self.layout = layout
+        self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
         return reconcile(animated: animated, structural: structural)
@@ -108,19 +110,25 @@ final class ScreenContentView: NSView {
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
+        let before = geometry
         baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        // A split grows its new pane in from the edge (`PaneArrival`); other
-        // structural changes (close, move, a new strip column) land in one frame.
-        let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), baseGeometry.panes) : [:]
-        let animateFrames = animate && (!structural || !arrivals.isEmpty)
-        if structural { arriving = Set(arrivals.keys) }
+        let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
+        // Only panes that are gone: a zoom (its other panes stay open) and a pane moved to another screen snap.
+        let closing = animate && structural && arrivals.isEmpty && !zoomed
+            && paneFrames.keys.allSatisfy { baseGeometry.panes[$0] != nil || !context.livePanes.contains($0) }
+            && PaneArrival.closing(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value)
+        // Strip springs run in strip coordinates: a moved strip origin (a dock that came or went) carries them along.
+        let drift = arrivals.isEmpty && !closing ? 0 : before.viewShift(offset: scroll.value) - baseGeometry.viewShift(offset: scroll.value)
+        let animateFrames = animate && (!structural || !arrivals.isEmpty || closing)
+        if structural { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes.
         let style = context.style
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
+                if before.scrolls(pane: pane) { existing.x.value += drift }
                 existing.setTarget(target, alpha: 1)
                 if !animateFrames { existing.snap() }
                 paneFrames[pane] = existing
@@ -165,6 +173,7 @@ final class ScreenContentView: NSView {
             view.showsIdleLine = context.style.showsDividerLine
             view.showsActiveLine = context.style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
+                if scrolls(kind) { frame.x.value += drift }
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
@@ -226,20 +235,22 @@ final class ScreenContentView: NSView {
         return moving
     }
 
+    /// New dock columns' panes still growing in from their screen edge (their frames).
+    var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
+
     func applyPresentation() {
         let strip = stripShift
-        let uncovered = uncoveredRect
+        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks)
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
             let shift = CGVector(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
-            let shown = frame.rect.offsetBy(dx: shift.dx, dy: shift.dy)
-            let revealing = arriving.contains(pane) ? shown : nil
-            host.frame = revealing == nil ? shown : PaneArrival.presentation(shown: frame.rect, target: frame.targetRect).offsetBy(dx: shift.dx, dy: shift.dy)
+            let revealing = arriving.contains(pane) ? frame.rect.offsetBy(dx: shift.dx, dy: shift.dy) : nil
+            host.frame = (revealing == nil ? frame.rect : PaneArrival.presentation(shown: frame.rect, target: frame.targetRect)).offsetBy(dx: shift.dx, dy: shift.dy)
             host.alphaValue = frame.alpha.value
             host.isDocked = !scrolls
-            clipToStrip(host, scrolls: scrolls, uncovered: uncovered, revealing: revealing)
+            clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing)
         }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }

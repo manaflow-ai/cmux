@@ -163,13 +163,4 @@ final class SidebarUpdateNotesView: NSView {
         }
         return stack.arrangedSubviews.flatMap(walk)
     }
-
-    /// The links in order: title and destination.
-    var shownLinks: [(title: String, url: URL)] { links.map { ($0.0.title, $0.1) } }
-
-    /// Clicks the link titled `title` (tests).
-    func pressLink(_ title: String) {
-        guard let button = links.first(where: { $0.0.title == title })?.0 else { return }
-        linkPressed(button)
-    }
 }

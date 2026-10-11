@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 // In-strip drag reorder and the hand-off to the App drag session.
 extension TabStripView {
@@ -237,11 +238,41 @@ extension TabStripView {
     }
 
     /// Drops a local reorder the App could not commit (the daemon rejected
-    /// it) and shows the model's order again, even when that order did not
-    /// change.
+    /// it) and shows the model's order and groups again, even when they did
+    /// not change.
     public func discardPendingReorder() {
-        guard orderOverride != nil else { return }
+        guard orderOverride != nil || !groups.membershipOverride.isEmpty else { return }
         orderOverride = nil
+        groups.membershipOverride = [:]
         sync(fromModel: false)
     }
+
+    /// A committed reorder: the local order and groups end once the model
+    /// shows them. The store's change can trail the command's reply; ending
+    /// them before it lands shows the old order for a frame and springs the
+    /// tabs back (cx-f6i7), so until then they stay, and `sync(fromModel:)`
+    /// ends them when the model changes. A move the model never shows (the
+    /// daemon kept the old order) ends after `reorderSettleTimeout`.
+    public func settlePendingReorder() {
+        guard orderOverride != nil || !groups.membershipOverride.isEmpty else { return }
+        let ordered = model.orderedTabs
+        let inOrder = orderOverride.map { $0 == ordered.map(\.id) } ?? true
+        let grouped = groups.membershipOverride.allSatisfy { id, group in
+            ordered.first { $0.id == id }.map { $0.groupID == group } ?? true
+        }
+        if inOrder, grouped { return discardPendingReorder() }
+        let pending = (order: orderOverride, groups: groups.membershipOverride)
+        reorderSettle.schedule(after: Self.reorderSettleTimeout) { @MainActor [weak self] in
+            // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
+            guard let self else { return }
+            var changed = false
+            if pending.order != nil, self.orderOverride == pending.order { self.orderOverride = nil; changed = true }
+            if !pending.groups.isEmpty, self.groups.membershipOverride == pending.groups { self.groups.membershipOverride = [:]; changed = true }
+            if changed { self.sync(fromModel: false) }
+        }
+    }
+
+    /// How long a committed reorder waits for the store's change (it
+    /// trails the reply by a frame or two) before the model's order shows.
+    static let reorderSettleTimeout: Duration = .milliseconds(300)
 }

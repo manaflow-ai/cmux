@@ -29,6 +29,11 @@ extension CEFRuntime {
         shim?.setContentSetting(browser, url, kind.rawValue, value.rawValue) == 1
     }
 
+    /// Answers a waiting PERMISSION_PROMPT (`CEFPermissionPrompts`).
+    func permissionContinue(_ token: Int32, _ outcome: SitePermissionRequest.Outcome) {
+        _ = shim?.permissionContinue(token, outcome == .grant ? 1 : outcome == .deny ? 2 : 0)
+    }
+
     /// Every cookie of the tab's profile.
     func cookies(_ browser: Int32) async throws -> [CEFCookie] {
         let reply = try await siteCall(browser, what: "cookie visit") { shim, id in shim.visitCookies(browser, id) }

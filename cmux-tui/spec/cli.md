@@ -143,9 +143,14 @@ The shared `--session` and `--socket` routing options can also precede the
 scope, for example `cmux --session agents daemon start --socket /path/to.sock`.
 Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
-The local socket accepts ordinary protocol clients while the owner finishes
-startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
-fail fast while this field is `false` and can be retried after the owner is ready.
+The owner binds its local socket before it restores its session (registry,
+terminal host adoption). While it restores, the socket accepts connections
+and holds them unanswered; when the restore ends, every held connection is
+served by the normal protocol handler. `identify` then reports
+`lifecycle_ready: false` until the owner finishes startup. Lifecycle commands fail
+fast while this field is `false` and can be retried after the owner is ready. `server ensure` waits for a restoring
+owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
+another.
 `daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. `session <name>|current stop`
@@ -447,6 +452,7 @@ git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
+git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
   [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
@@ -553,6 +559,12 @@ spaces, best first: tracked files still in the working tree and untracked
 files no ignore rule hides. It prints at most `--limit` (50, up to 200)
 results relative to `search_root`, the folder searched; `root` is the
 repository top level.
+`git list` (`git.files.list`, shorthand `git ls`) lists the immediate children of the target folder
+for a file explorer: each candidate `git files` would rank folds into its
+first path component, a `directory` when paths sit below it or it is a
+submodule, else a `file`. Directories come first, then names
+case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
+and sets `truncated` when more exist.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 

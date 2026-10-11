@@ -21,11 +21,14 @@ import { useSyncExternalStore } from "react";
 /// Preview owns a browser tab beside the chat on the local page the chat's last turn started or
 /// mentioned (its preview card's address); it shows only while there is one or its page is open.
 ///
+/// Files owns a tree of the chat's folder beside it (cx-p4rt). It is off by default until it is
+/// styled: the right-click menu lists it unchecked, and checking it adds the button.
+///
 /// `newTab` is ChatGPT's [+] New tab: it opens a New Tab page in a column right of the chat, and the
 /// same button then reads Hide tabs, which hides the panes beside the chat (the App zooms the chat,
 /// closing nothing) and shows them again. It always toggles; its mode is ignored.
 
-export type QuickActionId = "terminal" | "browser" | "changes" | "preview" | "newTab";
+export type QuickActionId = "terminal" | "browser" | "changes" | "files" | "preview" | "newTab";
 /// `toggle`: a second click closes the split the first one opened. `open`: every click opens another.
 export type QuickActionMode = "toggle" | "open";
 export interface QuickAction {
@@ -33,11 +36,15 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["terminal", "browser", "changes", "preview", "newTab"];
+const ids: readonly QuickActionId[] = ["terminal", "browser", "changes", "files", "preview", "newTab"];
+/// Not shown until a person adds them.
+const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["files"]);
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
 const isMode = (value: unknown): value is QuickActionMode => value === "toggle" || value === "open";
 
-export const QUICK_ACTION_DEFAULTS: readonly QuickAction[] = ids.map((id) => ({ id, mode: "toggle" }));
+export const QUICK_ACTION_DEFAULTS: readonly QuickAction[] = ids
+  .filter((id) => !OFF_BY_DEFAULT.has(id))
+  .map((id) => ({ id, mode: "toggle" }));
 
 /// `layout.quickActions` as the header's list, or the default when it is missing or not a list.
 export function readQuickActions(layout: Record<string, unknown> | undefined): readonly QuickAction[] {
