@@ -32,7 +32,7 @@ export default componentEntry<Props>({
   experimental: true,
   height: 560,
   widths: { narrow: 260, normal: 320, wide: 420 },
-  covers: ["page:cmux.files", "pages/files/FilesPage.tsx"],
+  covers: ["page:cmux.files", "pages/files/FilesPage.tsx", "ui/Tree.tsx#Tree"],
   load: async () => FilesGallery,
   styles: async () => {
     await import("../shared/pageBase.css");
