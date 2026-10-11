@@ -100,7 +100,7 @@ public final class SavedGroupsBarView: NSView {
             chips[id] = nil
         }
         for saved in model.groups {
-            let item = TabGroupItem(id: saved.id, name: saved.name, colorToken: saved.colorToken)
+            let item = TabGroupItem(id: saved.id, name: saved.name, tint: saved.tint)
             let chip = chips[saved.id] ?? makeChip(item, count: saved.tabCount)
             chip.update(group: item, memberCount: saved.tabCount)
             chip.metrics = metrics

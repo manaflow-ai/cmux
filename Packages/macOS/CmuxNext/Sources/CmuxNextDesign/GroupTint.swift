@@ -57,6 +57,17 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return tokens.chip(color)
     }
 
+    /// A tab group chip's fill in the active scope (`GroupColor.themedChipFill`): the color washed
+    /// into the sidebar so the name stays primary text.
+    @MainActor public var chipFill: NSColor {
+        switch self {
+        case let .palette(token): return token.themedChipFill
+        case let .custom(rgb):
+            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            return tokens.sidebarBackground.withAlpha(1).mixed(toward: Self.readable(rgb), tokens.isDark ? 0.34 : 0.26).nsColor
+        }
+    }
+
     /// Black or white text and glyphs on `headerFill`.
     @MainActor public var headerInk: NSColor {
         switch self {

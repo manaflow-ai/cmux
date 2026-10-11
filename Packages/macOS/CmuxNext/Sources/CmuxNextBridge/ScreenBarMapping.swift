@@ -25,7 +25,7 @@ public struct ScreenBarMapping {
         }
         let groups = workspace.screenGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
-                         colorToken: group.color.flatMap(GroupColor.init(rawValue:)) ?? .grey,
+                         tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
                          isCollapsed: group.collapsed, isSaved: group.savedID != nil)
         }
         return Snapshot(items: items, groups: groups, isVisible: workspace.screens.count > 1)
