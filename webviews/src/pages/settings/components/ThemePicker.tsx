@@ -143,6 +143,7 @@ export function ThemePicker({
             )
           }
         />
+        {shown.length === 0 && <div className="theme-empty empty">{t("settingsPage.theme.noMatch")}</div>}
         <div className="theme-count">{t("settingsPage.theme.count", names.length)}</div>
       </Popover>
     </>
