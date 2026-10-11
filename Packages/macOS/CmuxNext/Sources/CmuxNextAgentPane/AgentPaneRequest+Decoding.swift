@@ -196,7 +196,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.tabState": self = .tabState
+        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
