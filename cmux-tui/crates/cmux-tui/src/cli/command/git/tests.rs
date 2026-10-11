@@ -212,4 +212,8 @@ fn git_files_joins_the_query_and_takes_a_limit() {
     );
     assert!(rejects(&["git", "files"]).contains("git action"), "a query is required");
     assert!(rejects(&["git", "files", "--limit", "201", "x"]).contains("--limit"));
+    assert_eq!(
+        sent(&["git", "ls", "--path", "/repo/src", "--limit", "5000"]),
+        ("git.files.list".into(), json!({"path": "/repo/src", "limit": 5000}))
+    );
 }

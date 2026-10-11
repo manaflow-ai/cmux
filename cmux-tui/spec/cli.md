@@ -447,6 +447,7 @@ git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
+git ls [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
   [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
@@ -553,6 +554,12 @@ spaces, best first: tracked files still in the working tree and untracked
 files no ignore rule hides. It prints at most `--limit` (50, up to 200)
 results relative to `search_root`, the folder searched; `root` is the
 repository top level.
+`git ls` (`git.files.list`) lists the immediate children of the target folder
+for a file explorer: each candidate `git files` would rank folds into its
+first path component, a `directory` when paths sit below it or it is a
+submodule, else a `file`. Directories come first, then names
+case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
+and sets `truncated` when more exist.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 
