@@ -14,11 +14,13 @@ protocol PaneFirstPaintGated: AnyObject {
     func whenFirstPainted(_ body: @escaping () -> Void)
 }
 
+/// One that painted and is shown again waits for its frame at the size it
+/// shows at (`AgentPageRedraw`).
 extension AgentPaneView: PaneFirstPaintGated {
-    var awaitsFirstPaint: Bool { !model.hasPainted }
+    var awaitsFirstPaint: Bool { !model.hasPainted || redraw.awaits(self) }
 
     func whenFirstPainted(_ body: @escaping () -> Void) {
-        model.whenPainted(body)
+        if model.hasPainted { redraw.when(self, body) } else { model.whenPainted(body) }
     }
 }
 
