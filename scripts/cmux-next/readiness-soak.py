@@ -24,8 +24,8 @@ network, no credential on the host. The app runs with its own ACPMUX_HOME and co
 folder; the soak never touches the host's ~/.acpmux or settings.
 
 At the end it writes report.json and report.md to --out and exits 1 when a criterion failed:
-no crash, no hang, no stuck turn, memory growth (median of the last hour against the first
-hour after --warmup) within --max-growth-percent and --max-growth-mb per kind, open fds of the
+no crash, no hang, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
+or quarters of a shorter load phase) within --max-growth-percent and --max-growth-mb per kind, open fds of the
 app, daemon and acpmux growing by at most --max-fd-growth, the mean CPU of the app and the daemon
 under --max-app-cpu and --max-daemon-cpu. Idle CPU over --max-idle-*-cpu (app, daemon,
 acpmux) is a WARN line until --idle-cpu-gate fail. report.md ends with a memory and fd trend. Teardown goes through
@@ -469,11 +469,15 @@ class Soak:
         quiet_from = min((s["elapsed_s"] for s in samples if s.get("phase") == "quiet"), default=None)
         idle = [s for s in samples if quiet_from is not None and s["elapsed_s"] >= quiet_from + self.args.settle
                 and not s.get("running")]
-        # The first and last hour, or thirds of a shorter run, so the two windows never overlap.
-        hour = min(3600, (warm[-1]["elapsed_s"] - warm[0]["elapsed_s"]) / 3) if warm else 3600
-        first = [s for s in warm if s["elapsed_s"] < self.args.warmup + hour]
-        last_start = (warm[-1]["elapsed_s"] - hour) if warm else 0
-        last = [s for s in warm if s["elapsed_s"] >= last_start]
+        # Growth is the middle of the load phase against its end: a bounded buffer (terminal scrollback, 50 MB
+        # per copy) that fills in the first half passes, and a steady leak still shows half its growth. Each
+        # window is an hour, or a quarter of a shorter load phase.
+        load = [s for s in warm if s.get("phase", "load") == "load"]
+        span = (load[-1]["elapsed_s"] - load[0]["elapsed_s"]) if load else 0
+        window = min(3600, span / 4)
+        middle = (load[0]["elapsed_s"] + span / 2) if load else 0
+        first = [s for s in load if middle - window / 2 <= s["elapsed_s"] < middle + window / 2]
+        last = [s for s in load if s["elapsed_s"] >= load[-1]["elapsed_s"] - window] if load else []
         kinds = sorted({k for s in samples for k in s["processes"]})
         summary, failures, warnings = {}, [], []
 
@@ -491,26 +495,26 @@ class Soak:
             summary[kind] = {
                 "mean_cpu_percent": round(statistics.fmean(cpu), 2) if cpu else None,
                 "max_cpu_percent": round(max(cpu), 2) if cpu else None,
-                "footprint_mb_first_hour": median(first, kind, "footprint_mb"),
-                "footprint_mb_last_hour": median(last, kind, "footprint_mb"),
+                "footprint_mb_mid": median(first, kind, "footprint_mb"),
+                "footprint_mb_end": median(last, kind, "footprint_mb"),
                 "wakeups_per_s_median": median(warm, kind, "wakeups_per_s"),
-                "fds_first_hour": median(first, kind, "fds"),
-                "fds_last_hour": median(last, kind, "fds"),
+                "fds_mid": median(first, kind, "fds"),
+                "fds_end": median(last, kind, "fds"),
                 "idle_cpu_percent": mean(idle, kind, "cpu_percent"),
                 "idle_wakeups_per_s": mean(idle, kind, "wakeups_per_s"),
             }
             row = summary[kind]
-            start_mb, end_mb = row["footprint_mb_first_hour"], row["footprint_mb_last_hour"]
+            start_mb, end_mb = row["footprint_mb_mid"], row["footprint_mb_end"]
             if start_mb and end_mb and kind in ("app", "daemon", "acpmux"):
                 growth = end_mb - start_mb
                 row["growth_mb"], row["growth_percent"] = round(growth, 1), round(100 * growth / start_mb, 1)
                 if growth > self.args.max_growth_mb and row["growth_percent"] > self.args.max_growth_percent:
-                    failures.append(f"{kind} memory grew {growth:.0f} MB ({row['growth_percent']}%) from the first to the last hour")
-            start_fds, end_fds = row["fds_first_hour"], row["fds_last_hour"]
+                    failures.append(f"{kind} memory grew {growth:.0f} MB ({row['growth_percent']}%) from mid-run to the end of the load")
+            start_fds, end_fds = row["fds_mid"], row["fds_end"]
             if start_fds is not None and end_fds is not None and kind in ("app", "daemon", "acpmux"):
                 row["fd_growth"] = round(end_fds - start_fds)
                 if row["fd_growth"] > self.args.max_fd_growth:
-                    failures.append(f"{kind} open fds grew by {row['fd_growth']} ({start_fds:g} -> {end_fds:g}) from the first to the last hour")
+                    failures.append(f"{kind} open fds grew by {row['fd_growth']} ({start_fds:g} -> {end_fds:g}) from mid-run to the end of the load")
         for kind in ("app", "daemon", "acpmux"):
             if samples and kind not in summary:
                 failures.append(f"no {kind} process was found, so its checks did not run")
@@ -554,12 +558,12 @@ class Soak:
         lines += [f"- FAIL: {failure}" for failure in failures] or ["- No failures."]
         lines += [f"- WARN: {warning}" for warning in warnings]
         lines += ["", f"Control round trip (snapshot.get): p50 {result['snapshot_ms_p50']} ms, p99 {result['snapshot_ms_p99']} ms.", "",
-                  "| Process | Mean CPU % | Max CPU % | Memory first h (MB) | Memory last h (MB) | Wakeups/s | fds first h | fds last h | Idle CPU % | Idle wakeups/s |",
+                  "| Process | Mean CPU % | Max CPU % | Memory mid-run (MB) | Memory end (MB) | Wakeups/s | fds mid-run | fds end | Idle CPU % | Idle wakeups/s |",
                   "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
         for kind, row in summary.items():
-            lines.append(f"| {kind} | {row['mean_cpu_percent']} | {row['max_cpu_percent']} | {row['footprint_mb_first_hour']} | "
-                         f"{row['footprint_mb_last_hour']} | {row['wakeups_per_s_median']} | {row['fds_first_hour']} | "
-                         f"{row['fds_last_hour']} | {row['idle_cpu_percent']} | {row['idle_wakeups_per_s']} |")
+            lines.append(f"| {kind} | {row['mean_cpu_percent']} | {row['max_cpu_percent']} | {row['footprint_mb_mid']} | "
+                         f"{row['footprint_mb_end']} | {row['wakeups_per_s_median']} | {row['fds_mid']} | "
+                         f"{row['fds_end']} | {row['idle_cpu_percent']} | {row['idle_wakeups_per_s']} |")
         # Trend: memory and fds of the app, daemon and acpmux at about twelve points, so a slow leak shows its slope.
         if samples:
             step = max(1, len(samples) // 12)
@@ -607,7 +611,7 @@ def main():
     parser.add_argument("--max-app-cpu", type=float, default=10)
     parser.add_argument("--max-daemon-cpu", type=float, default=5)
     parser.add_argument("--max-fd-growth", type=float, default=100,
-                        help="open fds the app, daemon or acpmux may gain from the first to the last hour")
+                        help="open fds the app, daemon or acpmux may gain from mid-run to the end of the load")
     parser.add_argument("--idle", type=float, default=1800,
                         help="seconds at the end with no new turns and quiet terminals (0: none)")
     parser.add_argument("--settle", type=float, default=300, help="seconds into the quiet phase before idle samples count")
