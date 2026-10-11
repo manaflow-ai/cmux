@@ -34,9 +34,7 @@ public enum CEFDevToolsDebug {
             report["grab_hit"] = sequence(first: hit, next: \.superview).prefix(6).map { String(describing: type(of: $0)) }
         }
         report["divider_frame"] = topLeft(divider.frame)
-        report["divider_events"] = divider.debugEvents
         report["window_key"] = window.isKeyWindow
-        report["app_active"] = NSApp.isActive
         report["container_subviews"] = container.subviews.map { String(describing: type(of: $0)) }
         report["window_frame"] = [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height].map { Double($0) }
         return report

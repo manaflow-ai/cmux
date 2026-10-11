@@ -4,10 +4,11 @@ with the tab (cx-d0d.45, R118).
 
   scripts/cmux-next/devtools-resize-live.py --tag <tag> [--out DIR] [--app PATH]
 
-Launches the tagged app (no activation, automation socket, empty config), opens a Chromium
-tab on a local page and its DevTools (docked), then drags the divider with a real mouse:
-cua-driver's drag, which goes through the window server, where the Chromium page and
-DevTools windows must leave the divider to cmux. Without cua-driver the drag is
+Launches the tagged app (active: real input goes to the frontmost app; automation socket,
+empty config), opens a Chromium tab on a local page and its DevTools (docked), clicks in
+DevTools (its window takes key) and drags the divider with a real mouse: cua-driver's
+drag, which goes through the window server, where the Chromium page and DevTools windows
+must leave the divider to cmux. Without cua-driver the drag is
 synthesized in the app (`debug.mouse`), which shows the resize but not the routing, and
 says so. Checks:
 
@@ -135,15 +136,17 @@ def real_drag(now):
     state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_accessibility_tree": False})
     width = png_width(state.get("screenshot_png_b64") or "")
     scale = (width / now["window_frame"][2]) if width else 1.0
-    shot = state.get("screenshot_png_b64") or ""
-    if shot:
-        with open(os.path.join(opts.out, "before-drag.png"), "wb") as f:
-            f.write(base64.b64decode(shot))
-    print("window", state.get("window_bounds"), "scale", scale, flush=True)
     titlebar = now["window_frame"][3] - now["content_height"]
     (sx, sy), (ex, ey) = target(now)
     params = {"pid": app.pid, "window_id": window_id, "from_x": round(sx * scale), "from_y": round((sy + titlebar) * scale),
               "to_x": round(ex * scale), "to_y": round((ey + titlebar) * scale), "delivery_mode": "foreground"}
+    # A click in DevTools first, as when using it: its window takes key from cmux's.
+    tools = now["devtools_frame"]
+    click = {"pid": app.pid, "window_id": window_id, "x": round((tools[0] + tools[2] / 2) * scale),
+             "y": round((tools[1] + tools[3] / 2 + titlebar) * scale), "delivery_mode": "foreground"}
+    cua("click", click)
+    time.sleep(1)
+    print("after a click in DevTools: cmux window key", layout().get("window_key"), flush=True)
     print("cua drag", params, json.dumps(cua("drag", params))[:300], flush=True)
     return True
 
@@ -171,7 +174,10 @@ APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
-    BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+    INFO = plistlib.load(f)
+BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
+# DevTools starts from the last size used (user defaults): start from the default.
+subprocess.run(["defaults", "delete", INFO["CFBundleIdentifier"], "CmuxNextBrowser.devToolsLayout"], capture_output=True)
 SCRATCH = tempfile.mkdtemp(prefix=f"devtools-resize-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 with open(CONFIG, "w") as f:
@@ -182,7 +188,7 @@ if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)

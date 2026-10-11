@@ -8,10 +8,6 @@ import CmuxNextDesign
 final class CEFDevToolsDivider: NSView {
     weak var devTools: CEFDevToolsController?
     private var dragging = false
-    #if DEBUG
-    /// Mouse events seen, by kind (`debug.cef.devtools_layout`).
-    var debugEvents: [String: Int] = [:]
-    #endif
 
     override var isFlipped: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -33,24 +29,15 @@ final class CEFDevToolsDivider: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        #if DEBUG
-        debugEvents["down", default: 0] += 1
-        #endif
         dragging = true
     }
 
     override func mouseDragged(with event: NSEvent) {
-        #if DEBUG
-        debugEvents["dragged", default: 0] += 1
-        #endif
         guard dragging, let devTools, let container = superview else { return }
         devTools.dragDivider(to: container.convert(event.locationInWindow, from: nil))
     }
 
     override func mouseUp(with event: NSEvent) {
-        #if DEBUG
-        debugEvents["up", default: 0] += 1
-        #endif
         guard dragging else { return }
         dragging = false
         devTools?.rememberLayout()
