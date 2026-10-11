@@ -2053,6 +2053,18 @@ function AcpmuxPane() {
       },
     };
   }, [hunkDecisions]);
+  // Address on a review thread (cx-ncc.77.3) settles once acpmux took its prompt: chat.send
+  // itself settles when the turn ends, which could be long after, and a turn that fails later
+  // was still sent. Until acpmux connects nothing takes a prompt.
+  const addressThread = useCallback(
+    (prompt: string) =>
+      window.cmuxAcpmuxActions?.["chat.send"]
+        ? new Promise<void>((resolve, reject) => {
+            callNative("chat.send", { text: prompt, accepted: () => resolve() }).then(() => resolve(), reject);
+          })
+        : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
@@ -4280,6 +4292,7 @@ function AcpmuxPane() {
                     gitIntent={diffView.gitIntent}
                     onGitIntentHandled={clearGitIntent}
                     writeKeys={writeKeysFor(diffView.sessionId)}
+                    onAddressThread={addressThread}
                   />
                 )}
               </div>
