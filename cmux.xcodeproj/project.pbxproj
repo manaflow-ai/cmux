@@ -3922,6 +3922,7 @@
 		6277E32DA3CFCD625C6BD4E0 /* TerminalDictationAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B9355A408361D86E077820 /* TerminalDictationAccessibilityTests.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
+		E13CFDDA523410C6A148B783 /* TerminalFolderOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0234EEA8094B05787B6141 /* TerminalFolderOpener.swift */; };
 		F87920000000000000000007 /* TerminalFontConfigurationReconciliationWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000008 /* TerminalFontConfigurationReconciliationWork.swift */; };
 		F87920000000000000000009 /* TerminalFontConfigurationReloadPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8792000000000000000000A /* TerminalFontConfigurationReloadPhase.swift */; };
 		F87910030000000000000001 /* TerminalFontConfigurationReloadReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910030000000000000002 /* TerminalFontConfigurationReloadReconciler.swift */; };
@@ -8412,6 +8413,7 @@
 		81B9355A408361D86E077820 /* TerminalDictationAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalDictationAccessibilityTests.swift"; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
+		8B0234EEA8094B05787B6141 /* TerminalFolderOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFolderOpener.swift; sourceTree = "<group>"; };
 		F87920000000000000000008 /* TerminalFontConfigurationReconciliationWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontConfigurationReconciliationWork.swift; sourceTree = "<group>"; };
 		F8792000000000000000000A /* TerminalFontConfigurationReloadPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontConfigurationReloadPhase.swift; sourceTree = "<group>"; };
 		F87910030000000000000002 /* TerminalFontConfigurationReloadReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontConfigurationReloadReconciler.swift; sourceTree = "<group>"; };
@@ -12185,6 +12187,7 @@
 				18C089E5A67BF748266767AE /* WindowHintKeys.swift */,
 				7054279ABC4C344AC587B89D /* WindowHintTargets.swift */,
 				C1067219E6C38ECF316D8AA4 /* TerminalBrowserHostNormalizer+TopLevelDomain.swift */,
+				8B0234EEA8094B05787B6141 /* TerminalFolderOpener.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16782,6 +16785,7 @@
 				EC010B01 /* TerminalCustomUploadRunner.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
+				E13CFDDA523410C6A148B783 /* TerminalFolderOpener.swift in Sources */,
 				F87920000000000000000007 /* TerminalFontConfigurationReconciliationWork.swift in Sources */,
 				F87920000000000000000009 /* TerminalFontConfigurationReloadPhase.swift in Sources */,
 				F87910030000000000000001 /* TerminalFontConfigurationReloadReconciler.swift in Sources */,
