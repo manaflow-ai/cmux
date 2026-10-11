@@ -50,10 +50,12 @@
 }
 
 .minimap-tick-gallery-strip button span {
-  width: 8px;
+  width: 14px;
   height: 4px;
   border-radius: 2px;
   background: color-mix(in srgb, currentColor 35%, transparent);
+  transform: scaleX(calc(4 / 7));
+  transform-origin: center;
 }
 
 .minimap-tick-gallery-strip button[aria-current="step"] {
@@ -61,8 +63,8 @@
 }
 
 .minimap-tick-gallery-strip button[aria-current="step"] span {
-  width: 14px;
   background: var(--cmux-accent, Highlight);
+  transform: none;
 }
 
 .minimap-tick-gallery-strip button:focus-visible {

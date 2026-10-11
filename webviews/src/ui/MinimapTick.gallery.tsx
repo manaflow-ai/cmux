@@ -57,8 +57,14 @@ function MinimapTickGallery({ count = 6, initial = 2 }: Props) {
   );
 }
 
-const active = (ctx: Parameters<Play>[0], index: number) =>
-  ctx.find({ role: "button", name: `Turn ${index + 1}` }).getAttribute("aria-current") === "step";
+const active = (ctx: Parameters<Play>[0], index: number) => {
+  const target = ctx.find({ role: "button", name: `Turn ${index + 1}` });
+  return (
+    target.getAttribute("aria-current") === "step" &&
+    target.getAttribute("tabindex") === "0" &&
+    ctx.document.activeElement === target
+  );
+};
 
 const arrows: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Turn 3" });
@@ -82,7 +88,11 @@ const click: Play = async (ctx) => {
 };
 
 const oneTabStop: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll('.minimap-tick-gallery-strip [tabindex="0"]').length === 1);
+  await ctx.waitFor(() => {
+    const stops = ctx.document.querySelectorAll('.minimap-tick-gallery-strip button[tabindex="0"]');
+    const current = ctx.document.querySelector('.minimap-tick-gallery-strip button[aria-current="step"]');
+    return stops.length === 1 && stops[0] === current;
+  });
 };
 
 export default componentEntry<Props>({
