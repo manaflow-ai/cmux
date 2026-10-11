@@ -7,8 +7,10 @@
 //! profile that runs a program and `doctor` starts a harness, so only the
 //! unix socket may call them; LocalApp, Web and peer are refused, keeping
 //! remote_guard's rule that LocalApp never makes this machine spawn a
-//! process. The local app may `remove`, `restore` (recoverable) and read the
-//! `registry`; Web and peer may call none of them. The daemon cannot see
+//! process it chooses. The local app may `remove`, `restore` (recoverable),
+//! read the `registry` and ask for `health`, which runs only the configured
+//! harnesses' `--version` and `auth.check`, as the daemon does every few
+//! hours; Web and peer may call none of them. The daemon cannot see
 //! gestures; the app's host calls add and doctor over the unix socket only
 //! from a user's action.
 //! After a change the catalog reloads and `_acpmux/watch` connections get

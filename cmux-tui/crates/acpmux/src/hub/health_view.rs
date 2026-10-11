@@ -19,6 +19,12 @@ impl Hub {
                     program: p.argv.first()?.clone(),
                     family: crate::config::derive_family(id, p),
                     check: auth.map(|a| a.check.clone()).unwrap_or_default(),
+                    env: p
+                        .env
+                        .iter()
+                        .filter(|(_, v)| !v.contains("${"))
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
                     login: auth.and_then(|a| a.login.clone()),
                     probe_error: probe_errors.get(id).cloned(),
                 })
@@ -46,9 +52,10 @@ impl Hub {
     /// only then: a reload restarts pooled sessions).
     /// `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
     ///
-    /// Agent CLI health: checked now and every `REFRESH_EVERY`.
-    /// `ACPMUX_HEALTH_FETCH=0` keeps newest-version lookups off (the local
-    /// checks still run).
+    /// Agent CLI health: checked once startup has read the login environment
+    /// (call after `begin_startup`), then every `REFRESH_EVERY`.
+    /// `ACPMUX_HEALTH_FETCH=0` or `ACPMUX_CATALOG_FETCH=0` keeps newest-version
+    /// lookups off (the local checks still run).
     pub fn start_harness_checks(self: &Arc<Self>) {
         if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
             let hub = self.clone();
@@ -70,7 +77,9 @@ impl Hub {
                 }
             });
         }
-        let fetch_latest = !std::env::var("ACPMUX_HEALTH_FETCH").is_ok_and(|v| v == "0");
+        let fetch_latest = !["ACPMUX_HEALTH_FETCH", "ACPMUX_CATALOG_FETCH"]
+            .iter()
+            .any(|key| std::env::var(key).is_ok_and(|v| v == "0"));
         self.health.attach(crate::harness_health::Settings {
             sources: fetch_latest.then(crate::harness_health::latest::Sources::public),
             cache: Some(crate::config::home().join("harness-health.json")),
@@ -79,8 +88,10 @@ impl Hub {
         tokio::spawn(self.clone().run_health());
     }
 
-    /// The health check: at start, then every `REFRESH_EVERY`.
+    /// The health check: after startup, then every `REFRESH_EVERY`. Before
+    /// the login environment is read, PATH may miss the harnesses.
     async fn run_health(self: Arc<Self>) {
+        self.wait_startup().await;
         let mut every = tokio::time::interval(REFRESH_EVERY);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {

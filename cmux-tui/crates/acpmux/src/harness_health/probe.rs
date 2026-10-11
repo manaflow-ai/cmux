@@ -2,36 +2,84 @@
 //! and how two versions compare. Blocking; the service calls these off the
 //! async threads.
 
+use std::collections::BTreeMap;
+use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Runs `argv` with the login environment, no input and a timeout. Returns its
-/// exit status and output, or why it did not finish.
-fn run(argv: &[String]) -> Result<(bool, String), String> {
+/// Runs `argv` with the login environment plus `env`, no input and a timeout.
+/// Returns its exit status and output, or why it did not finish. The pipes
+/// are read as the program writes, and a timeout ends its whole process
+/// group, so a child that keeps the output open cannot hold the check.
+fn run(argv: &[String], env: &BTreeMap<String, String>) -> Result<(bool, String), String> {
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
     crate::login_env::apply_std(&mut cmd);
     crate::config::scrub_nested_claude_env(&mut cmd);
-    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    for pipe in [
+        child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>),
+        child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut pipe = pipe;
+            let mut out = Vec::new();
+            // Keep the first 64 KiB, and keep reading so the program never waits on a full pipe.
+            let _ = (&mut pipe).take(64 * 1024).read_to_end(&mut out);
+            let _ = std::io::copy(&mut pipe, &mut std::io::sink());
+            let _ = tx.send(out);
+        });
+    }
+    drop(tx);
+    let started = Instant::now();
+    let did_not_finish =
+        || format!("`{}` did not finish in {}s", argv.join(" "), TIMEOUT.as_secs());
     // Woken by the child's exit (SIGCHLD), not a polling tick.
-    match child.wait_timeout(TIMEOUT) {
-        Ok(Some(_)) => {}
+    let status = match child.wait_timeout(TIMEOUT) {
+        Ok(Some(status)) => status,
         Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("`{}` did not finish in {}s", argv.join(" "), TIMEOUT.as_secs()));
+            end_group(&mut child);
+            return Err(did_not_finish());
         }
         Err(e) => return Err(e.to_string()),
+    };
+    let mut text = Vec::new();
+    for _ in 0..2 {
+        match rx.recv_timeout(TIMEOUT.saturating_sub(started.elapsed())) {
+            Ok(part) => text.extend(part),
+            // Both pipes closed.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            // Something it started still holds the output.
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                end_group(&mut child);
+                return Err(did_not_finish());
+            }
+        }
     }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let text =
-        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    Ok((out.status.success(), text))
+    Ok((status.success(), String::from_utf8_lossy(&text).into_owned()))
+}
+
+/// Ends `child` and everything in its process group.
+fn end_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: signals the group this module made for the child.
+        unsafe { libc::killpg(pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 static VERSION: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -46,7 +94,7 @@ pub fn parse_version(text: &str) -> Option<String> {
 
 /// `path --version`: the version, or why there is none.
 pub fn installed_version(path: &str) -> Result<String, String> {
-    let (ok, text) = run(&[path.to_owned(), "--version".into()])?;
+    let (ok, text) = run(&[path.to_owned(), "--version".into()], &BTreeMap::new())?;
     match parse_version(&text) {
         Some(v) => Ok(v),
         None if ok => Err(format!("`{path} --version` printed no version")),
@@ -56,9 +104,10 @@ pub fn installed_version(path: &str) -> Result<String, String> {
     }
 }
 
-/// A profile's `auth.check` command: exit 0 means signed in.
-pub fn auth_check(argv: &[String]) -> Result<bool, String> {
-    run(argv).map(|(ok, _)| ok)
+/// A profile's `auth.check` command, with the profile's `env`: exit 0 means
+/// signed in.
+pub fn auth_check(argv: &[String], env: &BTreeMap<String, String>) -> Result<bool, String> {
+    run(argv, env).map(|(ok, _)| ok)
 }
 
 /// Whether `latest` is newer than `installed`, by their numeric parts. A

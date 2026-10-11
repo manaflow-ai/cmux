@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 pub enum Channel {
     /// `npm install -g` (a package under `<prefix>/lib/node_modules`).
     Npm,
-    /// `bun add -g` (a package under `~/.bun`).
+    /// `bun add -g` (a package under `~/.bun/install/global`).
     Bun,
     /// A Homebrew formula (`Cellar`).
     Brew,
@@ -17,7 +17,8 @@ pub enum Channel {
     BrewCask,
     /// The vendor's own installer, which updates itself (`claude update`).
     Native,
-    /// Fetched per launch (`npx`, `uvx`, `bunx`): nothing to update.
+    /// Run through a launcher, interpreter or shell (`npx`, `uvx`, `node`,
+    /// `sh`): the program behind it is not checked, and nothing is updated.
     Launcher,
     /// A binary placed by hand or by an installer cmux does not know.
     Standalone,
@@ -44,23 +45,25 @@ const NATIVE: &[(&str, &str, &str)] = &[
     (".opencode", "opencode-ai", "upgrade"),
 ];
 
+/// Programs that run another program (a launcher fetching it per launch, an
+/// interpreter, a shell): the harness is behind them, not them.
+const RUNNERS: &[&str] = &[
+    "npx", "uvx", "bunx", "pnpx", "pnpm", "yarn", "uv", "pipx", "node", "bun", "deno", "python",
+    "python3", "env", "sh", "bash", "zsh", "dash",
+];
+
 /// The install behind `program` (as configured) found at `path` (its real
 /// file, symlinks resolved), for a user whose home is `home`.
 pub fn detect(program: &str, path: Option<&Path>, home: &Path) -> Install {
     let plain = |channel| Install { channel, package: None, writes: None };
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
-    if matches!(name, "npx" | "uvx" | "bunx" | "pnpx") {
+    if RUNNERS.contains(&name) {
         return plain(Channel::Launcher);
     }
     let Some(path) = path else { return plain(Channel::Missing) };
     let text = path.to_string_lossy();
-    if let Some((before, after)) = text.split_once("/node_modules/") {
-        let package = package_name(after);
-        let channel = if path.starts_with(home.join(".bun")) { Channel::Bun } else { Channel::Npm };
-        let writes =
-            (channel == Channel::Npm).then(|| PathBuf::from(format!("{before}/node_modules")));
-        return Install { channel, package, writes };
-    }
+    // Homebrew and the vendor installers first: their packages may bundle a
+    // `node_modules` folder that npm does not own.
     for (marker, channel) in [("/Cellar/", Channel::Brew), ("/Caskroom/", Channel::BrewCask)] {
         if let Some((_, after)) = text.split_once(marker) {
             let package = after.split('/').next().filter(|s| !s.is_empty()).map(str::to_owned);
@@ -76,13 +79,26 @@ pub fn detect(program: &str, path: Option<&Path>, home: &Path) -> Install {
             };
         }
     }
+    // Only npm's and bun's global folders; pnpm, yarn and a project's own
+    // `node_modules` update some other way.
+    let bun = home.join(".bun/install/global/node_modules");
+    if let Ok(after) = path.strip_prefix(&bun) {
+        let package = package_name(&after.to_string_lossy());
+        return Install { channel: Channel::Bun, package, writes: None };
+    }
+    if let Some((before, after)) = text.split_once("/lib/node_modules/")
+        && let Some(package) = package_name(after)
+    {
+        let writes = Some(PathBuf::from(format!("{before}/lib/node_modules")));
+        return Install { channel: Channel::Npm, package: Some(package), writes };
+    }
     plain(Channel::Standalone)
 }
 
 /// `@scope/name/bin/x` -> `@scope/name`; `name/bin/x` -> `name`.
 fn package_name(after: &str) -> Option<String> {
     let mut parts = after.split('/');
-    let first = parts.next().filter(|s| !s.is_empty())?;
+    let first = parts.next().filter(|s| !s.is_empty() && !s.starts_with('.'))?;
     if first.starts_with('@') {
         let second = parts.next().filter(|s| !s.is_empty())?;
         return Some(format!("{first}/{second}"));

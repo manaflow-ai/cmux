@@ -5,8 +5,9 @@
 //! daemon starts and every few hours, and on request after an update.
 //!
 //! Sign-in is reported only from evidence: a profile's `auth.check` command,
-//! or the hub's probe error naming sign-in. Without either it is `unknown`,
-//! never a guess from missing credential files.
+//! else the hub's probe error naming sign-in (it can be older than a login
+//! since). Without either it is `unknown`, never a guess from missing
+//! credential files.
 
 pub mod channel;
 pub mod latest;
@@ -14,15 +15,16 @@ pub mod probe;
 
 use channel::{Channel, UpdatePlan};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 /// How often the daemon checks again.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(6 * 3600);
-/// A newest-version answer younger than this is reused.
-const LATEST_TTL_MS: u64 = 6 * 3600 * 1000;
+/// A newest-version answer younger than this is reused: a little under
+/// `REFRESH_EVERY`, so each periodic check asks again.
+const LATEST_TTL_MS: u64 = (6 * 3600 - 600) * 1000;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +71,9 @@ pub struct Subject {
     pub family: String,
     /// The profile's `auth.check` command.
     pub check: Vec<String>,
+    /// The profile's env for the check (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`);
+    /// values naming a secret or a login variable are left out.
+    pub env: BTreeMap<String, String>,
     /// The profile's `auth.login` command.
     pub login: Option<String>,
     /// The hub's probe error for it (`Hub::probe_errors`).
@@ -115,7 +120,7 @@ fn builtin_login(family: &str) -> Option<&'static str> {
 }
 
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"(?i)not (logged|signed) in|log ?in|sign ?in|unauthenticated|authenticat|auth required|credentials")
+    regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern")
 });
 
@@ -239,12 +244,12 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
     let (auth, auth_detail) = match &s.probe_error {
-        Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
-        _ if !s.check.is_empty() && found.is_some() => match probe::auth_check(&s.check) {
+        _ if !s.check.is_empty() && found.is_some() => match probe::auth_check(&s.check, &s.env) {
             Ok(true) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
             Ok(false) => (Auth::SignedOut, Some(format!("`{}` failed", s.check.join(" ")))),
             Err(e) => (Auth::Unknown, Some(e)),
         },
+        Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
         _ => (Auth::Unknown, None),
     };
     HarnessHealth {

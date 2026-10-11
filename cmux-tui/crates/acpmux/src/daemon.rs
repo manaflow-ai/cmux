@@ -228,8 +228,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if fetch_catalog {
         tokio::spawn(hub.catalog.clone().run());
     }
-    // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
-    hub.start_harness_checks();
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
     hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
@@ -258,6 +256,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
+    // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
+    hub.start_harness_checks();
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
