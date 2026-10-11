@@ -119,11 +119,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         let onTop = barPosition == .top
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
-        // Only while the hold still keeps a view: one that ended without its release shows no strip.
-        let keepsStrip = holdKeepsStrip && paintHold.kept != nil
-        stripView.isHidden = hidesStrip && !keepsStrip
+        let shown = shownStripHeight
+        stripView.isHidden = shown <= 0
         if !isBandActive {
-            let shown = keepsStrip ? keptStripHeight : stripHeight
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width, height: shown)
         }
         let hostFrame = isBandActive ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
@@ -149,11 +147,11 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     var paneHeaderHeight: CGFloat {
         // The band is inside the browser's header.
-        (barPosition == .top && !isBandActive ? stripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+        (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0.
-    var paneFooterHeight: CGFloat { barPosition == .bottom ? stripHeight : 0 }
+    var paneFooterHeight: CGFloat { barPosition == .bottom ? shownStripHeight : 0 }
 
     /// The strip's height: its tabs sit with equal gaps above (from the
     /// pane cell's top, through the pane padding) and below (to the content

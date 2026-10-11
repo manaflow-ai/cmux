@@ -53,6 +53,7 @@ final class PanePaintHold {
     private var token: UInt64 = 0
     private var holding = false
     private var release: ((NSView) -> Void)?
+    private var ended: (() -> Void)?
     private let deadline: DemandTimer
 
     init(owner: String) {
@@ -69,7 +70,9 @@ final class PanePaintHold {
     /// `incoming` (moved above `outgoing` in `host`) stays invisible until it
     /// paints or ``limit`` passes; `outgoing` stays shown until then.
     /// `release` takes `outgoing` away when the hold ends.
-    func begin(outgoing: NSView, incoming: NSView, in host: NSView, release: @escaping (NSView) -> Void) {
+    /// `ended` runs when it ends, with or without an outgoing view left to release.
+    func begin(outgoing: NSView, incoming: NSView, in host: NSView, release: @escaping (NSView) -> Void,
+               ended: (() -> Void)? = nil) {
         guard let gated = incoming as? PaneFirstPaintGated else { return }
         token &+= 1
         let token = token
@@ -77,6 +80,7 @@ final class PanePaintHold {
         self.incoming = incoming
         holding = true
         self.release = release
+        self.ended = ended
         if incoming.superview === host {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
@@ -99,6 +103,7 @@ final class PanePaintHold {
         holding = false
         deadline.cancel()
         release = nil
+        ended = nil
         if let incoming {
             remove(incoming)
             // Page views are reused: one shown later must not stay invisible.
@@ -115,10 +120,13 @@ final class PanePaintHold {
         holding = false
         deadline.cancel()
         let release = release
+        let ended = ended
         self.release = nil
+        self.ended = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let outgoing { release?(outgoing) }
+        ended?()
         incoming?.alphaValue = 1
         CATransaction.commit()
         outgoing = nil
@@ -142,22 +150,24 @@ extension PaneContentView {
             // The host is not flipped: a fixed height on the strip's far side.
             outgoing.autoresizingMask = barPosition == .top ? [.width, .maxYMargin] : [.width, .minYMargin]
         }
-        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost) { [weak self] outgoing in
-            guard let self else { return }
-            if holdKeepsStrip {
-                holdKeepsStrip = false
-                stripView.isHidden = hidesStrip
-                needsLayout = true
-            }
-            guard outgoing.superview === contentHost, outgoing !== content else { return }
+        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, release: { [weak self] outgoing in
+            guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        }
+        }, ended: { [weak self] in
+            // The strip, ring and corners change with the swap, in its transaction.
+            guard let self, holdKeepsStrip else { return }
+            holdKeepsStrip = false
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        })
     }
 
-    /// The strip's height while a hold keeps it after it hid.
-    var keptStripHeight: CGFloat {
-        PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+    /// The strip's drawn height: while a hold keeps it after it hid, its
+    /// shown height (the content already takes its place, unseen).
+    var shownStripHeight: CGFloat {
+        guard holdKeepsStrip, paintHold.kept != nil else { return stripHeight }
+        return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
     /// Ends the hold: the outgoing view goes and the incoming one shows, in one frame.
