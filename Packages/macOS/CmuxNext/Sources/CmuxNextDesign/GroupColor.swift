@@ -59,15 +59,4 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
             )
         }
     }
-
-    /// Fills `layer` as a round swatch of this color, with an optional ring
-    /// for the chosen state. Resolves colors against `appearance`.
-    public func renderSwatch(into layer: CALayer, ringColor: NSColor?, ringWidth: CGFloat, appearance: NSAppearance) {
-        appearance.performAsCurrentDrawingAppearance {
-            layer.backgroundColor = swatch.cgColor
-            layer.borderColor = ringColor?.cgColor
-        }
-        layer.borderWidth = ringColor == nil ? 0 : ringWidth
-        layer.cornerRadius = min(layer.bounds.width, layer.bounds.height) / 2
-    }
 }

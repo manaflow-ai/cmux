@@ -38,11 +38,6 @@ public final class TabStripView: NSView {
     /// Metrics in effect. Re-read from the tokens on every settings change.
     public private(set) var metrics: TabStripMetrics = .standard
 
-    public var hoverCardPolicy: HoverCardPolicy {
-        get { hoverCard.policy }
-        set { hoverCard.policy = newValue }
-    }
-
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
     var windowControlsInset: CGFloat = 0

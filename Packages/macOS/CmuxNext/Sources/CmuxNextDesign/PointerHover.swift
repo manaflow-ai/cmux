@@ -57,9 +57,6 @@ public final class PointerHover: NSObject {
         }
     }
 
-    /// The view this target hovers.
-    public var hoveredView: NSView? { view }
-
     // MARK: Events
 
     // AppKit sends a tracking area's owner `mouseEntered:` and `mouseExited:`.
@@ -124,11 +121,6 @@ public final class PointerHover: NSObject {
         return .some(entry.point)
     }
 
-    /// DEBUG: `window` reads the real pointer again (tests restore with it).
-    public static func clearDebugPointer(in window: NSWindow) {
-        debugPointers[ObjectIdentifier(window)] = nil
-        refresh(in: window)
-    }
     #endif
 
     /// The pointer in `window`'s coordinates; nil when the window is not

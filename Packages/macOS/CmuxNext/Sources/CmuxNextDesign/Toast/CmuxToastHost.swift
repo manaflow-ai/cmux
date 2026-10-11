@@ -84,31 +84,3 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
         CmuxToastMotion.disappear(toast, animated: animated) { handle.dismiss() }
     }
 }
-
-/// Keeps toasts off screen (tests, headless automation) and records their
-/// slots; `closeWindow()` acts as if the window closed.
-@MainActor
-public final class CmuxToastHeadlessHost: CmuxToastHosting {
-    private var shown: [(view: CmuxToastView, slot: Int, gone: () -> Void)] = []
-
-    public init() {}
-
-    /// The toasts showing, bottom slot first.
-    public var slots: [CmuxToast] { shown.sorted { $0.slot < $1.slot }.map(\.view.toast) }
-
-    public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, windowGone: @escaping () -> Void) {
-        shown.append((toast, slot, windowGone))
-    }
-
-    public func move(_ toast: CmuxToastView, to slot: Int) {
-        if let index = shown.firstIndex(where: { $0.view === toast }) { shown[index].slot = slot }
-    }
-
-    public func hide(_ toast: CmuxToastView, animated: Bool) {
-        shown.removeAll { $0.view === toast }
-    }
-
-    public func closeWindow() {
-        shown.first?.gone()
-    }
-}
