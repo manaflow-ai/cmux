@@ -154,7 +154,7 @@ fn a_sessions_lease_terminal_is_the_callers() {
     use crate::host::Engines as _;
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("X", "webkit")]);
     let engines = crate::engines::HostEngines::new(crate::host::agent_bundle());
-    *engines.provider_slot().lock().unwrap() = Some(provider.clone());
+    *engines.provider_slot().lock().unwrap() = Some(provider);
     let open = |name: &str, terminal: Option<&str>| {
         let context = crate::host::SessionContext {
             name: name.into(),
