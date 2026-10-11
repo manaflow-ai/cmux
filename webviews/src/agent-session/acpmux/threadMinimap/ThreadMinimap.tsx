@@ -16,6 +16,7 @@ import {
   POPOVER_DELAY_MS,
   tickLayout,
   tickWidth,
+  TICK_CURRENT_WIDTH,
   TICK_LEFT,
   TICK_MAX_WIDTH,
   POPOVER_LEFT,
@@ -140,7 +141,10 @@ export function ThreadMinimap({
             index={index}
             top={index * pitch}
             pitch={pitch}
-            width={tickWidth(hovered === undefined ? undefined : index - hovered)}
+            width={Math.max(
+              tickWidth(hovered === undefined ? undefined : index - hovered),
+              index === current ? TICK_CURRENT_WIDTH : 0,
+            )}
             tone={
               hovered === index
                 ? "active"
@@ -238,6 +242,7 @@ const Tick = memo(function Tick({
       data-tone={tone}
       aria-label={label}
       aria-current={current ? "location" : undefined}
+      data-current={current ? "" : undefined}
       active={tabbable}
       style={{ transform: `translate3d(0, ${top}px, 0)`, height: pitch }}
       onClick={() => onJump(index)}
