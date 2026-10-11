@@ -18,6 +18,7 @@ const CONTINUE_ID: &str = "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d";
 const AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const CLAUDE_ID: &str = "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e";
 const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
+const BROKEN_AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d";
 
 struct Home(PathBuf);
 
@@ -58,6 +59,8 @@ fn continue_dev(h: &Path, project: &Path) {
     let session = json!({"sessionId": CONTINUE_ID, "title": "Continue chat", "workspaceDirectory": project, "history": [
         {"message": {"role": "user", "content": "Add a test"}},
         {"message": {"role": "assistant", "content": "Added one."}},
+        {"message": {"role": "user", "content": "<div> renders wrong"}},
+        {"message": {"role": "assistant", "content": "Fixed the div."}},
     ]});
     write(&h.join(format!(".continue/sessions/{CONTINUE_ID}.json")), &session.to_string());
 }
@@ -70,6 +73,12 @@ fn amp(h: &Path, project: &Path) {
         {"role": "assistant", "content": [{"type": "thinking", "thinking": "hm"}, {"type": "text", "text": "Renamed."}]},
     ]});
     write(&h.join(format!(".local/share/amp/threads/{AMP_ID}.json")), &thread.to_string());
+}
+
+/// An Amp thread cut short mid-write: still listed (untitled), but not JSON.
+fn amp_broken(h: &Path) {
+    let text = r#"{"v": 1, "id": "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d", "messages": [{"role": "us"#;
+    write(&h.join(format!(".local/share/amp/threads/{BROKEN_AMP_ID}.json")), text);
 }
 
 /// A Claude Code chat (one a client shows read-only before its first send when it cannot adopt).
@@ -170,6 +179,7 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
     amp(&h.0, &project);
     claude(&h.0, &project);
     codex(&h.0, &project);
+    amp_broken(&h.0);
     let hub = hub_on(&h.0).await;
     let (tx, mut rx) = connect(&hub, Origin::Local).await;
 
@@ -198,7 +208,11 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
         json!({"key": format!("continue:{CONTINUE_ID}")}),
     )
     .await;
-    assert_eq!(turns(&cont), [pair("Add a test", "Added one.")]);
+    // A prompt that starts with markup is the person's own (only whole tag blocks are context).
+    assert_eq!(
+        turns(&cont),
+        [pair("Add a test", "Added one."), pair("<div> renders wrong", "Fixed the div.")]
+    );
     let amp =
         call(&tx, &mut rx, 4, "_acpmux/chat_transcript", json!({"key": format!("amp:{AMP_ID}")}))
             .await;
@@ -211,6 +225,18 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
     let key = format!("codex:{CODEX_ID}");
     let codex = call(&tx, &mut rx, 7, "_acpmux/chat_transcript", json!({"key": key})).await;
     assert_eq!(turns(&codex), [pair("Bump the version", "Bumped to 1.2.")]);
+
+    // A chat whose file went bad or went away says so, never "no turns" or "too large".
+    let key = format!("amp:{BROKEN_AMP_ID}");
+    let broken = call(&tx, &mut rx, 8, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(broken["error"]["data"]["reason"], "transcript_unreadable", "{broken}");
+    std::fs::remove_file(h.0.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl")))
+        .expect("remove the claude chat");
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let gone = call(&tx, &mut rx, 9, "_acpmux/chat_transcript", json!({"key": key})).await;
+    // Unreadable, or not found once the index saw the file go.
+    let reason = &gone["error"]["data"]["reason"];
+    assert!(gone["error"].is_object() && (reason.is_null() || reason == "transcript_unreadable"), "{gone}");
 
     let unknown =
         call(&tx, &mut rx, 5, "_acpmux/chat_transcript", json!({"key": "droid:nope"})).await;
