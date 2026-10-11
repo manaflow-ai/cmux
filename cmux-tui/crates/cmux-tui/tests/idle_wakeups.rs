@@ -44,12 +44,18 @@ impl Daemon {
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
         let config = dir.join("config.json");
+        // The daemon's own settings file exists, as on a configured machine: its
+        // watcher must not wake on the daemon's own reads of it (a Linux inotify
+        // open event once fed a reload loop of ~40k reloads/s).
+        let settings = dir.join("cmux-next.json");
+        fs::write(&settings, "{}\n").unwrap();
         let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .env("CMUX_NEXT_CONFIG_FILE", &settings)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

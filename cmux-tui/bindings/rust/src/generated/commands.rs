@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896.
+// cmux-tui mux protocol 12, IR e1da218602f37e98ffecdc5d0a9c5c526f9711e51fe63eb6517768e857a30b22.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -768,6 +768,29 @@ pub struct ConversationCreateRequest {
 pub struct ConversationCreateResult {
     pub conversation: T::ConversationSummary,
     pub replayed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationDraftRequest {
+    pub conversation: String,
+    pub done: bool,
+    pub fresh: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
+    pub kind: String,
+    pub segment: u64,
+    pub seq: u64,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub truncated: Optional<bool>,
+    pub turn: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationDraftResult {
+    pub published: bool,
 }
 
 #[rustfmt::skip]
@@ -3719,6 +3742,10 @@ impl CmuxClient {
 
     pub fn conversation_create(&mut self, request: ConversationCreateRequest) -> Result<ConversationCreateResult> {
         self.execute(&CONVERSATION_CREATE_METADATA, &request)
+    }
+
+    pub fn conversation_draft(&mut self, request: ConversationDraftRequest) -> Result<ConversationDraftResult> {
+        self.execute(&CONVERSATION_DRAFT_METADATA, &request)
     }
 
     pub fn conversation_history(&mut self, request: ConversationHistoryRequest) -> Result<ConversationHistoryResult> {

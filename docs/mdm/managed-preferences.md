@@ -77,6 +77,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.theme` | string |  |  | Theme. Colors for cmux and its terminals. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast. |
+| `appearance.accent` | string | `"neutral"` | `neutral`, `theme`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan` | Accent. The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris. |
 | `appearance.backdropArt` | string | `"none"` | `none`, `wheat-field-with-cypresses`, `met-saint-catherine-436908`, `met-woman-man-casement-436896`, `met-women-picking-olives-436536`, `met-sunflowers-436524`, `nga-degas-halevy-standing-66489`, `nga-degas-dancer-from-behind-32137`, `nga-carpaccio-groups-of-male-figures-73858`, `nga-perino-del-vaga-figure-studies-57613`, `nga-rubens-battle-of-nude-men-63034`, `nga-teniers-market-figures-62615` | Backdrop Art. A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above. |
 | `appearance.background` | string | `"none"` | `none`, `nga-degas-halevy-standing-66489`, `nga-degas-dancer-from-behind-32137`, `nga-carpaccio-groups-of-male-figures-73858`, `nga-perino-del-vaga-figure-studies-57613`, `nga-rubens-battle-of-nude-men-63034`, `nga-teniers-market-figures-62615`, `wheat-field-with-cypresses`, `met-saint-catherine-436908`, `met-woman-man-casement-436896`, `met-women-picking-olives-436536`, `met-sunflowers-436524`, `desktop` | Background. Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. |
 | `appearance.experimentalControls` | boolean | `false` |  | Experimental Appearance Controls. Show the wallpaper grid and live appearance tuner while they are being integrated. |
@@ -163,7 +164,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats. Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
-| `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |
+| `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
+| `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row. |
@@ -266,6 +268,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.dockBadge` | boolean | `true` |  | Unread Count on Dock Icon |
 | `feed.mirrorNotifications.agents` | boolean | `true` |  | Copy Agent Notifications to the Feed. Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone. |
 | `feed.mirrorNotifications.terminal` | string | `"off"` | `off`, `title`, `full` | Copy Terminal Notifications to the Feed. Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account. |
+| `feed.agentPermissionPrompts` | boolean | `false` |  | Send Agent Permission Requests to the Feed. Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it. |
 | `notifications.attention.style` | string | `"blink"` | `blink`, `pulse`, `steady`, `none` | Style |
 | `notifications.attention.color` | string |  |  | Color |
 | `notifications.attention.width` | real | `2` | 0.5 to 8 | Width |

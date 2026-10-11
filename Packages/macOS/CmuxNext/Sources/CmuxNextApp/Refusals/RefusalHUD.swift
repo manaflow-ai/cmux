@@ -48,8 +48,6 @@ final class RefusalHUDView: NSView {
     private let label = NSTextField(labelWithString: "")
     private(set) var isShowing = false
     var text: String { label.stringValue }
-    /// Whether the whole message fits (tests).
-    var fitsText: Bool { (label.cell?.cellSize.width ?? .infinity) <= label.frame.width + 0.5 }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

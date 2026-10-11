@@ -158,6 +158,22 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.accent" : {
+      "default" : "neutral",
+      "description" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
+      "enum" : [
+        "neutral",
+        "theme",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "title" : "Accent",
+      "type" : "string"
+    },
     "appearance.appTheme" : {
       "default" : "followTerminal",
       "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
@@ -808,6 +824,12 @@
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
       "type" : "string"
+    },
+    "feed.agentPermissionPrompts" : {
+      "default" : false,
+      "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
+      "title" : "Send Agent Permission Requests to the Feed",
+      "type" : "boolean"
     },
     "feed.github.enabled" : {
       "default" : false,
@@ -1522,6 +1544,12 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.minimal" : {
+      "default" : false,
+      "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+      "title" : "Minimal Mode",
+      "type" : "boolean"
+    },
     "sidebar.minimalMode" : {
       "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
@@ -1531,7 +1559,7 @@
         "top",
         "both"
       ],
-      "title" : "Minimal Mode",
+      "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
     "sidebar.numbering" : {

@@ -153,6 +153,16 @@ enum PaneHandlers {
         }
         registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
         registry.bind("focusNextPane", invoke: { cycleFocus(ctx, $0, offset: 1) })
+        registry.bind("focusPaneByNumber", invoke: { invocation in
+            guard let pane = ctx.paneController(invocation), let content = pane.workspace,
+                  let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
+            guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
+            // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace.
+            let order = screen.layout.panes
+            let index = number >= 9 ? order.count - 1 : number - 1
+            guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
+            focus(order[index], in: content)
+        })
     }
 
     private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {

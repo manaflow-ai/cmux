@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896.
+// cmux-tui mux protocol 12, IR e1da218602f37e98ffecdc5d0a9c5c526f9711e51fe63eb6517768e857a30b22.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,25 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentPresenceActivity {
+    #[serde(rename = "thinking")]
+    Thinking,
+    #[serde(rename = "editing")]
+    Editing,
+    #[serde(rename = "reading")]
+    Reading,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "browsing")]
+    Browsing,
+    #[serde(rename = "computer_use")]
+    ComputerUse,
+    #[serde(rename = "waiting")]
+    Waiting,
 }
 
 #[rustfmt::skip]
@@ -362,6 +381,10 @@ pub struct ConversationImportMessage {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationMessage {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers_pending: Option<Vec<String>>,
     pub author: String,
     pub client_msg_id: String,
     pub conversation: String,
@@ -376,6 +399,8 @@ pub struct ConversationMessage {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub retracted_at: Option<String>,
     pub seq: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -761,8 +786,12 @@ pub struct IdentifyResult {
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub build_id: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cli_path: Optional<String>,
     pub daemon_handoff: u64,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

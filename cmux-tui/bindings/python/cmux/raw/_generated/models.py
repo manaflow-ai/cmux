@@ -37,6 +37,15 @@ class UnknownEvent(EventBase):
     event: str
     raw: Mapping[str, Any]
 
+class AgentPresenceActivity(str, Enum):
+    THINKING = 'thinking'
+    EDITING = 'editing'
+    READING = 'reading'
+    RUNNING = 'running'
+    BROWSING = 'browsing'
+    COMPUTER_USE = 'computer_use'
+    WAITING = 'waiting'
+
 class AgentReportSource(str, Enum):
     SOCKET = 'socket'
     HOOK = 'hook'
@@ -535,9 +544,12 @@ class ConversationMessage:
     parts: List[ConversationPart]
     reactions: List[ConversationReaction]
     seq: int
+    answers: Union[List[str], MissingType] = field(default=MISSING)
+    answers_pending: Union[List[str], MissingType] = field(default=MISSING)
     edited_at: Union[str, MissingType] = field(default=MISSING)
     reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
     retracted_at: Union[str, MissingType] = field(default=MISSING)
+    thread_root: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -832,7 +844,9 @@ class IdentifyResult:
     version: str
     workspace_revision: int
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
+    build_id: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    cli_path: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
@@ -2437,6 +2451,27 @@ class ConversationCreateResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/result'
     conversation: ConversationSummary
     replayed: bool
+
+
+@dataclass(frozen=True)
+class ConversationDraftRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/request'
+    conversation: str
+    done: bool
+    fresh: bool
+    kind: str
+    segment: int
+    seq: int
+    text: str
+    turn: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    truncated: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationDraftResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/result'
+    published: bool
 
 
 @dataclass(frozen=True)
@@ -4272,6 +4307,21 @@ class AgentChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class AgentPresenceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-presence-changed/payload'
+    surface: Id
+    activity: Union[AgentPresenceActivity, None]
+    agent: Union[str, None]
+    event: Literal['agent-presence-changed']
+    line: Union[int, None]
+    path: Union[str, None]
+    session: Union[str, None]
+    tool: Union[str, None]
+    updated_at_ms: Union[int, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class BellEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/bell/payload'
     surface: Id
@@ -5036,7 +5086,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5046,6 +5096,7 @@ __all__ = [
     'UnknownEvent',
     'KnownEvent',
     'AnyEvent',
+    'AgentPresenceActivity',
     'AgentReportSource',
     'AgentSource',
     'AgentState',
@@ -5301,6 +5352,8 @@ __all__ = [
     'ConversationBindResult',
     'ConversationCreateRequest',
     'ConversationCreateResult',
+    'ConversationDraftRequest',
+    'ConversationDraftResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
     'ConversationImportRequest',
@@ -5517,6 +5570,7 @@ __all__ = [
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',
+    'AgentPresenceChangedEvent',
     'BellEvent',
     'BookmarksChangedEvent',
     'BrowserStateEvent',

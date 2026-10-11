@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
   onTerminal: (mode: "toggle" | "open") => void;
@@ -12,6 +13,9 @@ type HeaderToolsProps = {
   sideTabs?: boolean;
   hasChanges?: boolean;
   onChanges?: (mode: "toggle" | "open") => void;
+  previewUrl?: string;
+  onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
+  onCustomize?: (list: readonly QuickAction[]) => void;
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
@@ -73,11 +77,30 @@ const openMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
 
-// The App reports Terminal's, Browser's and Changes' panels open and panes beside the chat (its headerState push).
+// The App reports Terminal's, Browser's, Changes' and Preview's panels open and panes beside the chat
+// (its headerState push).
 const panelsOpen: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
-  setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer"], sideTabs: true });
+  setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer", "preview"], sideTabs: true });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+};
+
+// Right-click Browser: the menu to move it, pick toggle or open, and show or hide each button (#19156).
+const customizeMenu: Play = async (ctx) => {
+  const button = ctx.find({ selector: '[data-quick-action="browser"]' });
+  const box = button.getBoundingClientRect();
+  const view = ctx.document.defaultView!;
+  button.dispatchEvent(
+    new view.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+    }),
+  );
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('[role="menu"] [role="menuitemcheckbox"], [role="menu"] [role="menuitem"]'),
+  );
 };
 
 const keyboardMenu: Play = async (ctx) => {
@@ -150,9 +173,28 @@ export default componentEntry<HeaderToolsProps>({
       props: base,
     },
     "panels-open": {
-      note: "Terminal, Browser, Changes and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
-      props: { ...base, sideTabs: true, hasChanges: true, onChanges: () => undefined },
+      note: "Terminal, Browser, Changes, Preview and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      props: {
+        ...base,
+        sideTabs: true,
+        hasChanges: true,
+        onChanges: () => undefined,
+        previewUrl: "http://localhost:5173/",
+        onPreview: () => undefined,
+      },
       play: panelsOpen,
+    },
+    "customize-menu": {
+      note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        previewUrl: "http://localhost:5173/",
+        onPreview: () => undefined,
+        onCustomize: () => undefined,
+      },
+      play: customizeMenu,
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",

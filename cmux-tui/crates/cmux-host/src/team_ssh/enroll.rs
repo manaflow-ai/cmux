@@ -146,6 +146,7 @@ pub fn enroll(
         TEAM_ENROLL_FILE,
         &EnrollRecord { instance_id: instance.into(), team: team.into(), epoch },
     )?;
+    record_team_kind(paths)?;
     Ok(json!({ "instance_id": instance, "public_jwk": key.public_jwk(), "signature": signature }))
 }
 
@@ -173,7 +174,23 @@ pub fn commit(paths: &Paths, instance: &str, bound: &TeamBound) -> Result<(), St
     {
         return Err("commit does not match this clone's last enroll".into());
     }
-    write_json(paths, TEAM_BOUND_FILE, bound)
+    write_json(paths, TEAM_BOUND_FILE, bound)?;
+    record_team_kind(paths)
+}
+
+/// Records this machine as a team VM (`cloud::wire::VM_KIND_FILE`, root,
+/// 0644): from its first enroll, and again at every sync pass of a bound
+/// team VM (a VM enrolled by an older build).
+pub fn record_team_kind(paths: &Paths) -> Result<(), String> {
+    let path = paths.at(crate::cloud::wire::VM_KIND_FILE);
+    let current = std::fs::read_to_string(&path).ok();
+    if current.as_deref().map(str::trim) == Some("team") {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    write_atomic(&path, b"team\n", 0o644).map_err(|e| format!("vm-kind: {e}"))
 }
 
 /// The binding for this clone, if any (a binding of another clone is ignored).

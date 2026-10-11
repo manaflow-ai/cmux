@@ -53,6 +53,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
+      # The autofix's own scripts come from the base commit, so a branch cut
+      # before they existed is repaired too; the generators they run are the
+      # pull request's own.
+      - name: Autofix scripts from the base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          mkdir -p "$RUNNER_TEMP/autofix"
+          git archive "$BASE_SHA" scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
+          echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
+
       - name: Changed areas
         id: areas
         env:
@@ -67,7 +80,7 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > "$RUNNER_TEMP/changed.txt"
-          scripts/cmux-next/autofix-areas.sh < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
+          "$AUTOFIX/autofix-areas.sh" < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
       # cmux-next-base-autofix.yml.
@@ -105,7 +118,9 @@ jobs:
       # Before the other repairs, so their cargo fmt sees clippy's edits.
       - name: cargo clippy --fix
         if: steps.areas.outputs.clippy == 'true'
-        run: scripts/cmux-next/autofix-clippy.sh "$GITHUB_WORKSPACE" < "$RUNNER_TEMP/changed.txt" | tee "$RUNNER_TEMP/clippy.txt"
+        run: |
+          set -euo pipefail
+          "$AUTOFIX/autofix-clippy.sh" "$GITHUB_WORKSPACE" < "$RUNNER_TEMP/changed.txt" | tee "$RUNNER_TEMP/clippy.txt"
 
       # Packages installed without lifecycle scripts; this job has no write token.
       - name: vp fmt
@@ -142,14 +157,17 @@ jobs:
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
-          scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt"
+          "$AUTOFIX/base-autofix.sh" ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt"
           # The GhosttyKit checksum, when the release for the pull request's
           # ghostty commit is already published (exit 3: not yet; the base
-          # bot pins it after the merge).
+          # bot pins it after the merge). Any other failure (a branch whose
+          # download script predates --print-release) is left to the base bot.
           if [[ "$GHOSTTY" == true ]]; then
             status=0
-            scripts/cmux-next/ghosttykit-checksum.sh "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt" || status=$?
-            (( status == 0 || status == 3 )) || exit "$status"
+            "$AUTOFIX/ghosttykit-checksum.sh" "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt" || status=$?
+            if (( status != 0 && status != 3 )); then
+              echo "left: GhosttyKit checksum lookup failed (exit $status); the base bot pins it after the merge" | tee -a "$RUNNER_TEMP/autofix.txt"
+            fi
           fi
           { echo "### PR autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
 

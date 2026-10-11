@@ -49,10 +49,6 @@ public final class OverlaySurfaceView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The view that draws the material (a Liquid Glass `GlassPanelView`,
-    /// `NSVisualEffectView` or a plain layer-backed view).
-    public var materialDrawingView: NSView? { materialView }
-
     public override func hitTest(_ point: NSPoint) -> NSView? {
         isInteractive ? super.hitTest(point) : nil
     }

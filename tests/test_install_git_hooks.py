@@ -5,6 +5,7 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import json
 import os
 from pathlib import Path
 import shutil
@@ -48,6 +49,7 @@ class InstallGitHooksTests(unittest.TestCase):
             INSTALLER,
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
+            "scripts/merge-baseline.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -364,6 +366,15 @@ class InstallGitHooksTests(unittest.TestCase):
             "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
+            # Other checked exports: lanes committed "regenerate after the tip
+            # merge" for these every day.
+            "plans/cmux-next/actions.md",
+            "plans/cmux-next/action-surfaces.json",
+            "schemas/settings/settings-schema.json",
+            "docs/mdm/com.manaflow.cmux.plist",
+            "Packages/macOS/CmuxNext/ci-target-graph.json",
+            "cmux-tui/bindings/go/raw/generated_types.go",
+            "cmux-tui/bindings/rust/src/generated/types.rs",
         )]
         for path in outputs:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -383,6 +394,86 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         for path in outputs:
             self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
+
+    def test_kept_generated_files_are_ones_the_ci_merger_rebuilds(self):
+        """A kept copy is only safe where a rebuild replaces it: next_batch.py's
+        merger rebuilds the web, Swift and SDK classes and blocks any other path
+        both sides changed. A generated file with no check (the app permission
+        scopes) would keep a stale copy silently."""
+        import sys
+        sys.path.insert(0, str(SOURCE / "scripts/ci"))
+        import next_batch
+        files = [path for path in subprocess.run(["git", "ls-files", "-z"], cwd=SOURCE, check=True,
+                                                 capture_output=True, text=True).stdout.split("\0") if path]
+        attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
+                                    input="\0".join(files), capture_output=True, text=True).stdout.split("\0")
+        kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
+                if value == "cmux-generated-v1"]
+        self.assertTrue(kept)
+        self.assertEqual([path for path in kept if next_batch.classify(path) not in {"web", "swift", "sdk"}], [])
+
+    def test_hand_written_sdk_files_still_merge_normally(self):
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.assertEqual(self.install().returncode, 0)
+        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/Client.java"):
+            attribute = self.git("check-attr", "merge", "--", path).stdout.strip()
+            self.assertTrue(attribute.endswith(": unspecified"), attribute)
+
+    def test_ratchet_baselines_merge_entry_by_entry(self):
+        """Two lanes that each change different baseline entries merge cleanly,
+        keeping both changes; the same entry changed two ways conflicts."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        tsv = self.repo / "scripts/cmux-next/godfile-baseline.tsv"
+        ratchet = self.repo / "scripts/lint-namespace-types-ratchet.txt"
+        counts = self.repo / "scripts/cmux-next/main-actor-work-baseline.json"
+        for path in (tsv, ratchet, counts):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        tsv.write_text("rust-file\ta.rs\t900\t40\nrust-file\tb.rs\t800\t30\nrust-file\tc.rs\t700\t20\n")
+        ratchet.write_text("# header\nA.swift:A\nB.swift:B\nC.swift:C\n")
+        counts.write_text(json.dumps({"A.swift": {"decode": 2}, "B.swift": {"decode": 1}}, indent=1, sort_keys=True) + "\n")
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "lane")
+        tsv.write_text("rust-file\tb.rs\t800\t30\nrust-file\tc.rs\t700\t20\n")  # fixed a.rs
+        ratchet.write_text("# header\nB.swift:B\nC.swift:C\n")
+        counts.write_text(json.dumps({"B.swift": {"decode": 1}}, indent=1, sort_keys=True) + "\n")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        tsv.write_text("rust-file\ta.rs\t900\t40\nrust-file\tb.rs\t750\t30\nrust-file\tc.rs\t700\t20\n")  # b.rs shrank
+        ratchet.write_text("# header\nA.swift:A\nB.swift:B\n")
+        counts.write_text(json.dumps({"A.swift": {"decode": 2}, "B.swift": {"decode": 1}, "D.swift": {"decode": 1}},
+                                     indent=1, sort_keys=True) + "\n")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(tsv.read_text(), "rust-file\tb.rs\t750\t30\nrust-file\tc.rs\t700\t20\n")
+        self.assertEqual(ratchet.read_text(), "# header\nB.swift:B\n")
+        self.assertEqual(json.loads(counts.read_text()), {"B.swift": {"decode": 1}, "D.swift": {"decode": 1}})
+
+        self.git("checkout", "--quiet", "-b", "other", base)
+        tsv.write_text("rust-file\ta.rs\t900\t40\nrust-file\tb.rs\t780\t30\nrust-file\tc.rs\t700\t20\n")
+        self.commit_all("other")
+        self.git("checkout", "--quiet", "lane")
+        clash = self.git("merge", "--no-edit", "other", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<< ours\nrust-file\tb.rs\t750\t30\n=======\nrust-file\tb.rs\t780\t30\n>>>>>>> theirs",
+                      tsv.read_text())
+        self.git("merge", "--abort")
+
+        # A JSON entry changed two ways also leaves markers, never a clean-looking ours.
+        self.git("checkout", "--quiet", "-b", "json-other", base)
+        counts.write_text(json.dumps({"A.swift": {"decode": 5}, "B.swift": {"decode": 1}}, indent=1, sort_keys=True) + "\n")
+        self.commit_all("json other")
+        self.git("checkout", "--quiet", "lane")
+        clash = self.git("merge", "--no-edit", "json-other", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", counts.read_text())
+        self.assertIn('"decode": 5', counts.read_text())
 
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"

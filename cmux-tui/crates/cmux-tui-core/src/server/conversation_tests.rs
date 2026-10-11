@@ -171,7 +171,8 @@ fn conversation_create_send_snapshot_and_history_round_trip() {
     let summary = &snapshot["conversation"];
     assert_eq!(summary["last_seq"], 3);
     assert_eq!(summary["rev"], 6);
-    assert_eq!(summary["read_cursors"], json!({"user_local":3}));
+    // The agent sent seq 3, so its own cursor reads through it (cx-59n8.2).
+    assert_eq!(summary["read_cursors"], json!({"agent_mux":3,"user_local":3}));
     assert_eq!(summary["last_message"]["seq"], 3);
     assert_eq!(summary["participants"][1]["agent_class"], "mux");
     let seqs = |messages: &Value| {

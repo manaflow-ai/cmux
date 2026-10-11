@@ -106,9 +106,6 @@ public final class WakeupLedger: Sendable {
         return entries.sorted { ($0.perSecond, $0.count, $1.owner) > ($1.perSecond, $1.count, $0.owner) }
     }
 
-    /// Total wakeups per second over the rate window, all owners.
-    public func totalPerSecond() -> Double { snapshot().reduce(0) { $0 + $1.perSecond } }
-
     public func reset() {
         counters.withLock { $0.removeAll() }
     }

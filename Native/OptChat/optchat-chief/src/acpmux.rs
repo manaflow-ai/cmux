@@ -99,7 +99,7 @@ pub fn harness_family(answer: &Value, harness: &str) -> Result<Family, String> {
 /// answer, as the link starts it), on a connection of its own.
 pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<Value, String> {
     crate::acpmux_daemon::ensure(socket, log)?;
-    let client = RpcClient::connect(socket, |_| {})
+    let client = crate::acpmux_peer::connect(socket, |_| {})
         .map_err(|e| format!("connect {}: {e}", socket.display()))?;
     let result = client
         .request(
@@ -502,15 +502,22 @@ impl Acpmux {
                 // daemon takes its socket within HANDOFF_WAIT, the host's
                 // sessions ended with it, and it never starts another.
                 let mut linked = false;
+                // A refused socket peer (cx-ggai) is logged once, not at every retry.
+                let mut last_error = String::new();
                 loop {
                     let started = std::time::Instant::now();
                     match this.connect_once(&sink, &*log, !linked) {
                         Ok(closed) => {
                             linked = true;
+                            last_error.clear();
                             let _ = closed.recv();
                             log("acpmux connection closed");
                         }
-                        Err(e) => log(&format!("acpmux: {e}")),
+                        Err(e) if e == last_error => {}
+                        Err(e) => {
+                            log(&format!("acpmux: {e}"));
+                            last_error = e;
+                        }
                     }
                     *this
                         .client
@@ -564,7 +571,7 @@ impl Acpmux {
         let (closed_tx, closed_rx) = channel();
         let turns = self.turns.clone();
         let route_sink = sink.clone();
-        let client = RpcClient::connect(&self.socket, move |n| {
+        let client = crate::acpmux_peer::connect(&self.socket, move |n| {
             if n.method.is_empty() {
                 let _ = closed_tx.send(());
             } else {

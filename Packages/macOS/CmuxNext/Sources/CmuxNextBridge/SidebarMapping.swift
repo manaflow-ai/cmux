@@ -84,7 +84,7 @@ public struct SidebarMapping {
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
-        return SidebarWorkspace(
+        var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: page?.title ?? workspace.displayName,
@@ -119,6 +119,8 @@ public struct SidebarMapping {
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
+        row.presence = presence(tabs)
+        return row
     }
 
     /// The tab the row stands for: the selected tab of the workspace's most

@@ -35,7 +35,7 @@
          }
      }
  
-@@ -196,7 +202,7 @@
+@@ -208,7 +214,7 @@
                  if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "container \(d)" }
              }
          }
@@ -44,7 +44,7 @@
          let base = slot * FlightRecorder.maxRows
          var n = 0
          // Coverage gaps from the same rows (FlashCheck.coverageGaps rules), unfilled outgoing bubbles.
-@@ -438,10 +444,11 @@
+@@ -450,10 +456,11 @@
          guard let c else { return }
          let f = DateFormatter()
          f.dateFormat = "yyyyMMdd-HHmmss.SSS"
@@ -59,7 +59,7 @@
          let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
          let t0 = order.first.flatMap { self.samples[checked: $0]?.t } ?? CACurrentMediaTime() // checked
          // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
-@@ -469,20 +476,23 @@
+@@ -481,20 +488,23 @@
          }
          try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
          }
@@ -90,7 +90,7 @@
          let q = DispatchQueue(label: "flight.burst", qos: .utility)
          let start = CACurrentMediaTime()
          var i = 0
-@@ -490,7 +500,8 @@
+@@ -502,7 +512,8 @@
          timer.schedule(deadline: .now(), repeating: 1.0 / 60)
          timer.setEventHandler {
              let t = CACurrentMediaTime() - start

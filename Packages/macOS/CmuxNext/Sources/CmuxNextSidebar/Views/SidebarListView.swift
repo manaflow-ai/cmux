@@ -49,7 +49,7 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
-    /// The row that paints the selection fill (`SidebarLayout.selectedRowKey`).
+    /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     private(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false

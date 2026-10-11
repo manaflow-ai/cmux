@@ -44,13 +44,6 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
-    /// Changes art and repaints this scope and its descendants without a
-    /// Ghostty reload or changing any terminal colors.
-    /// - Parameter art: The painting to show; nil restores inherited art.
-    public func setBackdropArt(_ art: BackdropArt?) {
-        setBackdropSelection(art.map(BackdropSelection.art))
-    }
-
     /// Changes the selected bundled or system image and repaints descendants.
     public func setBackdropSelection(_ selection: BackdropSelection?) {
         guard selectedBackdropSelection != selection else { return }
@@ -230,7 +223,8 @@ public final class ThemeScope {
     }
 
     private func update(animated: Bool, repaint: Bool) {
-        let next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
+        var next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
+        next.accent = ThemeStore.shared.accent
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).
         defer { for view in roots.allObjects { applyAppearance(to: view) } }
@@ -250,15 +244,6 @@ public final class ThemeScope {
         ThemeScopeRegistry.setScope(self, of: view)
         roots.add(view)
         applyAppearance(to: view)
-        Self.invalidate(view)
-    }
-
-    /// Returns `view` to whatever scope its ancestors draw in.
-    public func unroot(_ view: NSView) {
-        guard ThemeScopeRegistry.scope(of: view) === self else { return }
-        ThemeScopeRegistry.setScope(nil, of: view)
-        roots.remove(view)
-        view.appearance = nil
         Self.invalidate(view)
     }
 

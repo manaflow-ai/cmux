@@ -82,14 +82,25 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
       {children}
       {point
         ? createPortal(
-            <div className="ui-context-menu-backdrop" onPointerDown={() => close()}>
+            // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent
+            // pane) still opens the menu at the pointer above the page (cx-j4sd).
+            <div
+              className="ui-context-menu-backdrop"
+              style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
+              onPointerDown={() => close()}
+            >
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
                 ref={(node) => node?.focus()}
                 className="ui-popup ui-context-menu"
                 role="menu"
                 tabIndex={-1}
-                style={{ left: Math.max(4, Math.min(point.x, window.innerWidth - 244)), top: Math.max(4, point.y) }}
+                style={{
+                  position: "fixed",
+                  minWidth: 180,
+                  left: Math.max(4, Math.min(point.x, window.innerWidth - 244)),
+                  top: Math.max(4, point.y),
+                }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {

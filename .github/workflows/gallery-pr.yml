@@ -186,7 +186,7 @@ jobs:
         with:
           name: gallery-stage-${{ matrix.stage }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/evidence
-          retention-days: 14
+          retention-days: 1  # only the compare job in this run reads the stages
 
   compare:
     needs: render
