@@ -5083,14 +5083,25 @@ export function prepareScpEndpoint(input: {
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     const setupStartedAtMs = yield* Clock.currentTimeMillis;
     const setupWindowMs = Math.max(SCP_PREPARE_MIN_WINDOW_MS, deadlineAtMs - setupStartedAtMs);
-    const unanswered = () => new VmProviderOperationError({
-      provider: vm.provider,
-      operation: "prepareSCP",
-      cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
-    });
+    const isUnanswered = (error: VmWorkflowError) =>
+      error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause);
+    // The first setup failure, kept so a deadline that fires during recovery
+    // answers with it: an early refusal (a 401, a fast 500) keeps its own code.
+    let firstSetupFailure: VmWorkflowError | undefined;
+    const atDeadline = (): VmWorkflowError => firstSetupFailure && !isUnanswered(firstSetupFailure)
+      ? firstSetupFailure
+      : new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "prepareSCP",
+        cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
+      });
+    const setup = prepareSCP(vm.provider, input.providerVmId, input.publicKey).pipe(
+      Effect.tapError((error) => Effect.sync(() => { firstSetupFailure ??= error; })),
+    );
     // One deadline covers the preflight resume, the setup, and any status
     // probe, resume and second attempt after it: a later answer reaches no
-    // one. The work is disconnected, so a resume past the deadline still
+    // one. At the deadline the answer is the first setup failure when there
+    // was one that is not a hang, else the stuck guest. The work is disconnected, so a resume past the deadline still
     // finishes its bookkeeping in the background instead of being interrupted
     // midway. A guest that did not answer is not retried here: a probe or
     // resume inside the same request does not fix it.
@@ -5104,14 +5115,14 @@ export function prepareScpEndpoint(input: {
         vm,
         input.providerVmId,
         "scp",
-        prepareSCP(vm.provider, input.providerVmId, input.publicKey),
+        setup,
         input.maxActiveVms,
         input.callerPlanId,
-        (error) => error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause),
+        isUnanswered,
       );
     }).pipe(
       Effect.disconnect,
-      Effect.timeoutFail({ duration: setupWindowMs, onTimeout: unanswered }),
+      Effect.timeoutFail({ duration: setupWindowMs, onTimeout: atDeadline }),
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,

@@ -9071,6 +9071,23 @@ describe("private SCP workflow", () => {
     expect(elapsedMs).toBeLessThan(60_000);
     expect(error?._tag).toBe("VmProviderOperationError");
     expect(probes).toBeGreaterThanOrEqual(2);
+    // The setup failed before the deadline, so its own error is the answer.
+    expect(error && "cause" in error ? (error.cause as Error).message : "").toBe("Internal server error");
+  });
+
+  test("an early refusal keeps its own error when the recovery probe stalls past the deadline", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-early-401", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const refused = providerOperationError("prepareSCP", "401 Unauthorized: invalid api key");
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(refused),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-early-401", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error).toBe(refused);
   });
 
   test("a guest that did not answer is not probed or resumed again in the same request", async () => {
