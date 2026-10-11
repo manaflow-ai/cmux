@@ -755,9 +755,17 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
 
+      - name: Validate the R2 storage census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_storage_census.py
+
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
+
+      - name: Validate the Actions artifact pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_actions_artifact_prune.py
 
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}

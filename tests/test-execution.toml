@@ -26,6 +26,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_surface_handle_ignores_stale_workspace.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -1023,6 +1028,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]

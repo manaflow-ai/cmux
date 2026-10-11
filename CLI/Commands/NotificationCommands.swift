@@ -49,6 +49,11 @@ struct JumpToUnreadCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "jump-to-unread", helpNames: [])
 }
 
+struct JumpToLastPromptCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "jump-to-last-prompt", helpNames: [])
+}
+
 struct ClearNotificationsCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surface: String?

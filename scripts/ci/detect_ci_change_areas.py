@@ -109,6 +109,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
     # imports it and ci-macos.yml runs that on a Mac, which is the same reason
     # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
+    "scripts/ci/actions_artifact_prune.py",
     "scripts/ci/app_host_failure_census.py",
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
@@ -118,6 +119,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/r2-canary-cloudflare.py",
     "scripts/ci/r2_cache_census.py",
     "scripts/ci/r2_cache_prune.py",
+    "scripts/ci/r2_storage_census.py",
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",

@@ -152,6 +152,7 @@ struct CmuxCommand: AsyncParsableCommand {
             MarkNotificationReadCommand.self,
             OpenNotificationCommand.self,
             JumpToUnreadCommand.self,
+            JumpToLastPromptCommand.self,
             ClearNotificationsCommand.self,
             FeedCommand.self,
             EventsCommand.self,
