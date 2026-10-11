@@ -246,6 +246,9 @@ try:
         check(wait_for(lambda: at(engine, f"/b-{engine}-{RUN}"), f"{engine}: the reopened tab shows B", 30) is not None,
               f"{engine}: the reopened tab shows B ({reports.get(engine)})")
         time.sleep(1)  # the saved history reaches the page
+        tab = tab_at(f"/b-{engine}-{RUN}")
+        if tab is not None:  # the reopened tab may sit in the window its group closed in
+            rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
         reply = rpc("debug.toast", {"perform": "browserBack"})
         check(reply.get("performed") is True, f"{engine}: a person's Back runs ({reply})")
         check(wait_for(lambda: at(engine, f"/a-{engine}-{RUN}"), f"{engine}: Back reaches A", 15) is not None,

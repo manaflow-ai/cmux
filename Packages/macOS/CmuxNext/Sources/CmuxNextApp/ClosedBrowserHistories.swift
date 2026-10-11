@@ -12,7 +12,8 @@ import Foundation
 /// as its `restoreState` (`restoring`, through `configureBrowser`). A
 /// history no page claims within a minute is dropped; that tab loads its
 /// URL as before. Only local reopens restore, into a page of the profile
-/// the history closed in.
+/// the history closed in. The daemon's copy of the history (cx-d0d.11, for
+/// a reopen after a relaunch) is then not applied on top of it.
 @MainActor
 final class ClosedBrowserHistories {
     private struct Saved {
@@ -30,6 +31,8 @@ final class ClosedBrowserHistories {
     private var closed: [Saved] = []
     /// Histories of tabs a reopen is recreating, until their pages claim them.
     private var expected: [Saved] = []
+    /// Tabs whose new page restored a history from here.
+    private var restoredTabs: Set<String> = []
 
     /// A browser tab's page is closing (`TabContentCache.release`).
     func save(_ page: (any BrowserTab)?) {
@@ -59,19 +62,25 @@ final class ClosedBrowserHistories {
 
     /// The history a reopened tab's new page at `url` in `profile` restores,
     /// for a Chromium page or a WebKit one.
-    func claim(_ url: String?, profile: BrowserProfileID, chromium: Bool) -> BrowserRestoreState? {
+    func claim(_ url: String?, profile: BrowserProfileID, chromium: Bool, tab: String) -> BrowserRestoreState? {
         let now = clock.now
         guard let url, let index = expected.lastIndex(where: {
             $0.url == url && $0.profile == profile && now - $0.at <= Self.claimWindow && Self.isChromium($0.state) == chromium
         }) else { return nil }
+        restoredTabs.insert(tab)
         return expected.remove(at: index).state
+    }
+
+    /// True once when tab `tab`'s page restored a history from here.
+    func takeRestored(_ tab: String) -> Bool {
+        restoredTabs.remove(tab) != nil
     }
 
     /// `base` for a new Chromium page at `url`, with a reopened local tab's
     /// history when one waits for it; a page that already restores keeps its own.
-    func restoring(_ base: BrowserTabConfiguration, url: URL?, local: Bool) -> BrowserTabConfiguration {
+    func restoring(_ base: BrowserTabConfiguration, url: URL?, local: Bool, tab: String) -> BrowserTabConfiguration {
         guard local, base.restoreState == nil,
-              let state = claim(url?.absoluteString, profile: base.profile, chromium: true) else { return base }
+              let state = claim(url?.absoluteString, profile: base.profile, chromium: true, tab: tab) else { return base }
         var restored = base
         restored.restoreState = state
         return restored
