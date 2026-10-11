@@ -361,6 +361,51 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "copy-last-code-block": {
+      note: "Play: Copy Last Code Block (cx-ncc.72, Codex parity) copies the last fenced block of the latest reply, not an earlier one.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("First try:\n\n```ts\nretry(fetch, 3);\n```", 5),
+        summary(4.9, { status: "completed" }),
+        user("Cap the backoff too", 3),
+        assistant(
+          "Two changes:\n\n```ts\nconst delay = Math.min(cap, base * 2 ** attempt);\n```\n\nand the call:\n\n```ts\nretry(fetch, { attempts: 3, cap: 8000 });\n```\n\nDone.",
+          2,
+        ),
+        summary(1.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+          navigator: Navigator;
+          copiedForPlay?: string;
+        };
+        Object.defineProperty(page.navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: async (text: string) => void (page.copiedForPlay = text) },
+        });
+        page.cmuxAcpmuxBridge?.command?.("copyLastCodeBlock");
+        await ctx.waitFor(() => page.copiedForPlay !== undefined);
+        if (page.copiedForPlay !== "retry(fetch, { attempts: 3, cap: 8000 });")
+          throw new Error(`copied ${JSON.stringify(page.copiedForPlay)}`);
+      },
+    },
+    "archive-chat-key": {
+      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+        };
+        page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+        );
+      },
+    },
     "working-tools": {
       note: "Tool calls running in a live turn.",
       snapshot: chat(
