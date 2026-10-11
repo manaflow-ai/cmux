@@ -1,7 +1,7 @@
 import Foundation
 
-/// The page's git reads (`git.*` on the session host, the folder's GitHub repository) and its
-/// acpmux socket requests (`transport.*`): open the handshake's connection once, send frames,
+/// The page's git reads (`git.*` on the session host, the folder's GitHub repository), the Changes
+/// view's Stage and Create PR, and its acpmux socket requests (`transport.*`): open the handshake's connection once, send frames,
 /// reserve and release gesture tickets, close.
 @MainActor
 enum AgentPaneTransportReply {
@@ -22,6 +22,8 @@ enum AgentPaneTransportReply {
         case .invalidGit(let method):
             let message = AgentPaneGitWrite.methods.contains(method) ? AgentPaneModel.gitWriteFailedMessage : AgentPaneModel.gitFailedMessage
             return AgentPaneModel.gitFailure(.invalidRequest, message: message)
+        case .gitStage(let stage): return await AgentPaneGitStage.reply(to: stage, in: model)
+        case .gitPullRequest(let pullRequest): return await AgentPaneGitPullRequest.reply(to: pullRequest, in: model)
         case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
         case .transportOpen:
             guard let connection = model.pendingConnection else { return AgentPaneModel.transportFailure(.noConnection) }

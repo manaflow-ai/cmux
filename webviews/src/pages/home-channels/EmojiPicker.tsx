@@ -1,9 +1,10 @@
 // The emoji popover of the composer and of a message's "Add reaction": a search field over the
 // icon picker's bundled emoji table (Unicode + CLDR names, the same ranker), then a grid. The
 // table loads on the first open (`loadEmoji`, from the button's own press), not with the page.
-import { useMemo, useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { decodeEmojiTable, type EmojiRecord, type EmojiTable, type RawEmojiTable } from "../../icon-picker/emojiData";
 import { search } from "../../icon-picker/search";
+import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Popover } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 
@@ -37,6 +38,14 @@ export function EmojiPicker({ anchor, emoji, strings, onPick, onClose }: EmojiPi
     [emoji, query],
   );
   const label = strings.t("emoji.title");
+  // Return in the search picks the first result (not the Return that ends an IME composition).
+  const searchKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter" && results[0]) {
+      event.preventDefault();
+      onPick(results[0].emoji);
+    }
+  };
   return (
     <Popover
       open
@@ -49,20 +58,16 @@ export function EmojiPicker({ anchor, emoji, strings, onPick, onClose }: EmojiPi
       className="hc-emoji"
       finalFocus={false}
     >
-      <input
-        className="hc-emoji-search"
-        type="search"
-        value={query}
-        placeholder={strings.t("emoji.search")}
-        aria-label={strings.t("emoji.search")}
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && results[0]) {
-            event.preventDefault();
-            onPick(results[0].emoji);
-          }
-        }}
-      />
+      <KeyboardScope className="hc-emoji-search-keys" handleKeyDown={searchKeys}>
+        <input
+          className="hc-emoji-search"
+          type="search"
+          value={query}
+          placeholder={strings.t("emoji.search")}
+          aria-label={strings.t("emoji.search")}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </KeyboardScope>
       <div className="hc-emoji-grid">
         {results.map((record) => (
           <button

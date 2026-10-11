@@ -1659,7 +1659,7 @@
         "keywords": ["copy", "clone", "layout", "terminal"],
         "rankBias": 0,
         "sectionIndex": 1,
-        "title": "Duplicate Workspace without Browser Tabs",
+        "title": "Duplicate Workspace Without Browser Tabs",
         "typingSectionIndex": 16
       },
       "id": "action:workspace.duplicateTerminalsOnly"
