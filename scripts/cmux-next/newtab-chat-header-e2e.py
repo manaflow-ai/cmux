@@ -15,13 +15,16 @@ written before the launch. Each check opens a new workspace, starts a chat on th
 and clicks a header button through `debug.agent_pane` (a native click on the page). It closes
 the workspaces it made and never launches or quits the app.
 
-Usage: newtab-chat-header-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock
+Usage: newtab-chat-header-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--folder DIR]
+`--folder`: the folder each chat starts in (named by the chat verb, so it gets the folder trust
+question, never a refusal); a capture slot needs one below its HOME, as its home is no project.
 Exit status 0 when every check passes.
 """
 import argparse, json, socket, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
+parser.add_argument("--folder", help="a folder each chat starts in, below the app's home (default: the page's start folder)")
 opts = parser.parse_args()
 ROWS = []
 CREATED = []
@@ -118,9 +121,10 @@ def start_fake_chat(pane):
     """Starts a chat on the fake harness on the page in `pane` (the session starts with the first
     prompt); returns the session."""
     picked = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r else None)(
-        pane_rpc(pane, "new_chat", harness="fake")), 60, 2)
-    sent = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r else None)(
-        pane_rpc(pane, "send_prompt", text="hello")), 30, 2)
+        pane_rpc(pane, "new_chat", harness="fake", **({"cwd": opts.folder} if opts.folder else {}))), 60, 2)
+    replies = []
+    sent = wait(lambda: (lambda r: replies.append(r) or (r if isinstance(r, dict) and "error" not in r else None))(
+        pane_rpc(pane, "send_prompt", text="hello")), 30, 2) or (replies[-1:] or [None])[0]
     session = wait(lambda: (pane_rpc(pane, "chat_state") or {}).get("sessionId"), 5)
     if not session:
         # A fresh folder asks for trust first; Trust sends the prompt the composer kept.
