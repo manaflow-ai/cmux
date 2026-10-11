@@ -81,6 +81,28 @@ cache_bin="$cache_dir/acpmux"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# An nx-remote --app-from-fleet job (NX_APP set): nx-remote checked that the
+# fleet built that app from this tree's exact commit, and the app carries
+# acpmux in Resources/bin. Seed the commit-addressed cache from it instead of
+# running Cargo, when it has every requested architecture. Without NX_APP,
+# or without a usable binary in the app, nothing changes.
+if [[ -n "${NX_APP:-}" && ! -x "$cache_bin" ]]; then
+  app_bin="$NX_APP/Contents/Resources/bin/acpmux"
+  app_archs=" $(lipo -archs "$app_bin" 2>/dev/null || true) "
+  missing=""
+  for arch in $archs; do [[ "$app_archs" == *" $arch "* ]] || missing+=" $arch"; done
+  if [[ -x "$app_bin" && -z "$missing" ]]; then
+    mkdir -p "$cache_dir"
+    cp -f "$app_bin" "$cache_bin.tmp.$$"
+    chmod 755 "$cache_bin.tmp.$$"
+    mv -f "$cache_bin.tmp.$$" "$cache_bin"
+    printf '%s\n' "commit=$source_commit" "source=nx-app" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+    echo "acpmux from the fleet-built app $NX_APP (no Cargo build)" >&2
+  else
+    echo "warning: NX_APP has no usable acpmux (${missing:+missing$missing}); building as usual" >&2
+  fi
+fi
+
 if [[ -x "$cache_bin" ]]; then
   if [[ "$print_path" -eq 1 ]]; then
     printf '%s\n' "$cache_bin"
