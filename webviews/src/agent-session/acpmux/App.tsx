@@ -148,6 +148,9 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { FailedPrompt } from "./FailedPrompt";
+import { ReplayScreen } from "./replay/ReplayScreen";
+import { sessionReplay } from "./replay/replay.experiment";
+import { experimentArm } from "../../experiments/experiment";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -1302,6 +1305,8 @@ function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
+  /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
+  const [replaying, setReplaying] = useState<string | undefined>();
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   // An unsent chat can choose its folder even before an agent is available.
@@ -2641,7 +2646,19 @@ function AcpmuxPane() {
             },
           ]
         : [];
+    const replay: ChatMenuItem[] =
+      !quick && snapshot.sessionId && experimentArm(sessionReplay) === "on"
+        ? [
+            {
+              key: "replay",
+              label: t("replay.open"),
+              icon: "history",
+              onSelect: () => setReplaying(snapshot.sessionId),
+            },
+          ]
+        : [];
     const tools: ChatMenuItem[] = [
+      ...replay,
       {
         key: "inspector",
         label: t("inspector.title"),
@@ -2834,6 +2851,17 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
+  const toggleActivity = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const loadReplay = useCallback(
+    () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
+    [replaying],
+  );
   const transcript = (
     <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>
@@ -2850,14 +2878,7 @@ function AcpmuxPane() {
                 githubRepository={githubRepository}
                 // The Quick Composer has no room for the changes view; its file rows stay plain.
                 onOpenDiff={quick ? undefined : openDiff}
-                onToggleActivity={(id) =>
-                  setExpanded((current) => {
-                    const next = new Set(current);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
+                onToggleActivity={toggleActivity}
               />
             </SessionRowsContext.Provider>
           </TurnCountsContext.Provider>
@@ -3253,6 +3274,22 @@ function AcpmuxPane() {
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+            />
+          ) : replaying && replaying === snapshot.sessionId ? (
+            <ReplayScreen
+              sessionId={replaying}
+              title={snapshot.summary?.title || snapshot.summary?.name}
+              load={loadReplay}
+              onClose={() => setReplaying(undefined)}
+              transcript={(rows) => (
+                <VirtualTranscript
+                  rows={rows}
+                  sessionId={`replay:${replaying}`}
+                  expanded={expanded}
+                  registry={registry}
+                  onToggleActivity={toggleActivity}
+                />
+              )}
             />
           ) : (
             <>
