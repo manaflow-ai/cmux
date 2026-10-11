@@ -35,7 +35,7 @@ import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
-import { useNewTabAdoption } from "./newtab/adoption";
+import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { isAgentHome, projectLabel } from "./sessionList";
@@ -1761,6 +1761,7 @@ function AcpmuxPane() {
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
+  const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     void callNative("chat.select", { sessionId });
@@ -1878,13 +1879,18 @@ function AcpmuxPane() {
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
-  // The second animation frame after that render runs once its frame was drawn.
+  // One animation frame after that render, then a task: the task runs once that frame was drawn.
+  // Not two frames: WebKit stops animation frames once the window is occluded, so a second frame
+  // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
+  // the same way).
   const paintReported = useRef(false);
-  const showsWhatItIs = handshaken || hostError !== undefined;
+  // A New Tab page is what it is from its first render: its frame draws before the handshake
+  // (cx-0rpl.10), and the host shows no loading mark over it.
+  const showsWhatItIs = handshaken || hostError !== undefined || newTab !== undefined;
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
+    requestAnimationFrame(() => setTimeout(() => void callNative("pane.painted").catch(() => undefined), 0));
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
@@ -2176,7 +2182,12 @@ function AcpmuxPane() {
           setGithubRepository(undefined);
         }
         // A tab opened as the new tab page shows it until it becomes something (#16620).
-        if (!reconnect) setNewTab(newTabHost(host));
+        // A page that drew its New Tab frame before the handshake (useEarlyNewTabContext) keeps its
+        // state: a page the user already left stays a chat.
+        if (!reconnect && !earlyNewTab.current) setNewTab(newTabHost(host));
+        // The early context lacks the folder the handshake filled in (seed, start folder): add it.
+        else if (!reconnect && typeof host.cwd === "string" && host.cwd)
+          setNewTab((current) => (current && !current.cwd ? { ...current, cwd: host.cwd as string } : current));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -2765,7 +2776,13 @@ function AcpmuxPane() {
       ],
     );
   };
-  const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
+  // chat view's error card with Retry shows, as before.
+  const showNewTab =
+    newTab !== undefined &&
+    !snapshot.sessionId &&
+    snapshot.rows.length === 0 &&
+    (handshaken || hostError === undefined);
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -3278,7 +3295,9 @@ function AcpmuxPane() {
               home={newTab.home}
               tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-              inputToken={newTab.inputToken}
+              // Typed keys stay in the host's buffer until acpmux answered: a prompt sent before the
+              // handshake would have no client to start its chat.
+              inputToken={handshaken ? newTab.inputToken : undefined}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
@@ -3329,7 +3348,7 @@ function AcpmuxPane() {
               }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
-              inputToken={newTab.inputToken}
+              inputToken={handshaken ? newTab.inputToken : undefined}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
