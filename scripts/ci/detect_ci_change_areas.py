@@ -231,6 +231,14 @@ def is_unowned_ci_helper(path: str) -> bool:
     )
 
 
+# Script sources ci_helper_areas() can trace through the tree by name.
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+
+
+def is_walkable_script(path: str) -> bool:
+    return path.startswith("scripts/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
+
+
 def forces_all_areas(path: str) -> bool:
     # Unknown direct CI implementation files remain fail-open. Narrow only
     # explicitly-owned control-plane helpers whose product-area semantics are
@@ -1964,6 +1972,22 @@ def classify_files(paths: Iterable[str], *,
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path, macos_ios_packages):
+            # Any other script is placed by the same walk as the scripts/ci
+            # helpers above. Whatever the walk cannot place (an Xcode build
+            # phase, app source or native test names it, a Mac job runs it,
+            # nothing names it) keeps the macOS route below.
+            script_areas = (
+                ci_helper_areas(path, helper_root, test_references, base_root=Path("."))
+                if is_walkable_script(path) else None
+            )
+            if script_areas is not None:
+                print(f"{path} runs only in routed jobs gated by: {script_areas if script_areas != NO_AREAS else 'none'}")
+                macos = macos or script_areas.macos
+                web = web or script_areas.web
+                agent_session_web = agent_session_web or script_areas.agent_session_web
+                cli = cli or script_areas.cli
+                release_build = release_build or script_areas.release_build
+                continue
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True
