@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 // Windows saved in full screen enter it again after a relaunch (every app
 // update relaunches), once restore finished: never from the launch snapshot,
@@ -27,16 +28,39 @@ extension WindowManager {
         fullScreenRestoreRunning = true
         window.toggleFullScreen(nil)
         Task { @MainActor [weak self, weak controller, weak window] in
-            let clock = ContinuousClock()
-            let deadline = clock.now + Self.fullScreenStartLimit
-            while let window, !window.styleMask.contains(.fullScreen), clock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            try? await Task.sleep(for: Self.fullScreenSettle)
+            await RestoredFullScreen.waitForStart(of: window, limit: Self.fullScreenStartLimit)
+            await RestoredFullScreen.settle(Self.fullScreenSettle)
             controller?.state.restoresFullScreen = false
             guard let self else { return }
             fullScreenRestoreRunning = false
             enterRestoredFullScreens()
         }
+    }
+}
+
+/// The waits of a restored window's full screen entry: events and one-shot
+/// deadlines, not polls.
+private enum RestoredFullScreen {
+    /// Until the transition begins (AppKit puts `.fullScreen` in the style
+    /// mask and posts willEnterFullScreen), or `limit` passes.
+    static func waitForStart(of window: NSWindow?, limit: Duration) async {
+        let began = Task { @MainActor [weak window] in
+            guard let window else { return }
+            let entering = NotificationCenter.default.notifications(named: NSWindow.willEnterFullScreenNotification, object: window)
+            guard !window.styleMask.contains(.fullScreen) else { return }
+            for await _ in entering { return }
+        }
+        let bound = DemandTimer(owner: "WindowManager.fullScreenStart")
+        bound.schedule(after: limit) { @MainActor in began.cancel() }
+        await began.value
+        bound.cancel()
+    }
+
+    static func settle(_ delay: Duration) async {
+        let settle = DemandTimer(owner: "WindowManager.fullScreenSettle")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            settle.schedule(after: delay) { continuation.resume() }
+        }
+        _ = settle  // alive until it fires: its deinit drops the deadline
     }
 }
