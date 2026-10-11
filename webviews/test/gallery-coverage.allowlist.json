@@ -139,7 +139,6 @@
     "ui/PickerPrimitives.tsx#PickerDialog",
     "ui/PickerPrimitives.tsx#PickerOption",
     "ui/PickerPrimitives.tsx#PickerOptionList",
-    "ui/Select.tsx#Select",
     "ui/Sheet.tsx#Sheet",
     "ui/Toolbar.tsx#Toolbar",
     "ui/Toolbar.tsx#ToolbarButton",
