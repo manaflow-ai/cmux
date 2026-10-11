@@ -7,7 +7,6 @@
   position: fixed;
   inset-block-end: 12px;
   inset-inline-end: 16px;
-  z-index: 60;
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
   border-radius: 5px;
