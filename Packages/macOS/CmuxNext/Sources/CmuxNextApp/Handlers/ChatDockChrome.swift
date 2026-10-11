@@ -27,8 +27,14 @@ extension ChatDockChrome {
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
         let pane = controller.layoutPaneID
         let columns = ChatColumnPlacement.columns(of: screen, containing: pane)
+        // A lone New Tab page set to an agent chat hides the strip like the chat it becomes, so the
+        // first send never drops the strip and moves the page up (cx-ncc.58). A page set to a
+        // terminal or browser keeps the strip its replacement tab shows.
+        let agentTabs = controller.services.agentTabs
         let lone = columns.first { $0.root.contains(pane) }?.root.panes.count == 1
-            && controller.pane.tabs.count == 1 && ChatColumnPlacement.isChat(controller.pane.tabs[0], services: controller.services)
+            && controller.pane.tabs.count == 1
+            && (ChatColumnPlacement.isChat(controller.pane.tabs[0], services: controller.services)
+                || agentTabs.isAgentNewTabPage(controller.pane.tabs[0].id))
         return hidesStrip(pane: pane, columns: columns, tabCount: tabCount, isLoneChat: lone)
     }
 }

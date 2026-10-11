@@ -6,8 +6,8 @@ import Observation
 /// Whether a pane shows its horizontal tab bar (cx-soza): the pane's own
 /// Show Tab Bar choice, else its kind's `tabs.tabBar.<kind>`, whose
 /// Automatic is the chat rule (``ChatDockChrome``: the chat dock and a lone
-/// chat hide it until they hold two tabs). Cmd-T follows it: a pane that
-/// shows its tab bar gets a tab, one that hides it a new workspace.
+/// chat hide it until they hold two tabs; a lone New Tab page set to an agent
+/// chat hides it too, as the chat it becomes, cx-ncc.58).
 @Observable
 final class PaneTabBarChoices {
     /// The panes remembered, newest last; older choices are dropped.
@@ -53,9 +53,13 @@ enum PaneTabBar {
     }
 
     /// The pane's kind for its default: agent chats only, browsers only
-    /// (New Tab pages count as neither), anything else a terminal pane.
+    /// (New Tab pages count as neither beside other tabs), anything else a
+    /// terminal pane. A pane of New Tab pages only is an agent pane: the page
+    /// is the chat it becomes, so its tab bar never changes on the first send
+    /// (cx-ncc.58).
     static func kind(_ tabs: [(isChat: Bool, isBrowser: Bool, isPage: Bool)]) -> PaneTabBarKind {
         let held = tabs.filter { !$0.isPage }
+        if held.isEmpty, !tabs.isEmpty { return .agent }
         if !held.isEmpty, held.allSatisfy({ $0.isChat }) { return .agent }
         if !held.isEmpty, held.allSatisfy({ $0.isBrowser && !$0.isChat }) { return .browser }
         return .terminal
