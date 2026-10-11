@@ -37,7 +37,9 @@ await requireBrowserLane("no-system-blue.test.ts", async () => {
 
   const IRIS = "rgb(196, 167, 231)";
   const PINE_BLUE = "rgb(49, 116, 143)";
-  const HOST = `--cmux-text:rgb(224,222,244);--cmux-accent:${IRIS};--cmux-app-focus-ring:${IRIS};--agent-text:rgb(224,222,244);--agent-accent:${IRIS};--agent-highlight:${PINE_BLUE}`;
+  // The app window's ring, fitted to the app's surfaces rather than the page's: the page prefers its own accent.
+  const APP_RING = "rgb(235, 188, 186)";
+  const HOST = `--cmux-text:rgb(224,222,244);--cmux-accent:${IRIS};--cmux-app-focus-ring:${APP_RING};--agent-text:rgb(224,222,244);--agent-accent:${IRIS};--agent-highlight:${PINE_BLUE}`;
   const page = (css: string, body: string) =>
     `<!doctype html><html style="${HOST}"><head><style>${css}</style></head><body style="background:rgb(25,23,36)">${body}</body></html>`;
 
@@ -76,7 +78,13 @@ await requireBrowserLane("no-system-blue.test.ts", async () => {
             `<div class="acpmux-shell"><button class="acpmux-plan" aria-pressed="true" id="plan">Plan</button></div>`,
           ),
         );
-        expect(await tab.$eval("#plan", (node) => getComputedStyle(node).color)).toBe(IRIS);
+        const plan = await tab.$eval("#plan", (node) => {
+          const style = getComputedStyle(node);
+          return { color: style.color, edge: style.boxShadow };
+        });
+        expect(plan.color).toBe(IRIS);
+        // Pressed reads apart from hover even when the accent is the text color: an accent edge.
+        expect(plan.edge).toMatch(/196|0\.76/);
         await tab.close();
       });
     });

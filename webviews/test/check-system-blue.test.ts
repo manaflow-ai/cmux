@@ -36,7 +36,8 @@ describe("check-system-blue", () => {
     const t = tree({
       "webviews/src/a.css":
         ".a { accent-color: var(--cmux-accent, currentColor); color: #e0def4; border-color: #eb6f92; }",
-      "Packages/macOS/CmuxNext/Sources/A/A.swift": "let ring = Palette.focusRing\nlet red = NSColor.systemRed",
+      "Packages/macOS/CmuxNext/Sources/A/A.swift":
+        "let ring = Palette.focusRing\nlet red = NSColor.systemRed\nlet group = GroupColor.automaticOrder + [.blue]",
     });
     const result = run(["--root", t.root, "--baseline", t.baseline]);
     expect(result.status).toBe(0);
@@ -49,6 +50,9 @@ describe("check-system-blue", () => {
       ["webviews/src/b.css", ".b { outline-color: -webkit-focus-ring-color; }"],
       ["webviews/src/c.ts", 'export const link = "#0a84ff";'],
       ["webviews/src/d.css", ".d { color: rgb(0, 122, 255); }"],
+      ["webviews/src/e.css", ".e { background: #0a84ffcc; }"],
+      ["webviews/src/f.css", "* { caret-color: #0a84ff; }"],
+      ["Packages/macOS/CmuxNext/Sources/A/D.swift", 'Image(systemName: "x").tint(.blue)'],
       ["Packages/macOS/CmuxNext/Sources/A/A.swift", "let ring = NSColor.keyboardFocusIndicatorColor"],
       ["Packages/macOS/CmuxNext/Sources/A/B.swift", 'Text("x").foregroundStyle(Color.accentColor)'],
       ["Packages/macOS/CmuxNext/Sources/A/C.swift", "let tint = NSColor.controlAccentColor"],
@@ -69,6 +73,13 @@ describe("check-system-blue", () => {
       "webviews/src/legacy.css\t1\n",
     );
     expect(run(["--root", t.root, "--baseline", t.baseline]).out).toContain("check-system-blue: ok");
+  });
+
+  test("a malformed baseline row is ignored, not fatal", () => {
+    const t = tree({ "webviews/src/a.css": ".a { color: #e0def4; }" }, "webviews/src/a.css 1\n");
+    const result = run(["--root", t.root, "--baseline", t.baseline]);
+    expect(result.status).toBe(0);
+    expect(result.out).toContain("ignoring malformed baseline row");
   });
 
   test("this checkout is within its baseline", () => {

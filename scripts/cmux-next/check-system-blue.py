@@ -6,7 +6,7 @@ Counts, per source file, the places that would draw macOS's or WebKit's default 
 blue instead of a theme token:
   swift  NSColor.controlAccentColor, keyboardFocusIndicatorColor, selectedContentBackgroundColor,
          alternateSelectedControlColor, selectedControlColor, linkColor, systemBlue, NSColor.blue,
-         Color.accentColor, Color.blue, and a bare `.accentColor` style.
+         Color.accentColor, Color.blue, a bare `.accentColor` style and `.tint(.blue)`-style modifiers.
   css    the CSS system colors AccentColor, AccentColorText, Highlight, HighlightText, LinkText,
          SelectedItem, -webkit-focus-ring-color and -apple-system-blue / -control-accent.
   any    a hex (#rgb, #rrggbb) or rgb() literal whose OKLCH hue is blue (220-275 degrees) with
@@ -56,14 +56,18 @@ SWIFT_API = re.compile(
     r"\b(?:NSColor\.)?(?:controlAccentColor|keyboardFocusIndicatorColor|selectedContentBackgroundColor"
     r"|alternateSelectedControlColor|selectedControlColor|systemBlue)\b"
     r"|\bNSColor\.(?:blue|linkColor)\b|\bColor\.(?:accentColor|blue)\b|(?<![\w.])\.accentColor\b"
+    # SwiftUI's implicit `.blue` in a style modifier; elsewhere `.blue` is usually a group color case.
+    r"|\b(?:foregroundStyle|foregroundColor|tint|fill|stroke|background|accentColor)\(\s*\.blue\b"
 )
 CSS_SYSTEM = re.compile(
     r"(?<![\w-])(?:AccentColor|AccentColorText|Highlight|HighlightText|LinkText|SelectedItem)(?![\w-])"
     r"|-webkit-focus-ring-color|-apple-system-(?:blue|control-accent)"
 )
-HEX = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-zA-Z])")
+# #rgb, #rgba, #rrggbb and #rrggbbaa; the alpha digits are ignored.
+HEX = re.compile(r"#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![0-9a-zA-Z])")
 RGB = re.compile(r"rgba?\(\s*(\d{1,3})\s*,?\s*(\d{1,3})\s*,?\s*(\d{1,3})")
-COMMENT = re.compile(r"^\s*(?://|/?\*)")
+# A comment line, but not a CSS rule that starts with the universal selector (`* {`, `*::selection`).
+COMMENT = re.compile(r"^\s*(?://|/\*|\*(?:\s|$)(?![^{}]*[{}]))")
 
 
 def oklch(r, g, b):
@@ -96,7 +100,7 @@ def hits(path, text):
             count += len(CSS_SYSTEM.findall(line))
         for match in HEX.finditer(line):
             digits = match.group(1)
-            if len(digits) == 3:
+            if len(digits) <= 4:
                 digits = "".join(c * 2 for c in digits)
             if is_blue(*(int(digits[i : i + 2], 16) for i in (0, 2, 4))):
                 count += 1
@@ -132,9 +136,14 @@ def read_baseline(path):
     if os.path.exists(path):
         with open(path, encoding="utf-8") as handle:
             for line in handle:
-                if line.strip() and not line.startswith("#"):
+                if not line.strip() or line.startswith("#"):
+                    continue
+                try:
                     rel, count = line.rstrip("\n").split("\t")
                     rows[rel] = int(count)
+                except ValueError:
+                    # A warning ratchet never fails the build, not even on a mangled baseline row.
+                    print(f"check-system-blue: ignoring malformed baseline row: {line.strip()!r}")
     return rows
 
 
