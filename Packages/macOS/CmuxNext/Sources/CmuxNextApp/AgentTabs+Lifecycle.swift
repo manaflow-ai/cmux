@@ -9,21 +9,18 @@ extension AgentTabStore {
     /// The `origin` of the app's `new-conversation-tab` requests for agent chats.
     static let createOrigin = "cmux-next-agent-tab"
 
-    /// Adds a new agent chat tab to `pane`'s strip. The tab shows at once (R81): a create intent
-    /// on the store's log shows a provisional tab until the store's tab replaces it; a refusal
-    /// removes it again. View state (seed, new tab page, spare page, link) is kept under the
-    /// provisional id and moves to the store's id when the creation answers.
+    /// Adds a new agent chat tab to `pane`'s strip. The tab shows at once (R81): a create intent on the store's
+    /// log shows a provisional tab until the store's tab replaces it; a refusal removes it again. View state
+    /// (seed, new tab page, spare page, link) is kept under the provisional id and moves to the store's id then.
     ///
     /// - Parameters:
     ///   - pane: The pane (its daemon handle).
     ///   - daemon: The daemon that owns the pane.
     ///   - session: The acpmux session it shows; nil starts a new chat.
     ///   - seed: What a new chat inherits (cwd, a draft); ignored with a session.
-    ///   - newTab: Shows the new tab page until it becomes a chat; the
-    ///     handler gets the terminal or browser choices and shortcut edits.
+    ///   - newTab: Shows the new tab page until it becomes a chat; the handler gets the terminal or browser choices and shortcut edits.
     ///   - spare: A prewarmed page (``makeSpare(_:)``) the new tab page adopts.
-    ///   - linked: A `cmux://session/<id>` link opened it: its page refuses a session the
-    ///     daemon does not have instead of falling back.
+    ///   - linked: A `cmux://session/<id>` link opened it: its page refuses a session the daemon does not have instead of falling back.
     ///   - adopt: The outside chat it resumes (`harness:agentSessionId`).
     ///   - idempotencyKey: The creation's key; a retry with it returns the same tab. Fresh by default.
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
@@ -175,6 +172,7 @@ extension AgentTabStore {
             views[real] = view
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
+        unsentDrafts.move(key, to: real)
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
         if let value = remoteSeeds.removeValue(forKey: key) { remoteSeeds[real] = value }
@@ -294,6 +292,7 @@ extension AgentTabStore {
         linkedSessions.remove(key)
         pendingTurns[key] = nil
         tabStores[key] = nil
+        unsentDrafts.set("", for: key)
         seenLive.remove(key)
         forgetUnusedStores()
         stopCustomizationWhenUnused()
