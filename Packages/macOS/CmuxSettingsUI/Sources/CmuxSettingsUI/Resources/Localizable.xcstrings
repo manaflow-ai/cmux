@@ -14813,6 +14813,124 @@
           }
         }
       }
+    },
+    "settings.betaFeatures.clickByHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click by Hint"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقر عبر التلميح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per Hinweis klicken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clic por indicación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquer par repère"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントでクリック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "힌트로 클릭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按提示点击"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依提示點按"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.clickByHint.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة: يضع Cmd-J تسمية على كل عنصر تحكم قابل للنقر في النافذة، وكتابة التسمية تنقر عليه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau: Cmd-J beschriftet jedes anklickbare Steuerelement im Fenster, und die Eingabe einer Beschriftung klickt es an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa: Cmd-J etiqueta cada control en el que se puede hacer clic en la ventana, y escribir una etiqueta hace clic en él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu : Cmd-J étiquette chaque contrôle cliquable de la fenêtre, et saisir une étiquette clique dessus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー：Cmd-J でウインドウ内のクリック可能なすべてのコントロールにラベルを表示し、ラベルを入力するとクリックします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리 보기: Cmd-J를 누르면 창의 클릭 가능한 모든 컨트롤에 레이블이 표시되고, 레이블을 입력하면 해당 컨트롤이 클릭됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览：Cmd-J 会为窗口中每个可点击的控件添加标签，输入标签即可点击。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預覽：Cmd-J 會為視窗中每個可點按的控制項加上標籤，輸入標籤即可點按。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

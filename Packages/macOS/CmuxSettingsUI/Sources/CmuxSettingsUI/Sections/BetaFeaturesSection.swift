@@ -14,6 +14,7 @@ public struct BetaFeaturesSection: View {
     @State private var remoteTmuxOriginColors: DefaultsValueModel<Bool>
     @State private var remoteTmuxOriginHostTitles: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
+    @State private var clickByHint: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
     /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
     /// custom sidebars opt-in.
@@ -28,6 +29,7 @@ public struct BetaFeaturesSection: View {
         _remoteTmuxOriginColors = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginColors))
         _remoteTmuxOriginHostTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginHostTitles))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
+        _clickByHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.windowHints))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
 
@@ -56,6 +58,8 @@ public struct BetaFeaturesSection: View {
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
+                SettingsCardDivider()
+                clickByHintRow
             }
         }
         .task { startObservingSettings() }
@@ -78,6 +82,7 @@ public struct BetaFeaturesSection: View {
             remoteTmuxOriginHostTitles,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
+            clickByHint,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -111,6 +116,21 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaWorkspaceTodoControlsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var clickByHintRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("windowHints.beta.enabled"),
+            searchAnchorID: "setting:betaFeatures:click-by-hint",
+            String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"),
+            subtitle: String(localized: "settings.betaFeatures.clickByHint.subtitle", defaultValue: "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it.")
+        ) {
+            Toggle("", isOn: Binding(get: { clickByHint.current }, set: { clickByHint.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaClickByHintToggle")
         }
     }
 
