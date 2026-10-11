@@ -5666,6 +5666,39 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertEqual(handler.sidebarLinkDestination(for: notWeb, prefersEmbeddedBrowser: true), .embeddedBrowser)
     }
 
+    // MARK: - Markdown panel links
+
+    /// Markdown links open in the cmux browser when no browser link setting
+    /// sends them out.
+    func testMarkdownLinkWithNoSettingsOpensInCmuxBrowser() throws {
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let url = try XCTUnwrap(URL(string: "https://example.com/docs"))
+        XCTAssertEqual(handler.markdownLinkDestination(for: url), .embeddedBrowser)
+    }
+
+    /// An external-open rule sends a Markdown link to the system browser (#18844).
+    func testMarkdownLinkMatchingAnExternalRuleGoesToTheSystemBrowser() throws {
+        defaults.set("billing.example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let matching = try XCTUnwrap(URL(string: "https://billing.example.com/invoices"))
+        let other = try XCTUnwrap(URL(string: "https://docs.example.com/"))
+        XCTAssertEqual(handler.markdownLinkDestination(for: matching), .systemBrowser)
+        XCTAssertEqual(handler.markdownLinkDestination(for: other), .embeddedBrowser)
+    }
+
+    /// A host outside the embedded-browser host list sends a Markdown link to the
+    /// system browser, as it does for a terminal link (#18844).
+    func testMarkdownLinkFollowsEmbeddedBrowserHostList() throws {
+        defaults.set("*.example.com\nlocalhost", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let listed = try XCTUnwrap(URL(string: "https://docs.example.com/guide"))
+        let local = try XCTUnwrap(URL(string: "http://localhost:3000/"))
+        let unlisted = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux"))
+        XCTAssertEqual(handler.markdownLinkDestination(for: listed), .embeddedBrowser)
+        XCTAssertEqual(handler.markdownLinkDestination(for: local), .embeddedBrowser)
+        XCTAssertEqual(handler.markdownLinkDestination(for: unlisted), .systemBrowser)
+    }
+
     func testExternalOpenPatternsDefaultToEmpty() {
         XCTAssertTrue(BrowserExternalURLPolicy(defaults: defaults).patterns.isEmpty)
     }
