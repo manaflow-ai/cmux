@@ -23,6 +23,15 @@ struct Daemon {
 
 impl Daemon {
     fn start(name: &str, host_kind: Option<&'static str>) -> Self {
+        Self::start_with(name, host_kind, None)
+    }
+
+    /// With `acpmux_config`, the machine's acpmux runs that config.json.
+    fn start_with(
+        name: &str,
+        host_kind: Option<&'static str>,
+        acpmux_config: Option<Value>,
+    ) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-asx-{name}-{}-{stamp}", std::process::id()));
@@ -30,6 +39,9 @@ impl Daemon {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
+        if let Some(config) = acpmux_config {
+            fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
+        }
         let daemon =
             Self { socket: dir.join("mux.sock"), session: format!("asx-{name}"), dir, host_kind };
         let output = daemon.server("ensure").output().unwrap();
@@ -92,6 +104,32 @@ impl Daemon {
         self.rpc(json!({"id": 4, "cmd": "agent-session-start", "surface": surface,
                         "cwd": work.to_str().unwrap()}))
     }
+
+    fn start_chat_with(&self, surface: u64, harness: &str) -> Value {
+        let work = self.dir.join("work");
+        self.rpc(json!({"id": 5, "cmd": "agent-session-start", "surface": surface,
+                        "harness": harness, "cwd": work.to_str().unwrap()}))
+    }
+
+    /// How many sessions this machine's acpmux holds, asked on its own
+    /// socket.
+    fn acpmux_sessions(&self) -> usize {
+        let stream = UnixStream::connect(self.dir.join("acpmux/acpmux.sock")).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        let mut reader = BufReader::new(stream);
+        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/sessions", "params": {}});
+        writeln!(reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "acpmux closed the connection");
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == 1 {
+                let result = &message["result"];
+                let sessions = result.get("sessions").unwrap_or(result);
+                return sessions.as_array().map_or(0, Vec::len);
+            }
+        }
+    }
 }
 
 impl Drop for Daemon {
@@ -140,4 +178,22 @@ fn an_unknown_host_kind_value_keeps_the_detected_kind() {
     let surface = daemon.own_agent_tab();
     let reply = daemon.start_chat(surface);
     assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+}
+
+/// A harness of a refused family under another name (and as the default
+/// harness) is refused from acpmux's catalog before any agent starts.
+#[test]
+fn agent_session_start_refuses_a_codex_alias_before_any_agent_starts() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
+    let config = json!({
+        "harnesses": {"fcx": {"argv": ["python3", fake], "family": "codex"}},
+        "defaultHarness": "fcx",
+    });
+    let daemon = Daemon::start_with("alias", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    let named = daemon.start_chat_with(surface, "fcx");
+    assert_eq!(named["error_code"], "agent_session.not_asking", "{named}");
+    let default = daemon.start_chat(surface);
+    assert_eq!(default["error_code"], "agent_session.not_asking", "{default}");
+    assert_eq!(daemon.acpmux_sessions(), 0, "an agent started before the family check");
 }
