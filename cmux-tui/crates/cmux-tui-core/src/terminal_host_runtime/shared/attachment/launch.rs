@@ -175,7 +175,7 @@ pub(crate) fn launch_terminal_host_seeded(
         cols: options.cols,
         rows: options.rows,
         cell_pixels,
-        scrollback: options.scrollback,
+        scrollback: HostLaunch::host_scrollback(options.scrollback),
         cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
         command,
         extra_env: shell_launch.env,
