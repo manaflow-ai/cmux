@@ -202,18 +202,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     #if DEBUG
-    /// The snapshot worker's capture (TerminalPastePreparationOperation), in process.
+    /// The snapshot worker's capture (TerminalPastePreparationOperation), in
+    /// process. On the main actor: the tests write the pasteboard there, and
+    /// unlike the worker's own process this read shares their NSPasteboard.
     private static let captureSnapshotInProcess: TerminalPasteboardService.PreviousContentsCapture = { request in
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name(request.pasteboardName))
-        guard pasteboard.changeCount == request.changeCount,
-              let contents = TerminalPasteboardItemSnapshot.captureContents(
-                of: pasteboard,
-                maximumByteCount: request.maximumByteCount
-              ),
-              pasteboard.changeCount == request.changeCount else {
-            return nil
+        await MainActor.run {
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name(request.pasteboardName))
+            guard pasteboard.changeCount == request.changeCount,
+                  let contents = TerminalPasteboardItemSnapshot.captureContents(
+                    of: pasteboard,
+                    maximumByteCount: request.maximumByteCount
+                  ),
+                  pasteboard.changeCount == request.changeCount else {
+                return nil
+            }
+            return TerminalPasteboardContentsSnapshot(changeCount: request.changeCount, contents: contents)
         }
-        return TerminalPasteboardContentsSnapshot(changeCount: request.changeCount, contents: contents)
     }
     #endif
 
