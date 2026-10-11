@@ -18,8 +18,8 @@ implied by a passing unit test.
   failure.
 - **After evidence:** `webviews/test/model-picker-height.test.tsx` is red at `f0cf89c57712`
   before the implementation, green at `cbe935e6ddb8`, and now covers both filtering stability and
-  reset-on-reopen. `bun run typecheck`, changed-file lint, `bun run gallery:build`, and gallery
-  model-menu play support pass locally.
+  reset-on-reopen. `bun run typecheck`, changed-file lint, `bun run gallery:build`, and the gallery
+  play harness tests pass locally.
 - **Latency:** no input-latency claim; the gallery's layout-shift checks are geometry evidence.
 - **Untested:** the hosted after-matrix still needs Chromium/WebKit screenshots and repeat renders
   at the affected widths before the visual regression can be called cleared.
