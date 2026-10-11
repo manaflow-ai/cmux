@@ -148,15 +148,12 @@ def panes():
     record("panes", "equalize", lambda: action("equalizeSplits"))
     record("panes", "zoom", lambda: action("toggleSplitZoom"))
     record("panes", "unzoom", lambda: action("toggleSplitZoom"))
-    # Departures: a pane moved to another workspace, a lone tab moved into the
-    # pane beside it (its pane closes), and a strip column closed mid-strip.
+    # Departures: a pane moved to another workspace and a strip column closed
+    # mid-strip.
     action("splitRight")
     time.sleep(0.8)  # test harness: the split settles
     record("panes", "move-away", lambda: action("pane.moveToNewWorkspace"))
     print("after move-away:", json.dumps(rpc("debug.windows"))[:300], flush=True)
-    action("splitRight")
-    time.sleep(0.8)  # test harness: the split settles
-    record("panes", "merge-left", lambda: action("moveSurfaceToPaneLeft"))
     action("workspace.newAtBottom")
     time.sleep(1.0)  # test harness: the workspace settles
     for _ in range(2):
@@ -422,8 +419,29 @@ def palette():
     record("palette", "close", lambda: rpc("debug.key", {"key": "escape", "target": "palette"}))
     print("palette closed:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "closed.png")}))[:200], flush=True)
 
+def hovercard():
+    # A tab hover card shows after the pointer rests on a tab, then moves to
+    # the next tab (a retarget: one tab's thumbnail replaces the other's).
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    save_layout("hovercard")
+    pill = first_pill()
+    if not pill:
+        print("hovercard: skipped, pane_chrome reports no tab pill", flush=True)
+        return
+    left, top, width, height = pill
+    y = opts.window_height - (top + height / 2)
+    first, second = (left + width / 2, y), (left + width * 1.5, y)
+    rpc("debug.pointer_hover", {"point": list(first)})
+    record("hovercard", "show", lambda: time.sleep(0.05), seconds=2.5)  # test harness: the card's show delay
+    record("hovercard", "retarget", lambda: rpc("debug.pointer_hover", {"point": list(second)}))
+    print("hover cards:", json.dumps(rpc("debug.hover_cards"))[:300], flush=True)
+    record("hovercard", "hide", lambda: rpc("debug.pointer_hover", {"point": None}))
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette}
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard}
 
 
 def main():
