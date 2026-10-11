@@ -109,6 +109,9 @@ extension WindowState {
         savedFocusedPane = record.focusedPane
         restoresFullScreen = record.isFullScreen
         if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
+        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID {
+            focus.send(.restoredPane(pane, workspace: workspace))
+        }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

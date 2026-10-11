@@ -134,8 +134,20 @@ final class WindowRecordSaver {
                                           || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
+            record?.focusedPanes = focusedPanes(window: window)
             return record
         }
+    }
+
+    /// The pane last focused in each workspace the window lists: the focus
+    /// machine's memory, and the shown workspace's current pane.
+    private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
+        guard let state = manager.states[window.id] else { return [:] }
+        let focus = state.focus.state
+        var panes = focus.remembered
+        if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
+        let listed = Set(window.workspaceIDs)
+        return panes.filter { listed.contains($0.key) }
     }
 
     /// Remembered tab per pane across the window's workspaces.
