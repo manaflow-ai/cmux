@@ -123,6 +123,42 @@ public struct CloudAPIClient: Sendable {
                        timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
     }
 
+    // MARK: Remote approvals (cx-psxg)
+
+    /// `POST /api/vm/{id}/acpmux/keyed-start`: restarts the machine's acpmux with this app's
+    /// person key. `writeKey` writes the key line (``keyLineLength`` bytes) into the request
+    /// body from the caller's own zeroed buffer: the body is a stream, so this code makes no
+    /// `Data` or `String` copy of the key, and URLSession cannot send it a second time (a stream
+    /// body is never resent). Copies that nobody zeroes still exist in the bound stream pair's
+    /// buffer and in URLSession's and TLS's buffers; they stay on this Mac, inside the trusted
+    /// delivery boundary (#13742 D16 update 4). No Idempotency-Key and no retry: a request that
+    /// did not answer is the person's to send again, with a new key. Answers the new daemon run
+    /// (`personInstance`).
+    public func acpmuxKeyedStart(_ id: String, keyLineLength: Int, writeKey: (OutputStream) -> Bool) async throws -> String {
+        var input: InputStream?
+        var output: OutputStream?
+        Stream.getBoundStreams(withBufferSize: keyLineLength * 2, inputStream: &input, outputStream: &output)
+        guard let input, let output else { throw CloudAPIError.transport("no request body stream") }
+        output.open()
+        let wrote = writeKey(output)
+        output.close()
+        guard wrote else { throw CloudAPIError.transport("the key did not reach the request body") }
+        struct Started: Decodable { var personInstance: String }
+        let started = try await send("POST", "/api/vm/\(id)/acpmux/keyed-start",
+                                     bodyStream: (input, keyLineLength, "application/octet-stream"),
+                                     timeout: .seconds(100), as: Started.self)
+        return started.personInstance
+    }
+
+    /// `POST /api/vm/{id}/acpmux/person-holds {nonce}`: what the machine's acpmux answers to
+    /// `_acpmux/person_holds`. The caller checks the proof against its own key.
+    public func acpmuxPersonHolds(_ id: String, nonce: String) async throws -> (instance: String, proof: String) {
+        struct Holds: Decodable { var instance: String; var proof: String }
+        let holds = try await send("POST", "/api/vm/\(id)/acpmux/person-holds", body: ["nonce": nonce],
+                                   timeout: .seconds(40), as: Holds.self)
+        return (holds.instance, holds.proof)
+    }
+
     // MARK: Files and SCP
 
     /// Mints a short-lived private SCP route. The public key is the only key
@@ -264,7 +300,8 @@ public struct CloudAPIClient: Sendable {
 
     struct Ignored: Decodable {}
 
-    func send<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
+    func send<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
+                            bodyStream: (stream: InputStream, length: Int, contentType: String)? = nil, idempotencyKey: String? = nil,
                             timeout: Duration = .seconds(20), onSent: (@Sendable () async -> Void)? = nil,
                             as type: T.Type) async throws -> T {
         let (access, refresh): (String, String)
@@ -283,6 +320,10 @@ public struct CloudAPIClient: Sendable {
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } else if let bodyStream {
+            request.setValue(bodyStream.contentType, forHTTPHeaderField: "Content-Type")
+            request.setValue(String(bodyStream.length), forHTTPHeaderField: "Content-Length")
+            request.httpBodyStream = bodyStream.stream
         }
         let data: Data
         let response: URLResponse
