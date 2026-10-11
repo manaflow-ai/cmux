@@ -24,7 +24,7 @@ extension AgentPaneHostProviding {
 
 /// A host's own refusal of a handshake, already in the user's language (a chat on another
 /// machine that its machine refused to start); the pane says it as it is.
-public protocol AgentPaneHostRefusal: Error {
+public nonisolated protocol AgentPaneHostRefusal: Error {
     var userMessage: String { get }
 }
 
