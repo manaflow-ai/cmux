@@ -21,11 +21,28 @@ public nonisolated enum FeedAnswerValue: Sendable, Equatable {
         public var outcome: Outcome
         public var scope: FeedApproveScope?
         public var reason: String?
+        /// The phone's presence-key proof (`answer.proof`, cx-aocz).
+        public var proof: Proof?
 
-        public init(_ outcome: Outcome, scope: FeedApproveScope? = nil, reason: String? = nil) {
+        public init(_ outcome: Outcome, scope: FeedApproveScope? = nil, reason: String? = nil, proof: Proof? = nil) {
             self.outcome = outcome
             self.scope = scope
             self.reason = reason
+            self.proof = proof
+        }
+
+        /// The signing install, when it signed (ms) and the base64url raw
+        /// P-256 signature; the owner checked only their shape.
+        public struct Proof: Sendable, Equatable {
+            public var install: String
+            public var timestampMs: Int64
+            public var signature: String
+
+            public init(install: String, timestampMs: Int64, signature: String) {
+                self.install = install
+                self.timestampMs = timestampMs
+                self.signature = signature
+            }
         }
     }
 

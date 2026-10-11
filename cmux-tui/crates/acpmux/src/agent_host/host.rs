@@ -32,6 +32,11 @@ async fn run() -> Result<()> {
     let mut stdout = tokio::io::stdout();
     let spec: SpawnSpec =
         read_frame(&mut stdin).await?.ok_or_else(|| anyhow!("no spawn spec on stdin"))?;
+    // The host owns its daemon's local router while it lives: a kept agent
+    // keeps its router through a daemon restart. The path comes from the
+    // daemon, whose home may be a tagged build's override.
+    let _router_owner =
+        spec.router_owner_fifo.as_deref().and_then(crate::daemon::open_router_owner);
     match start(&spec).await {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })

@@ -173,6 +173,10 @@ pub struct SpawnSpec {
     pub socket: PathBuf,
     /// Bytes of unacknowledged entries before back-pressure.
     pub buffer_cap: usize,
+    /// The local router's owner FIFO of the daemon's home; the host holds
+    /// a write end for its whole life (`daemon::router_owner_fifo`).
+    #[serde(default)]
+    pub router_owner_fifo: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
