@@ -125,7 +125,12 @@ export function threadSummaries(
   const summaries = new Map<string, ThreadSummary>();
   for (const [root, stats] of owner) {
     if (stats.replyCount > 0)
-      summaries.set(root, { count: stats.replyCount, lastAt: stats.lastReplyAt ?? 0, authors: [...stats.authors], unread: 0 });
+      summaries.set(root, {
+        count: stats.replyCount,
+        lastAt: stats.lastReplyAt ?? 0,
+        authors: [...stats.authors],
+        unread: 0,
+      });
   }
   for (const message of messages) {
     const root = threadOf(message);

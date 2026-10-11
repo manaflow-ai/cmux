@@ -143,7 +143,9 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   const list = [text(id, 1, chief, BASE - 120 * MINUTE, "Incident: the build queue is stuck. Updates in the thread.")];
   for (let index = 1; index <= 130; index += 1) {
     const author = index % 2 ? builder : reviewer;
-    list.push(text(id, index + 1, author, BASE - 119 * MINUTE + index * 10_000, `Update ${index}.`, { threadRoot: `${id}-m1` }));
+    list.push(
+      text(id, index + 1, author, BASE - 119 * MINUTE + index * 10_000, `Update ${index}.`, { threadRoot: `${id}-m1` }),
+    );
   }
   list.push(text(id, 132, chief, BASE - 90 * MINUTE, "Queue is moving again."));
   home.messages.set(id, list);

@@ -405,7 +405,9 @@ export class HomeChannelsStore {
     const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
     if (view && threadIncoming.length > 0) {
       // Only what follows the loaded pages: a reply between pages comes with the next page.
-      const tail = view.hasMore ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq)) : threadIncoming;
+      const tail = view.hasMore
+        ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq))
+        : threadIncoming;
       patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
     }
     if (batch.typing && selected) {
