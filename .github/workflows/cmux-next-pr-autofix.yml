@@ -80,9 +80,11 @@ jobs:
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
+          # The base's copy, or the pull request's while the base has no actions area yet.
           areas="$RUNNER_TEMP/autofix/scripts/cmux-next/autofix-areas.sh"
-          if git log -1 --format=%B | grep -q '^Autofix-Run: '; then
-            echo "actions=false" >> "$GITHUB_OUTPUT"
+          grep -q '^area actions ' "$areas" || areas=scripts/cmux-next/autofix-areas.sh
+          if git log -1 --format=%B | grep -q '^Autofix-Run: ' || ! grep -q '^area actions ' "$areas"; then
+            echo "actions=false" | tee -a "$GITHUB_OUTPUT"
           elif [ "$CHANGED_FILES" -ge 3000 ]; then
             "$areas" --all | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
           else
@@ -173,8 +175,10 @@ jobs:
         id: regenerate
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-action-exports.sh" "$RUNNER_TEMP/action-exports" \
-            | tee "$RUNNER_TEMP/action-exports.txt"
+          # The base's copy, or the pull request's before the base has one.
+          regenerate="$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-action-exports.sh"
+          [[ -x "$regenerate" ]] || regenerate=scripts/cmux-next/regenerate-action-exports.sh
+          "$regenerate" "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/action-exports.txt"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
@@ -331,7 +335,8 @@ jobs:
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
-          [[ "$APPHOST" == true ]] && args+=(--app-host)
+          # The base's script takes --app-host once this repair has landed there.
+          [[ "$APPHOST" == true ]] && grep -q -- '--app-host)' "$AUTOFIX/base-autofix.sh" && args+=(--app-host)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
