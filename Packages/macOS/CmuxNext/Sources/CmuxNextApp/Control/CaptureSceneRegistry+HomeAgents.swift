@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
@@ -115,11 +116,26 @@ extension CaptureSceneRegistry {
         guard let index = params["click_agent"]?.intValue else { return nil }
         guard let controller = services.windows.controller(for: windowID),
               let page = controller.topPages.views[.home] as? TopHomePageView,
-              let transcript = page.host.flatMap(HomePageTab.transcript(in:)) else {
+              let chief = TopHomePageView.chief(services.home) else {
             return .object(["error": .string("Home is not shown")])
+        }
+        // The window can leave Home after the snapshot (a capture once showed
+        // the newest terminal's workspace by the click): show it again first.
+        let wasShown = page.host.flatMap(HomePageTab.transcript(in:))?.debugFirstRunShown == true
+        if !wasShown {
+            TopPages.show(.home, services: services, in: controller.state)
+            page.show(ConversationID(chief))
+            frames.start()
+            _ = await frames.settled(until: { page.host.flatMap(HomePageTab.transcript(in:))?.debugFirstRunShown == true },
+                                     start: ContinuousClock.now, window: 100, deadline: 3_000)
+            _ = frames.stop()
+        }
+        guard let transcript = page.host.flatMap(HomePageTab.transcript(in:)), transcript.debugFirstRunShown else {
+            return .object(["error": .string("Home's first-run panel is not shown"), "home_reshown": .bool(!wasShown)])
         }
         let rows = transcript.debugFirstRunAgents
         var report: [String: CmuxNextSettings.JSONValue] = ["index": .number(Double(index)), "window_key": .bool(controller.window?.isKeyWindow ?? false)]
+        report["home_reshown"] = .bool(!wasShown)
         report["rows"] = .array(rows.map { row in
             .object(["tab": .string(row.id), "title": .string(row.title), "status": .string("\(row.status)"), "shown": .bool(row.shown)])
         })
