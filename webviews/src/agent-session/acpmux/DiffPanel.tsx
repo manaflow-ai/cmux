@@ -87,6 +87,7 @@ export function DiffPanel({
   gitIntent,
   onGitIntentHandled,
   writeKeys,
+  onAddressThread,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -449,7 +450,7 @@ export function DiffPanel({
                 <section key="\u0000review" className="acpmux-review-unplaced" aria-label={t("review.otherFiles")}>
                   <h3 className="acpmux-review-heading">{t("review.otherFiles")}</h3>
                   {elsewhere.map((thread, at) => (
-                    <ReviewThreadView key={at} thread={thread} />
+                    <ReviewThreadView key={at} thread={thread} onAddress={onAddressThread} />
                   ))}
                 </section>
               ),
@@ -468,6 +469,7 @@ export function DiffPanel({
                     review={file.outside ? undefined : hunkReview}
                     focusAfter={focusAfter}
                     threads={threadsByPath.get(file.displayPath)}
+                    onAddressThread={onAddressThread}
                   />
                 )),
               ),

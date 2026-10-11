@@ -57,3 +57,28 @@ export function showsLine(edit: DiffEdit, thread: ReviewThread) {
     ),
   );
 }
+
+/// Address's prompt (cx-ncc.77.3): asks the agent to address the thread's comments, naming the
+/// file and line and quoting each comment with its author and link.
+export function addressPrompt(thread: ReviewThread): string {
+  const where =
+    thread.line === undefined
+      ? `\`${thread.path}\``
+      : `\`${thread.path}\` line ${thread.line}${thread.side === "deletions" ? " (removed side)" : ""}`;
+  const note = thread.outdated
+    ? " The comment is on an older version of the file."
+    : thread.moved
+      ? " The file changed since the comment, so that line may have moved."
+      : "";
+  const quoted = thread.comments.flatMap((comment) => [
+    ...`${comment.author || "reviewer"}: ${comment.body}`.split("\n").map((line) => `> ${line}`),
+    ...(comment.url ? [`> (${comment.url})`] : []),
+    "",
+  ]);
+  return [
+    `Please address this pull request review comment on ${where}.${note}`,
+    "",
+    ...quoted,
+    "Make the change it asks for, or tell me why not.",
+  ].join("\n");
+}

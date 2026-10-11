@@ -160,3 +160,10 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-review-author a:hover{text-decoration:underline}
 .acpmux-review-body{margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 .acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail)}
+.acpmux-review-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-review-address:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-review-address:active{background:var(--acpmux-step-pressed-on-page)}
+.acpmux-review-address:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+.acpmux-review-address:disabled{opacity:.6}
+.acpmux-review-actions output[role=alert]{color:var(--acpmux-del)}

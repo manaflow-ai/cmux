@@ -4249,6 +4249,7 @@ function AcpmuxPane() {
                     gitIntent={diffView.gitIntent}
                     onGitIntentHandled={clearGitIntent}
                     writeKeys={writeKeysFor(diffView.sessionId)}
+                    onAddressThread={(prompt) => callNative("chat.send", { text: prompt })}
                   />
                 )}
               </div>

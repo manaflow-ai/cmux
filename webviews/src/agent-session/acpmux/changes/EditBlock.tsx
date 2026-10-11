@@ -35,6 +35,7 @@ export function EditBlock({
   review,
   focusAfter,
   threads,
+  onAddressThread,
 }: {
   file: TurnFile;
   edit: DiffEdit;
@@ -50,6 +51,8 @@ export function EditBlock({
   /// The file's pull request review threads (Branch scope): each under its line, or above the
   /// diff when this edit does not show that line.
   threads?: readonly Thread[];
+  /// Address on an open thread (ReviewThread.tsx).
+  onAddressThread?: (prompt: string) => Promise<unknown>;
 }) {
   const t = useT();
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
@@ -123,7 +126,7 @@ export function EditBlock({
       {!view.collapsed && unplaced.length > 0 && (
         <div className="acpmux-review-unplaced">
           {unplaced.map((thread, at) => (
-            <ReviewThread key={at} thread={thread} />
+            <ReviewThread key={at} thread={thread} onAddress={onAddressThread} />
           ))}
         </div>
       )}
@@ -135,7 +138,8 @@ export function EditBlock({
             options={options}
             lineAnnotations={annotations}
             renderAnnotation={(annotation) => {
-              if (annotation.metadata?.thread) return <ReviewThread thread={annotation.metadata.thread} />;
+              if (annotation.metadata?.thread)
+                return <ReviewThread thread={annotation.metadata.thread} onAddress={onAddressThread} />;
               const anchor = annotation.metadata?.anchor;
               const hunk = edit.hunks.find((_, hunkIndex) => hunkKey(file, index, hunkIndex) === anchor?.key);
               if (staging && on.stageHunk && anchor && hunk) {
