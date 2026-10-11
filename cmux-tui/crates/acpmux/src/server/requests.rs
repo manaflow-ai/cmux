@@ -865,11 +865,9 @@ async fn dispatch_request(
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
-        method::MUX_HARNESS_ADD
-        | method::MUX_HARNESS_REMOVE
-        | method::MUX_HARNESS_RESTORE
-        | method::MUX_HARNESS_DOCTOR
-        | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
+        name if super::harness_admin::METHODS.contains(&name) => {
+            super::harness_admin::handle(hub, conn.origin, name, &params).await
+        }
         method::MUX_ROUTE_LIST
         | method::MUX_ROUTE_SHOW
         | method::MUX_ROUTE_ADD
