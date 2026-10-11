@@ -72,6 +72,8 @@ final class HomeFirstRunView: NSView {
     func setAgents(_ list: [HomeAgentGlance]) {
         let shown = HomeAgentGlance.shortlist(list)
         guard shown != agents else { return }
+        // A rebuild drops the old rows; keep keyboard focus on the same agent, or the column.
+        let focused = zip(agents, agentRows).first { window?.firstResponder === $0.1 }?.0.id
         agents = shown
         agentRows = shown.map { glance in
             let row = HomeFirstRunRow(title: glance.title, icon: glance.icon)
@@ -88,6 +90,9 @@ final class HomeFirstRunView: NSView {
         arrange()
         applyStoredColors()
         needsLayout = true
+        if let focused {
+            window?.makeFirstResponder(zip(shown, agentRows).first { $0.0.id == focused }?.1 ?? agent)
+        }
     }
 
     /// The stack's views in order, with the gaps between groups.
@@ -315,8 +320,10 @@ final class HomeFirstRunRow: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
+        // Return only: Home sends printable keys, Space included, to the message box first.
         switch event.keyCode {
-        case 36, 76, 49: onClick() // Return, keypad Enter, Space
+        case 36, 76: if !event.isARepeat { onClick() } // Return, keypad Enter
         case 125: focusSibling(by: 1) // Down
         case 126: focusSibling(by: -1) // Up
         default: super.keyDown(with: event)
