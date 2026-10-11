@@ -34,8 +34,9 @@ export interface ContextMenuProps {
  * A right-click over selected text keeps the host's native menu (Copy), unless `selection="menu"`.
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
- * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Escape returns focus to
- * the invoking control when it has one.
+ * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing attempts to
+ * restore the invoking control when it remains connected at the close turn; navigation actions
+ * own any later focus changes.
  */
 export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
@@ -50,8 +51,18 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
   };
   const run = (item: ContextMenuItem | undefined) => {
     if (!item || item.disabled) return;
+    // Keep the opener across the action. The action may remove or replace it (for example, a
+    // sidebar row's Close action), so restoring before `onSelect` would focus a node that is about
+    // to disappear. Restore only when the action did not deliberately move focus elsewhere.
+    const target = returnFocus.current;
     close();
     item.onSelect();
+    queueMicrotask(() => {
+      if (!target?.isConnected) return;
+      const focused = document.activeElement;
+      if (focused && focused !== document.body && focused !== document.documentElement) return;
+      target.focus({ preventScroll: true });
+    });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, restoreFocus = false) => {
     if (event.key === "Escape") {
@@ -77,8 +88,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current =
-          target?.closest<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ??
-          null;
+          target?.closest<HTMLElement>(
+            "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])",
+          ) ?? null;
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -90,7 +102,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close()}
+              onPointerDown={() => close(true)}
             >
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
