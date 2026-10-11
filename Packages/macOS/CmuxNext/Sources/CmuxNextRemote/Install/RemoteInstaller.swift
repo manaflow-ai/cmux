@@ -43,7 +43,7 @@ public struct RemoteInstaller: Sendable {
         let noManifest = RemoteInstallError.downloadFailed("manifest: HTTP \(status)")
         guard status == 404, let treeKey, RemoteInstallPlan.isHex(treeKey, count: 40) else { throw noManifest }
         let (sourceStatus, sourceData) = try await get(RemoteInstallPlan.treeSourceURL(key: treeKey))
-        guard sourceStatus == 200 else { throw noManifest }
+        guard sourceStatus == 200 else { throw sourceStatus == 404 ? RemoteInstallError.treeNotPublished(key: treeKey) : noManifest }
         guard let tree = try? CmuxTUITreeSource.decode(sourceData) else {
             throw RemoteInstallError.downloadFailed("tree \(treeKey.prefix(12)): unreadable source.json")
         }

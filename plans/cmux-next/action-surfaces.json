@@ -2588,7 +2588,7 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace new-in-group",
+      "cli_name" : "workspace new-like-this",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
@@ -2598,7 +2598,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "workspace.newInGroup",
+      "id" : "workspace.newLikeThis",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -2609,8 +2609,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Workspace in This Group",
-      "title_key" : "action.workspace.newInGroup",
+      "title" : "New Workspace Like This",
+      "title_key" : "action.workspace.newLikeThis",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -2665,33 +2665,6 @@
       "palette_suggested" : null,
       "title" : "New Workspace on Machine…",
       "title_key" : "action.workspace.newOnMachine",
-      "title_table" : "WorkspaceActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "workspace new-in-same-directory",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "workspaceRow"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "workspace.newInSameDirectory",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.workspace",
-        "order" : 101,
-        "title" : "Workspace",
-        "title_key" : "category.workspace",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "New Workspace in Same Directory",
-      "title_key" : "action.workspace.newInSameDirectory",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -3544,6 +3517,33 @@
       "palette_suggested" : null,
       "title" : "Copy Workspace Group ID",
       "title_key" : "action.workspaceGroup.copyID",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group add-to-section",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.addToSection",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Group to Section…",
+      "title_key" : "action.workspaceGroup.addToSection",
       "title_table" : "Localizable"
     },
     {
@@ -5172,6 +5172,33 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "pane toggle-tab-bar",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.toggleTabBar",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Tab Bar",
+      "title_key" : "action.pane.toggleTabBar",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "pane equalize-splits",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5608,6 +5635,40 @@
       "palette_suggested" : null,
       "title" : "Focus Next Pane",
       "title_key" : "action.focusNextPane",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "pane focus-1-9",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "family" : "digits",
+        "key" : "1",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "focusPaneByNumber",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Pane 1…9",
+      "title_key" : "action.focusPaneByNumber",
       "title_table" : "ActionCatalog"
     },
     {
@@ -6540,9 +6601,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "offered",
+      "context_menu" : "duplicateOfDefault",
       "context_menus" : [
-        "tab"
+
       ],
       "default_aliases" : [
 
@@ -6554,7 +6615,7 @@
           "cmd"
         ]
       },
-      "id" : "newTab.sameKind",
+      "id" : "newTab.default",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -6566,7 +6627,61 @@
       },
       "palette_suggested" : 0,
       "title" : "New Tab",
-      "title_key" : "action.newTab.sameKind",
+      "title_key" : "action.newTab.default",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-of-kind",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.ofKind",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab of the Same Kind",
+      "title_key" : "action.newTab.ofKind",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-to-right",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.toRight",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab to the Right",
+      "title_key" : "action.newTab.toRight",
       "title_table" : "ActionCatalog"
     },
     {
@@ -6594,6 +6709,33 @@
       "palette_suggested" : null,
       "title" : "New Tab Page",
       "title_key" : "action.newTab.page",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-horizontal",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.horizontal",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Horizontal Tab",
+      "title_key" : "action.newTab.horizontal",
       "title_table" : "ActionCatalog"
     },
     {
@@ -7190,6 +7332,46 @@
       "palette_suggested" : null,
       "title" : "Previous Tab or Workspace",
       "title_key" : "action.navigate.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action hints-show",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : [
+        {
+          "key" : "j",
+          "modifiers" : [
+            "cmd"
+          ]
+        },
+        {
+          "key" : "f",
+          "modifiers" : [
+
+          ]
+        }
+      ],
+      "default_shortcut" : null,
+      "id" : "hints.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Click by Hint",
+      "title_key" : "action.hints.show",
       "title_table" : "ActionCatalog"
     },
     {
@@ -8104,6 +8286,60 @@
       "title" : "Go to Home",
       "title_key" : "action.home.show",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.tab",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Home in Tab",
+      "title_key" : "action.home.tab",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.channels",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Channels",
+      "title_key" : "action.home.channels",
+      "title_table" : "HomeActions"
     },
     {
       "cli" : "offered",
@@ -13139,6 +13375,60 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "browser media",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.media.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Media Controls…",
+      "title_key" : "action.browser.media.show",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser downloads",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.downloads.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Downloads…",
+      "title_key" : "action.browser.downloads.show",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser choose-profile",
       "context_menu" : "guiOnly",
       "context_menus" : [
@@ -15530,6 +15820,39 @@
       "palette_suggested" : null,
       "title" : "Toggle Right Sidebar",
       "title_key" : "action.toggleRightSidebar",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "sidebar focus",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "e",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "focusSidebar",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Sidebar",
+      "title_key" : "action.focusSidebar",
       "title_table" : "ActionCatalog"
     },
     {
@@ -20412,141 +20735,6 @@
       "palette_suggested" : null,
       "title" : "Upgrade to cmux Pro",
       "title_key" : "action.palette.pro.upgrade",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings onboarding",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.welcomeChecklist",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding…",
-      "title_key" : "action.palette.onboarding",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings continue-setup",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "onboarding.continueSetup",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Continue Setup…",
-      "title_key" : "action.onboarding.continueSetup",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "settings import-classic-sessions",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.importClassicSessions",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import Classic cmux Sessions…",
-      "title_key" : "action.palette.importClassicSessions",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action import-and-sync-show",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "importAndSync.show",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import and Sync…",
-      "title_key" : "action.importAndSync.show",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "devOnly",
-      "cli_name" : "settings onboarding-gallery",
-      "context_menu" : "devOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.onboardingGallery",
-      "mcp" : "devOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding Gallery",
-      "title_key" : "action.palette.onboardingGallery",
       "title_table" : "ActionCatalog"
     },
     {
@@ -28218,14 +28406,10 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 2
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "column.dock",
+              "id" : "pane.toggleTabBar",
               "kind" : "action",
-              "order" : 3,
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28235,8 +28419,12 @@
               }
             },
             {
+              "kind" : "separator",
+              "order" : 3
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "column.undock",
+              "id" : "column.dock",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -28249,7 +28437,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.float",
+              "id" : "column.undock",
               "kind" : "action",
               "order" : 5,
               "visible_when" : {
@@ -28262,7 +28450,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockLeft",
+              "id" : "column.float",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -28275,7 +28463,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockRight",
+              "id" : "column.dockLeft",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -28288,7 +28476,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockTop",
+              "id" : "column.dockRight",
               "kind" : "action",
               "order" : 8,
               "visible_when" : {
@@ -28301,7 +28489,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.dockBottom",
+              "id" : "column.dockTop",
               "kind" : "action",
               "order" : 9,
               "visible_when" : {
@@ -28313,14 +28501,10 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 10
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "column.widthOneThird",
+              "id" : "column.dockBottom",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28330,8 +28514,12 @@
               }
             },
             {
+              "kind" : "separator",
+              "order" : 11
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "column.widthHalf",
+              "id" : "column.widthOneThird",
               "kind" : "action",
               "order" : 12,
               "visible_when" : {
@@ -28344,7 +28532,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.widthTwoThirds",
+              "id" : "column.widthHalf",
               "kind" : "action",
               "order" : 13,
               "visible_when" : {
@@ -28357,7 +28545,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.widthFull",
+              "id" : "column.widthTwoThirds",
               "kind" : "action",
               "order" : 14,
               "visible_when" : {
@@ -28370,7 +28558,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.center",
+              "id" : "column.widthFull",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -28383,20 +28571,20 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPaneZoomIn",
+              "id" : "column.center",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "agentPaneFocused"
+
                 ]
               }
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPaneZoomOut",
+              "id" : "agentPaneZoomIn",
               "kind" : "action",
               "order" : 17,
               "visible_when" : {
@@ -28409,9 +28597,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPaneZoomReset",
+              "id" : "agentPaneZoomOut",
               "kind" : "action",
               "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomReset",
+              "kind" : "action",
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28783,6 +28984,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -28793,12 +29006,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -28819,16 +29026,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -30729,7 +30936,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.sameKind",
+          "id" : "newTab.toRight",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -30757,7 +30964,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "newSurface",
+              "id" : "newTab.ofKind",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -30770,9 +30977,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "openBrowser.chromium",
+              "id" : "newSurface",
               "kind" : "action",
               "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "openBrowser.chromium",
+              "kind" : "action",
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30942,6 +31162,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -30952,12 +31184,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -30978,16 +31204,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -32604,6 +32830,19 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.addToSection",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "move",
@@ -32720,7 +32959,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newAbove",
+              "id" : "workspace.newLikeThis",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -32733,7 +32972,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newInGroup",
+              "id" : "workspace.newAbove",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -32759,7 +32998,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newInSameDirectory",
+              "id" : "workspace.duplicate",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -32772,7 +33011,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.duplicate",
+              "id" : "workspace.duplicateTerminalsOnly",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -32784,27 +33023,14 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.duplicateTerminalsOnly",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 5
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.openFolderInVSCodeInline",
               "kind" : "action",
-              "order" : 7,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32817,7 +33043,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.openWorkspaceTodoPane",
               "kind" : "action",
-              "order" : 8,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32830,7 +33056,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.layout.open",
               "kind" : "action",
-              "order" : 9,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32958,6 +33184,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -32968,12 +33206,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -32994,16 +33226,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -33760,10 +33992,6 @@
     {
       "name" : "homeTranscriptRow",
       "source" : "CmuxNextHome\/NativeTranscript\/HomeRowHostView.swift"
-    },
-    {
-      "name" : "onboardingImportProfile",
-      "source" : "CmuxNextOnboarding\/Variants\/Import\/ImportProfileMenu.swift"
     }
   ],
   "version" : 1

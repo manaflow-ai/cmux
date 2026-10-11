@@ -236,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
+        NewTabClosed.wire(services.agentTabs, services: services)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -288,6 +289,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
+                RemoteViewDebugMethods(services: services).register(on: control.service?.router)
+                DebugNowPlaying.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)

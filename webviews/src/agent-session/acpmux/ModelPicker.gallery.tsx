@@ -51,6 +51,7 @@ export default componentEntry<ModelPickerProps>({
   title: "Model picker",
   area: "Agent pane",
   height: 390,
+  widths: { narrow: 200, normal: 420, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
   covers: ["agent-session/acpmux/ModelPicker.tsx#ModelPicker", "ui/ScrollArea.tsx#ScrollArea"],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),

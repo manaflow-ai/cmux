@@ -26,8 +26,12 @@ public final class WebKitInspectorWatch: NSObject {
 
     override init() {}
 
-    isolated deinit {
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        }
     }
 
     func attach(webView: WKWebView, container: WebKitPageContainer) {

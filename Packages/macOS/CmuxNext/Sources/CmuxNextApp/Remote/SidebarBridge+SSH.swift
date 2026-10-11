@@ -31,7 +31,8 @@ extension SidebarBridge {
         case .installing: return .installing
         case .authFailed, .hostKeyUntrusted: return .authFailed
         case .unreachable: return .unreachable
-        case .needsInstall(.protocolMismatch): return .updateRequired
+        case .needsInstall(.protocolMismatch), .needsInstall(.refused(.protocolOlder)): return .updateRequired
+        case .needsInstall(.refused(.protocolNewer)): return .failed
         case .needsInstall, .installFailed: return .installRequired
         case .failed: return daemonConnected ? .connected : .failed
         case .connecting, .connected:

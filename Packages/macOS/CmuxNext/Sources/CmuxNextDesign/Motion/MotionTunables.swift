@@ -28,7 +28,8 @@ public nonisolated enum MotionTunables {
     // MARK: Fades and loops
 
     static let fadeDefaults: [MotionFade: (TimeInterval, String)] = [
-        .hover: (0.08, "Hover fills, hover-revealed buttons, divider hover."),
+        .hover: (0.08, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
+        .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
         .focus: (0.1, "Pane focus ring and inactive dim."),
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
         .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),

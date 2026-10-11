@@ -17,6 +17,15 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("b", modifiers: [.option, .command]), category: .sidebar,
                 symbol: "sidebar.right", surfaces: [.keyboard, .menu], cliName: "sidebar toggle-right", mainMenu: .view
             ),
+            // The workspace list takes the keyboard (arrows, Return), the
+            // sidebar shown first if hidden (cx-zjtn.2).
+            ActionDescriptor(
+                id: "focusSidebar",
+                title: String(localized: "action.focusSidebar", defaultValue: "Focus Sidebar", bundle: .module),
+                keywords: ["sidebar", "workspaces", "list", "keyboard", "navigate"], defaultShortcut: Shortcut("e", modifiers: [.control, .command]),
+                category: .sidebar, symbol: "sidebar.squares.left", surfaces: [.palette, .keyboard],
+                cliName: "sidebar focus"
+            ),
             ActionDescriptor(
                 id: "focusRightSidebar",
                 title: String(localized: "action.focusRightSidebar", defaultValue: "Focus Right Sidebar", bundle: .module),

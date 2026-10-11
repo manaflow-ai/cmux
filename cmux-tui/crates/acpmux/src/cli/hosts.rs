@@ -365,6 +365,7 @@ mod tests {
 
     /// The remote's shutdown step against a fake `~/.local/bin/acpmux` that
     /// logs its arguments and exits as `body` says; the calls it got.
+    #[cfg(unix)]
     fn remote_shutdown_calls(tag: &str, body: &str) -> Vec<String> {
         let home = std::env::temp_dir().join(format!("acpmux-rs-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -385,6 +386,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_restart_keeps_agents_and_falls_back_only_for_a_cli_without_the_flag() {
         // A current CLI: one call, with the flag.
         assert_eq!(remote_shutdown_calls("new", "exit 0"), ["daemon shutdown --keep-agents"]);

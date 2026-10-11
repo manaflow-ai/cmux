@@ -42,10 +42,13 @@ enum BookmarkPalettePages {
             PaletteCommand(id: "delete", title: BookmarkAppStrings.delete, symbol: "trash", isDestructive: true,
                            effect: .performKeepingOpen { try? services.bookmarks.apply(.delete(id: node.id), profile: profile) }),
         ]
-        return PaletteItem(
+        var item = PaletteItem(
             id: node.id, title: node.displayTitle, subtitle: url, accessory: path, symbol: "star", keywords: [url, path],
             primary: PaletteCommand(id: "open", title: BookmarkAppStrings.open, symbol: "return",
                                     effect: .perform { opener.open(node, profile: profile, disposition: .currentTab) }),
             secondary: secondary)
+        // The site's icon when one is already here; the list never fetches every bookmark's.
+        item.image = services.bookmarks.favicon(of: node, profile: profile, fetching: false)?.cgImage
+        return item
     }
 }

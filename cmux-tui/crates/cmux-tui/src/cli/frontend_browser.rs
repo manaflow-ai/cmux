@@ -91,10 +91,7 @@ pub(super) fn run_in_app(
         return None;
     }
     let mut app = owning_app(global, daemon_socket)?;
-    let caller_terminal = caller_route
-        .then(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok())
-        .flatten()
-        .filter(|id| !id.is_empty());
+    let caller_terminal = caller_terminal(caller_route);
     let key = request.get("idempotency_key").and_then(Value::as_str);
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(match open(reader, &mut app, plan, caller_terminal.as_deref(), key) {
@@ -111,6 +108,38 @@ pub(super) fn run_in_app(
             code
         }
     })
+}
+
+/// The caller's own terminal when the request addresses the caller's
+/// session. An agent session (`CMUX_AGENT_SESSION`) names no terminal: the
+/// app places its tab beside the agent's chat (`caller` in `action.run`).
+fn caller_terminal(caller_route: bool) -> Option<String> {
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    if !caller_route || env("CMUX_AGENT_SESSION").is_some() {
+        return None;
+    }
+    env("CMUX_TUI_TERMINAL_ID")
+}
+
+/// [`run_in_app`] for a caller that reports results itself (`cmux mcp
+/// serve`): `Some` with the created path, or the failure, when an app owns
+/// the session; `None` for the daemon path. Without this an MCP
+/// `tab_create_browser` made a daemon-rendered tab the app shows blank.
+pub(super) fn open_in_app(
+    global: &GlobalArgs,
+    plan: &RequestPlan,
+    reader: &mut Reader,
+    daemon_socket: &Path,
+    key: Option<&str>,
+) -> Option<Result<Value, Failure>> {
+    if !applies(plan) {
+        return None;
+    }
+    let mut app = owning_app(global, daemon_socket)?;
+    let caller_route = global.socket.is_none() && global.session.is_none();
+    let caller_terminal = caller_terminal(caller_route);
+    let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
+    Some(open(reader, &mut app, plan, caller_terminal.as_deref(), key))
 }
 
 /// Opens the browser tab through the app and returns the daemon's created

@@ -569,7 +569,10 @@ impl Hub {
             Some(sid) if supports_load => {
                 session.loading.store(true, Ordering::SeqCst);
                 let res = child
-                    .request(method::SESSION_LOAD, self.acp_params(&meta, profile, Some(&sid)))
+                    .request(
+                        method::SESSION_LOAD,
+                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
+                    )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 match res {
@@ -590,8 +593,9 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res =
-                child.request(method::SESSION_NEW, self.acp_params(&meta, profile, None)).await?;
+            let res = child
+                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
+                .await?;
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -929,7 +933,15 @@ pub fn terminal_harness_refusal(name: &str) -> RpcError {
 }
 
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
-    profile.argv.iter().any(|a| a.contains("${model}"))
+    // Claude Code takes `--model` at spawn (`claude_stdio::spawn_plan`).
+    // Switching it after start with session/set_model makes Claude Code
+    // check the model with the API first: with 16 sessions starting at
+    // once that check took about 6 s per session (session/new p50 7.9 s,
+    // 0.9-1.6 s without it) and sometimes failed ("Couldn't confirm
+    // model"), so a new session never switches. A running session still
+    // switches with session/set_model.
+    profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))
 }
 

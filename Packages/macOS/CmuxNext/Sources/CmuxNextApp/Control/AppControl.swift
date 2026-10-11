@@ -73,6 +73,12 @@ final class AppControl {
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // Click by Hint labels (hint-mode-e2e.py).
+            .mainActor("debug.hints") { [weak services] call in
+                guard let services else { return .value(.null) }
+                DebugHints.watchMenus()
+                return .value(DebugHints.report(services.windowHints, params: call.params))
+            },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
             },
@@ -293,6 +299,10 @@ final class AppControl {
             .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarWheel.post(call.params, services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }

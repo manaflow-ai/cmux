@@ -378,7 +378,7 @@ mark {
 
 .slider {
   width: 160px;
-  accent-color: var(--text);
+  accent-color: var(--accent, var(--text));
 }
 
 .select {

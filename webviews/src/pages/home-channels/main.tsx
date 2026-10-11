@@ -5,11 +5,13 @@ import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
 import "../shared/pageBase.css";
+import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
 import "./styles.css";
 
@@ -20,7 +22,11 @@ export function mountHomeChannelsPage(
   const store = new HomeChannelsStore(client);
   const strings = createStrings(table);
   document.title = strings.t("page.title");
-  createRoot(root).render(<HomeChannelsPage store={store} strings={strings} />);
+  createRoot(root).render(
+    <UiProvider container={root} dir={languageDirection(strings.language)}>
+      <HomeChannelsPage store={store} strings={strings} />
+    </UiProvider>,
+  );
   return store;
 }
 

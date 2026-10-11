@@ -88,9 +88,15 @@ enum AppStoreHandlers {
         }
     }
 
-    /// `app.open`'s refusal: the unavailable reason first, then the app's own.
+    /// `app.open`'s refusal: the unavailable reason, else why this app did not open.
     static func failure(_ error: AppsServiceError) -> ActionFailure {
-        if case .unavailable(let reason) = error { return unavailable(reason) }
-        return ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
+        switch error {
+        case .unavailable(let reason): unavailable(reason)
+        case .unknownApp: ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
+        case .disabled: ActionFailure(message: RefusalStrings.text("refusal.app.disabled", "This app is turned off. Turn it on in the App Store."))
+        case .noPage: ActionFailure(message: RefusalStrings.text("refusal.app.noPage", "This app has no page to open."))
+        case .noWindow: ActionFailure(message: RefusalStrings.text("refusal.app.noWindow", "Open a cmux window first, then open the app."))
+        case .unknownCommand: ActionFailure(message: RefusalStrings.text("refusal.app.unknownCommand", "This app has no command with that id."))
+        }
     }
 }

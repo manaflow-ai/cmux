@@ -15,7 +15,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
+/// Windows port: the daemon socket is `cmux::local_socket` there (a later
+/// landing); until then no listener exists, so none is ever bound.
+#[cfg(not(unix))]
+pub enum UnixListener {}
 use tokio::sync::{broadcast, mpsc};
 
 /// How one connection receives one attached session's live records.
@@ -39,9 +45,13 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
-    /// Its first request was seen (`hub/person.rs`).
-    initialized: AtomicBool,
-    /// It presented this launch's person key in that `initialize`.
+    /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
+    requests: std::sync::atomic::AtomicU64,
+    /// Its first request was an `initialize` that got the person challenge.
+    challenged: AtomicBool,
+    /// This connection's challenge nonce (`hub/person.rs`).
+    pub(super) nonce: String,
+    /// It proved the person key for its challenge.
     person: AtomicBool,
 }
 
@@ -51,20 +61,32 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
-    /// A request's person key leaves its params before anything else reads
-    /// them. A unix socket or LocalApp connection whose FIRST request is an
-    /// `initialize` that carries this launch's key is the person for its
-    /// life; a key anywhere else carries no weight.
+    /// Whether this connection gets the person challenge: the unix socket
+    /// or the proven local app.
+    pub(super) fn challengeable(&self) -> bool {
+        matches!(self.origin, Origin::Local | Origin::LocalApp)
+    }
+
+    /// The person binding (`hub/person.rs`), in order before the request
+    /// runs. A `personKey` in any request is stripped and never read. A
+    /// local connection whose FIRST request is `initialize` is challenged;
+    /// its SECOND request, `_acpmux/person_prove`, makes it the person when
+    /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
-        let key = params.as_mut().and_then(crate::hub::person::take_key);
-        let first = !self.initialized.swap(true, Ordering::SeqCst);
-        if !first || m != method::INITIALIZE {
-            return;
+        let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == 1 && m == method::INITIALIZE && self.challengeable() {
+            self.challenged.store(true, Ordering::SeqCst);
         }
-        if matches!(self.origin, Origin::Local | Origin::LocalApp)
-            && key.is_some_and(|k| hub.person.matches(&k))
-        {
-            self.person.store(true, Ordering::SeqCst);
+        if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
+            let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
+            let transport = match self.origin {
+                Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
+                _ => crate::hub::person::TRANSPORT_UNIX,
+            };
+            if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
+                self.person.store(true, Ordering::SeqCst);
+            }
         }
     }
 
@@ -104,6 +126,7 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 }
 
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
+#[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
@@ -129,7 +152,12 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
+#[cfg(not(unix))]
+pub async fn bind_unix(_path: &std::path::Path) -> Result<UnixListener> {
+    Err(crate::platform::unsupported("the acpmux daemon socket"))
+}
 
+#[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
@@ -167,6 +195,10 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
         });
     }
+}
+#[cfg(not(unix))]
+pub async fn serve_unix(_hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
+    match listener {}
 }
 
 const INDEX_HTML: &str = include_str!("../../web/index.html");
@@ -644,7 +676,9 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         peer,
-        initialized: AtomicBool::new(false),
+        requests: std::sync::atomic::AtomicU64::new(0),
+        challenged: AtomicBool::new(false),
+        nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
     });
     tracing::debug!(conn = %conn.id, "client connected");

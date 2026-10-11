@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// The approving device's sheet (palette "Add Server…", the menubar, the
@@ -70,7 +71,7 @@ struct CandidateFacts: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "server.rack").font(.system(size: 18)).foregroundStyle(colors.secondary).frame(width: 28)
+            Icon(.machineRemote, size: 18).foregroundStyle(colors.secondary).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: candidate.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.primary)
                 Text(verbatim: facts).font(.system(size: 11.5)).foregroundStyle(colors.secondary).lineLimit(2)

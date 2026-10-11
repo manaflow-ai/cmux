@@ -191,6 +191,7 @@ async fn chats_lists_synthetic_roots_with_filters_and_pages() {
     assert!(bad["error"]["message"].as_str().unwrap().contains("unknown"), "{bad}");
 
     // The cache is written, owner-only.
+    #[cfg(unix)]
     let cache = h.0.join(".acpmux/chat-index/v1.json");
     #[cfg(unix)]
     {

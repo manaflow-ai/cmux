@@ -51,11 +51,8 @@ extension SidebarListView {
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
-            // Every click on the bar toggles, also fast ones; only a chip double click is dropped (cx-qno.17).
-            if event.clickCount >= 2, groupEditing.isOnChip(point, group: group) {
-                self.press = nil
-                return
-            }
+            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands, and the
+            // chip opens its editor or, when this click's mouse-down closed it, leaves it closed.
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
@@ -132,7 +129,7 @@ extension SidebarListView {
                 return
             }
         }
-        if flags.isEmpty, SidebarGroupKeys(list: self).handle(event) { return }
+        if SidebarGroupKeys(list: self).handle(event, flags: flags) { return }
         switch event.specialKey {
         case .upArrow?, .downArrow?:
             let up = event.specialKey == .upArrow

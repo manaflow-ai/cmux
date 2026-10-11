@@ -224,8 +224,10 @@ final class ComputerUseHelperDaemon {
 
     /// `serve` argv: the socket path and this app's pid only, never a token
     /// (argv is visible to every local user; tokens go in the environment).
+    /// The helper removes an agent's cursor only when its session ends, so
+    /// the idle fade is what clears it after a run (cx-ujus); 0 disables it.
     nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
-        ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "0"]
+        ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "10000"]
             + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])
     }
 

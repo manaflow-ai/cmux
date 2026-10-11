@@ -105,6 +105,22 @@ impl WorkspaceRegistry {
         journaled: &Value,
         full_projection: bool,
     ) {
+        // The fold holds what the journal states: the journal decorates every
+        // upsert with the state rows (pins, groups, zoom; state/values.rs)
+        // when it writes it, so the fold folds the same decorated values.
+        // Folding the raw deltas made it state a pinned screen without its
+        // pin after a restart reseeded it (#19079's cross-check).
+        let mut decorated = journaled.clone();
+        if let Err(error) =
+            crate::state::values::decorate_changes(&self.connection.get(), &mut decorated)
+        {
+            eprintln!(
+                "cmux-tui: public fold: decorating the journaled changes failed, reseeding: {error:#}"
+            );
+            self.public_fold = None;
+            return;
+        }
+        let journaled = &decorated;
         match self.public_fold.as_mut() {
             Some(fold) if fold.revision == previous_revision => {
                 fold.apply(journaled);
