@@ -260,7 +260,8 @@ final class AgentTabStore {
         // A tab recorded for this Mac in another machine's tree with no chat yet (saved before
         // cx-k21v): this Mac's New Tab page or chat there would start in this Mac's acpmux.
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
-            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: ""))
+            let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
+            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
             guard let view = makeView(AgentPaneModel(host: refused, allowsTabConversion: false)) else { return nil }
             views[key] = view
             track(key, in: store)

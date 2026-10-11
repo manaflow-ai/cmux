@@ -114,6 +114,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
 
     var userMessage: String { errorDescription ?? code }
 
+    var machineName: String? { machine.isEmpty ? nil : machine }
+
     var errorDescription: String? {
         switch code {
         case "agent_session.untrusted_folder":
