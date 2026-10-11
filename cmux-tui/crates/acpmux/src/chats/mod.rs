@@ -270,9 +270,7 @@ impl ChatService {
                 changes.extend(state.index.rescan_root(&id));
             }
         }
-        for path in paths {
-            changes.extend(state.index.path_changed(path));
-        }
+        changes.extend(state.index.paths_changed(paths));
         // The cache keeps read offsets with their counts, so a restart is
         // correct from any saved state; save only when the chat set changed.
         let structural = changes.iter().any(|change| match change {
