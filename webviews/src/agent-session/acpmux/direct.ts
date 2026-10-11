@@ -464,6 +464,8 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
+  private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
@@ -728,6 +730,7 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.historyExhausted = false;
     this.rows.clear();
+    this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
@@ -1326,7 +1329,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
-      if (event.kind === "user_message") {
+      if (event.kind === "forked") {
+        this.forkedAtSeq = event.seq;
+      } else if (event.kind === "user_message") {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId =
@@ -1535,6 +1540,7 @@ export class AcpmuxDirectClient {
         return entry;
       }),
       peers: this.peers,
+      ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
             sessionId: summary.sessionId,
@@ -2026,15 +2032,16 @@ export class AcpmuxDirectClient {
     });
     this.emit();
   }
-  /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
-  /// One fork at a time; a second click while acpmux forks does nothing. A failure says so in the
-  /// transcript; a reader who opened another session meanwhile stays there.
-  async fork(throughSeq: number): Promise<string | undefined> {
+  /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
+  /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
+  /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
+  /// stays there.
+  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
-      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       return await this.select(String(result.sessionId));
     } catch (error) {
