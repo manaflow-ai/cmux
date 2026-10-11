@@ -237,6 +237,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
+        services.agentTabs.harnessHealth = { [weak services] id in
+            let rows = (try? await services?.agentHarnesses.health()) ?? []
+            return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
+        }
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.

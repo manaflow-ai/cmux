@@ -154,6 +154,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "harness.health":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
+                self = .harnessHealth(id)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)

@@ -152,6 +152,8 @@ final class AgentTabStore {
     private let pageSettings = AgentPanePageSettings()
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
+    /// `harness.health` (cx-ny85): this Mac's acpmux health row for a harness id (AppDelegate).
+    var harnessHealth: ((String) async -> [String: Any]?)?
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -391,6 +393,7 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onHarnessHealth = { [weak self] id in await self?.harnessHealth?(id) }
         model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
         model.onAppAction = { [weak self] id in
             guard let self else { return }

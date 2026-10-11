@@ -49,6 +49,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
+    /// `harness.health`: this Mac's acpmux health row for a harness id (cx-ny85), or nil.
+    @ObservationIgnored public var onHarnessHealth: ((String) async -> [String: Any]?)?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
     /// there), never this Mac's (cx-k21v).
     @ObservationIgnored public var onListRemoteProjects: ((String?) async -> [String])?
@@ -197,7 +199,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .harnessHealth, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -336,6 +338,10 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": cwd])
+        case .harnessHealth(let id):
+            // A chat on another machine runs that machine's CLI, not this Mac's.
+            guard !remoteChat, let onHarnessHealth else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["health": await onHarnessHealth(id) ?? NSNull()])
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
