@@ -187,16 +187,25 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
               RemoteLoopbackProxyAlias.isLoopbackHost(target.host) else {
             throw CancellationError()
         }
+        let generation = connectionGeneration
         let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)
         if let closing = loopbackForwardClosures[key] {
             await closing.value
             try Task.checkCancellation()
+            guard !disconnecting, generation == connectionGeneration else {
+                throw CancellationError()
+            }
             if loopbackForwardClosures[key] == closing {
                 loopbackForwardClosures[key] = nil
             }
         }
         if let starting = loopbackForwardStarts[key] {
-            return try await awaitSharedForwardStart(starting)
+            let port = try await awaitSharedForwardStart(starting)
+            try Task.checkCancellation()
+            guard !disconnecting, generation == connectionGeneration else {
+                throw CancellationError()
+            }
+            return port
         }
 
         // Register the keyed start before the first suspension. The actor may
@@ -205,12 +214,21 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         // helper for the same remote service.
         let registry = listenerRegistry
         let task = Task { [self] in
+            guard !disconnecting, generation == connectionGeneration else {
+                throw CancellationError()
+            }
             _ = try await self.connected(machineID: machineID)
             try Task.checkCancellation()
+            guard !disconnecting, generation == connectionGeneration else {
+                throw CancellationError()
+            }
 
             if let existing = self.loopbackForwards[key] {
                 if let port = await existing.readyPort {
                     try Task.checkCancellation()
+                    guard !disconnecting, generation == connectionGeneration else {
+                        throw CancellationError()
+                    }
                     return port
                 }
                 await existing.stop()
@@ -218,10 +236,16 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
                     self.loopbackForwards[key] = nil
                 }
                 try Task.checkCancellation()
+                guard !disconnecting, generation == connectionGeneration else {
+                    throw CancellationError()
+                }
             }
 
             let listener = try await registry.lease(machineID: machineID, target: target)
             try Task.checkCancellation()
+            guard !disconnecting, generation == connectionGeneration else {
+                throw CancellationError()
+            }
             let process = SSHTuiLoopbackForwardProcess()
             self.loopbackForwards[key] = process
             let arguments = self.connection.forwardArguments(stateDirectory: self.paths.stateDir.path, target: target)
@@ -233,6 +257,9 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
                     listener: listener
                 )
                 try Task.checkCancellation()
+                guard !disconnecting, generation == connectionGeneration else {
+                    throw CancellationError()
+                }
                 guard port > 0 else {
                     throw CloudMachineLink.LinkError.failureMessage(String(
                         localized: "ssh.tui.browserListener.invalidPort",
@@ -261,7 +288,12 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             guard let self else { return }
             await self.clearLoopbackForwardStart(task, for: key)
         }
-        return try await awaitSharedForwardStart(task)
+        let port = try await awaitSharedForwardStart(task)
+        try Task.checkCancellation()
+        guard !disconnecting, generation == connectionGeneration else {
+            throw CancellationError()
+        }
+        return port
     }
 
     private func clearLoopbackForwardStart(
