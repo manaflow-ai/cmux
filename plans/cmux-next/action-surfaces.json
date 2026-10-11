@@ -17686,6 +17686,38 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-search-files",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "p",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.searchFiles",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Search Files…",
+      "title_key" : "action.agentPane.searchFiles",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
