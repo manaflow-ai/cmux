@@ -6,8 +6,8 @@ import Observation
 /// Whether a pane shows its horizontal tab bar (cx-soza): the pane's own
 /// Show Tab Bar choice, else its kind's `tabs.tabBar.<kind>`, whose
 /// Automatic is the chat rule (``ChatDockChrome``: the chat dock and a lone
-/// chat hide it until they hold two tabs). Cmd-T follows it: a pane that
-/// shows its tab bar gets a tab, one that hides it a new workspace.
+/// chat hide it until they hold two tabs; a lone New Tab page set to an agent
+/// chat hides it too, as the chat it becomes, cx-ncc.58).
 @Observable
 final class PaneTabBarChoices {
     /// The panes remembered, newest last; older choices are dropped.

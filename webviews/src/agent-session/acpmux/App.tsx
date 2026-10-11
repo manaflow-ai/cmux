@@ -410,7 +410,11 @@ const ThinkingRow = memo(
     );
   },
   // The start status line (version 0) becomes "Thinking" (version 1) in place.
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
@@ -442,20 +446,32 @@ const RenderRow = memo(
     const call = tool && canRender() ? renderCall(tool) : undefined;
     return call ? <RenderCard call={call} /> : null;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
     return <TurnFooter row={row} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 const PermissionRow = memo(
   function PermissionRow({ row }: RowProps) {
@@ -469,7 +485,11 @@ const PermissionRow = memo(
       );
     return <PermissionAsk permission={permission} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
@@ -486,7 +506,11 @@ const SubagentRow = memo(
   function SubagentRow({ row }: RowProps) {
     return <SubagentListRow row={row} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(

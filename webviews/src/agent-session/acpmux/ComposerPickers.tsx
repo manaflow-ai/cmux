@@ -326,7 +326,7 @@ export function ComposerPickers({
   }, [harness, resolvedNow]);
   // Before the session reports a model (a new chat whose agent is still starting), the chip draws
   // the model this harness's default last resolved to, so the name never widens in place (cx-ncc.58).
-  const unreported = shown === undefined && harness !== undefined;
+  const unreported = shown === undefined && harness !== undefined && (!summary?.sessionId || switching);
   const resolvedId =
     defaulted || unreported ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
   const resolvedName =
@@ -337,7 +337,8 @@ export function ComposerPickers({
   // Until the session reports its options (a new chat, an agent still starting), the ring, the
   // effort and the access controls hold their places as quiet skeletons: controls never appear one
   // by one beside the model (cx-ncc.58).
-  const awaiting = harness !== undefined && (!summary?.sessionId || switching);
+  const awaiting =
+    harness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
