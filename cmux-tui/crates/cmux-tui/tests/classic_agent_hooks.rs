@@ -60,7 +60,7 @@ fn reply(mut stream: &UnixStream, request: &serde_json::Value) {
 
 /// The journal request a classic hook sends, with the hook's output.
 fn journaled(args: &[&str], payload: &str) -> (serde_json::Value, std::process::Output) {
-    let socket = socket_path(args[args.len() - 2]);
+    let socket = socket_path(args[2]);
     let listener = UnixListener::bind(&socket).unwrap();
     listener.set_nonblocking(false).unwrap();
     let child = classic_hook(&socket, args, payload);
@@ -125,4 +125,37 @@ fn a_classic_hook_this_build_cannot_read_exits_quietly() {
         panic!("journaled an unreadable classic payload: {text}");
     }
     let _ = std::fs::remove_file(&socket);
+}
+
+#[test]
+fn a_hook_inside_a_cmux_terminal_names_the_socket_first() {
+    // Classic's hook lines pass `--socket "$CMUX_SOCKET_PATH"` whenever it is set,
+    // which next's own terminals do.
+    let (request, output) = journaled(
+        &["--socket", "/tmp/classic.sock", "hooks", "codex", "stop"],
+        r#"{"session_id":"classic-codex","hook_event_name":"Stop"}"#,
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request["params"]["event"]["payload"]["native_event"], "Stop", "{request}");
+}
+
+#[test]
+fn a_folded_classic_subcommand_keeps_the_agents_own_event() {
+    // Classic sent Copilot's Notification as `stop`: a permission prompt is not a finished turn.
+    let (request, output) = journaled(
+        &["hooks", "copilot", "stop"],
+        r#"{"session_id":"classic-copilot","hook_event_name":"Notification"}"#,
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request["params"]["event"]["payload"]["native_event"], "Notification", "{request}");
+}
+
+#[test]
+fn a_classic_feed_hook_reports_the_event_it_names() {
+    let (request, output) = journaled(
+        &["hooks", "feed", "--source", "codex", "--event", "PreToolUse"],
+        r#"{"session_id":"classic-codex","tool_name":"Bash"}"#,
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request["params"]["event"]["payload"]["native_event"], "PreToolUse", "{request}");
 }
