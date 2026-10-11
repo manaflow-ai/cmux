@@ -257,6 +257,13 @@ struct CloudWorkspaceCreationRevealTests {
             #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
             app.unregisterMainWindowContextForTesting(windowId: windowID)
             manager.finalizeAllWorkspacesForWindowClose()
+            if TerminalController.shared.activeTabManagerForCallerNotification() === manager {
+                // The test host's process-wide caller slot can outlive the
+                // window route. Clear it before checking the manager's weak
+                // lifetime so a retired fixture cannot be kept alive by the
+                // next test's notification fallback.
+                TerminalController.shared.setActiveTabManager(nil)
+            }
             // AppDelegate.shared is a strong test singleton. Restore it before
             // leaving the scope so the orphaned route cannot keep this closed
             // window's manager alive while the async create is paused.
