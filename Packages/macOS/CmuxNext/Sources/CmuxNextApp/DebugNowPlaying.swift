@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextSettings
 import Foundation
 #if DEBUG
 import MediaPlayer
