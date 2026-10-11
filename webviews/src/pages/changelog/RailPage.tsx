@@ -23,7 +23,9 @@ export function RailPage({ store, strings, s }: { store: ChangelogStore; strings
             onClick={() => void store.select(b.build)}
           >
             <span className="clr-date">{formatReleaseDate(b.date, strings.language)}</span>
-            {s.inSpan.includes(b.build) && <span className="clr-dot" aria-label={strings.t("changelog.page.sinceLastUpdate")} />}
+            {s.inSpan.includes(b.build) && (
+              <span className="clr-dot" aria-label={strings.t("changelog.page.sinceLastUpdate")} />
+            )}
             <span className="clr-version-name">{b.shortVersion}</span>
           </button>
         ))}

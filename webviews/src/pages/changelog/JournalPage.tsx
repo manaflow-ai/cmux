@@ -29,21 +29,23 @@ export function JournalPage({ store, strings, s }: { store: ChangelogStore; stri
   return (
     <KeyboardScope className="clj" handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
-      {s.failed && <p className="cl-error">{s.failed}</p>}
-      {s.span && fresh.length === 0 && (
-        <h1 className="cl-updated" data-testid="changelog.updatedTo">
-          {strings.format("changelog.page.updatedTo", s.span.to)}
-        </h1>
-      )}
-      {s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
-      {fresh.length > 0 && (
-        <div className="clj-marker clj-marker-span" data-testid="changelog.sinceLastUpdate">
-          {strings.t("changelog.page.sinceLastUpdate")}
-        </div>
-      )}
-      {fresh.map(section)}
-      {fresh.length > 0 && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
-      {earlier.map(section)}
+        {s.failed && <p className="cl-error">{s.failed}</p>}
+        {s.span && fresh.length === 0 && (
+          <h1 className="cl-updated" data-testid="changelog.updatedTo">
+            {strings.format("changelog.page.updatedTo", s.span.to)}
+          </h1>
+        )}
+        {s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
+        {fresh.length > 0 && (
+          <div className="clj-marker clj-marker-span" data-testid="changelog.sinceLastUpdate">
+            {strings.t("changelog.page.sinceLastUpdate")}
+          </div>
+        )}
+        {fresh.map(section)}
+        {fresh.length > 0 && earlier.length > 0 && (
+          <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>
+        )}
+        {earlier.map(section)}
       </main>
     </KeyboardScope>
   );
@@ -94,7 +96,9 @@ function ReleaseSection({
         {installed && <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>}
       </div>
       {!notes && !s.unavailable[entry.build] && <div className="clj-placeholder" aria-busy="true" />}
-      {!notes && s.unavailable[entry.build] && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
+      {!notes && s.unavailable[entry.build] && (
+        <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>
+      )}
       {view?.hero && <Hero item={view.hero} ctx={ctx} />}
       {view && <Groups view={view} ctx={ctx} />}
       {view && <ChangesFold changes={view.changes} strings={ctx.strings} />}
