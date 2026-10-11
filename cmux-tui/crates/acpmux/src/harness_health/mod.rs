@@ -158,6 +158,14 @@ impl HealthService {
         self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    /// The first check: callers that ask before any check ended share one (the
+    /// daemon's own, or the first caller's) instead of each running a full check.
+    pub async fn first_check(&self, subjects: Vec<Subject>) -> Vec<HarnessHealth> {
+        drop(self.checking.lock().await);
+        let rows = self.rows();
+        if rows.is_empty() { self.check(subjects, false).await } else { rows }
+    }
+
     /// Checks every subject on this machine, and asks each channel for its
     /// newest version unless a fresh answer is kept (always with `check_latest`).
     pub async fn check(&self, subjects: Vec<Subject>, check_latest: bool) -> Vec<HarnessHealth> {

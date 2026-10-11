@@ -51,8 +51,10 @@ impl Hub {
             self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
         }
         let mut rows = self.health.rows();
-        if rows.is_empty() || flag("refresh") || check_latest {
+        if flag("refresh") || check_latest {
             rows = self.health.check(self.health_subjects().await, check_latest).await;
+        } else if rows.is_empty() {
+            rows = self.health.first_check(self.health_subjects().await).await;
         }
         Ok(json!({"harnesses": rows}))
     }
