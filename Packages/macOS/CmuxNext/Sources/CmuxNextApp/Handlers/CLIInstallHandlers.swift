@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import os
 
 /// Install cmux CLI in PATH and Uninstall cmux CLI from PATH (the old app's
 /// "Shell Command" palette rows): `CLIPathInstaller` runs off the main
@@ -58,7 +59,7 @@ enum CLIInstallHandlers {
                     Task { @MainActor in await install(name, replacing: true, in: window) }
                 }
             } catch {
-                show(CLIInstallStrings.failed(CLIInstallStrings.installFailed, failure), action: replace, in: window) {
+                show(CLIInstallStrings.failed(CLIInstallStrings.installFailed, error), action: replace, in: window) {
                     Task { @MainActor in await install(name, replacing: true, in: window) }
                 }
             }
@@ -71,7 +72,10 @@ enum CLIInstallHandlers {
     /// an action stays 12 s.
     @MainActor private static func show(_ message: String, action: CmuxToast.Action? = nil, in window: NSWindow?,
                                         run: (@MainActor () -> Void)? = nil) {
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "cli.install").info("cli install result with no window: \(message, privacy: .public)")
+            return
+        }
         let toast = CmuxToast(id: toastID, message: message, action: action, duration: .seconds(action == nil ? 6 : 12))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = run

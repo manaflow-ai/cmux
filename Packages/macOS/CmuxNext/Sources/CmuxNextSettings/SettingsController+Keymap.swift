@@ -58,15 +58,18 @@ extension SettingsController {
     public func applyUndoably(_ plan: ShortcutKeymapPlan) async throws -> ShortcutKeymapUndo {
         var previous: [(path: [String], value: JSONValue?)] = []
         for change in plan.changes {
-            for path in [["shortcuts", "bindings", change.actionID], ["shortcuts", change.actionID]] {
-                previous.append((path, try await file.value(at: path)))
-            }
+            // Only the paths `apply` writes (the legacy key goes only for a removed override).
+            var paths = [["shortcuts", "bindings", change.actionID]]
+            if change.write == nil { paths.append(["shortcuts", change.actionID]) }
+            for path in paths { previous.append((path, try await file.value(at: path))) }
         }
         try await apply(plan)
         return ShortcutKeymapUndo(edits: previous)
     }
 
-    /// Puts back the shortcuts an ``applyUndoably(_:)`` changed, in one publish.
+    /// Puts back the shortcuts an ``applyUndoably(_:)`` changed, in one
+    /// publish. An edit of the same shortcuts made after the keymap is
+    /// overwritten (the toast's Undo lasts seconds).
     public func restore(_ undo: ShortcutKeymapUndo) async throws {
         guard !undo.edits.isEmpty else { return }
         try await file.apply(undo.edits)

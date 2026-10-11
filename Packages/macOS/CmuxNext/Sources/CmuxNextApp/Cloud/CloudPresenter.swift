@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import os
 
 /// Cloud results as toasts and Cloud questions as cmux dialogs, on the
 /// active window (Lawrence 2026-10-07: results are toasts, never dialogs);
@@ -11,7 +12,10 @@ enum CloudPresenter {
     /// whole body when it is one short line). `copyable` text gets a Copy
     /// action that copies the whole body, and the toast stays 12 s.
     static func show(_ title: String, _ body: String, copyable: Bool = false, in window: NSWindow?) {
-        guard let window else { return }
+        guard let window else {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info("cloud result with no window: \(title, privacy: .public)")
+            return
+        }
         let message = body.isEmpty ? title : CloudStrings.result(title, summary(body))
         let toast = CmuxToast(id: resultToastID, message: message, action: copyable ? CmuxToast.Action(title: CloudStrings.copy) : nil,
                               duration: .seconds(copyable ? 12 : 6))
