@@ -54,7 +54,7 @@ enum DestructiveConfirmation {
             // only a foreground program in them asks, as for Close Workspace.
             guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
                   let group = try? context.group(invocation) else { return nil }
-            let members = WorkspaceGroupClose.members(of: group, in: services)
+            let members = WorkspaceGroupClose.members(of: group, context)
             var programs: [String] = []
             for (workspace, daemon) in members { programs += await runningPrograms(in: workspace, on: daemon) }
             guard !programs.isEmpty else { return nil }

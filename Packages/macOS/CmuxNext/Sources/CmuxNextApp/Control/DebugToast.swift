@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextSettings
 
 #if DEBUG
 /// `debug.toast`: the toasts of every window, for automation (R96), through
@@ -28,7 +29,7 @@ enum DebugToast {
                     switch value {
                     case .string(let text): arguments[name] = .string(text)
                     case .bool(let flag): arguments[name] = .bool(flag)
-                    case .number(let number): arguments[name] = number.rounded() == number ? .int(Int(number)) : .string(String(number))
+                    case .number(let number): arguments[name] = number.rounded() == number ? ActionValue.int(Int(number)) : ActionValue.string(String(number))
                     default: continue
                     }
                 }
@@ -42,17 +43,19 @@ enum DebugToast {
                 ?? services.windows.active?.window
             result["undone"] = .bool(window.map { CmuxToastCenter.shared.runUndo(in: $0) } ?? false)
         }
-        result["windows"] = .array(services.windows.controllers.map { controller in
-            .object([
-                "window": .string(controller.state.id),
-                "toasts": .array((controller.window.map { CmuxToastCenter.shared.toasts(in: $0) } ?? []).map { toast in
-                    .object(["id": .string(toast.id), "message": .string(toast.message),
-                             "action": toast.action.map { .string($0.title) } ?? .null,
-                             "undo": .bool(toast.action?.isUndo == true)])
-                }),
-            ])
-        })
+        var windows: [JSONValue] = []
+        for controller in services.windows.controllers {
+            let toasts = controller.window.map { CmuxToastCenter.shared.toasts(in: $0) } ?? []
+            windows.append(.object(["window": .string(controller.state.id), "toasts": .array(toasts.map(report))]))
+        }
+        result["windows"] = .array(windows)
         return .object(result)
+    }
+
+    private static func report(_ toast: CmuxToast) -> JSONValue {
+        let action: JSONValue = toast.action.map { .string($0.title) } ?? .null
+        return .object(["id": .string(toast.id), "message": .string(toast.message), "action": action,
+                        "undo": .bool(toast.action?.isUndo == true)])
     }
 }
 #endif
