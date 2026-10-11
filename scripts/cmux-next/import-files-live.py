@@ -237,11 +237,12 @@ try:
 
     rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "about:blank"}, "focus": True})
     time.sleep(2)  # the tab's omnibar comes up
-    # A suggestion row names the page's address; the typed text alone is not one.
-    rows = wait_for(lambda: omnibar_rows(f"safari-hist-{RUN}") if any(f"safari-hist-{RUN}.example.com" in r for r in omnibar_rows(f"safari-hist-{RUN}")) else None,
+    # A history suggestion row shows the page's title, which only the imported history holds;
+    # the typed text alone is not one.
+    rows = wait_for(lambda: omnibar_rows(f"safari-hist-{RUN}") if f"Safari history {RUN}" in omnibar_rows(f"safari-hist-{RUN}") else None,
                     "Safari history in the omnibar", 15)
     check(rows is not None, f"the omnibar suggests the Safari zip's history ({omnibar_rows(f'safari-hist-{RUN}')})")
-    rows = wait_for(lambda: omnibar_rows(f"takeout-{RUN}") if any(f"takeout-{RUN}.example.com" in r for r in omnibar_rows(f"takeout-{RUN}")) else None,
+    rows = wait_for(lambda: omnibar_rows(f"takeout-{RUN}") if f"Takeout history {RUN}" in omnibar_rows(f"takeout-{RUN}") else None,
                     "Takeout history in the omnibar", 15)
     check(rows is not None, f"the omnibar suggests the Takeout history ({omnibar_rows(f'takeout-{RUN}')})")
 finally:
