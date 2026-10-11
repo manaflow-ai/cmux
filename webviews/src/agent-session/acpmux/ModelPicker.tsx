@@ -162,7 +162,7 @@ const blockedProfile = (entry: HarnessChoice | undefined) =>
 
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
-  "acpmux-mp-rail grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail-tab grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -451,7 +451,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const focusRail = (index: number) => {
     if (index < 0) {
-      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail[aria-label]")?.focus();
+      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail-tab[aria-label]")?.focus();
       return;
     }
     menu.current?.querySelector<HTMLElement>(`[data-harness-index="${index}"]`)?.focus();
@@ -570,7 +570,11 @@ export function ModelPicker(props: ModelPickerProps) {
           style={menuStyle}
         >
           {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
-          <ScrollArea className="acpmux-mp-rail w-11 flex-none border-r-[0.5px] border-edge" horizontal>
+          <ScrollArea
+            className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
+            viewportClassName="acpmux-mp-rail-viewport"
+            horizontal
+          >
             <PickerOptionList
               className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
               aria-label={harnessText}
