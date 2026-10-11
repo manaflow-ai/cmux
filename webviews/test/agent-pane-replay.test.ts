@@ -110,17 +110,20 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       await replay.getByText("The retry test in api/client.test.ts is flaky.", { exact: false }).waitFor();
       const opening = {
         answerShown: await replay.getByText("All 12 tests in api/client.test.ts pass.").count(),
-        composers: await page.locator(".acpmux-composer-field").count(),
+        composers: await page.locator(".acpmux-composer-prompt").count(),
         // The clock may have ticked by now; its length is fixed.
         length: (await replay.locator(".acpmux-replay-clock").textContent())?.split(" / ")[1],
       };
       // The turn took over a minute; replay shortens its 45 s wait to 2 s.
       await replay.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 40_000 });
+      // The turn ends at 0:17, after its last words: Pause turns back into Play.
+      await replay.getByRole("button", { name: "Play" }).waitFor();
       const ended = await replay.getByRole("button", { name: "Play" }).count();
 
       await replay.getByRole("button", { name: "Back to chat" }).click();
       await page.locator(".acpmux-replay").waitFor({ state: "detached" });
-      const liveComposers = await page.locator(".acpmux-composer-field").count();
+      await page.locator(".acpmux-composer-prompt").waitFor();
+      const liveComposers = await page.locator(".acpmux-composer-prompt").count();
 
       expect({
         opening,
