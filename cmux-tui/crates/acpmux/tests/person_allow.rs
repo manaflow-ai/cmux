@@ -1109,8 +1109,7 @@ async fn a_keyed_daemon_proves_it_holds_the_key_over_the_apps_nonce() {
     let d = Daemon::start("holds", Some(KEY));
     let mut app = Rpc::connect(&d.socket).await;
     let init = app.call("initialize", json!({"protocolVersion": 1})).await;
-    let instance =
-        init["result"]["_meta"]["acpmux"]["personInstance"].as_str().unwrap().to_owned();
+    let instance = init["result"]["_meta"]["acpmux"]["personInstance"].as_str().unwrap().to_owned();
     let nonce = "3c".repeat(32);
     let r = app.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
     assert!(r.get("error").is_none(), "{r}");
