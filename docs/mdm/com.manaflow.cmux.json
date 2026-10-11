@@ -1539,6 +1539,16 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.density" : {
+      "default" : "compact",
+      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "enum" : [
+        "compact",
+        "expanded"
+      ],
+      "title" : "Sidebar Density",
+      "type" : "string"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",

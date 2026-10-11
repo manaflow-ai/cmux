@@ -181,7 +181,8 @@ final class ScreenBarController {
         case .removeFromGroup(let id, _):
             if let screen = screen(id) { ScreenGroupCommands.remove([screen], daemon: daemon) }
         case .createGroup(let item, let ids):
-            ScreenGroupCommands.create(ids.compactMap(screen), in: content.workspace, name: item.name, color: item.colorToken, daemon: daemon)
+            // The token path until the daemon takes `#RRGGBB` for screen groups (cx-wqn5).
+            ScreenGroupCommands.create(ids.compactMap(screen), in: content.workspace, name: item.name, color: item.tint.token, daemon: daemon)
         case .group(let command):
             run(command)
         default:
