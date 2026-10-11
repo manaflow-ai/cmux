@@ -12,6 +12,7 @@ struct AgentLifecycleReducerTests {
         _ kind: AgentJournalEventKind,
         session: String = "s1",
         agentKey: String = "claude_code",
+        source: String = "claude",
         surfaceId: String? = nil,
         pendingWork: Bool = false,
         isSubagent: Bool = false,
@@ -24,7 +25,7 @@ struct AgentLifecycleReducerTests {
             eventId: "event-\(sequence)",
             kind: kind,
             occurredAtMs: occurredAtMs ?? 1_000 + sequence,
-            source: "claude",
+            source: source,
             agentKey: agentKey,
             sessionId: session,
             workspaceId: attributed ? workspace : nil,
@@ -248,6 +249,19 @@ struct AgentLifecycleReducerTests {
         ])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
         #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == nil)
+    }
+
+    @Test(arguments: ["codex", "grok", "gemini", "antigravity"])
+    func nonClaudeMovedSessionCanReturnToItsRetiredOriginSurface(agentKey: String) {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .turnStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: surface),
+            event(2, .sessionStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: movedSurface),
+            event(3, .sessionStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: surface),
+            event(4, .turnStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: surface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: agentKey) == .running)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: agentKey) == nil)
     }
 
     @Test func subagentEventsNeverDriveSurfaceLifecycle() {

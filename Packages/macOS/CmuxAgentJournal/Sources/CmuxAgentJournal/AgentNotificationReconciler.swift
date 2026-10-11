@@ -338,8 +338,6 @@ public struct AgentNotificationReconciler: Sendable {
             session.sequence = max(session.sequence, event.sequence)
             storeSession(session, for: sessionKey, indexKey: boundaryKey)
             guard context?.notification != nil else {
-                session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
-                session.sequence = max(session.sequence, event.sequence)
                 return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
             }
             // A structured idle reminder is a distinct presentation from the

@@ -60,13 +60,31 @@ public struct AgentLifecycleReducer: Sendable {
            state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
             // A newer owner already retired this session at this surface. A
             // late start cannot reopen the old projection or its StopFailure.
-            // A live projection on another surface is the deliberate move-back
-            // case, so it may establish ownership here again.
-            let hasLiveProjectionElsewhere = state.sessionLocations(
+            // A projection on another surface is the deliberate move-back
+            // case, so it may establish ownership here again. A projection
+            // that was itself retired by a later move remains recoverable;
+            // an ended projection or one superseded by a different session
+            // does not.
+            let hasRecoverableProjectionElsewhere = state.sessionLocations(
                 agentKey: agentKey,
                 sessionKey: sessionKey
-            ).contains { $0.surfaceId != surfaceId && !$0.state.ended }
-            if !hasLiveProjectionElsewhere { return false }
+            ).contains { location in
+                guard location.surfaceId != surfaceId else { return false }
+                guard location.state.ended else { return true }
+                guard state.retiredAt(
+                    surfaceId: location.surfaceId,
+                    agentKey: agentKey,
+                    sessionKey: sessionKey
+                ) != nil else {
+                    return false
+                }
+                let boundary = state.sessionBoundary(
+                    surfaceId: location.surfaceId,
+                    agentKey: agentKey
+                )
+                return boundary == nil || boundary?.sessionKey == sessionKey
+            }
+            if !hasRecoverableProjectionElsewhere { return false }
         }
         if event.draft.kind != .sessionStarted,
            state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
