@@ -77,7 +77,16 @@ export type PopupMeasure = {
 };
 
 /** The interactions whose action-to-settled latency is useful in a gallery report. */
-export type PlayAction = "click" | "context-menu" | "key" | "press-drag" | "hover" | "focus" | "type" | "scroll" | "select";
+export type PlayAction =
+  | "click"
+  | "context-menu"
+  | "key"
+  | "press-drag"
+  | "hover"
+  | "focus"
+  | "type"
+  | "scroll"
+  | "select";
 
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,

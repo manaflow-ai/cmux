@@ -32,27 +32,15 @@ function ContextMenuGallery({ selection = "native", disabled = false }: Props) {
   );
   return (
     <div className="context-menu-gallery-stage">
-      <ContextMenu
-        items={items}
-        selection={selection === "menu" ? "menu" : undefined}
-      >
-        <button
-          type="button"
-          className="context-menu-gallery-target"
-          data-testid="context-target"
-        >
+      <ContextMenu items={items} selection={selection === "menu" ? "menu" : undefined}>
+        <button type="button" className="context-menu-gallery-target" data-testid="context-target">
           Right-click this item
         </button>
         <p className="context-menu-gallery-copy" data-testid="selection-target">
-          Select this sentence before opening the context menu to compare native
-          selection behavior with the app menu.
+          Select this sentence before opening the context menu to compare native selection behavior with the app menu.
         </p>
       </ContextMenu>
-      <output
-        className="context-menu-gallery-receipt"
-        data-testid="context-menu-gallery-receipt"
-        aria-live="polite"
-      >
+      <output className="context-menu-gallery-receipt" data-testid="context-menu-gallery-receipt" aria-live="polite">
         {receipt}
       </output>
     </div>
@@ -69,9 +57,7 @@ const keyboard: Play = async (ctx) => {
   await ctx.press("ArrowDown");
   await ctx.press("Enter");
   await ctx.waitFor(
-    () =>
-      ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')
-        ?.textContent === "Renamed",
+    () => ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')?.textContent === "Renamed",
   );
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
 };
@@ -80,9 +66,7 @@ const escapeFocus: Play = async (ctx) => {
   await open(ctx);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
-  await ctx.waitFor(
-    () => ctx.document.activeElement === ctx.find({ testId: "context-target" }),
-  );
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
 };
 
 const selectionMenu: Play = async (ctx) => {
@@ -102,9 +86,7 @@ const disabledItem: Play = async (ctx) => {
   await ctx.press("ArrowDown");
   await ctx.press("Enter");
   await ctx.waitFor(
-    () =>
-      ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')
-        ?.textContent === "Deleted",
+    () => ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')?.textContent === "Deleted",
   );
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
 };
@@ -118,32 +100,23 @@ export default componentEntry<Props>({
   covers: ["ui/ContextMenu.tsx#ContextMenu"],
   anchors: [{ testId: "context-target" }],
   load: async () => ContextMenuGallery,
-  styles: () =>
-    Promise.all([
-      import("./ui.css"),
-      import("./popupSurface.css"),
-      import("./ContextMenu.gallery.css"),
-    ]),
+  styles: () => Promise.all([import("./ui.css"), import("./popupSurface.css"), import("./ContextMenu.gallery.css")]),
   checks: {
     anchorMovePx: {
       value: 0,
-      reason:
-        "Opening a portaled context menu must not move the invoking control.",
+      reason: "Opening a portaled context menu must not move the invoking control.",
     },
     popupLayer: {
       value: true,
-      reason:
-        "The context menu must remain topmost and unclipped at the pointer.",
+      reason: "The context menu must remain topmost and unclipped at the pointer.",
     },
     longFrameFailMs: {
       value: 33,
-      reason:
-        "Context-menu open, keyboard and dismissal transitions should stay responsive.",
+      reason: "Context-menu open, keyboard and dismissal transitions should stay responsive.",
     },
     settleMaxMs: {
       value: 250,
-      reason:
-        "Context-menu gestures and keyboard selection are local interactions.",
+      reason: "Context-menu gestures and keyboard selection are local interactions.",
     },
   },
   variants: {

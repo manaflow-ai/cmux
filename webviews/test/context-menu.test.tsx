@@ -10,10 +10,7 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM(
-    "<!doctype html><html><body><main id=root></main></body></html>",
-    { pretendToBeVisual: true },
-  );
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { pretendToBeVisual: true });
   for (const key of [
     "window",
     "document",
@@ -109,29 +106,15 @@ test("opens at the pointer, skips disabled rows, selects by keyboard, and restor
   expect(menu.style.top).toBe("64px");
   expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(3);
 
-  await act(async () =>
-    menu.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-    ),
-  );
-  expect(
-    menu.querySelector('[role="menuitem"][data-highlighted]')?.textContent,
-  ).toBe("Rename");
-  await act(async () =>
-    menu.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-    ),
-  );
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  expect(menu.querySelector('[role="menuitem"][data-highlighted]')?.textContent).toBe("Rename");
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(fixtureState.actions).toEqual(["rename"]);
   expect(document.querySelector('[role="menu"]')).toBeNull();
 
   await act(async () => openContextMenu(target));
   const reopened = document.querySelector<HTMLElement>('[role="menu"]')!;
-  await act(async () =>
-    reopened.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    ),
-  );
+  await act(async () => reopened.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(document.querySelector('[role="menu"]')).toBeNull();
   expect(document.activeElement).toBe(target);
 });
