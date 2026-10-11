@@ -1845,6 +1845,16 @@ function AcpmuxPane() {
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = movedTo ?? snapshot.summary?.cwd;
+  // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
+  // screencapture's own pick and answers the PNG; a cancelled pick answers no data.
+  const captureScreen = useCallback(async (mode: "screen" | "window") => {
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
+      mode,
+    }).catch(() => null);
+    if (!shot?.data) return undefined;
+    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
+    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+  }, []);
   const searchFiles = useCallback<FileSearchSource>(
     (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
     [fileRoot],
@@ -3941,6 +3951,7 @@ function AcpmuxPane() {
           onMode={(modeId) => void callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
+          capture={captureScreen}
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
