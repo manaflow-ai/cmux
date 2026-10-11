@@ -279,7 +279,7 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
                "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')")
     for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
-        assert f"(github.event_name == 'push' || {trusted})" in body, job
+        assert f"github.event_name == 'push' || {trusted})" in body, job
     # A dispatch from another branch stays build-only.
     notice = workflow_job(artifacts, "publish-ref-notice")
     assert f"!(github.event_name == 'push' || {trusted})" in notice

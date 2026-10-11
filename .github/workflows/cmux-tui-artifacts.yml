@@ -57,8 +57,15 @@ on:
   # gitlink. Pushes to the cmux-next branches, and to cmux-tui-pin-* helper
   # branches that publish an unmerged branch's tree, publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
+  #
+  # Every other branch of this repository publishes its pushed head too
+  # (cx-r2is), so a pull request's same-tree checks find their tree without a
+  # hand-pushed cmux-tui-pin-* ref. Forks never push here, and fork pull
+  # requests start no job. A push trigger cannot filter paths per branch, so
+  # tree-preflight is the filter: a branch push whose tree key is already
+  # published spends no macOS time (run_macos=false) and publishes nothing.
   push:
-    branches: [main, feat-cmux-next, "cmux-tui-pin-*"]
+    branches: ["**"]
     # The branch itself is trusted. Run on every base-branch advance so a
     # Swift-only change can repair a missing cmux-tui tree publication before
     # downstream app jobs try to fetch it.
@@ -657,10 +664,11 @@ jobs:
   # immutable R2 conflict.
 
   publish-ref-notice:
-    # A branch outside main / feat-cmux-next / cmux-tui-pin-* cannot use the
-    # artifacts environment, so its publish jobs are skipped, not failed.
+    # A dispatch from a branch outside main / feat-cmux-next / cmux-tui-pin-*
+    # stays build-only, so its publish jobs are skipped, not failed. Pushes
+    # to any branch publish.
     name: publish skipped (branch not allowed)
-    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && !(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
@@ -676,15 +684,15 @@ jobs:
   publish:
     # R2 upload credentials only. A commit-addressed cmux-tui build is not a
     # production release: cmux-next pins daemon builds from helper branches.
-    # The artifacts environment's deployment branch policy allows main,
-    # feat-cmux-next and cmux-tui-pin-*; signing, Sparkle, Homebrew and Apple
-    # secrets stay in the release environment.
+    # The artifacts environment's deployment branch policy allows every
+    # branch (pushes from any same-repo branch publish, cx-r2is); signing,
+    # Sparkle, Homebrew and Apple secrets stay in the release environment.
     environment: artifacts
     name: publish to R2
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -1486,7 +1494,7 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: [build, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -1603,6 +1611,10 @@ jobs:
               "ghosttyCommit": rev("HEAD:ghostty"),
               "ghosttyNextCommit": rev("HEAD:ghostty-next"),
               "commit": commit,
+              # Trees first published from another branch (a pull request
+              # head) are the R2 pruner's candidates; trunk trees are kept.
+              "ref": os.environ["GITHUB_REF"],
+              "family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch",
               "run": os.environ["GITHUB_RUN_ID"],
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
               "binaries": {name: manifest["binaries"][name] for name in names},
@@ -1875,7 +1887,7 @@ jobs:
     needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
     # A feat-cmux-next build that a newer same-key push replaced in the key
     # group is not a failure: that push builds and publishes the key.
-    if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build.result == 'cancelled') && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build.result == 'cancelled') && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
