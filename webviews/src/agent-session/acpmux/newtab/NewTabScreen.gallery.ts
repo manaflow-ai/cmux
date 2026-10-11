@@ -312,25 +312,26 @@ export default agentPaneEntry({
       },
     },
     "switcher-keys": {
-      note: "The arrow keys switch templates from a focused dot and keep focus there; arrowing onto Terminal only focuses it (cx-l1jv).",
+      note: "The arrow keys switch templates from a focused dot and keep focus there, through Classic; arrowing onto Terminal only focuses it (cx-l1jv).",
       ready: newTab({ templateSwitcher: true }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
+        const onDot = (template: string) =>
+          ctx.document.activeElement?.matches(`.nt-template-input[value="${template}"]`);
         await ctx.focus({ role: "radio", name: "Default" });
-        await ctx.press("ArrowRight");
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="composer"]'));
-        if (!ctx.document.activeElement?.matches(".nt-template-input"))
-          throw new Error("an arrow-key switch moved focus off the dots");
-        await ctx.press("ArrowLeft");
-        await ctx.press("ArrowLeft");
-        await ctx.waitFor(() => ctx.document.activeElement?.matches('.nt-template-input[value="terminal"]'));
-        if (!ctx.document.querySelector('.nt-screen[data-template="default"]'))
-          throw new Error("arrowing onto Terminal left the page");
+        for (const template of ["composer", "threads", "console"]) {
+          await ctx.press("ArrowRight");
+          await ctx.waitFor(() => ctx.document.querySelector(`.nt-screen[data-template="${template}"]`));
+          if (!onDot(template)) throw new Error(`switching to ${template} with the keys moved focus off the dots`);
+        }
         // Classic is another page, which focuses its field as it mounts: focus stays on the dots.
-        await ctx.press("ArrowLeft");
-        await ctx.waitFor(() => !ctx.document.querySelector(".nt-screen"));
-        if (!ctx.document.activeElement?.matches('.nt-template-input[value="classic"]'))
-          throw new Error("switching to Classic with the keys moved focus off the dots");
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-screen") && onDot("classic"));
+        // Terminal would turn the page into a terminal: the keys only focus it.
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => onDot("terminal"));
+        if (!ctx.document.querySelector('.nt-template-input[value="classic"]:checked'))
+          throw new Error("arrowing onto Terminal switched the page");
       },
     },
   }),
