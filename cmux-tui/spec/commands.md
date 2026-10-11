@@ -6376,6 +6376,10 @@ and `cloud-session-clear` from any other connection are refused with
 connection may set or clear the lease; the app's next `cloud-session-set`
 replaces it.
 
+While the app's lease exists, `cloud-*` events reach only the app's
+`subscribe` stream, never another connection's. Without an app lease they
+reach every trusted local `subscribe` stream.
+
 While the app's lease exists it is the human's: every command that uses it
 (`cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
 `cloud-conversation-thread`, `cloud-conversation-op` with any origin,

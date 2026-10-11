@@ -95,6 +95,28 @@ struct Client {
 }
 
 impl Client {
+    /// Starts this connection's daemon event stream (`subscribe`).
+    fn stream(&mut self) {
+        let reply = self.rpc(json!({"cmd":"subscribe"}));
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+
+    /// The `cloud-*` events this connection's stream carried before the
+    /// first `tree-changed` (the marker every stream gets, in mux order).
+    fn cloud_events_before_marker(&mut self) -> Vec<Value> {
+        let mut cloud = Vec::new();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            match value["event"].as_str() {
+                Some("tree-changed") => return cloud,
+                Some(name) if name.starts_with("cloud-") => cloud.push(value),
+                _ => {}
+            }
+        }
+    }
+
     /// One request with a fresh id; event lines and other ids are skipped.
     fn rpc(&mut self, request: Value) -> Value {
         let id = self.next;
@@ -266,4 +288,28 @@ fn cloud_lease_other_connections_cannot_use_the_apps_lease() {
     assert_eq!(app.rpc(json!({"cmd":"cloud-session-clear"}))["ok"], true);
     let signed_out = plain.rpc(json!({"cmd":"cloud-inbox-list"}));
     assert_eq!(signed_out["error_code"], "cloud_signed_out", "{signed_out}");
+}
+
+/// One `tree-changed` on every stream, after everything emitted before it.
+fn marker(daemon: &Daemon) {
+    let reply = daemon.plain().rpc(json!({"cmd":"new-workspace"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+#[test]
+fn cloud_events_of_the_apps_lease_reach_only_the_app() {
+    // With the app's lease, a cloud event never reaches another connection's
+    // event stream (an agent in a pane cannot read the human's DMs live).
+    let daemon = Daemon::start("fanout");
+    let cloud = FakeCloud::start();
+    let mut app = daemon.app();
+    let mut plain = daemon.plain();
+    app.stream();
+    plain.stream();
+    assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
+    assert_eq!(app.rpc(json!({"cmd":"cloud-inbox-subscribe"}))["ok"], true);
+    marker(&daemon);
+    assert!(!app.cloud_events_before_marker().is_empty(), "the app gets its events");
+    let leaked = plain.cloud_events_before_marker();
+    assert!(leaked.is_empty(), "a plain connection got the app's cloud events: {leaked:?}");
 }
