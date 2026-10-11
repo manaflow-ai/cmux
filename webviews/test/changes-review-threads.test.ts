@@ -1,6 +1,7 @@
 // Review comments in the Changes view (cx-ncc.77.2): Branch shows the pull request's review
 // threads under their lines. The gallery's `agent-pane.diff-panel` `review-threads` play fails
-// unless two threads sit in the diff (the resolved one folded) and the outdated one above it.
+// unless the open and resolved threads sit in the diff (the resolved one folded), the outdated
+// and moved ones above their file, and one on an unlisted file in its own group.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -52,7 +53,7 @@ await requireBrowserLane("changes-review-threads.test.ts", async () => {
     await vite?.close();
   });
 
-  test("each review thread sits under its line, the outdated one above the diff", async () => {
+  test("each review thread sits under its line, or above when its line is gone or moved", async () => {
     const page = await browser!.newPage({ viewport: { width: 860, height: 620 } });
     await page.goto(url());
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");

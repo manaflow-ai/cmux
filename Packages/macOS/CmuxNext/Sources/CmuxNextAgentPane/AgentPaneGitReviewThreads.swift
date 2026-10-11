@@ -19,6 +19,9 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
     public var side: String
     public var resolved: Bool
     public var outdated: Bool
+    /// The file differs here from the pull request's head (an edit, a commit not pushed, one not
+    /// pulled), so `line` may name another line: the page lists it above the diff.
+    public var moved = false
     public var comments: [Comment]
 
     static let maximumThreads = 100
@@ -30,7 +33,7 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
     /// The read, with the pull request's owner, name and number as variables.
     static let query = """
         query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
-          pullRequest(number: $number) { reviewThreads(first: \(maximumThreads)) { nodes {
+          pullRequest(number: $number) { reviewThreads(last: \(maximumThreads)) { nodes {
             isResolved isOutdated path line diffSide
             comments(first: \(maximumComments)) { nodes { author { login } body url } } } } } } }
         """
@@ -38,14 +41,20 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
     var json: [String: Any] {
         [
             "path": path, "line": line.map { $0 as Any } ?? NSNull(), "side": side, "resolved": resolved, "outdated": outdated,
+            "moved": moved,
             "comments": comments.map { ["author": $0.author, "body": $0.body, "url": $0.url.map { $0 as Any } ?? NSNull()] },
         ]
     }
 
-    /// The threads in `gh api graphql`'s answer (gh may warn around it), nil when it is not one.
+    /// The JSON object in gh's output, which may have warnings around it.
+    static func object(in text: String) -> [String: Any]? {
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return nil }
+        return try? JSONSerialization.jsonObject(with: Data(text[start...end].utf8)) as? [String: Any]
+    }
+
+    /// The threads in `gh api graphql`'s answer, nil when it is not one.
     static func list(fromGraphQL text: String) -> [AgentPaneGitReviewThread]? {
-        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"),
-              let object = try? JSONSerialization.jsonObject(with: Data(text[start...end].utf8)) as? [String: Any],
+        guard let object = object(in: text),
               let repository = (object["data"] as? [String: Any])?["repository"] as? [String: Any],
               let pullRequest = repository["pullRequest"] as? [String: Any],
               let nodes = (pullRequest["reviewThreads"] as? [String: Any])?["nodes"] as? [[String: Any]] else { return nil }
@@ -82,21 +91,35 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
 }
 
 extension AgentPaneGitPullRequest {
-    /// The review threads of `folder`'s branch's pull request, read with `gh` there.
+    /// The review threads of `folder`'s branch's open pull request, read with `gh` there (a merged
+    /// or closed one's are not this work's). A thread on a file that differs here from the pull
+    /// request's head is marked moved; every one is when that head is not here to compare.
     @concurrent static func threads(in folder: String, gh: String) async -> Outcome {
         let cli = { (arguments: [String]) in
             await AgentPaneGitProcess.output(arguments, executable: gh, directory: folder, timeout: networkTimeout, network: true)
         }
-        let view = await cli(["pr", "view", "--json", "url,number,state"])
+        let view = await cli(["pr", "view", "--json", "url,number,state,headRefOid"])
         guard view.status == 0 else {
             return view.text.contains("no pull requests found") ? .threads(url: nil, number: nil, []) : .refused(message(view))
         }
-        guard let object = try? JSONSerialization.jsonObject(with: Data(view.text.utf8)) as? [String: Any],
-              let url = object["url"] as? String, let arguments = AgentPaneGitReviewThread.arguments(for: url) else {
+        guard let object = AgentPaneGitReviewThread.object(in: view.text), let url = object["url"] as? String,
+              let arguments = AgentPaneGitReviewThread.arguments(for: url) else {
             return .refused(message(view))
         }
+        guard (object["state"] as? String)?.uppercased() == "OPEN" else { return .threads(url: nil, number: nil, []) }
         let read = await cli(arguments)
-        guard read.status == 0, let threads = AgentPaneGitReviewThread.list(fromGraphQL: read.text) else { return .refused(message(read)) }
+        guard read.status == 0, var threads = AgentPaneGitReviewThread.list(fromGraphQL: read.text) else { return .refused(message(read)) }
+        let changed = await changedSince(object["headRefOid"] as? String, in: folder)
+        for index in threads.indices where changed?.contains(threads[index].path) ?? true { threads[index].moved = true }
         return .threads(url: url, number: object["number"] as? Int, threads)
+    }
+
+    /// The files whose working copy differs from `commit` (repository-relative), nil when it can't tell.
+    private static func changedSince(_ commit: String?, in folder: String) async -> Set<String>? {
+        guard let commit, commit.count == 40 || commit.count == 64, commit.allSatisfy(\.isHexDigit) else { return nil }
+        let diff = await AgentPaneGitProcess.output(["-C", folder, "diff", "--no-relative", "--name-only", "--no-renames", commit, "--"],
+                                                    timeout: localTimeout)
+        guard diff.status == 0 else { return nil }
+        return Set(diff.text.split(separator: "\n").map(String.init))
     }
 }

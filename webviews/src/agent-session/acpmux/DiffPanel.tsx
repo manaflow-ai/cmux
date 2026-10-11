@@ -12,6 +12,7 @@ import { Counts } from "./changes/Counts";
 import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
 import type { ReviewThread } from "./changes/reviewThreads";
+import { ReviewThread as ReviewThreadView } from "./changes/ReviewThread";
 import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
@@ -142,6 +143,11 @@ export function DiffPanel({
     for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
     return byPath;
   }, [threads]);
+  /// Threads on files the scope does not list (reverted here, or outside its diff), shown first.
+  const elsewhere = useMemo(() => {
+    const listed = new Set(files.map((file) => file.displayPath));
+    return (threads ?? []).filter((thread) => !listed.has(thread.path));
+  }, [threads, files]);
   /// A git scope's body before its files: loading, failed or empty.
   const scopeState =
     scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
@@ -435,24 +441,34 @@ export function DiffPanel({
           ) : files.length === 0 ? (
             <div className="acpmux-muted">{t("changes.noTurnChanges")}</div>
           ) : (
-            files.flatMap((file) =>
-              file.edits.map((edit, index) => (
-                <EditBlock
-                  key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
-                  file={file}
-                  edit={edit}
-                  index={index}
-                  layout={layout}
-                  wrap={wrap}
-                  view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
-                  on={on}
-                  onPainted={onPainted}
-                  review={file.outside ? undefined : hunkReview}
-                  focusAfter={focusAfter}
-                  threads={threadsByPath.get(file.displayPath)}
-                />
-              )),
-            )
+            [
+              elsewhere.length > 0 && (
+                <section key="\u0000review" className="acpmux-review-unplaced" aria-label={t("review.otherFiles")}>
+                  <h3 className="acpmux-review-heading">{t("review.otherFiles")}</h3>
+                  {elsewhere.map((thread, at) => (
+                    <ReviewThreadView key={at} thread={thread} />
+                  ))}
+                </section>
+              ),
+              ...files.flatMap((file) =>
+                file.edits.map((edit, index) => (
+                  <EditBlock
+                    key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
+                    file={file}
+                    edit={edit}
+                    index={index}
+                    layout={layout}
+                    wrap={wrap}
+                    view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
+                    on={on}
+                    onPainted={onPainted}
+                    review={file.outside ? undefined : hunkReview}
+                    focusAfter={focusAfter}
+                    threads={threadsByPath.get(file.displayPath)}
+                  />
+                )),
+              ),
+            ]
           )}
         </div>
         {showTree && (

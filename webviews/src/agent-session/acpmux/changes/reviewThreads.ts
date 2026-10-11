@@ -11,6 +11,8 @@ export type ReviewThread = {
   side: "additions" | "deletions";
   resolved: boolean;
   outdated: boolean;
+  /// The file differs here from the pull request's head, so `line` may name another line.
+  moved: boolean;
   comments: ReviewComment[];
 };
 
@@ -22,7 +24,7 @@ export function readReviewThreads(value: unknown): ReviewThread[] {
   if (!Array.isArray(threads)) return [];
   return threads.flatMap((thread): ReviewThread[] => {
     if (!thread || typeof thread !== "object") return [];
-    const { path, line, side, resolved, outdated, comments } = thread as Record<string, unknown>;
+    const { path, line, side, resolved, outdated, moved, comments } = thread as Record<string, unknown>;
     if (typeof path !== "string" || !path) return [];
     return [
       {
@@ -31,6 +33,7 @@ export function readReviewThreads(value: unknown): ReviewThread[] {
         side: side === "deletions" ? "deletions" : "additions",
         resolved: resolved === true,
         outdated: outdated === true,
+        moved: moved === true,
         comments: (Array.isArray(comments) ? comments : []).flatMap((comment): ReviewComment[] => {
           const { author, body, url } = (comment ?? {}) as Record<string, unknown>;
           return typeof body === "string"
@@ -42,14 +45,15 @@ export function readReviewThreads(value: unknown): ReviewThread[] {
   });
 }
 
-/// Whether the edit shows the thread's line on its side, so the thread can sit under it.
+/// Whether the edit shows the thread's line on its side, so the thread can sit under it (not
+/// when the file changed here since the pull request's head: that number may be another line).
 export function showsLine(edit: DiffEdit, thread: ReviewThread) {
-  if (thread.line === undefined) return false;
+  if (thread.line === undefined || thread.moved) return false;
   return edit.hunks.some((hunk) =>
     hunk.lines.some((line) =>
       thread.side === "additions"
         ? line.type !== "del" && line.newLine === thread.line
-        : line.type === "del" && line.oldLine === thread.line,
+        : line.type !== "add" && line.oldLine === thread.line,
     ),
   );
 }

@@ -21,27 +21,31 @@ struct AgentPaneGitReviewThreadsTests {
           {"author":{"login":"reviewer"},"body":"Old note","url":"https://github.com/o/r/pull/7#discussion_r2"}]}}]}}}}}
         """
 
-    /// A repository and a fake `gh`: `pr view` answers `view` (none: no pull request), and
+    /// A repository whose commit is the pull request's head, and a fake `gh`: `pr view` answers
+    /// the pull request in `state` (nil: none), with a warning first as gh may print, and
     /// `api graphql` prints `graphQL`.
-    private static func rig(view: String? = #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"OPEN"}"#) throws
-        -> (folder: String, gh: String) {
+    private static func rig(state: String? = "OPEN") throws -> (folder: String, gh: String) {
         let base = FileManager.default.temporaryDirectory.appending(path: "git-pr-threads-\(UUID().uuidString)").path
         let folder = base + "/repo", gh = base + "/gh"
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let initialize = Process()
-        initialize.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        initialize.arguments = ["init", "-q", folder]
-        try initialize.run()
-        initialize.waitUntilExit()
+        try "one\ntwo\n".write(toFile: folder + "/a.txt", atomically: true, encoding: .utf8)
+        try "old\n".write(toFile: folder + "/b.txt", atomically: true, encoding: .utf8)
+        try git(folder, "init", "-q")
+        try git(folder, "add", ".")
+        try git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "head")
+        let head = try git(folder, "rev-parse", "HEAD")
         try graphQL.write(toFile: base + "/graphql.json", atomically: true, encoding: .utf8)
-        if let view { try view.write(toFile: base + "/view.json", atomically: true, encoding: .utf8) }
+        if let state {
+            try #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"\#(state)","headRefOid":"\#(head)"}"#
+                .write(toFile: base + "/view.json", atomically: true, encoding: .utf8)
+        }
         let script = """
             #!/bin/sh
             printf '%s\\n' "$*" | head -c 160 | head -n 1 >> "$0.calls"
             [ "$(pwd -P)" = "$(cd '\(folder)' && pwd -P)" ] || exit 3
             case "$1 $2" in
             "pr view") [ -f "$(dirname "$0")/view.json" ] || { echo 'no pull requests found for branch "feature"' >&2; exit 1; }
-                cat "$(dirname "$0")/view.json" ;;
+                echo "A new release of gh is available" >&2; cat "$(dirname "$0")/view.json" ;;
             "api graphql") cat "$(dirname "$0")/graphql.json" ;;
             *) exit 2 ;;
             esac
@@ -49,6 +53,19 @@ struct AgentPaneGitReviewThreadsTests {
         try script.write(toFile: gh, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
         return (folder, gh)
+    }
+
+    @discardableResult
+    private static func git(_ directory: String, _ arguments: String...) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", directory] + arguments
+        let out = Pipe()
+        process.standardOutput = out
+        try process.run()
+        process.waitUntilExit()
+        return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func calls(_ gh: String) -> [String] {
@@ -90,21 +107,50 @@ struct AgentPaneGitReviewThreadsTests {
         #expect(threads[1]["side"] as? String == "deletions")
         #expect(threads[1]["line"] == nil || threads[1]["line"] is NSNull)
         #expect(threads[1]["outdated"] as? Bool == true)
+        // The working copy is the pull request's head, so each line is where GitHub put it.
+        #expect(threads.map { $0["moved"] as? Bool } == [false, false])
         let calls = Self.calls(rig.gh)
         #expect(calls.count == 2)
-        #expect(calls.first == "pr view --json url,number,state")
+        #expect(calls.first == "pr view --json url,number,state,headRefOid")
         #expect(calls.last?.hasPrefix("api graphql -f owner=o -f name=r -F number=7 ") == true, "\(calls)")
+    }
+
+    /// GitHub's line numbers are the pull request head's: a file edited here (by the agent, or a
+    /// commit not pushed) marks its threads moved, so the page does not put them under whatever
+    /// line now has that number. Without that head here to compare, every thread is moved.
+    @Test func aFileChangedHereMovesItsThreads() async throws {
+        let rig = try Self.rig()
+        try "zero\none\ntwo\n".write(toFile: rig.folder + "/a.txt", atomically: true, encoding: .utf8)
+        let request = try #require(AgentPaneGitPullRequest(params: ["cwd": rig.folder, "action": "threads"]))
+        let edited = Self.threads(await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder), gh: rig.gh))
+        #expect(edited.map { $0["path"] as? String } == ["a.txt", "b.txt"])
+        #expect(edited.map { $0["moved"] as? Bool } == [true, false])
+        try Self.git(rig.folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--amend", "-am", "rewritten")
+        try Self.git(rig.folder, "reflog", "expire", "--expire=now", "--all")
+        try Self.git(rig.folder, "gc", "-q", "--prune=now")
+        let unknown = Self.threads(await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder), gh: rig.gh))
+        #expect(unknown.map { $0["moved"] as? Bool } == [true, true])
+    }
+
+    /// The branch's merged or closed pull request is not this work: its threads are not shown.
+    @Test func aMergedPullRequestsThreadsAreNotShown() async throws {
+        let rig = try Self.rig(state: "MERGED")
+        let request = try #require(AgentPaneGitPullRequest(params: ["cwd": rig.folder, "action": "threads"]))
+        let reply = await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder), gh: rig.gh)
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(Self.threads(reply).isEmpty)
+        #expect(Self.calls(rig.gh) == ["pr view --json url,number,state,headRefOid"])
     }
 
     /// A branch with no pull request has no threads (not an error); a chat on another machine is
     /// refused before gh runs.
     @Test func noPullRequestHasNoThreadsAndRemoteChatsAreRefused() async throws {
-        let rig = try Self.rig(view: nil)
+        let rig = try Self.rig(state: nil)
         let request = try #require(AgentPaneGitPullRequest(params: ["cwd": rig.folder, "action": "threads"]))
         let none = await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder), gh: rig.gh)
         #expect(none["ok"] as? Bool == true, "\(none)")
         #expect(Self.threads(none).isEmpty)
-        #expect(Self.calls(rig.gh) == ["pr view --json url,number,state"])
+        #expect(Self.calls(rig.gh) == ["pr view --json url,number,state,headRefOid"])
         let remote = await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder, here: false), gh: rig.gh)
         #expect((remote["error"] as? [String: Any])?["code"] as? String == "git.remote", "\(remote)")
         #expect(Self.calls(rig.gh).count == 1)

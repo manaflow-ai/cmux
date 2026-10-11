@@ -37,7 +37,11 @@ export function ReviewThread({ thread }: { thread: Thread }) {
         </details>
       ) : (
         <>
-          {thread.outdated && <div className="acpmux-review-outdated">{t("review.outdated")}</div>}
+          {(thread.outdated || thread.moved) && (
+            <div className="acpmux-review-outdated">
+              {thread.outdated ? t("review.outdated") : t("review.moved", { line: thread.line ?? "" })}
+            </div>
+          )}
           {comments}
         </>
       )}

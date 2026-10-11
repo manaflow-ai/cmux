@@ -129,7 +129,8 @@ const hunkSource: ChangesSource = {
   },
 };
 /// The Branch scope with the pull request's review threads: one on the added line (23), one
-/// resolved on the first hunk's line 1, and one outdated whose line is gone.
+/// resolved on the first hunk's line 1, one outdated whose line is gone, one on a file changed here
+/// since the pull request's head (moved), and one on a file the scope does not list.
 const threadsSource: ChangesSource = {
   diff: hunkSource.diff,
   reviewThreads: async () => ({
@@ -166,6 +167,23 @@ const threadsSource: ChangesSource = {
         resolved: false,
         outdated: true,
         comments: [{ author: "reviewer", body: "This section moved.", url: null }],
+      },
+      {
+        path: "docs/review.md",
+        line: 20,
+        side: "additions",
+        resolved: false,
+        outdated: false,
+        moved: true,
+        comments: [{ author: "reviewer", body: "Rename this heading.", url: null }],
+      },
+      {
+        path: "src/other.ts",
+        line: 4,
+        side: "additions",
+        resolved: false,
+        outdated: false,
+        comments: [{ author: "reviewer", body: "Not in this diff.", url: null }],
       },
     ],
   }),
@@ -239,17 +257,24 @@ const stageSecondHunk: Play = async (ctx) => {
   if (asked !== expected) throw new Error(`s staged ${asked}, not the second hunk ${expected}`);
 };
 
-/// Each thread under its line in the diff; the outdated one above the file's diff.
+/// Each thread under its line in the diff; the outdated and moved ones above the file's diff,
+/// and the one on an unlisted file in its own group first.
 const showReviewThreads: Play = async (ctx) => {
   await chooseScope(ctx, "Branch");
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 3);
-  const inDiff = [...ctx.document.querySelectorAll(".acpmux-diff-pierre .acpmux-review-thread")];
-  const above = [...ctx.document.querySelectorAll(".acpmux-review-unplaced .acpmux-review-thread")];
-  if (inDiff.length !== 2 || above.length !== 1 || !above[0]!.hasAttribute("data-outdated"))
-    throw new Error(`${inDiff.length} threads in the diff and ${above.length} above it, not 2 and the outdated one`);
-  if (!inDiff.some((thread) => thread.textContent?.includes("Which tree? Name the panel.")))
-    throw new Error("the open thread's comment is missing");
-  if (!inDiff.some((thread) => thread.hasAttribute("data-resolved") && thread.querySelector("details:not([open])")))
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 5);
+  const texts = (selector: string) =>
+    [...ctx.document.querySelectorAll(`${selector} .acpmux-review-body`)].map((body) => body.textContent);
+  const inDiff = texts(".acpmux-diff-pierre");
+  const aboveFile = texts(".acpmux-diff-file > .acpmux-review-unplaced");
+  const otherFiles = texts(".acpmux-diff-body > .acpmux-review-unplaced");
+  const placed = JSON.stringify([inDiff.sort(), aboveFile, otherFiles]);
+  const want = JSON.stringify([
+    ["Drop (draft) before merging.", "The changed files tree.", "Which tree? Name the panel."],
+    ["This section moved.", "Rename this heading."],
+    ["Not in this diff."],
+  ]);
+  if (placed !== want) throw new Error(`threads placed ${placed}, not ${want}`);
+  if (!ctx.document.querySelector(".acpmux-diff-pierre .acpmux-review-thread[data-resolved] details:not([open])"))
     throw new Error("the resolved thread is not folded");
 };
 
