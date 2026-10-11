@@ -27,19 +27,14 @@ final class SettingsHarnesses {
     private(set) var problem: String?
     @ObservationIgnored private let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let fetch: @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow]
-    @ObservationIgnored private let fetchHealth: @Sendable (AcpmuxEnvironment, Bool) async throws -> Data
     @ObservationIgnored private let openTerminal: @MainActor (String) -> Void
     @ObservationIgnored private var generation = 0
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
          fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = { try await $0.harnessRows() },
-         fetchHealth: @escaping @Sendable (AcpmuxEnvironment, Bool) async throws -> Data = {
-             try await $0.harness(.health, params: ["refresh": $1])
-         },
          openTerminal: @escaping @MainActor (String) -> Void) {
         self.environment = environment
         self.fetch = fetch
-        self.fetchHealth = fetchHealth
         self.openTerminal = openTerminal
     }
 
@@ -81,7 +76,7 @@ final class SettingsHarnesses {
         let fresh: [AcpmuxHarnessRow]?
         do { fresh = try await fetch(environment) } catch { fresh = nil }
         // An older daemon has no health method: the rows show without it.
-        let checked = try? await fetchHealth(environment, recheck)
+        let checked = try? await environment.harness(.health, params: ["refresh": recheck])
         guard mine == generation else { return }
         loading = false
         if let fresh {
