@@ -127,4 +127,15 @@ test("the model picker keeps its measured height while filtering in one opening"
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
   expect(menu.style.height).toBe("148px");
+
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  expect(host.querySelector(".acpmux-mp")).toBeNull();
+
+  menuHeight = 212;
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  expect(host.querySelector<HTMLElement>(".acpmux-mp")!.style.height).toBe("212px");
 });
