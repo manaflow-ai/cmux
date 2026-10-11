@@ -181,7 +181,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
-                         colorToken: group.color.flatMap(GroupColor.init(rawValue:)) ?? .grey,
+                         tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
                          isCollapsed: group.collapsed, isSaved: saved.contains(group.id))
         }
         let connected = if case .connected = store.connectionState { true } else { false }
