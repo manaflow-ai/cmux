@@ -463,6 +463,10 @@ struct ModeBarButton: View {
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                         .fill(RightSidebarChromePillModifier.selectionFill)
                         .matchedGeometryEffect(id: "modeBarSelection", in: selectionNamespace)
+                        // One pill that moves: the outgoing copy leaves at once
+                        // instead of fading, so two translucent fills never
+                        // overlap into a lighter band mid-switch.
+                        .transition(.identity)
                 }
             }
             .overlay(alignment: .trailing) {
