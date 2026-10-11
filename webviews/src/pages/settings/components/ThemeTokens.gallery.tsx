@@ -3,9 +3,10 @@
 // one edited token, and locked while no named theme is chosen or the key is managed.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import { withEdits } from "../../../theme/themeEdits";
 import table from "../generated/strings.json";
 import { mockThemeColors } from "../mockThemes";
-import { installCatalog } from "../strings";
+import { installCatalog, setLocale } from "../strings";
 import { ThemeTokens } from "./ThemeTokens";
 
 type Props = { edits?: Record<string, string> | null; editable?: boolean };
@@ -17,7 +18,7 @@ function ThemeTokensGallery({ edits = null, editable = true }: Props) {
   return (
     <div style={{ padding: 16 }}>
       <ThemeTokens
-        theme={base}
+        theme={withEdits(base, current)}
         base={base}
         edits={current}
         others={mockThemeColors}
@@ -42,10 +43,12 @@ export default componentEntry<Props>({
   covers: ["pages/settings/components/ThemeTokens.tsx#ThemeTokens"],
   load: async () => {
     installCatalog(table);
+    setLocale(navigator.language);
     return ThemeTokensGallery;
   },
   styles: async () => {
     await import("../../shared/pageBase.css");
+    await import("../styles.css");
     await import("../layout.css");
   },
   height: 220,
