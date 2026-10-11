@@ -3,14 +3,6 @@ import CmuxNextCloud
 import Foundation
 import Testing
 
-/// The committed action exports are compared only where CI checks them
-/// (`CMUX_CHECK_GENERATED_EXPORTS=1`: scripts/cmux-next/check-action-surfaces.sh)
-/// and rewritten under `CMUX_UPDATE_ACTION_SURFACES=1`. Elsewhere, on
-/// feat-cmux-next, the PR and base autofix regenerate them
-/// (scripts/cmux-next/regenerate-action-exports.sh), so no one does by hand.
-fileprivate let checksActionExports = ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"]
-    .contains { ProcessInfo.processInfo.environment[$0] == "1" }
-
 /// plans/cmux-next/links.json states cmux-next's links for clients that make
 /// the same links (GPUI's Copy Link): each build's scheme from
 /// `CloudConfiguration` (what the app registers), the shape and the id rules
@@ -39,7 +31,10 @@ struct LinkExportTests {
         return url.appendingPathComponent("plans/cmux-next/\(name)")
     }
 
-    @Test(.enabled(if: checksActionExports)) func linksJSONIsFresh() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func linksJSONIsFresh() throws {
         let url = Self.planURL("links.json")
         let current = Self.export.json()
         #expect(!current.isEmpty)
