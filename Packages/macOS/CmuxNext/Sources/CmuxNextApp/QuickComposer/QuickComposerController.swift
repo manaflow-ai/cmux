@@ -68,7 +68,7 @@ final class QuickComposerController {
     }
 
     func show() {
-        guard let chat = chat ?? adoptChat(session: nil) else {
+        guard let chat = chat ?? makeChat(nil).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
             return
         }
@@ -113,17 +113,20 @@ final class QuickComposerController {
 
     /// A chat tab's Move to Floating Chat: the panel holds that session's
     /// chat, shown, and the tab can close. A chat the panel held goes to a tab
-    /// first; a draft is dropped. False when the floating chat is off or the
-    /// held chat had nowhere to go.
+    /// first; a draft is dropped once the new chat is made. False when the
+    /// floating chat is off, the held chat had nowhere to go (it stays), or
+    /// this build has no agent page.
     func moveToFloatingChat(session: String) -> Bool {
         guard floating() else { return false }
         if holdsChat, let held = chat, held.model.sessionId != session {
             openChatInWindow(session: held.model.sessionId)
-            guard !holdsChat else { return false }
+            // Nowhere to open it: the held chat comes back and the tab stays.
+            guard !holdsChat else { show(); return false }
         }
         if !holdsChat {
+            guard let made = makeChat(session) else { return false }
             releaseChat()
-            guard adoptChat(session: session) != nil else { return false }
+            adopt(made)
             if window == nil { _ = makeWindowOnce() }
             holdChat()
         }
@@ -175,8 +178,8 @@ final class QuickComposerController {
         Task { used.close() }
     }
 
-    private func adoptChat(session: String?) -> AgentPaneView? {
-        guard let chat = makeChat(session) else { return nil }
+    @discardableResult
+    private func adopt(_ chat: AgentPaneView) -> AgentPaneView {
         chat.model.quick = AgentPaneQuickHooks(
             dismiss: { [weak self] in self?.hide() },
             openInWindow: { [weak self] session in self?.openChatInWindow(session: session) },

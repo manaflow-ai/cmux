@@ -2749,16 +2749,19 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
-  // The label starts from the chat's layout; Quick Chat's panel has no tab to read, but a floating
-  // chat's panel that held this chat before the page loaded (a tab moved there, a reload) says so.
+  // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
     if (!quick) void readTabState().catch(() => undefined);
-    else
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
+  }, [quick, snapshot.sessionId]);
+  // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
+  // says so once; later changes are pushed, and a reread per chat could land after a newer push.
+  useEffect(() => {
+    if (quick)
       void callNative("quick.floatingState")
         .then(setFloatingState)
         .catch(() => undefined);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
-  }, [quick, snapshot.sessionId]);
+  }, [quick]);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
