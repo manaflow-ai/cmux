@@ -11,6 +11,9 @@ final class WorkspaceRowView: SidebarRowView {
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
     let title = MarqueeLabel()
     private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// Expanded rows (`sidebar.density`, cx-13w3): the age on the title's line, and the meta line.
+    private let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private var isExpanded = false, timeText: String?
     private let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     private let agentMark = NSImageView()
@@ -43,9 +46,9 @@ final class WorkspaceRowView: SidebarRowView {
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
     /// fill; an indeterminate one fills the whole track, dimmed.
-    private let progressTrack = CALayer()
-    private let progressFill = CALayer()
-    private var progress: SidebarProgress?
+    let progressTrack = CALayer()
+    let progressFill = CALayer()
+    var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
     private var iconKind: WorkspaceIcon?
@@ -79,7 +82,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -165,6 +168,9 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
+        (isExpanded, timeText) = (shown.expanded, shown.time)
+        timeLabel.stringValue = shown.time ?? ""
+        metaLabel.stringValue = shown.meta ?? ""
         activity.configure(shown.activity, style: ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
@@ -234,6 +240,7 @@ final class WorkspaceRowView: SidebarRowView {
         performWithTheme {
             title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary
+            [timeLabel, metaLabel].forEach { $0.textColor = Palette.textTertiary }
             tabCount.textColor = Palette.textTertiary
             mutedMark.contentTintColor = Palette.textTertiary
             prBadge.textColor = Palette.textSecondary
@@ -258,6 +265,12 @@ final class WorkspaceRowView: SidebarRowView {
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
         let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
+        // The text lines stack centered; an expanded row's icon and trailing marks
+        // center on the title's line (`cy`), a compact row's on the row.
+        let th = ceil(title.intrinsicContentSize.height), sh = ceil(subtitle.intrinsicContentSize.height)
+        let hasMeta = isExpanded && !metaLabel.stringValue.isEmpty
+        let top = (b.height - th - (hasSubtitle ? Metrics.space1 + sh : 0) - (hasMeta ? Metrics.space1 + sh : 0)) / 2
+        let cy = isExpanded ? top + th / 2 : b.height / 2
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
@@ -267,7 +280,7 @@ final class WorkspaceRowView: SidebarRowView {
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
-        icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
+        icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
 
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
@@ -277,20 +290,20 @@ final class WorkspaceRowView: SidebarRowView {
         // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
         disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)
         if disclosure != nil {
-            disclosureButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+            disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
         tabCount.isHidden = count == nil || isShowingPlaceholder
         if count != nil {
             let h = ceil(tabCount.intrinsicContentSize.height)
-            tabCount.frame = NSRect(x: trailing - Self.countWidth, y: (b.height - h) / 2, width: Self.countWidth, height: h)
+            tabCount.frame = NSRect(x: trailing - Self.countWidth, y: cy - h / 2, width: Self.countWidth, height: h)
             trailing -= Self.countWidth + Metrics.space2
         }
         prBadge.isHidden = badgeText == nil || isShowingPlaceholder
         if badgeText != nil {
             let size = prBadge.intrinsicContentSize
             let w = min(ceil(size.width), Self.badgeMaxWidth), h = ceil(size.height)
-            prBadge.frame = NSRect(x: trailing - w, y: (b.height - h) / 2, width: w, height: h)
+            prBadge.frame = NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h)
             trailing -= w + Metrics.space2
         }
         // The x and an unread badge share one slot, as wide as the wider of
@@ -303,88 +316,71 @@ final class WorkspaceRowView: SidebarRowView {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.dotSize : SidebarStyle.badgeHeight
             let pad = badge.state == .dot ? Metrics.space2 : 0
-            badge.frame = NSRect(x: trailing - w - pad, y: (b.height - h) / 2, width: w, height: h)
+            badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
         }
         if showClose {
-            closeButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+            closeButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
         }
         if slot > 0 { trailing -= slot + Metrics.space2 }
+        timeLabel.isHidden = timeText == nil || isHovered || isShowingPlaceholder
+        if !timeLabel.isHidden {
+            let w = ceil(timeLabel.intrinsicContentSize.width)
+            timeLabel.frame = NSRect(x: trailing - w, y: cy - sh / 2, width: w, height: sh)
+            trailing -= w + Metrics.space2
+        }
         // The menu button sits left of the close-or-badge slot; hidden (not only clear) when it does not show.
         let showMore = (isHovered || isSelected) && !isPlaceholderRow && onMore != nil
         moreButton.isHidden = !showMore
         if showMore {
-            moreButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+            moreButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
         let ind = SidebarStyle.indicatorSize
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
-            agentMark.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+            agentMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         } else if activity.showsGlyph {
-            activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+            activity.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
         if !mutedMark.isHidden {
-            mutedMark.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+            mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
         if !presenceDots.isHidden {
             let w = presenceDots.preferredWidth
-            presenceDots.frame = NSRect(x: trailing - w, y: 0, width: w, height: b.height)
+            presenceDots.frame = NSRect(x: trailing - w, y: isExpanded ? top : 0, width: w, height: isExpanded ? th : b.height)
             trailing -= w + Metrics.space2
         }
 
         var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
-            agentMark.frame = NSRect(x: textX + Self.labelInset, y: (b.height - ind) / 2, width: ind, height: ind)
+            agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
         }
         let textW = max(0, trailing - textX)
         title.isHidden = renaming || isShowingPlaceholder
         placeholderBar.isHidden = !isShowingPlaceholder
         let barHeight = SidebarStyle.placeholderBarHeight
-        placeholderBar.frame = NSRect(x: textX + Self.labelInset, y: (b.height - barHeight) / 2,
+        placeholderBar.frame = NSRect(x: textX + Self.labelInset, y: cy - barHeight / 2,
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        let th = ceil(title.intrinsicContentSize.height)
         let titleWidth = max(0, textW - 2 * inset)
-        if hasSubtitle {
-            let sh = ceil(subtitle.intrinsicContentSize.height)
-            let total = th + Metrics.space1 + sh
-            let top = (b.height - total) / 2
-            title.frame = NSRect(x: textX + inset, y: top, width: titleWidth, height: th)
-            subtitle.frame = NSRect(x: textX, y: top + th + Metrics.space1, width: textW, height: sh)
-            subtitle.isHidden = false
-        } else {
-            title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)
-            subtitle.isHidden = true
-        }
+        title.frame = NSRect(x: textX + inset, y: top, width: titleWidth, height: th)
+        // An expanded row's lower lines run under its trailing marks, to the row's end.
+        let lineW = isExpanded ? max(0, b.width - Metrics.space3 - textX) : textW
+        subtitle.isHidden = !hasSubtitle
+        subtitle.frame = NSRect(x: textX, y: top + th + Metrics.space1, width: lineW, height: sh)
+        metaLabel.isHidden = !hasMeta
+        metaLabel.frame = NSRect(x: textX, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + Metrics.space1, width: lineW, height: sh)
         layoutProgress(x: textX, width: max(0, b.width - Metrics.space3 - textX), bottom: b.maxY)
         needsDisplay = true
-    }
-
-    private func layoutProgress(x: CGFloat, width: CGFloat, bottom: CGFloat) {
-        guard let progress else {
-            progressTrack.isHidden = true
-            return
-        }
-        let height: CGFloat = 2
-        progressTrack.isHidden = false
-        progressTrack.frame = CGRect(x: x, y: isFlipped ? bottom - height - 1 : 1, width: width, height: height)
-        progressTrack.cornerRadius = height / 2
-        progressFill.frame = CGRect(x: 0, y: 0, width: width * (progress.value ?? 1), height: height)
-        progressFill.cornerRadius = height / 2
-        performWithTheme {
-            progressTrack.backgroundColor = Palette.textTertiary.withAlphaComponent(0.25).cgColor
-            let color = progress.isError ? Palette.danger : Palette.accent
-            progressFill.backgroundColor = (progress.value == nil ? color.withAlphaComponent(0.4) : color).cgColor
-        }
     }
 }
 

@@ -86,7 +86,7 @@ public final class SidebarModel {
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
-    public var minimal = false
+    public var minimal = false, expanded = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -306,7 +306,7 @@ public final class SidebarModel {
         // Minimal mode lists no tab rows under a workspace.
         showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
-        minimal = preferences.minimal
+        (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -325,7 +325,7 @@ public final class SidebarModel {
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         o.workspaceRow = workspaceRow
-        o.minimal = minimal
+        (o.minimal, o.expanded) = (minimal, expanded)
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

@@ -28,6 +28,12 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var progress: SidebarProgress?
     /// The agent-working indicator slot (WORKING-AND-LOADING-INDICATORS).
     public var showsWorking: Bool
+    /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
+    public var expanded = false
+    /// Expanded rows: the time since the last change, on the title's line.
+    public var time: String?
+    /// Expanded rows: a third line (the computer, the pull request).
+    public var meta: String?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false) {
@@ -66,6 +72,40 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             progress: set.shows(.progress) ? ws.progress : nil,
             showsWorking: working
         )
+    }
+
+    /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
+    /// style): the kind's icon when the user set none, a dim second line
+    /// (the agent's status line, else the folder and branch), the time
+    /// since the last change on the title's line, and a third line for the
+    /// computer and the pull request. `now` is the start of today, so the
+    /// time reads in days; a change today shows its time.
+    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil) {
+        let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
+        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
+        self.init(
+            icon: ws.icon ?? .symbol(ws.kind.symbol),
+            detail: Self.nonEmpty(ws.status) ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
+            progress: ws.progress,
+            showsWorking: ws.agentWorking
+        )
+        expanded = true
+        time = ws.lastActivity.map { Self.ageText($0, now: now) }
+        self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
+    }
+
+    /// The age of a change, short: a time today, else days (`3d`), weeks
+    /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
+    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 0 { return date.formatted(date: .omitted, time: .shortened) }
+        // One unit, from whole days, like All chats' ages (`SidebarChatsDesign.age`): no timer.
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 1
+        formatter.allowedUnits = [.day, .weekOfMonth, .month]
+        return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
     }
 
     static func activity(_ state: StatusIndicatorState, working: Bool, progress: Bool) -> StatusIndicatorState {
