@@ -567357,55 +567357,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation التأكيد دائمًا إغلاق مساحة العمل خامل حماية"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation immer bestätigen arbeitsbereich schließen inaktiv schützen bestätigung"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation confirmar siempre cerrar espacio de trabajo inactivo proteger confirmación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation toujours confirmer fermer espace de travail inactif protéger confirmation"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 常に確認 ワークスペースを閉じる アイドル 保護"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 항상 확인 워크스페이스 닫기 유휴 보호"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation завжди підтверджувати закрити робочу область неактивна захист"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 始终确认 关闭工作区 空闲 保护"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 一律確認 關閉工作區 閒置 保護"
           }
         }
       }

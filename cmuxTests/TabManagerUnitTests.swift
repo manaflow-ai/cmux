@@ -1888,6 +1888,39 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), originalIds)
     }
 
+    func testDontAskAgainWhenOrdinaryWarningAlsoAppliesTurnsBothOff() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        setAlwaysConfirm(manager, true)
+        let workspace = manager.tabs[1]
+        markRunningProcess(workspace)
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(offered, [[.workspace, .safety, .alwaysConfirmWorkspace]])
+    }
+
+    func testDontAskAgainOnIdleWindowBatchKeepsWindowWarning() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        setAlwaysConfirm(manager, true)
+        manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
+        XCTAssertEqual(offered, [[.alwaysConfirmWorkspace]])
+    }
+
     func testDontAskAgainOnAlwaysConfirmPromptTurnsTheSettingOff() {
         let manager = makeManager(warnBeforeClosingWorkspace: nil)
         setAlwaysConfirm(manager, true)
@@ -1906,8 +1939,9 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         }
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
-        XCTAssertEqual(offered, [[.workspace, .alwaysConfirmWorkspace]])
+        XCTAssertEqual(offered, [[.alwaysConfirmWorkspace]], "An idle prompt only offers to turn off the setting that caused it")
         XCTAssertFalse(AppCatalogSection().alwaysConfirmWorkspaceClose.value(in: manager.closeTabWarningDefaults))
+        XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: manager.closeTabWarningDefaults))
 
         drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
