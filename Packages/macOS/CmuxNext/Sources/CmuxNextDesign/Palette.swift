@@ -93,6 +93,8 @@ public struct Palette {
     public static var shadow: NSColor { color(\.shadow, dynamic: PaletteDynamic.shadow) }
     /// Selected text in chrome text fields.
     public static var textSelection: NSColor { color(\.textSelection, dynamic: PaletteDynamic.textSelection) }
+    /// Text carets: the terminal's cursor color (`cursor-color`), else the primary text.
+    public static var caret: NSColor { color(\.caret, dynamic: PaletteDynamic.caret) }
 
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
