@@ -160,6 +160,9 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState
+        case "pane.setQuickActions":
+            if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
+            else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":

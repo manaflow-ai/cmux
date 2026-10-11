@@ -41,6 +41,8 @@ extension AgentTabStore {
             let store = self?.lookup(chat)?.store, id = AgentPaneModel.previewAction
             if toggle { toggles.toggle(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
+        }, saveQuickActions: { [weak self] list in
+            await self?.customization.saveQuickActions(list) ?? false
         })
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb

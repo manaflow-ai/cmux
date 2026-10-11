@@ -9,8 +9,19 @@ import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useHeaderState } from "./headerState";
-import { useQuickActions, type QuickActionMode } from "./quickActions";
+import {
+  QUICK_ACTION_DEFAULTS,
+  QUICK_ACTION_IDS,
+  useQuickActions,
+  withMode,
+  withMoved,
+  withShown,
+  type QuickAction,
+  type QuickActionId,
+  type QuickActionMode,
+} from "./quickActions";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
@@ -67,6 +78,7 @@ export function ChatHeaderTools({
   sideTabs = false,
   onSideTabs,
   onPointerEnter,
+  onCustomize,
   tabTools = true,
   summary,
   menu,
@@ -91,6 +103,8 @@ export function ChatHeaderTools({
   onSideTabs?: () => void;
   /// The pointer reached the tools: the App rereads the layout, so [+] reads right before a click.
   onPointerEnter?: () => void;
+  /// The right-click menu changed the quick actions: the App saves them to `agent-pane/layout.json`.
+  onCustomize?: (list: readonly QuickAction[]) => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
   summary: ReactNode;
@@ -110,14 +124,18 @@ export function ChatHeaderTools({
   const { lit } = useHeaderState();
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
-  return (
-    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+  // The right-clicked button, read as the menu opens.
+  const target = useRef<QuickActionId>(undefined);
+  const [menuTarget, setMenuTarget] = useState<QuickActionId>();
+  const tools = (
+    <>
       {tabTools &&
         actions.map(({ id, mode }) =>
           id === "newTab" ? (
             // One button whose label and icon change, so the next click lands on it again.
             <button
               key={id}
+              data-quick-action={id}
               type="button"
               className="acpmux-header-tool"
               aria-label={t(sideTabs ? "header.hideTabs" : "header.newTab")}
@@ -132,6 +150,7 @@ export function ChatHeaderTools({
             onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)) ? (
               <button
                 key={id}
+                data-quick-action={id}
                 type="button"
                 className="acpmux-header-tool"
                 aria-label={t("header.changes")}
@@ -147,6 +166,7 @@ export function ChatHeaderTools({
             onPreview && (previewUrl || lit.includes(HEADER_ACTIONS.preview)) ? (
               <button
                 key={id}
+                data-quick-action={id}
                 type="button"
                 className="acpmux-header-tool"
                 aria-label={t("header.preview")}
@@ -160,6 +180,7 @@ export function ChatHeaderTools({
           ) : id === "terminal" ? (
             <button
               key={id}
+              data-quick-action={id}
               type="button"
               className="acpmux-header-tool"
               aria-label={t("header.terminal")}
@@ -172,6 +193,7 @@ export function ChatHeaderTools({
           ) : (
             <button
               key={id}
+              data-quick-action={id}
               type="button"
               className="acpmux-header-tool"
               aria-label={t("header.browser")}
@@ -191,8 +213,105 @@ export function ChatHeaderTools({
         expand={expand}
         onExpanded={onExpanded}
       />
+    </>
+  );
+  return (
+    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+      {onCustomize && tabTools ? (
+        <ContextMenu
+          className="acpmux-header-customize"
+          items={customizeItems(actions, menuTarget, onCustomize, t)}
+          onOpen={() => setMenuTarget(target.current)}
+        >
+          <div
+            className="acpmux-header-customize"
+            onContextMenuCapture={(event) => {
+              const button = (event.target as Element).closest?.("[data-quick-action]");
+              target.current = (button?.getAttribute("data-quick-action") ?? undefined) as QuickActionId | undefined;
+            }}
+          >
+            {tools}
+          </div>
+        </ContextMenu>
+      ) : (
+        tools
+      )}
     </div>
   );
+}
+
+const QUICK_ACTION_NAMES: Record<QuickActionId, string> = {
+  terminal: "header.terminal",
+  browser: "header.browser",
+  changes: "header.changes",
+  preview: "header.preview",
+  newTab: "header.newTab",
+};
+
+/// The header's right-click menu (cx-00n1, Claude Code desktop's toolbar customization): for the
+/// right-clicked button, Move Left/Right and whether a click toggles its panel or opens another
+/// ([+] New tab always toggles); then every quick action, checked while shown; then Reset.
+function customizeItems(
+  list: readonly QuickAction[],
+  target: QuickActionId | undefined,
+  save: (list: readonly QuickAction[]) => void,
+  t: ReturnType<typeof useT>,
+): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [];
+  const index = target ? list.findIndex((action) => action.id === target) : -1;
+  const check = (on: boolean, label: string) => (
+    <>
+      <span className="acpmux-header-customize-check" aria-hidden="true">
+        {on ? "✓" : ""}
+      </span>
+      {label}
+    </>
+  );
+  if (target && index >= 0) {
+    const mode = list[index].mode;
+    items.push(
+      { id: "moveLeft", label: t("header.quickActions.moveLeft"), disabled: index === 0, onSelect: () => save(withMoved(list, target, -1)) },
+      {
+        id: "moveRight",
+        label: t("header.quickActions.moveRight"),
+        disabled: index === list.length - 1,
+        onSelect: () => save(withMoved(list, target, 1)),
+      },
+    );
+    if (target !== "newTab") {
+      for (const [value, key] of [
+        ["toggle", "header.quickActions.toggles"],
+        ["open", "header.quickActions.opens"],
+      ] as const) {
+        items.push({
+          id: value,
+          label: check(mode === value, t(key)),
+          ariaLabel: t(key),
+          separatorBefore: value === "toggle",
+          onSelect: () => save(withMode(list, target, value)),
+        });
+      }
+    }
+  }
+  for (const id of QUICK_ACTION_IDS) {
+    const shown = list.some((action) => action.id === id);
+    const name = t(QUICK_ACTION_NAMES[id]);
+    items.push({
+      id: `show-${id}`,
+      label: check(shown, name),
+      ariaLabel: t(shown ? "header.quickActions.hide" : "header.quickActions.show", { name }),
+      separatorBefore: items.length > 0 && id === QUICK_ACTION_IDS[0],
+      onSelect: () => save(withShown(list, id, !shown)),
+    });
+  }
+  items.push({
+    id: "reset",
+    label: t("header.quickActions.reset"),
+    separatorBefore: true,
+    disabled: JSON.stringify(list) === JSON.stringify(QUICK_ACTION_DEFAULTS),
+    onSelect: () => save(QUICK_ACTION_DEFAULTS),
+  });
+  return items;
 }
 
 function ChatMenu({

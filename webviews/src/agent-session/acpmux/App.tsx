@@ -3275,6 +3275,11 @@ function AcpmuxPane() {
                       sideTabs={sideTabs}
                       onSideTabs={toggleSideTabs}
                       onPointerEnter={quick ? undefined : refreshTabState}
+                      onCustomize={(list) => {
+                        // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
+                        configureQuickActions({ quickActions: list });
+                        ignoreFailure(callNative("pane.setQuickActions", { quickActions: list }));
+                      }}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.
