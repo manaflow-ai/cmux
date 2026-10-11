@@ -2,11 +2,10 @@ import Foundation
 import GhosttyNextKit
 
 extension GhosttyRuntime {
-    /// Classic cmux's channels, the stable app first. Each kept its
-    /// cmux-only Ghostty layer under Application Support/<bundle id>; next
-    /// ships under the same bundle identifiers.
-    static let classicBundleIdentifiers = ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc",
-                                           "com.cmuxterm.app.staging"]
+    /// Classic cmux's stable bundle identifier. Each classic channel kept its
+    /// cmux-only Ghostty layer under Application Support/<bundle id>, and the
+    /// others fell back to stable's; next ships under the same identifiers.
+    static let classicStableBundleIdentifier = "com.cmuxterm.app"
 
     /// The Ghostty config files cmux reads when `CMUX_NEXT_GHOSTTY_CONFIG`
     /// doesn't name one: Ghostty's own default files, then classic cmux's
@@ -25,16 +24,18 @@ extension GhosttyRuntime {
         }
     }
 
-    /// The layer of this channel, else of the first classic channel that has
-    /// one: its non-empty `config.ghostty`, else its non-empty legacy
-    /// `config` (classic never layered the two).
+    /// Classic's resolution (`CmuxGhosttyConfigPathResolver`): this channel's
+    /// layer, else stable's for any other channel. A layer is its non-empty
+    /// `config.ghostty`, else its non-empty legacy `config` (never both),
+    /// loaded by its own path so a symlink's includes resolve as in classic.
     static func classicConfigPath(applicationSupportDirectory: URL, bundleIdentifier: String?) -> String? {
-        let own = bundleIdentifier.map { classicBundleIdentifiers.contains($0) ? [$0] : [] } ?? []
-        for identifier in own + classicBundleIdentifiers {
+        let stable = classicStableBundleIdentifier
+        let own = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? stable
+        for identifier in own == stable ? [stable] : [own, stable] {
             let directory = applicationSupportDirectory.appendingPathComponent(identifier, isDirectory: true)
             for name in ["config.ghostty", "config"] {
-                let url = directory.appending(path: name).resolvingSymlinksInPath()
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+                let url = directory.appending(path: name)
+                let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
                 if values?.isRegularFile == true, (values?.fileSize ?? 0) > 0 { return url.path }
             }
         }
