@@ -31,8 +31,9 @@ public final class ThemeStore {
     /// The app theme when `appearance.appTheme` names one; nil follows each scope's terminal
     /// theme (`ThemeTokens.app`). Web pages read it through `WebTheme`.
     public private(set) var appTheme: AppTheme?
-    /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
-    public private(set) var accent: ThemeAccent = .neutral
+    /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`). Starts at
+    /// the setting's default (`AccentSetting.fallback`) until the App reads cmux.json.
+    public private(set) var accent: ThemeAccent = .theme
 
     @ObservationIgnored private let publishesGlobally: Bool
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()

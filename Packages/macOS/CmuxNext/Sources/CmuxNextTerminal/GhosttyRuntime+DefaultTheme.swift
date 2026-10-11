@@ -2,14 +2,15 @@ import Foundation
 import GhosttyNextKit
 
 /// cmux-next's default terminal theme, which differs from Ghostty's: Ghostty's
-/// bundled "Apple System Colors" in dark mode and "Apple System Colors Light"
-/// in light mode, following the macOS appearance live. It is loaded before
+/// bundled "Rose Pine" in dark mode and "Rose Pine Dawn" in light mode
+/// (cx-wqn5, the Rose Pine default design call), following the macOS
+/// appearance live. It is loaded before
 /// the user's Ghostty config files, so their own `theme` or colors win, and
 /// everyone without one gets it.
 extension GhosttyRuntime {
     /// Theme file names in Ghostty's bundled `themes` folder.
-    public nonisolated static let defaultDarkThemeName = "Apple System Colors"
-    public nonisolated static let defaultLightThemeName = "Apple System Colors Light"
+    public nonisolated static let defaultDarkThemeName = "Rose Pine"
+    public nonisolated static let defaultLightThemeName = "Rose Pine Dawn"
 
     /// The default as a Ghostty theme spec.
     public nonisolated static var defaultThemeSpec: String {

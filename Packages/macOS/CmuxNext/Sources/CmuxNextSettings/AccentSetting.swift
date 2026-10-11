@@ -2,11 +2,11 @@ public import CmuxNextDesign
 import Foundation
 
 /// `appearance.accent` in cmux.json: where the chrome's accent (selection, focus ring, the action
-/// color) comes from (`CmuxTheme.ThemeAccent`). "neutral" (the default) is the theme's foreground
-/// without hue; "theme" is the palette's signature hue; a color name is that ANSI slot.
+/// color) comes from (`CmuxTheme.ThemeAccent`). "theme" (the default) is the palette's signature
+/// hue; "neutral" is the theme's foreground without hue; a color name is that ANSI slot.
 public struct AccentSetting: Sendable {
     public let configPath = ["appearance", "accent"]
-    public let fallback = ThemeAccent.neutral
+    public let fallback = ThemeAccent.theme
 
     public init() {}
 

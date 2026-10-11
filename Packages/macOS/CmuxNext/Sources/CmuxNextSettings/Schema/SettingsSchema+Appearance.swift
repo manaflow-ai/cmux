@@ -52,7 +52,7 @@ nonisolated enum AppearanceSettingsSchema {
                     SettingChoice(ThemeAccent.magenta.rawValue, SettingsText.keyed("settings.choice.accent.magenta", "Magenta")),
                     SettingChoice(ThemeAccent.cyan.rawValue, SettingsText.keyed("settings.choice.accent.cyan", "Cyan")),
                 ]),
-                default: .string(ThemeAccent.neutral.rawValue),
+                default: .string(ThemeAccent.theme.rawValue),
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
