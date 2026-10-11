@@ -204,6 +204,14 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
             .await;
     assert_eq!(turns(&amp), [pair("Rename x", "Renamed.")]);
 
+    // Claude Code and Codex chats too (a chat that cannot adopt shows them before its first send).
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let claude = call(&tx, &mut rx, 6, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(turns(&claude), [pair("Explain the parser", "It reads lines.")]);
+    let key = format!("codex:{CODEX_ID}");
+    let codex = call(&tx, &mut rx, 7, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(turns(&codex), [pair("Bump the version", "Bumped to 1.2.")]);
+
     let unknown =
         call(&tx, &mut rx, 5, "_acpmux/chat_transcript", json!({"key": "droid:nope"})).await;
     assert!(unknown["error"].is_object(), "{unknown}");
