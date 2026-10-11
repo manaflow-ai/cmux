@@ -1,6 +1,7 @@
 // The chat menu's Copy submenu, as in ChatGPT: the chat's link, the last answer, and the whole
 // chat as Markdown (each prompt a quote, each answer as written, turns split by a rule).
 import { type Translate, translate } from "../i18n";
+import { type MdBlock, parseMarkdown } from "../conversation/Markdown";
 import type { AcpmuxRow } from "../model";
 import { SHORTCUT_ACTIONS } from "../shortcuts";
 import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
@@ -58,4 +59,32 @@ function chatMarkdown(rows: readonly AcpmuxRow[]): string {
     }
   }
   return blocks.join("\n\n");
+}
+
+/// Copy Last Code Block (cx-ncc.72): the last fenced block of the latest answer that has one,
+/// including one inside a quote or a list; undefined when no answer has code.
+export function lastCodeBlock(rows: readonly AcpmuxRow[]): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index]!;
+    if (row.kind !== "assistant") continue;
+    const code = lastCode(parseMarkdown(text(row)));
+    if (code !== undefined) return code;
+  }
+  return undefined;
+}
+
+function lastCode(blocks: readonly MdBlock[]): string | undefined {
+  for (let index = blocks.length - 1; index >= 0; index--) {
+    const block = blocks[index]!;
+    const code =
+      block.type === "code"
+        ? block.code
+        : block.type === "blockquote"
+          ? lastCode(block.children)
+          : block.type === "list"
+            ? block.items.reduceRight<string | undefined>((found, item) => found ?? lastCode(item.children), undefined)
+            : undefined;
+    if (code !== undefined) return code;
+  }
+  return undefined;
 }
