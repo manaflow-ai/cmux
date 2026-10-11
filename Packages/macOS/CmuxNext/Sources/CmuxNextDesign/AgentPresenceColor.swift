@@ -18,7 +18,7 @@ public nonisolated enum AgentPresenceColor {
     }
 
     /// The color for `key` in the active theme scope.
-    public static func color(forKey key: String) -> NSColor {
+    @MainActor public static func color(forKey key: String) -> NSColor {
         rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
     }
 
