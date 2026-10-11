@@ -32,7 +32,8 @@ public struct AgentPaneHeaderHooks {
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
-                moveToFloatingChat: (@MainActor (String) -> Bool)? = nil) {
+                moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
+                refreshPullRequest: (@MainActor () -> Void)? = nil) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -41,6 +42,13 @@ public struct AgentPaneHeaderHooks {
         self.preview = preview
         self.saveQuickActions = saveQuickActions ?? { _ in false }
         self.moveToFloatingChat = moveToFloatingChat
+        self.refreshPullRequest = refreshPullRequest
+    }
+
+    /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.
+    @MainActor func state(refresh: Bool) -> AgentPaneHeaderState {
+        if refresh { refreshPullRequest?() }
+        return tabState()
     }
 
     /// The "..." menu's Move to Floating Chat (`pane.action {id: "floatingChat"}`).
@@ -102,8 +110,7 @@ extension AgentPaneModel {
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            if refresh { header.refreshPullRequest?() }
-            return AgentPaneReply.success(header.tabState().reply)
+            return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .archive(let archived):
             return await archive(archived)
         case .sideChat(let fork):
