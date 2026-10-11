@@ -5,10 +5,12 @@
 
 use std::path::Path;
 
-use serde_json::Value;
+use rusqlite::types::ValueRef;
+use serde_json::{Value, json};
 
 use crate::entry::AdapterKind;
 use crate::lines::{WHOLE_FILE_MAX, contains, fold_lines, read_whole_json};
+use crate::sqlite::{columns, open_read_only};
 use crate::time::parse_rfc3339_ms;
 
 /// One past exchange: the person's prompt and the assistant's answer text.
@@ -60,8 +62,13 @@ impl std::fmt::Display for TranscriptError {
     }
 }
 
-/// The turns of the `kind` chat stored at `path` (its `ChatEntry::source_path`).
-pub fn read_turns(kind: AdapterKind, path: &Path) -> Result<Vec<Turn>, TranscriptError> {
+/// The turns of the `kind` chat `session_id` stored at `path` (its `ChatEntry::source_path`; a
+/// SQLite store holds many chats).
+pub fn read_turns(
+    kind: AdapterKind,
+    path: &Path,
+    session_id: &str,
+) -> Result<Vec<Turn>, TranscriptError> {
     let unreadable = |e: std::io::Error| TranscriptError::Unreadable(e.to_string());
     let mut turns = Turns::default();
     match kind {
@@ -91,9 +98,142 @@ pub fn read_turns(kind: AdapterKind, path: &Path) -> Result<Vec<Turn>, Transcrip
                 turns.add(message, None);
             }
         }
+        // v1: one JSON object, `chatMessages[]{role, content}`. v2/v3: JSONL events
+        // `{type, timestamp, data}`, the prompt in `user.message` and the answer in
+        // `assistant.message` (`data.content`, empty beside tool requests).
+        AdapterKind::CopilotCli if path.extension().is_some_and(|ext| ext == "json") => {
+            let file = whole_json(path)?;
+            for message in file.get("chatMessages").and_then(Value::as_array).into_iter().flatten()
+            {
+                turns.add(message, None);
+            }
+        }
+        AdapterKind::CopilotCli => {
+            fold_lines(path, 0, |line| {
+                let role = if contains(line, br#""type":"user.message""#) {
+                    "user"
+                } else if contains(line, br#""type":"assistant.message""#) {
+                    "assistant"
+                } else {
+                    return;
+                };
+                let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
+                let content = record.pointer("/data/content").cloned().unwrap_or(Value::Null);
+                let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
+                turns.add(&json!({"role": role, "content": content}), at);
+            })
+            .map_err(unreadable)?;
+        }
+        // One JSON object: `chatHistory[]{exchange{request_message, response_text}, finishedAt}`.
+        AdapterKind::Auggie => {
+            let file = whole_json(path)?;
+            for item in file.get("chatHistory").and_then(Value::as_array).into_iter().flatten() {
+                let exchange = item.get("exchange").unwrap_or(&Value::Null);
+                let at = item.get("finishedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms);
+                let prompt = exchange.get("request_message").cloned().unwrap_or(Value::Null);
+                let answer = exchange.get("response_text").cloned().unwrap_or(Value::Null);
+                turns.add(&json!({"role": "user", "content": prompt}), at);
+                turns.add(&json!({"role": "assistant", "content": answer}), at);
+            }
+        }
+        // `sessions.db`: `messages{session_id, role, content_json, created_timestamp,
+        // metadata_json}`, hidden rows (`userVisible: false`) left out. Legacy `<id>.jsonl`: a
+        // metadata line, then `{role, created, content}` messages.
+        AdapterKind::Goose if path.file_name().is_some_and(|name| name == "sessions.db") => {
+            let rows = sqlite_rows(path, session_id, "content_json", "created_timestamp")?;
+            for (role, content, at, metadata) in rows {
+                let hidden = metadata
+                    .and_then(|m| serde_json::from_str::<Value>(&m).ok())
+                    .is_some_and(|m| m.get("userVisible") == Some(&Value::Bool(false)));
+                let Some(content) = content.and_then(|c| serde_json::from_str(&c).ok()) else {
+                    continue;
+                };
+                if !hidden {
+                    turns.add(&json!({"role": role, "content": content}), at);
+                }
+            }
+        }
+        AdapterKind::Goose => {
+            fold_lines(path, 0, |line| {
+                let Ok(message) = serde_json::from_slice::<Value>(line) else { return };
+                let at = message.get("created").and_then(Value::as_i64).map(seconds_ms);
+                turns.add(&message, at);
+            })
+            .map_err(unreadable)?;
+        }
+        // `crush.db`: `messages{session_id, role, parts, created_at}`; a text part is
+        // `{type:"text", data:{text, hidden?}}`.
+        AdapterKind::Crush => {
+            for (role, parts, at, _) in sqlite_rows(path, session_id, "parts", "created_at")? {
+                let parts: Value =
+                    parts.and_then(|p| serde_json::from_str(&p).ok()).unwrap_or_default();
+                let texts: Vec<Value> = parts
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter(|part| part.pointer("/data/hidden") != Some(&Value::Bool(true)))
+                    .filter_map(|part| part.pointer("/data/text"))
+                    .map(|text| json!({"type": "text", "text": text}))
+                    .collect();
+                turns.add(&json!({"role": role, "content": texts}), at);
+            }
+        }
         _ => return Err(TranscriptError::Unsupported),
     }
     Ok(turns.done())
+}
+
+/// At most this many of a chat's newest rows are read from a SQLite store.
+const MAX_ROWS: usize = 4_000;
+
+/// A chat's `(role, content, created ms, metadata)` rows from a SQLite store's `messages`, oldest
+/// first: `content` and `time` name its columns, and `metadata_json` is read where it exists.
+fn sqlite_rows(
+    path: &Path,
+    session_id: &str,
+    content: &str,
+    time: &str,
+) -> Result<Vec<(String, Option<String>, Option<i64>, Option<String>)>, TranscriptError> {
+    let unreadable = |e: rusqlite::Error| TranscriptError::Unreadable(e.to_string());
+    let conn = open_read_only(path).map_err(unreadable)?;
+    let cols = columns(&conn, "messages").map_err(unreadable)?;
+    if !["session_id", "role", content].iter().all(|c| cols.contains(*c)) {
+        return Err(TranscriptError::Unreadable(format!("no messages.{content} column")));
+    }
+    let time = if cols.contains(time) { time } else { "NULL" };
+    let metadata = if cols.contains("metadata_json") { "metadata_json" } else { "NULL" };
+    let order = if time == "NULL" { "rowid" } else { "2" };
+    let sql = format!(
+        "SELECT role, {time}, {content}, {metadata} FROM messages WHERE session_id = ?1 \
+         ORDER BY {order} DESC, rowid DESC LIMIT {MAX_ROWS}"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(unreadable)?;
+    let mut rows: Vec<_> = stmt
+        .query_map([session_id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(2)?,
+                match row.get_ref(1)? {
+                    ValueRef::Integer(value) => Some(seconds_ms(value)),
+                    ValueRef::Text(text) => {
+                        std::str::from_utf8(text).ok().and_then(parse_rfc3339_ms)
+                    }
+                    _ => None,
+                },
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(unreadable)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(unreadable)?;
+    rows.reverse();
+    Ok(rows)
+}
+
+/// Seconds to milliseconds; a value already in milliseconds is kept.
+fn seconds_ms(value: i64) -> i64 {
+    if value > 100_000_000_000 { value } else { value.saturating_mul(1000) }
 }
 
 /// A whole-file JSON store: too large past `WHOLE_FILE_MAX`, unreadable when it is not JSON
