@@ -53,6 +53,25 @@ extension SettingsController {
         preset.plan(from: try await shortcutBindings())
     }
 
+    /// Writes `plan` in one publish and returns how to put back every
+    /// shortcut it changed (the base keymap toast's Undo).
+    public func applyUndoably(_ plan: ShortcutKeymapPlan) async throws -> ShortcutKeymapUndo {
+        var previous: [(path: [String], value: JSONValue?)] = []
+        for change in plan.changes {
+            for path in [["shortcuts", "bindings", change.actionID], ["shortcuts", change.actionID]] {
+                previous.append((path, try await file.value(at: path)))
+            }
+        }
+        try await apply(plan)
+        return ShortcutKeymapUndo(edits: previous)
+    }
+
+    /// Puts back the shortcuts an ``applyUndoably(_:)`` changed, in one publish.
+    public func restore(_ undo: ShortcutKeymapUndo) async throws {
+        guard !undo.edits.isEmpty else { return }
+        try await file.apply(undo.edits)
+    }
+
     /// Writes `plan` in one publish. A removed override also goes from the
     /// legacy `shortcuts.<id>` form, so the cmux default applies again.
     public func apply(_ plan: ShortcutKeymapPlan) async throws {
@@ -74,4 +93,10 @@ extension SettingsController {
         }
         return bindings
     }
+}
+
+/// The shortcut values a base keymap replaced, as edits that write them back
+/// (nil removes a key the keymap added).
+public nonisolated struct ShortcutKeymapUndo: Sendable {
+    public let edits: [(path: [String], value: JSONValue?)]
 }

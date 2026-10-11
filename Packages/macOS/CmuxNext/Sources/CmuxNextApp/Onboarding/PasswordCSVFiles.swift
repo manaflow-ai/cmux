@@ -12,14 +12,15 @@ import UniformTypeIdentifiers
 /// argument, and the action is person-only, so the control socket cannot
 /// open the panel for a file an agent staged. The passwords go into
 /// the browser profile's Chromium password store, counts only come back, and
-/// the dialog offers to move the plaintext file to the Trash
-/// (plans/cmux-next/browser.md, "Browser import: passwords and security").
+/// the plaintext file goes to the Trash at once, with Undo in the toast
+/// (Lawrence 2026-10-07: no confirm dialogs; plans/cmux-next/browser.md,
+/// "Browser import: passwords and security").
 @MainActor
 struct PasswordCSVFiles {
     let services: AppServices
 
     /// The guided steps (source, the source's export steps, the open panel), then the import of
-    /// the picked file and the Trash offer for it.
+    /// the picked file and its move to the Trash.
     func chooseImport(profile: String) throws {
         let cef = services.cache.cef
         let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter())
@@ -29,7 +30,7 @@ struct PasswordCSVFiles {
             let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
             do {
                 let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
-                Self.offerTrash(url, report: report)
+                Self.trash(url, report: report)
                 return nil
             } catch {
                 return ActionWorkFailure(PasswordCSVStrings.failure(error))
@@ -45,17 +46,28 @@ struct PasswordCSVFiles {
         return lines
     }
 
-    /// The counts, and the file's fate: it still holds every password in plain text.
-    static func offerTrash(_ url: URL, report: PasswordImportReport) {
-        let spec = CmuxDialogSpec(
-            title: PasswordCSVStrings.doneTitle,
-            lines: summaryLines(report) + [PasswordCSVStrings.plaintextWarning],
-            buttons: [CmuxDialogButton(id: "keep", title: PasswordCSVStrings.keepFile, role: .cancel),
-                      CmuxDialogButton(id: "trash", title: PasswordCSVStrings.moveToTrash, role: .default)],
-            identifier: "cmux.dialog.passwordCSV.trash")
-        let scope: CmuxDialogScope = (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
-        CmuxDialogCenter.shared.present(spec, in: scope) { answer in
-            if answer.button == "trash" { NSWorkspace.shared.recycle([url]) }
+    static let toastID = "password-csv-imported"
+
+    /// The counts, and the file's fate: it holds every password in plain
+    /// text, so it goes to the Trash now; the toast's Undo puts it back. If
+    /// the move fails, the toast says so and offers Move to Trash.
+    static func trash(_ url: URL, report: PasswordImportReport) {
+        let summary = summaryLines(report)
+        NSWorkspace.shared.recycle([url]) { moved, error in
+            Task { @MainActor in
+                guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                if error == nil, let trashed = moved[url] {
+                    let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
+                                          action: .undo(), duration: .seconds(12))
+                    CmuxToastCenter.shared.show(toast, in: window).onAction = {
+                        try? FileManager.default.moveItem(at: trashed, to: url)
+                    }
+                } else {
+                    let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.plaintextWarning]).joined(separator: " "),
+                                          action: CmuxToast.Action(title: PasswordCSVStrings.moveToTrash), duration: .seconds(20))
+                    CmuxToastCenter.shared.show(toast, in: window).onAction = { NSWorkspace.shared.recycle([url]) }
+                }
+            }
         }
     }
 }
@@ -66,7 +78,6 @@ enum PasswordCSVStrings {
     }
 
     static var prompt: String { t("passwords.csv.prompt", "Choose a password CSV exported from a browser or password manager.") }
-    static var doneTitle: String { t("passwords.csv.done", "Passwords Imported") }
     static func counts(imported: Int, notImported: Int) -> String {
         String(format: t("passwords.csv.counts", "Imported: %1$lld. Not imported: %2$lld (already saved, repeated, or not a website sign-in)."),
                imported, notImported)
@@ -78,7 +89,7 @@ enum PasswordCSVStrings {
         t("passwords.csv.plaintext", "The CSV file still holds these passwords in plain text. Move it to the Trash?")
     }
     static var moveToTrash: String { t("passwords.csv.trash", "Move to Trash") }
-    static var keepFile: String { t("passwords.csv.keep", "Keep File") }
+    static var trashed: String { t("passwords.csv.trashed", "The CSV file is in the Trash.") }
     static var unavailable: String { t("passwords.csv.unavailable", "This version of cmux can’t save passwords yet.") }
 
     static func failure(_ error: any Error) -> String {
