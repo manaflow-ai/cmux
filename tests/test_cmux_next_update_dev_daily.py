@@ -15,6 +15,8 @@ CLI's `app quit-keep-sessions` and osascript's quit stop it, `open` starts it.
   CMUX_TAG set), the quit still goes to cmux NEXT DEV, not that app.
 - A build caught half-published (the archive new, its checksum not yet) is
   not recorded as installed: the next run installs it.
+- A first install quits nothing, even when System Events does not answer (an
+  ssh session), and opens the new app.
 """
 
 from __future__ import annotations
@@ -80,7 +82,9 @@ elif name == "codesign":
     pass
 elif name == "osascript":
     script = " ".join(args)
-    if "exists process" in script: print("true" if running() else "false")
+    if "exists process" in script:
+        if (state / "running").read_text() == "unknown": sys.exit(1)
+        print("true" if running() else "false")
     elif "to quit" in script: running(False)
 elif name == "open":
     running(True)
@@ -102,7 +106,7 @@ def release(updated_at: str) -> str:
 class Mac:
     """A scratch home with the stand-ins on PATH and an installed build N."""
 
-    def __init__(self, scratch: str, *, running: bool) -> None:
+    def __init__(self, scratch: str, *, running: bool | str, installed: bool = True) -> None:
         self.root = Path(scratch)
         self.state = self.root / "state"
         self.bin = self.root / "bin"
@@ -114,13 +118,16 @@ class Mac:
         tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
         for name in ("curl", "shasum", "ditto", "plutil", "codesign", "osascript", "open"):
             (self.bin / name).symlink_to(tool)
-        (self.state / "running").write_text("true" if running else "false")
+        state = running if isinstance(running, str) else "true" if running else "false"
+        (self.state / "running").write_text(state)
         self.app = self.home / "Applications" / APP
         self.publish("2026-10-11T17:25:52Z", "aaaa  cmux-NEXT-DEV.zip\n")
+        if not installed:
+            return
         # Build N, installed by the script.
         assert self.update().returncode == 0
         (self.state / "calls.log").unlink()
-        (self.state / "running").write_text("true" if running else "false")
+        (self.state / "running").write_text(state)
 
     def publish(self, updated_at: str, sha256: str) -> None:
         (self.state / "release.json").write_text(release(updated_at))
@@ -216,6 +223,20 @@ def test_a_half_published_build_is_installed_once_published() -> None:
         result = mac.update()
         assert result.returncode == 0, result.stderr
         assert mac.installed() == "bbbb  cmux-NEXT-DEV.zip\n", result.stdout
+
+
+def test_a_first_install_quits_nothing_and_opens_the_app() -> None:
+    for answer in ("false", "unknown"):
+        with tempfile.TemporaryDirectory(prefix="dev-daily-") as scratch:
+            mac = Mac(scratch, running=answer, installed=False)
+            result = mac.update()
+            assert result.returncode == 0, result.stderr
+            assert mac.installed() == "aaaa  cmux-NEXT-DEV.zip\n"
+            calls = mac.calls()
+            assert not [c for c in calls if c[0] == "cmux" or (c[0] == "osascript" and "to quit" in " ".join(c))], calls
+            assert [c for c in calls if c[0] == "open"] == [["open", str(mac.app)]], (answer, calls)
+            assert "Reopened" not in result.stdout, result.stdout
+            assert "Opened" in result.stdout, result.stdout
 
 
 def main() -> int:

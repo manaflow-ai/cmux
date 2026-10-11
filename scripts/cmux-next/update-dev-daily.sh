@@ -15,7 +15,7 @@
 # Quit and Keep Sessions through its own CLI, so terminals, agents and chats
 # keep running under their session daemons, and it is opened again afterwards;
 # the new build reattaches to them. No process-name matching or forced
-# termination is used.
+# termination is used. A first install quits nothing and opens the app.
 set -euo pipefail
 
 force=false
@@ -104,8 +104,12 @@ actual_id="$(plutil -extract CFBundleIdentifier raw -o - "$downloaded/Contents/I
 codesign --verify --deep --strict "$downloaded"
 
 mkdir -p "$(dirname "$app_path")"
+# A first install has no app to quit. Asking System Events would answer
+# "unknown" over ssh, and that is not a running app.
+first_install=true
+[[ -e "$app_path" ]] && first_install=false
 was_running=false
-if [[ "$(app_running)" != "false" ]]; then
+if ! $first_install && [[ "$(app_running)" != "false" ]]; then
   was_running=true
   # Quit and Keep Sessions: a plain Quit may ask whether to end them. In
   # another cmux's terminal these variables name that app; the bundled CLI
@@ -138,7 +142,10 @@ fi
 rm -rf -- "$backup"
 record "$updated_at" "$sha_line"
 echo "Installed cmux NEXT DEV from $tag at $app_path"
-if $was_running; then
+if $first_install; then
+  open "$app_path"
+  echo "Opened cmux NEXT DEV. Next time, run this script again to update it."
+elif $was_running; then
   open "$app_path"
   echo "Reopened cmux NEXT DEV; its sessions, agents and chats reattach."
 fi
