@@ -71,6 +71,7 @@
 }
 
 .minimap-tick-gallery-receipt {
+  min-width: 8ch;
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-detail);
