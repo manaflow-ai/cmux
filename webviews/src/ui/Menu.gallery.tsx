@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery labels and actions are fixture content, not shipped UI.
 import { useState } from "react";
+import { DirectionProvider } from "@base-ui/react/direction-provider";
 import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import {
@@ -27,46 +28,48 @@ function MenuGallery({
   const [action, setAction] = useState("Ready");
   return (
     <div className="menu-gallery-stage" dir={direction}>
-      <Menu>
-        <MenuButton className="menu-gallery-trigger" label="Open demo menu" data-menu="gallery-menu">
-          Menu
-        </MenuButton>
-        <MenuPopup label="Demo menu" className="menu-gallery-popup">
-          <MenuGroup label="View">
-            <MenuItem shortcut="⌘K" onSelect={() => setAction("Command palette")}>
-              Open command palette
-            </MenuItem>
-            <MenuCheckboxItem
-              checked={checked}
-              onCheckedChange={(next) => {
-                setChecked(next);
-                setAction("Sidebar toggled");
-              }}
-            >
-              Show sidebar
-            </MenuCheckboxItem>
-            <MenuRadioGroup
-              value={radio}
-              onValueChange={(next) => {
-                setRadio(next);
-                setAction(`Density: ${next}`);
-              }}
-            >
-              <MenuRadioItem value="comfortable">Comfortable density</MenuRadioItem>
-              <MenuRadioItem value="compact" shortcut="⌥C">
-                Compact density
-              </MenuRadioItem>
-            </MenuRadioGroup>
-          </MenuGroup>
-          <MenuSeparator />
-          <Submenu label="More actions">
-            <MenuItem onSelect={() => setAction("Rename")}>Rename</MenuItem>
-            <MenuItem onSelect={() => setAction("Duplicate")}>Duplicate</MenuItem>
-            <MenuItem disabled>Unavailable action</MenuItem>
-          </Submenu>
-          <MenuItem disabled>Disabled item</MenuItem>
-        </MenuPopup>
-      </Menu>
+      <DirectionProvider direction={direction}>
+        <Menu>
+          <MenuButton className="menu-gallery-trigger" label="Open demo menu" data-menu="gallery-menu">
+            Menu
+          </MenuButton>
+          <MenuPopup label="Demo menu" className="menu-gallery-popup">
+            <MenuGroup label="View">
+              <MenuItem shortcut="⌘K" onSelect={() => setAction("Command palette")}>
+                Open command palette
+              </MenuItem>
+              <MenuCheckboxItem
+                checked={checked}
+                onCheckedChange={(next) => {
+                  setChecked(next);
+                  setAction("Sidebar toggled");
+                }}
+              >
+                Show sidebar
+              </MenuCheckboxItem>
+              <MenuRadioGroup
+                value={radio}
+                onValueChange={(next) => {
+                  setRadio(next);
+                  setAction(`Density: ${next}`);
+                }}
+              >
+                <MenuRadioItem value="comfortable">Comfortable density</MenuRadioItem>
+                <MenuRadioItem value="compact" shortcut="⌥C">
+                  Compact density
+                </MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuGroup>
+            <MenuSeparator />
+            <Submenu label="More actions">
+              <MenuItem onSelect={() => setAction("Rename")}>Rename</MenuItem>
+              <MenuItem onSelect={() => setAction("Duplicate")}>Duplicate</MenuItem>
+              <MenuItem disabled>Unavailable action</MenuItem>
+            </Submenu>
+            <MenuItem disabled>Disabled item</MenuItem>
+          </MenuPopup>
+        </Menu>
+      </DirectionProvider>
       <output className="menu-gallery-receipt" data-testid="menu-gallery-receipt" aria-live="polite">
         {action} · {checked ? "sidebar on" : "sidebar off"} · {radio}
       </output>
@@ -107,6 +110,13 @@ const submenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 1);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+};
+
+const rtlSubmenu: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.focus({ role: "menuitem", name: "More actions" });
+  await ctx.press("ArrowLeft");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
 };
 
 const checkboxChecks = {
@@ -151,6 +161,6 @@ export default componentEntry<Props>({
     keyboard: { props: {}, play: keyboard },
     checkbox: { props: { checked: true }, checks: checkboxChecks, play: checkbox },
     submenu: { props: {}, play: submenu },
-    rtl: { props: { direction: "rtl", checked: false, radio: "compact" }, play: open },
+    rtl: { props: { direction: "rtl", checked: false, radio: "compact" }, play: rtlSubmenu },
   },
 });
