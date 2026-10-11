@@ -550,6 +550,7 @@ fn a_headless_session_lists_no_start_tab() {
             locality: Default::default(),
         },
         label: "start-tab".into(),
+        terminal: None,
         profile: cmux_browser_host::host::AGENT_PROFILE.into(),
     };
     let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");
@@ -1120,6 +1121,7 @@ fn headless_tabs_list_has_the_protocol_shape() {
         on_behalf_of: None,
         origin: "cli".into(),
         label: String::new(),
+        terminal: None,
         implicit_session: false,
         engine: "headless".into(),
     };
