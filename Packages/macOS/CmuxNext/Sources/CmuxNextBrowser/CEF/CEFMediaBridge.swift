@@ -14,16 +14,38 @@ import os
 /// that exist when it is added. So the bridge adds it again each time a
 /// document commits, once that document's world exists; the observer holds
 /// its report until the binding appears.
+///
+/// New-document scripts reach only documents that start after they are
+/// added, so a web page the tab opens with is not created with the browser:
+/// it loads once the scripts are in (cx-6qwm.4). Otherwise its first
+/// document ran before the recorder, and `mediaSession` handlers it set
+/// while loading were never seen.
 final class CEFMediaBridge {
     private unowned let tab: CEFTab
     private var observation: ObservationLoop?
     /// The committed document the binding was last added for.
     private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
+    /// The web page the browser loads after the scripts, and the navigation
+    /// that asked for it (a later navigation replaces it).
+    private var deferred: (url: String, navigation: BrowserNavigationID?)?
 
     init(tab: CEFTab) { self.tab = tab }
 
-    /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
-    func attach(_ browser: Int32) {
+    /// The URL to create the browser with: none for a web page, which
+    /// `attach` loads once the scripts are in.
+    func creationURL(_ url: String) -> String {
+        guard let scheme = URL(string: url)?.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            deferred = nil
+            return url
+        }
+        deferred = (url, tab.navigation)
+        return ""
+    }
+
+    /// The tab's browser exists (`CEFAgentRelay.browserAttached`). `then`
+    /// runs once the scripts are in and the deferred page is asked for, or
+    /// the browser is gone.
+    func attach(_ browser: Int32, then: @escaping () -> Void) {
         tab.agentRelay.mediaListens = true
         let channel = BrowserMediaState.channel
         let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(report))", ready: "typeof \(channel) === 'function'")
@@ -35,7 +57,15 @@ final class CEFMediaBridge {
             ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
             Self.binding,
         ]
-        run(calls, browser)
+        let deferred = deferred
+        self.deferred = nil
+        run(calls, browser) { [weak tab] in
+            // A navigation asked for meanwhile (`load`) replaces the page.
+            if let tab, let deferred, tab.browserID == browser, !tab.isClosed, tab.navigation == deferred.navigation {
+                tab.runtime.shim?.loadURL(browser, deferred.url)
+            }
+            then()
+        }
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
@@ -53,8 +83,9 @@ final class CEFMediaBridge {
         run([Self.binding], browser)
     }
 
-    private func run(_ calls: [(String, [String: Any])], _ browser: Int32) {
+    private func run(_ calls: [(String, [String: Any])], _ browser: Int32, then: @escaping () -> Void = {}) {
         Task { [weak tab] in
+            defer { then() }
             for (method, params) in calls {
                 guard let tab, tab.browserID == browser else { return }
                 do {

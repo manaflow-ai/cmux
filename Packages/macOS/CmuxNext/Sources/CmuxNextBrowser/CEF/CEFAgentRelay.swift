@@ -98,9 +98,19 @@ public final class CEFAgentRelay {
         sink?(json)
     }
 
+    /// The URL to create the browser with (`CEFMediaBridge.creationURL`).
+    func creationURL(_ url: String) -> String {
+        media?.creationURL(url) ?? url
+    }
+
     func browserAttached() {
-        resumeWaiters(true)
-        if let browser = tab?.browserID { media?.attach(browser) }
+        if let browser = tab?.browserID, let media {
+            // Raw clients waiting for the browser start after the media
+            // bridge's deferred first page, so their own navigation wins.
+            media.attach(browser) { [weak self] in self?.resumeWaiters(true) }
+        } else {
+            resumeWaiters(true)
+        }
         if sink != nil || mediaListens { updateWatch() }
     }
 

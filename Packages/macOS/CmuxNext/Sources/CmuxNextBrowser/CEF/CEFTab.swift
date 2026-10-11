@@ -122,7 +122,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var initialURLString: String {
         // An empty URL creates the browser without navigating, which
         // `cmux_tab_restore_navigation` needs.
-        pendingRestore != nil ? "" : CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
+        pendingRestore != nil ? "" : agentRelay.creationURL(CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven))
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
