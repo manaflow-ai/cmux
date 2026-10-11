@@ -63,7 +63,7 @@ struct AgentPaneGitReviewThreadsTests {
     }
 
     private static func threads(_ reply: [String: Any]) -> [[String: Any]] {
-        ((reply["result"] as? [String: Any])?["threads"] as? [[String: Any]]) ?? []
+        ((reply["value"] as? [String: Any])?["threads"] as? [[String: Any]]) ?? []
     }
 
     /// Each thread with its file, line and side (a removed line's thread is on the deletions side,
@@ -74,7 +74,7 @@ struct AgentPaneGitReviewThreadsTests {
         let request = try #require(AgentPaneGitPullRequest(params: ["cwd": rig.folder, "action": "threads"]))
         let reply = await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder), gh: rig.gh)
         #expect(reply["ok"] as? Bool == true, "\(reply)")
-        #expect((reply["result"] as? [String: Any])?["number"] as? Int == 7)
+        #expect((reply["value"] as? [String: Any])?["number"] as? Int == 7)
         let threads = Self.threads(reply)
         try #require(threads.count == 2)
         #expect(threads[0]["path"] as? String == "a.txt")
