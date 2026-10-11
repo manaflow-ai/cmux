@@ -26,6 +26,7 @@ mod models_view;
 mod paging;
 mod pool;
 mod queue;
+mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -157,6 +158,9 @@ pub struct PromptOptions {
     /// session cannot steer now (no running turn, or an agent that does not
     /// steer).
     pub steer_only: bool,
+    /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
+    /// running turn and run this next" instead of waiting behind the queue.
+    pub interrupt: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.

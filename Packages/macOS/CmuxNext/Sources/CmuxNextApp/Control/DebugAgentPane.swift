@@ -177,7 +177,9 @@ enum DebugAgentPane {
         });
         """
         do {
-            let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
+            let result = try await view.webView.callAsyncJavaScript(script, arguments: ["waitForAnimations": waitForAnimations],
+                                                                    in: nil, contentWorld: .page)
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),

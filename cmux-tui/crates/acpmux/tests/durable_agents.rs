@@ -98,9 +98,13 @@ impl Daemon {
             // SAFETY: the child has its own copy on fd 3.
             unsafe { libc::close(fds[0]) };
         }
+        // The ready line, after any log line the daemon printed first (a catalog refresh warning).
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
         let mut ready = String::new();
-        BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
-        assert!(ready.contains("\"ready\":true"), "daemon not ready: {ready}");
+        while stdout.read_line(&mut ready).unwrap() > 0 && !ready.contains("\"ready\":true") {
+            ready.clear();
+        }
+        assert!(ready.contains("\"ready\":true"), "daemon not ready");
         self.child = Some(child);
     }
 
@@ -780,14 +784,8 @@ async fn an_adopted_prompt_gets_a_new_decision_nonce_that_a_relayed_allow_can_us
     daemon.wait_event(&session, "the agent's answer", |e| chunk(e, "chose yes"));
 }
 
-/// Queues two prompts behind a gated turn, stops the daemon with `stop`,
-/// starts it again and checks the queue came back in order, waits for the
-/// turn ahead, then runs: a client that resends a queued prompt id gets its
-/// real outcome, not `interrupted`. `held`: the agent outlives the daemon, so
-/// its turn holds the queue after the restart; a lost agent's queue may start
-/// before the attach.
-async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held: bool) {
-    // As `gated_turn`, without a host record (none with agent hosts off).
+/// As `gated_turn`, without a host record (none with agent hosts off); returns the gate too.
+async fn gated_turn_without_host(daemon: &Daemon) -> (String, PathBuf, Rpc) {
     let session = new_session(daemon).await;
     let gate = daemon.home.join(format!("gate-{session}"));
     make_fifo(&gate);
@@ -799,6 +797,17 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held
         )
         .await;
     daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    (session, gate, client)
+}
+
+/// Queues two prompts behind a gated turn, stops the daemon with `stop`,
+/// starts it again and checks the queue came back in order, waits for the
+/// turn ahead, then runs: a client that resends a queued prompt id gets its
+/// real outcome, not `interrupted`. `held`: the agent outlives the daemon, so
+/// its turn holds the queue after the restart; a lost agent's queue may start
+/// before the attach.
+async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held: bool) {
+    let (session, gate, mut client) = gated_turn_without_host(daemon).await;
     for (id, text) in [("q-1", "first queued"), ("q-2", "second queued")] {
         client
             .send(
@@ -904,4 +913,51 @@ async fn queued_prompts_survive_when_the_agent_does_not() {
 async fn queued_prompts_survive_a_quit_that_ends_the_agent() {
     let mut daemon = Daemon::with_env("qquit", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
     queue_survives_restart(&mut daemon, Daemon::sigterm, false).await;
+}
+
+/// A queue reordered and edited (`_acpmux/queue_edit`) comes back that way after a crash.
+#[tokio::test]
+async fn queue_ops_edits_survive_a_daemon_crash() {
+    let mut daemon = Daemon::new("qedit", "approve-all");
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    for (id, text) in [("q-1", "one"), ("q-2", "two")] {
+        client
+            .send(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": id}}}),
+            )
+            .await;
+        daemon.wait_event(&session, "queued record", |e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == id
+        });
+    }
+    let mut rpc = daemon.rpc().await;
+    let edit = |op: &str, id: &str, extra: Value| {
+        let mut p = json!({"sessionId": session, "promptId": id, "op": op});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    rpc.call("_acpmux/queue_edit", edit("move", "q-2", json!({"index": 0}))).await;
+    rpc.call("_acpmux/queue_edit", edit("update", "q-1", json!({"text": "one edited"}))).await;
+
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let queue = attached["session"]["queue"].as_array().expect("queue").clone();
+    let ids: Vec<&str> = queue.iter().filter_map(|q| q["promptId"].as_str()).collect();
+    assert_eq!(ids, ["q-2", "q-1"], "the order did not survive: {attached:#}");
+    assert_eq!(queue[1]["prompt"], "one edited", "the edit did not survive: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "the edited prompt's answer", |e| chunk(e, "echo: one edited"));
+    let events = daemon.events(&session);
+    let order: Vec<&str> = events
+        .iter()
+        .filter(|e| e["kind"] == "user_message")
+        .filter_map(|e| e["msg"]["promptId"].as_str())
+        .filter(|id| id.starts_with("q-"))
+        .collect();
+    assert_eq!(order, ["q-2", "q-1"]);
 }
