@@ -125,10 +125,15 @@ input[type="submit"] {
   box-shadow: none !important;
 }
 
-/* Text selection takes the theme accent's tint (the text color under the default neutral
-   accent), never the system highlight blue. A page with its own selection color sets it later. */
+/* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
+   (the text color under the default neutral accent), never the system highlight blue
+   (`--cmux-text-selection`, WebTheme.swift). A page with its own selection color sets it later.
+   Carets take the config's `cursor-color`, else the text color (`--cmux-caret`). */
 ::selection {
-  background-color: color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent);
+  background-color: var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent));
+}
+:root {
+  caret-color: var(--cmux-caret, auto);
 }
 
 /* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a

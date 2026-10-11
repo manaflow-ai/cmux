@@ -19,6 +19,8 @@ public nonisolated struct GhosttyThemeColors: Hashable, Sendable {
     /// API; those read as nil.
     public var selectionBackground: RGB?
     public var selectionForeground: RGB?
+    /// `cursor-color`, only when the config sets a plain color.
+    public var cursor: RGB?
     public var backgroundOpacity: Double
     /// Ghostty's encoding: 0 off, >0 blur radius, -1/-2 macOS glass.
     public var backgroundBlur: Int
@@ -50,6 +52,7 @@ extension GhosttyRuntime {
             palette: paletteColors,
             selectionBackground: Self.color(config, "selection-background"),
             selectionForeground: Self.color(config, "selection-foreground"),
+            cursor: Self.color(config, "cursor-color"),
             backgroundOpacity: backgroundOpacity,
             backgroundBlur: Int(blur)
         )
