@@ -322,7 +322,7 @@ final class AgentTabStore {
             model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
-                let folders = remoteFolders?(resolve(key)) ?? []
+                let folders = remoteFolders?(resolveRemote(key)) ?? []
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
