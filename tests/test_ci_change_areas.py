@@ -59,6 +59,7 @@ MACOS_JOBS = (
     "macos-compile-admission",
     "app-host-unit-tests",
     "cli-product-tests",
+    "cli-regressions",
     "swift-package-tests",
     "tests-build-and-lag",
     "release-admission",
@@ -4748,17 +4749,20 @@ def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
 PRODUCT_RUNNER_KEYS = {
     "app-host-unit-tests": "format(' shard-{0} ', matrix.shard)",
     "cli-product-tests": "' cli-product '",
+    "cli-regressions": "format(' cli-regressions-{0} ', matrix.shard)",
 }
 
 
 def product_runner_output(key: str) -> str:
     # The app-host shards may also take pr_shard_runner: another Blacksmith
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
-    # Both consumers hold the mini's gui token (pr_runner_pool.gui_token_job()),
-    # so they take pr_gui_runner before the root label:
-    # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
-    shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
-    gui = "inputs.pr_gui_runner || "
+    # The shards and cli-product-tests hold the mini's gui token
+    # (pr_runner_pool.gui_token_job()), so they take pr_gui_runner before the
+    # root label: pr_runner_pool.gui_label() of the same owned pick, so the
+    # same Xcode. The cli-regressions shards hold none and take pr_root_runner,
+    # the root label of that pick (same Xcode).
+    shard = "inputs.pr_shard_runner || " if "shard-" in key and "cli-regressions" not in key else ""
+    gui = "inputs.pr_root_runner || " if "cli-regressions" in key else "inputs.pr_gui_runner || "
     return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + gui + "needs.macos-compile-admission.outputs.runner }}")
 
@@ -4787,6 +4791,7 @@ PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 LATE_KEYS = {
     "app-host-unit-tests": "format('shard-{0}', matrix.shard)",
     "cli-product-tests": "'cli-product'",
+    "cli-regressions": "format('cli-regressions-{0}', matrix.shard)",
     "tests-build-and-lag": "'lag'",
 }
 
@@ -6320,7 +6325,8 @@ def test_package_lane_routing_leaves_the_full_suite_jobs_alone() -> None:
     # admission-placement restates compile admission's condition, so it runs
     # only when admission does.
     assert gated_jobs == full_suite_only | {
-        "swift-package-tests", "macos-compile-admission", "admission-placement", "cli-product-tests"
+        "swift-package-tests", "macos-compile-admission", "admission-placement", "cli-product-tests",
+        "cli-regressions",
     }, gated_jobs
     # Package routing must not independently request the targeted CLI lane.
     cli_condition = next(

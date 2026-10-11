@@ -645,6 +645,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
 
+      - name: Validate Python test lane shards
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_python_test_lane_shards.py
+
       - name: Validate spread-first compile admission placement
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_admission_placement.py
