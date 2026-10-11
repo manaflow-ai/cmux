@@ -28,6 +28,8 @@ from tag_teardown import TagTeardown  # noqa: E402
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the cmux-next build under test")
 parser.add_argument("--classic-app", help="a classic cmux build for the live pull (step 2)")
+parser.add_argument("--capture", action="store_true",
+                    help="save a still of the cmux-next window after the script runs (cua-driver on PATH, GUI host)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="classic-to-next-live-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -108,6 +110,24 @@ def tabs(next_socket):
 
 def same_dir(a, b):
     return bool(a) and bool(b) and os.path.realpath(a) == os.path.realpath(b)
+
+
+def capture(name):
+    """A still of each cmux-next window through cua-driver (it holds the Screen Recording grant)."""
+    time.sleep(2)  # let the sidebar settle before the still (screenshot only)
+    def cua(tool, args):
+        r = subprocess.run(["cua-driver", "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60)
+        try:
+            return json.loads(r.stdout)
+        except ValueError:
+            return {}
+    listed = cua("list_windows", {"pid": next_app.pid})
+    windows = listed.get("windows") or (listed.get("structuredContent") or {}).get("windows") or []
+    for w in [w for w in windows if (w.get("bounds") or {}).get("width", 0) > 200][:2]:
+        path = os.path.join(opts.out, f"{name}-{w['window_id']}.png")
+        cua("get_window_state", {"pid": next_app.pid, "window_id": w["window_id"], "include_accessibility_tree": False,
+                                 "screenshot_out_file": path})
+        check(os.path.exists(path), f"capture {path}")
 
 
 # -- seeded classic data --------------------------------------------------------
@@ -204,6 +224,8 @@ try:
         agents_open = [tab.get("agent") for n, tab in new if n == name and tab.get("agent")]
         check(bool(agents_open), f"{name} opens an agent chat tab for {session} (agents: {agents_open})")
     check(sorted(os.listdir(CLASSIC)) == seeded, "classic's files are unchanged (read only)")
+    if opts.capture:
+        capture("after-apply")
 
     # 2. A live classic build hands a terminal to cmux-next.
     if opts.classic_app:

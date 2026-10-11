@@ -77,7 +77,7 @@ enum SessionTransferControl {
 }
 
 /// A transfer failure as the control error the caller sees.
-private func controlError(_ error: Error) -> ControlError {
+private nonisolated func controlError(_ error: Error) -> ControlError {
     let code = switch error {
     case SessionTransferService.Failure.noSessions: "not_found"
     case SessionTransferService.Failure.peerRefused: "access_denied"
@@ -89,5 +89,5 @@ private func controlError(_ error: Error) -> ControlError {
 }
 
 private extension JSONValue {
-    static func optional(_ value: String?) -> JSONValue { value.map(JSONValue.string) ?? .null }
+    nonisolated static func optional(_ value: String?) -> JSONValue { value.map(JSONValue.string) ?? .null }
 }

@@ -7,7 +7,7 @@ import Foundation
 typealias TransferJSONValue = CmuxNextSettings.JSONValue
 
 /// A live tab that another local cmux build can hand to this App.
-struct SessionTransferItem: Sendable, Equatable, Identifiable {
+nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable {
     let sourceSurface: String
     let workspace: String
     let kind: Kind
@@ -20,7 +20,7 @@ struct SessionTransferItem: Sendable, Equatable, Identifiable {
     let agentHarness: String?
     let agentSessionID: String?
 
-    enum Kind: String, Sendable { case terminal, agent }
+    nonisolated enum Kind: String, Sendable { case terminal, agent }
     var id: String { sourceSurface }
 
     var json: TransferJSONValue {
@@ -35,6 +35,19 @@ struct SessionTransferItem: Sendable, Equatable, Identifiable {
             "agent": .optional(agentHarness),
             "agent_session": .optional(agentSessionID),
         ]
+    }
+
+    init(sourceSurface: String, workspace: String, kind: Kind, title: String, cwd: String?, sshTarget: String?,
+         command: String?, agentHarness: String?, agentSessionID: String?) {
+        self.sourceSurface = sourceSurface
+        self.workspace = workspace
+        self.kind = kind
+        self.title = title
+        self.cwd = cwd
+        self.sshTarget = sshTarget
+        self.command = command
+        self.agentHarness = agentHarness
+        self.agentSessionID = agentSessionID
     }
 
     init?(json: TransferJSONValue, defaultWorkspace: String = "") {
@@ -53,7 +66,7 @@ struct SessionTransferItem: Sendable, Equatable, Identifiable {
     }
 }
 
-struct SessionTransferPeer: Sendable {
+nonisolated struct SessionTransferPeer: Sendable {
     let path: String
     let app: String
     let build: String
@@ -113,7 +126,7 @@ final class SessionTransferService {
         var peers: [SessionTransferPeer] = []
         var refused = false
         for path in paths where FileManager.default.fileExists(atPath: path) {
-            let identify: JSONValue
+            let identify: TransferJSONValue
             do {
                 identify = try await ControlPeerClient.request(path: path, method: "system.identify")
             } catch ControlPeerClient.Failure.refused {
@@ -343,9 +356,9 @@ final class SessionTransferService {
         }
     }
 
-    enum Failure: Error { case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused }
+    nonisolated enum Failure: Error { case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused }
 }
 
 private extension CmuxNextSettings.JSONValue {
-    static func optional(_ value: String?) -> CmuxNextSettings.JSONValue { value.map(CmuxNextSettings.JSONValue.string) ?? .null }
+    nonisolated static func optional(_ value: String?) -> CmuxNextSettings.JSONValue { value.map(CmuxNextSettings.JSONValue.string) ?? .null }
 }
