@@ -19,12 +19,13 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 
 use super::super::agent_session_attach_tests::{
-    BUNDLE_MANIFEST, Client, FakeAcpmux, SESSION, UNGUARDED_CHAT, agent_tab, assert_code, mux_with,
-    run, terminal_pane,
+    ABORT_FAILS_CHAT, BUNDLE_MANIFEST, BUNDLE_SESSION, Client, FakeAcpmux, SESSION, UNGUARDED_CHAT,
+    agent_tab, assert_code, mux_with, run, terminal_pane,
 };
 use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
 use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle};
 use crate::mux::Mux;
+use crate::server::AgentStartHost;
 
 // MARK: Fixtures
 
@@ -71,7 +72,46 @@ fn canonical(path: &Path) -> String {
 fn transfer_mux(fake: &FakeAcpmux, label: &str, home: &Home, cloud: bool) -> Arc<Mux> {
     let mux = mux_with(fake, label);
     mux.set_agent_transfer_host(Some(AgentTransferHost { cloud, home: home.path.clone() }));
+    // A Mac, an SSH host or a personal (owner) Cloud VM.
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
     mux
+}
+
+/// Skips the frames of one `agent-transfer-begin`: the begin and the reads
+/// of the two bundle files the daemon scrubs.
+fn skip_begin(fake: &FakeAcpmux) {
+    let methods: Vec<Value> = (0..3).map(|_| fake.frame()["method"].clone()).collect();
+    assert_eq!(
+        methods,
+        [
+            json!("_acpmux/transfer_begin"),
+            json!("_acpmux/transfer_read"),
+            json!("_acpmux/transfer_read")
+        ]
+    );
+}
+
+/// Reads a whole bundle file through the daemon, in small pages.
+fn read_all(client: &mut Client, path: &str) -> Vec<u8> {
+    let base64 = base64::engine::general_purpose::STANDARD;
+    let mut bytes = Vec::new();
+    let mut offset = 0;
+    loop {
+        let read = client.request(json!({"cmd":"agent-transfer-read","transfer_id":"xfer_1",
+                                         "path":path,"offset":offset,"limit":64}));
+        let page = ok_data(&read).clone();
+        bytes.extend(base64.decode(page["data"].as_str().unwrap()).unwrap());
+        offset = page["next"].as_u64().unwrap();
+        if page["eof"] == json!(true) {
+            return bytes;
+        }
+    }
+}
+
+/// The size the begin manifest lists for `path`.
+fn listed_size(begun: &Value, path: &str) -> u64 {
+    let files = ok_data(begun)["manifest"]["files"].as_array().unwrap().clone();
+    files.iter().find(|f| f["path"] == json!(path)).unwrap()["size"].as_u64().unwrap()
 }
 
 /// The `transfer_begin` answer a source daemon hands the app.
@@ -380,8 +420,7 @@ fn pages_over_four_mebibytes_are_refused() {
     ok_data(&client.request(write(&at_cap)));
     assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_write"));
     ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
-    let _ = fake.frame();
-    let _ = fake.frame();
+    skip_begin(&fake);
     let read = client.request(json!({"cmd":"agent-transfer-read","transfer_id":"xfer_1",
                                      "path":"events/0.ndjson","offset":0,
                                      "limit":MAX_PAGE_BYTES + 1}));
@@ -407,6 +446,7 @@ fn source_verbs_take_the_chat_from_the_surface_tab() {
     assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
     assert_eq!(sent["params"], json!({"sessionId":SESSION,"interrupt":true}));
     let _manifest_read = fake.frame();
+    let _session_read = fake.frame();
     let read = client.request(json!({"cmd":"agent-transfer-read","transfer_id":"xfer_1",
                                      "path":"events/0.ndjson","offset":0,"limit":1024}));
     assert_eq!(ok_data(&read)["data"], json!("YWJj"));
@@ -505,8 +545,7 @@ fn read_takes_only_bundle_paths_of_a_move_this_daemon_began() {
     );
     fake.no_connection();
     ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
-    let _ = fake.frame();
-    let _ = fake.frame();
+    skip_begin(&fake);
     for path in ["../session.json", "/etc/passwd", "", "events/../../x", "./manifest.json"] {
         assert_code(&client.request(read("xfer_1", path)), "agent_transfer.bad_request");
     }
@@ -514,5 +553,181 @@ fn read_takes_only_bundle_paths_of_a_move_this_daemon_began() {
         &client.request(read("xfer_2", "events/0.ndjson")),
         "agent_transfer.unknown_transfer",
     );
+    fake.no_frame();
+}
+
+// MARK: Host kind (hq-84)
+
+/// A host source a test can switch: 0 allowed, 1 team VM, 2 unknown Cloud.
+fn switchable_host(mux: &Arc<Mux>) -> Arc<AtomicU64> {
+    let kind = Arc::new(AtomicU64::new(0));
+    let read = kind.clone();
+    mux.set_agent_start_host(Arc::new(move || match read.load(Ordering::SeqCst) {
+        0 => AgentStartHost::Allowed,
+        1 => AgentStartHost::TeamVm,
+        _ => AgentStartHost::UnknownCloud,
+    }));
+    kind
+}
+
+#[test]
+fn a_receive_is_refused_on_a_team_vm_and_on_a_cloud_vm_of_unknown_kind() {
+    let fake = FakeAcpmux::start("xteam");
+    let home = Home::new("team");
+    let mux = transfer_mux(&fake, "atx-team", &home, true);
+    let kind = switchable_host(&mux);
+    let mut client = Client::connect(&mux, "xteam");
+    kind.store(1, Ordering::SeqCst);
+    assert_code(&receive(&mut client, &home.text("work/project")), "agent_session.team_vm_blocked");
+    kind.store(2, Ordering::SeqCst);
+    assert_code(&receive(&mut client, &home.text("work/project")), "agent_session.host_unverified");
+    fake.no_connection();
+    // A personal (owner) Cloud VM takes it.
+    kind.store(0, Ordering::SeqCst);
+    assert_eq!(
+        ok_data(&receive(&mut client, &home.text("work/project")))["receive_id"],
+        json!("rcv_1")
+    );
+}
+
+#[test]
+fn a_daemon_that_was_never_told_its_host_kind_refuses_a_receive() {
+    let fake = FakeAcpmux::start("xnokind");
+    let home = Home::new("nokind");
+    let mux = mux_with(&fake, "atx-nokind");
+    mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: true, home: home.path.clone() }));
+    let mut client = Client::connect(&mux, "xnokind");
+    assert_code(&receive(&mut client, &home.text("work/project")), "agent_session.host_unverified");
+    fake.no_connection();
+}
+
+#[test]
+fn finish_reads_the_host_kind_again() {
+    let fake = FakeAcpmux::start("xteamfin");
+    let home = Home::new("teamfin");
+    let mux = transfer_mux(&fake, "atx-teamfin", &home, true);
+    let kind = switchable_host(&mux);
+    let mut client = Client::connect(&mux, "xteamfin");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    // A team enroll lands between the receive and its finish.
+    kind.store(1, Ordering::SeqCst);
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_session.team_vm_blocked");
+    fake.no_frame();
+}
+
+// MARK: Receive and move slots
+
+fn many_manifest(n: usize) -> Value {
+    let mut manifest = manifest();
+    manifest["transferId"] = json!(format!("xfer_many_{n}"));
+    manifest
+}
+
+#[test]
+fn abandoned_receives_free_their_slots_once_aborted() {
+    let fake = FakeAcpmux::start("xslots");
+    let home = Home::new("slots");
+    let mux = transfer_mux(&fake, "atx-slots", &home, true);
+    let mut client = Client::connect(&mux, "xslots");
+    let cwd = home.text("work/project");
+    let take = |client: &mut Client, n: usize| {
+        client.request(json!({"cmd":"agent-transfer-receive","manifest":many_manifest(n),
+                              "cwd":cwd}))
+    };
+    for n in 0..16 {
+        assert_eq!(ok_data(&take(&mut client, n))["receive_id"], json!(format!("rcv_{n}")));
+        let _ = fake.frame();
+    }
+    // The cap is checked before acpmux makes a receive (no orphan there).
+    assert_code(&take(&mut client, 16), "agent_transfer.limit");
+    fake.no_frame();
+    let aborted =
+        client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_3"}));
+    assert_eq!(ok_data(&aborted)["dropped"], json!(true));
+    let again = client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_3"}));
+    assert_code(&again, "agent_transfer.unknown_receive");
+    assert_eq!(ok_data(&take(&mut client, 16))["receive_id"], json!("rcv_16"));
+}
+
+#[test]
+fn a_finish_that_cannot_succeed_drops_its_receive_and_a_retryable_one_keeps_it() {
+    let fake = FakeAcpmux::start("xfinfail");
+    let home = Home::new("finfail");
+    let mux = transfer_mux(&fake, "atx-finfail", &home, true);
+    let mut client = Client::connect(&mux, "xfinfail");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    let finish = |client: &mut Client, name: &str| {
+        client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1","name":name}))
+    };
+    // Pages still missing: the receive stays for more writes.
+    assert_code(&finish(&mut client, "incomplete"), "agent_transfer.refused");
+    let _ = fake.frame();
+    // The chat is here already: nothing a retry can change.
+    assert_code(&finish(&mut client, "exists"), "agent_transfer.refused");
+    let _ = fake.frame();
+    assert_code(&finish(&mut client, "chat"), "agent_transfer.unknown_receive");
+    fake.no_frame();
+}
+
+#[test]
+fn abort_forgets_the_move_even_when_acpmux_refuses_it() {
+    let fake = FakeAcpmux::start("xabortfail");
+    let home = Home::new("abortfail");
+    let mux = transfer_mux(&fake, "atx-abortfail", &home, false);
+    let surface = agent_tab(&mux, Some(ABORT_FAILS_CHAT));
+    let mut client = Client::connect(&mux, "xabortfail");
+    ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
+    skip_begin(&fake);
+    let abort = client.request(json!({"cmd":"agent-transfer-abort","surface":surface,
+                                      "transfer_id":"xfer_1"}));
+    assert_code(&abort, "agent_transfer.refused");
+    let _ = fake.frame();
+    let read = client.request(json!({"cmd":"agent-transfer-read","transfer_id":"xfer_1",
+                                     "path":"events/0.ndjson","offset":0}));
+    assert_code(&read, "agent_transfer.unknown_transfer");
+    fake.no_frame();
+}
+
+// MARK: What a bundle hands out
+
+#[test]
+fn begin_scrubs_launch_settings_from_session_json_and_keeps_its_folder() {
+    let fake = FakeAcpmux::start("xscrub");
+    let home = Home::new("scrub");
+    let mux = transfer_mux(&fake, "atx-scrub", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xscrub");
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
+    let bytes = read_all(&mut client, "session.json");
+    assert_eq!(bytes.len() as u64, listed_size(&begun, "session.json"));
+    let scrubbed: Value = serde_json::from_slice(&bytes).unwrap();
+    let original: Value = serde_json::from_str(BUNDLE_SESSION).unwrap();
+    for key in ["sessionEnv", "harnessArgv", "harnessRoots", "preset", "tags"] {
+        assert!(original.get(key).is_some(), "{key}");
+        assert!(scrubbed.get(key).is_none(), "{key} left in {scrubbed}");
+    }
+    for key in ["id", "harness", "cwd", "permissionPolicy", "createdAt"] {
+        assert_eq!(scrubbed[key], original[key], "{key}");
+    }
+}
+
+#[test]
+fn read_serves_only_paths_the_begin_manifest_lists() {
+    let fake = FakeAcpmux::start("xlisted");
+    let home = Home::new("listed");
+    let mux = transfer_mux(&fake, "atx-listed", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xlisted");
+    ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
+    skip_begin(&fake);
+    // On a case-insensitive disk these would name the unscrubbed files.
+    for path in ["Manifest.json", "SESSION.JSON", "native/claude/s.jsonl", "events/1.ndjson"] {
+        let read = client.request(json!({"cmd":"agent-transfer-read","transfer_id":"xfer_1",
+                                         "path":path,"offset":0}));
+        assert_code(&read, "agent_transfer.bad_request");
+    }
     fake.no_frame();
 }

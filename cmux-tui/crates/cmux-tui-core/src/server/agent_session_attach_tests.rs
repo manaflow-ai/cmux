@@ -153,45 +153,78 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             _ => None,
         };
         if let Some(result) = reply {
-            writeln!(writer, "{}", json!({"jsonrpc":"2.0","id":id,"result":result})).unwrap();
+            let frame = match result.get(FAKE_ERROR) {
+                Some(message) => json!({"jsonrpc":"2.0","id":id,
+                                        "error":{"code":-32000,"message":message}}),
+                None => json!({"jsonrpc":"2.0","id":id,"result":result}),
+            };
+            writeln!(writer, "{frame}").unwrap();
         }
     }
 }
 
+/// A fake answer carrying this key is sent as a JSON-RPC error.
+const FAKE_ERROR: &str = "__fake_error";
+
 /// The fake's `_acpmux/transfer_*` answers: a receive whose manifest names
-/// [`UNGUARDED_CHAT`] is answered as an acpmux without the guard would.
+/// [`UNGUARDED_CHAT`] is answered as an acpmux without the guard would, one
+/// whose manifest `transferId` is `xfer_many_<n>` gets receive id `rcv_<n>`,
+/// a finish named `exists` or `incomplete` fails as acpmux's would, and an
+/// abort of [`ABORT_FAILS_CHAT`] fails.
 fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
     use base64::Engine as _;
     let base64 = base64::engine::general_purpose::STANDARD;
     Some(match method {
         "_acpmux/transfer_receive" => {
             let chat = params["manifest"]["sessionId"].clone();
+            let many = params["manifest"]["transferId"].as_str().unwrap_or("");
             if chat == json!(UNGUARDED_CHAT) {
                 json!({"receiveId": "rcv_old", "sessionId": chat})
+            } else if let Some(n) = many.strip_prefix("xfer_many_") {
+                json!({"receiveId": format!("rcv_{n}"), "sessionId": chat, "guarded": true})
             } else {
                 json!({"receiveId": "rcv_1", "sessionId": chat, "guarded": true})
             }
         }
         "_acpmux/transfer_write" => json!({"next": 3}),
+        "_acpmux/transfer_finish" if params["name"] == json!("exists") => {
+            json!({FAKE_ERROR: "transfer.exists: chat acp_moving is here already"})
+        }
+        "_acpmux/transfer_finish" if params["name"] == json!("incomplete") => {
+            json!({FAKE_ERROR: "transfer.incomplete: \"events/0.ndjson\": 0 of 3"})
+        }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
         "_acpmux/transfer_begin" => json!({
             "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
             "sessionId": params["sessionId"],
             "files": [{"path": "events/0.ndjson", "size": 3},
-                      {"path": "manifest.json", "size": BUNDLE_MANIFEST.len()}],
+                      {"path": "manifest.json", "size": BUNDLE_MANIFEST.len()},
+                      {"path": "session.json", "size": BUNDLE_SESSION.len()}],
             "session": {"sessionId": params["sessionId"], "harness": "claude"},
         }),
         "_acpmux/transfer_read" if params["path"] == json!("manifest.json") => {
             json!({"data": base64.encode(BUNDLE_MANIFEST), "next": BUNDLE_MANIFEST.len(),
                    "eof": true})
         }
+        "_acpmux/transfer_read" if params["path"] == json!("session.json") => {
+            json!({"data": base64.encode(BUNDLE_SESSION), "next": BUNDLE_SESSION.len(),
+                   "eof": true})
+        }
         "_acpmux/transfer_read" => json!({"data": base64.encode("abc"), "next": 3, "eof": true}),
         "_acpmux/transfer_commit" => json!({"sessionId": params["sessionId"], "committed": true}),
+        "_acpmux/transfer_abort" if params["sessionId"] == json!(ABORT_FAILS_CHAT) => {
+            json!({FAKE_ERROR: "transfer.closed: the move committed"})
+        }
         "_acpmux/transfer_abort" => json!({"sessionId": params["sessionId"], "aborted": true}),
         _ => return None,
     })
 }
 
+/// A chat whose move the fake refuses to abort.
+pub(super) const ABORT_FAILS_CHAT: &str = "acp_abort_fails";
+/// A bundle's `session.json` (acpmux `SessionMeta`), with the source
+/// machine's launch settings.
+pub(super) const BUNDLE_SESSION: &str = r#"{"schema":"acpmux.session.v1","id":"acp_session_1","name":"chat","harness":"claude","harnessArgv":["--dangerously-skip-permissions"],"preset":"yolo","cwd":"/Users/someone/code/p","status":"idle","createdAt":1,"updatedAt":2,"sessionEnv":{"API_BASE":"http://127.0.0.1:9"},"harnessRoots":[{"path":"/Users/someone/.claude"}],"tags":{"lane":["x",0]},"permissionPolicy":"ask"}"#;
 /// A chat the fake receives without applying the guard.
 pub(super) const UNGUARDED_CHAT: &str = "acp_unguarded";
 /// A bundle's `manifest.json` (acpmux `hub/transfer.rs` export), naming the
