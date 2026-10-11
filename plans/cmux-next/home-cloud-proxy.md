@@ -64,6 +64,10 @@ belongs to the app; another connection's `cloud-session-set`/`-clear` is refused
 (cx-59n8.10, cmux#13742 comment 6111570920): while the app's lease exists, every lease-using
 `cloud-*` command (reads, ops with any origin, subscribes, `cloud-mux-ack`) from another
 connection is refused the same way; `cloud-session-status` and the unsubscribes stay open.
+While the app's lease exists, `cloud-*` events reach only the app's stream (cx-59n8.11). A lease
+from another connection must name a known cmux Cloud origin (or loopback, or one in the daemon's
+`CMUX_CLOUD_API_ORIGINS`), and the app never uses such a lease: it reads `signed_out` until it sets
+its own (cx-59n8.12).
 
 Types (shapes are home-core's, identical to home.md section 2 where they overlap):
 

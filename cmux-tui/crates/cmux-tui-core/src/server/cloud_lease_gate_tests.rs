@@ -22,7 +22,11 @@ fn writer() -> MessageWriter {
 fn daemon() -> (Arc<Mux>, u64, u64, Arc<FakeBackend>) {
     let mux = Mux::new_for_test("cloud-lease-gate", crate::SurfaceOptions::default());
     let backend = Arc::new(FakeBackend::default());
-    let options = ServiceOptions { linger: Duration::ZERO, ..ServiceOptions::default() };
+    let options = ServiceOptions {
+        linger: Duration::ZERO,
+        api_origins: vec![APP_BASE.into(), "https://other.example".into()],
+        ..ServiceOptions::default()
+    };
     assert!(
         mux.install_cloud_conversations(CloudConversations::with_options(backend.clone(), options))
     );

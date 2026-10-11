@@ -309,7 +309,7 @@ class ChromeTextField: NSTextField {
     private func applyEditorColors() {
         guard let editor = currentEditor() as? NSTextView else { return }
         performWithTheme {
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
     }
