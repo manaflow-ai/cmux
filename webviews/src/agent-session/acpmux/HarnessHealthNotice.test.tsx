@@ -53,11 +53,22 @@ afterEach(async () => {
 
 type Opened = { kind: string; text: string; cwd?: string; run: boolean };
 
-async function render(container: HTMLElement, health: HarnessHealth | undefined, opened: Opened[] = []) {
+async function render(
+  container: HTMLElement,
+  health: HarnessHealth | undefined,
+  opened: Opened[] = [],
+  harness = "codex",
+) {
   await act(async () => {
     root ??= createRoot(container);
     root.render(
-      <HarnessHealthNotice health={health} name="Codex" cwd="/work" open={(params) => opened.push(params)} />,
+      <HarnessHealthNotice
+        health={health}
+        harness={harness}
+        name="Codex"
+        cwd="/work"
+        open={(params) => opened.push(params)}
+      />,
     );
   });
   return opened;
@@ -123,4 +134,12 @@ test("nothing shows for an update that needs sudo, a current CLI, or sign-in the
   expect(notice(container)).toBeNull();
   await render(container, undefined);
   expect(notice(container)).toBeNull();
+});
+
+test("a chat that switched agent never shows the previous agent's notice", async () => {
+  const container = installDom();
+  // The chat is on Claude now; Codex's row has not been replaced yet.
+  const opened = await render(container, signedOut, [], "claude");
+  expect(notice(container)).toBeNull();
+  expect(opened).toEqual([]);
 });
