@@ -16,7 +16,7 @@ harness `fake`, no real model). Checks, as a person does them:
 The app is started by its executable from this job and ended by exact pid; it never touches
 another cmux window.
 
-  acpmux-app-approvals-t2-gui.py --app <cmux DEV tag.app> --tag <tag> --machine vm_... --creds <file> --account <email>
+  acpmux-app-approvals-t2-gui.py --app <cmux DEV tag.app> --tag <tag> --machine vm_... --creds <file> [--account <email>]
 Writes NX_ARTIFACTS/t2.json, app.log and window snapshots.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, time
@@ -26,9 +26,11 @@ ap.add_argument("--app", required=True)
 ap.add_argument("--tag", required=True)
 ap.add_argument("--machine", required=True)
 ap.add_argument("--creds", required=True)
-ap.add_argument("--account", required=True)
+ap.add_argument("--account", help="the agent account email (default: CMUX_UITEST_STACK_EMAIL of --creds)")
 ap.add_argument("--worker", default="https://cmux-api-development.debussy.workers.dev")
 opts = ap.parse_args()
+if not opts.account:
+    opts.account = next((l.split("=", 1)[1].strip().strip("'\"") for l in open(opts.creds) if l.strip().removeprefix("export ").startswith("CMUX_UITEST_STACK_EMAIL=")), "")
 if opts.worker != "https://cmux-api-development.debussy.workers.dev":
     sys.exit("development Worker only")
 OUT = os.environ.get("NX_ARTIFACTS") or f"/tmp/kvmz-t2-{os.getpid()}"
@@ -120,7 +122,8 @@ from tag_teardown import TagTeardown
 TAG_STATE = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{opts.tag}")
 if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
     os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
-HOME_ACP = os.path.join(OUT, "acpmux-home")
+# Short: acpmux puts unix sockets under its home, and a socket path over 104 bytes traps NWConnection.
+HOME_ACP = f"/tmp/kvmz-acp-home-{os.getpid()}"
 ACP_SOCKET = f"/tmp/kvmz-acp-{os.getpid()}.sock"
 os.makedirs(HOME_ACP, exist_ok=True)
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
