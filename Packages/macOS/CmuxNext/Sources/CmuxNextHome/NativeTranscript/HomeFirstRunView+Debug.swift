@@ -11,13 +11,24 @@ extension HomeFirstRunView {
 
     /// Clicks agent row `index`: a mouse down and up at its centre sent
     /// through its window, which hit-tests them as a pointer click, or with
-    /// `pointer` false VoiceOver's press. Returns the row's tab id; nil when
-    /// the row is missing or hidden, or another view is under its centre.
+    /// `pointer` false VoiceOver's press. Returns the tab id the row's click
+    /// handed to `onAgent`; nil when the click never reached it (the row is
+    /// missing or hidden, or another view is under its centre).
     func debugClickAgent(_ index: Int, pointer: Bool) -> String? {
-        guard agents.indices.contains(index), agentRows.indices.contains(index) else { return nil }
+        guard agentRows.indices.contains(index) else { return nil }
         let row = agentRows[index]
         guard !row.isHiddenOrHasHiddenAncestor, let window = row.window, let content = window.contentView else { return nil }
-        guard pointer else { return row.accessibilityPerformPress() ? agents[index].id : nil }
+        let handler = onAgent
+        var opened: String?
+        onAgent = { id in
+            opened = id
+            handler(id)
+        }
+        defer { onAgent = handler }
+        guard pointer else {
+            _ = row.accessibilityPerformPress()
+            return opened
+        }
         let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
         guard let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point),
               hit === row || hit.isDescendant(of: row) else { return nil }
@@ -25,10 +36,10 @@ extension HomeFirstRunView {
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                                                  timestamp: ProcessInfo.processInfo.systemUptime,
                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                                 clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else { return nil }
+                                                 clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else { return opened }
             window.sendEvent(event)
         }
-        return agents[index].id
+        return opened
     }
 }
 

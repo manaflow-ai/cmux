@@ -119,6 +119,13 @@ extension CaptureSceneRegistry {
               let chief = TopHomePageView.chief(services.home) else {
             return .object(["error": .string("Home is not shown")])
         }
+        // A click on a window that is not key makes it key first: make it key
+        // as it is under a user's pointer.
+        let wasKey = controller.window?.isKeyWindow ?? false
+        if !wasKey {
+            NSApp.activate()
+            controller.window?.makeKeyAndOrderFront(nil)
+        }
         // The window can leave Home after the snapshot (a capture once showed
         // the newest terminal's workspace by the click): show it again first.
         let wasShown = page.host.flatMap(HomePageTab.transcript(in:))?.debugFirstRunShown == true
@@ -134,22 +141,26 @@ extension CaptureSceneRegistry {
             return .object(["error": .string("Home's first-run panel is not shown"), "home_reshown": .bool(!wasShown)])
         }
         let rows = transcript.debugFirstRunAgents
-        var report: [String: CmuxNextSettings.JSONValue] = ["index": .number(Double(index)), "window_key": .bool(controller.window?.isKeyWindow ?? false)]
+        var report: [String: CmuxNextSettings.JSONValue] = ["index": .number(Double(index)), "window_was_key": .bool(wasKey),
+                                                            "window_key": .bool(controller.window?.isKeyWindow ?? false)]
         report["home_reshown"] = .bool(!wasShown)
         report["rows"] = .array(rows.map { row in
             .object(["tab": .string(row.id), "title": .string(row.title), "status": .string("\(row.status)"), "shown": .bool(row.shown)])
         })
         report["focused_tab_before"] = focusedTab(controller).map(CmuxNextSettings.JSONValue.string) ?? .null
-        var via = "pointer"
-        var clicked = transcript.debugClickFirstRunAgent(index, pointer: true)
-        let reached = await focusReaches(clicked, controller)
-        report["pointer_opened"] = .bool(reached)
+        let pointer = transcript.debugClickFirstRunAgent(index, pointer: true)
+        let reached = await focusReaches(pointer, controller)
+        report["pointer_clicked_tab"] = pointer.map(CmuxNextSettings.JSONValue.string) ?? .null
+        report["pointer_focused_tab"] = focusedTab(controller).map(CmuxNextSettings.JSONValue.string) ?? .null
+        var clicked = pointer
         if !reached {
-            via = "accessibility_press"
-            clicked = transcript.debugClickFirstRunAgent(index, pointer: false)
-            _ = await focusReaches(clicked, controller)
+            // The press needs the row on screen: a pointer click that left Home makes it nil.
+            let press = transcript.debugClickFirstRunAgent(index, pointer: false)
+            _ = await focusReaches(press, controller)
+            report["press_clicked_tab"] = press.map(CmuxNextSettings.JSONValue.string) ?? .null
+            clicked = press ?? pointer
         }
-        report["via"] = .string(via)
+        report["via"] = .string(reached ? "pointer" : "accessibility_press")
         report["clicked_tab"] = clicked.map(CmuxNextSettings.JSONValue.string) ?? .null
         let focused = focusedTab(controller)
         report["focused_tab"] = focused.map(CmuxNextSettings.JSONValue.string) ?? .null
