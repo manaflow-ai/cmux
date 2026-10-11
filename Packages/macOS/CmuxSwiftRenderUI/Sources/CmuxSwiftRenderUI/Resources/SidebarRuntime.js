@@ -11,6 +11,8 @@
 //   __host_applyOps(jsonString)  - apply a batch of scene ops
 //   __host_action(jsonString)    - run captured commands (cmux/openURL/log)
 //   __host_log(string)           - debug logging
+//   __host_clipboardWrite(string) -> bool - write-only clipboard, honored
+//                                  only during a click/menu-action dispatch
 // Host entry points (defined here, called by Swift):
 //   __setData(key, jsonString)   - update one data key
 //   __dispatch(nodeId, event, jsonString) - deliver a UI event
@@ -475,6 +477,13 @@
   };
   g.openURL = (url) => __host_action(JSON.stringify({ kind: "openURL", url: String(url) }));
   g.log = (message) => __host_action(JSON.stringify({ kind: "log", message: String(message) }));
+  // Write-only clipboard. The host writes only while it is dispatching a
+  // click, double-click or menu item to this sidebar; anywhere else (load,
+  // data effects, text-field submits, deferred callbacks) the call returns
+  // false and logs why. There is no read.
+  g.clipboard = Object.freeze({
+    write: (text) => __host_clipboardWrite(text === undefined || text === null ? "" : String(text)) === true,
+  });
 
   // ---------------------------------------------------------------------
   // Host entry points
