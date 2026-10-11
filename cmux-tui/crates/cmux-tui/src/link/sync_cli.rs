@@ -147,7 +147,7 @@ fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summar
         }
         let target = format!("{remote_root}/{relative}");
         if listings.revision(&mut remote, &target)?.as_deref() == Some(pushed.revision.as_str()) {
-            remote.delete(&[target.clone()])?;
+            remote.delete(std::slice::from_ref(&target))?;
             summary.deleted += 1;
         }
         let (parent, name) = remote::split(&target)?;
