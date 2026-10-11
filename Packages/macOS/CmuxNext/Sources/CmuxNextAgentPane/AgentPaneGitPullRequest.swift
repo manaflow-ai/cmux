@@ -13,17 +13,31 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// `{action: "threads"}`: read the pull request's review threads instead (cx-ncc.77.2,
     /// AgentPaneGitReviewThreads.swift); a read needs no click.
     public let readsThreads: Bool
+    /// `{action: "merge", number, url}`: merge that pull request, the one the page showed
+    /// (cx-ncc.77.4, AgentPaneGitMerge.swift).
+    public let merges: Int?
+    public let mergeURL: String?
 
     public init?(params: [String: Any]?) {
         guard let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") else { return nil }
         self.cwd = cwd
         readsThreads = params?["action"] as? String == "threads"
+        if params?["action"] as? String == "merge" {
+            guard let number = params?["number"] as? Int, number > 0, let url = params?["url"] as? String,
+                  Self.isPullRequestURL(url) else { return nil }
+            merges = number
+            mergeURL = url
+        } else {
+            merges = nil
+            mergeURL = nil
+        }
     }
 
     /// The pull request the run opened (or the threads it read), or why it did not.
     enum Outcome: Equatable {
         case opened(url: String, number: Int?)
         case threads(url: String?, number: Int?, [AgentPaneGitReviewThread])
+        case merged(url: String, number: Int, queued: Bool)
         case refused(String)
     }
 
@@ -41,6 +55,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         }
         guard let gh else { return .refused(noGitHubCLIMessage) }
         if request.readsThreads { return await threads(in: folder, gh: gh) }
+        if let number = request.merges, let url = request.mergeURL { return await merge(number, url: url, in: folder, gh: gh) }
         let git = { (arguments: [String]) in await AgentPaneGitProcess.output(["-C", folder] + arguments, timeout: localTimeout) }
         guard await git(["symbolic-ref", "--quiet", "--short", "HEAD"]).status == 0 else { return .refused(detachedMessage) }
         let counts = await git(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
@@ -134,6 +149,8 @@ extension AgentPaneGitPullRequest {
         case .threads(let url, let number, let threads):
             return AgentPaneReply.success(["url": url.map { $0 as Any } ?? NSNull(), "number": number.map { $0 as Any } ?? NSNull(),
                                            "threads": threads.map(\.json)])
+        case .merged(let url, let number, let queued):
+            return AgentPaneReply.success(["url": url, "number": number, "merged": !queued, "queued": queued])
         case .refused(let message): return AgentPaneReply.failure(code: "git.failed", message: message)
         }
     }
