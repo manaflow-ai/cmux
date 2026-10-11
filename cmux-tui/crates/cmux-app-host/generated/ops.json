@@ -147,6 +147,7 @@
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
     "git.diff",
+    "git.files.list",
     "git.files.search",
     "git.status",
     "github.issue.comment",

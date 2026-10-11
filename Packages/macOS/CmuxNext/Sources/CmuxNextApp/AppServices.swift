@@ -350,9 +350,9 @@ final class AppServices {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps
-                    // its first id; links name it by the resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                    // A tab first seen without a `tab_` resource id keeps its first id; links
+                    // (and TabMirror's wait) name it by the observed resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
                         return (tab, pane)
                     }
                 }

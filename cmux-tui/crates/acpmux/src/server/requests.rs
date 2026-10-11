@@ -61,11 +61,23 @@ pub(super) async fn handle_request(
     }
     // Only the person allows or widens what runs without asking
     // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    hub.person_check(conn.is_person(), m, &params).await?;
+    let verdict = hub.person_check(conn.is_person(), m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
-    let mut reply = dispatch_request(hub, conn, m, params, resolved).await;
+    let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
+        // The check saw a peer's prompt: only the peer decides it. If the
+        // name no longer names a peer's session (renamed, killed, a new
+        // local session with that prefix), refuse; never handle it here.
+        match super::peer_forward::forward(hub, conn, m, &params).await {
+            Some(reply) => reply,
+            None => Err(crate::hub::person::person_required(
+                "answering a prompt whose session moved between this check and its forward",
+            )),
+        }
+    } else {
+        dispatch_request(hub, conn, m, params, resolved).await
+    };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
@@ -108,14 +120,16 @@ async fn dispatch_request(
                 } else {
                     Value::Null
                 },
+                // The daemon run decision proofs bind (`hub/person.rs`).
+                "personInstance": hub.person.instance(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -312,24 +326,18 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
-            let resend = mux_meta(&params)
-                .and_then(|m| m.get("resend"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let steer_only = mux_meta(&params)
-                .and_then(|m| m.get("steerOnly"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: Some(Box::new(move |v| {
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
-                resend,
+                resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
-                steer_only,
+                steer_only: flag("steerOnly") == Some(true),
+                interrupt: steer && flag("interrupt") == Some(true),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -933,6 +941,12 @@ async fn dispatch_request(
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
+        method::MUX_QUEUE_EDIT => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
+                .await
+        }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
             let prompt_id = str_param(&params, "promptId")
@@ -961,13 +975,12 @@ async fn dispatch_request(
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            // An allow that is not the person's connection counted on its
-            // decision proof (`hub/person.rs`): the answer spends its nonce.
-            let nonce = mux_meta(&params)
-                .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
-                .and_then(Value::as_str)
-                .filter(|_| option.is_some() && !conn.is_person());
-            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
+            // Who answers, for the person rule under the prompt's lock
+            // (`hub/person.rs`): an allow that is not the person's counts
+            // only on its decision proof, which the answer spends.
+            let answerer = crate::hub::person::Answerer::of(conn.is_person(), &params);
+            hub.respond_permission(&s, pid, option, answers, answered_by, answerer, control)
+                .await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

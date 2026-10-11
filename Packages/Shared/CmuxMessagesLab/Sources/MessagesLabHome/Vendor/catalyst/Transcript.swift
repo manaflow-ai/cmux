@@ -384,7 +384,8 @@ final class ChatLayout: UICollectionViewLayout {
 /// a row by adding that row's live components with their original begin
 /// times, so recycled and newly visible cells join the motion in progress.
 final class MotionLedger {
-    enum Target: Hashable { case cell, content, typing, receiptOld, receiptNew, connector, connectorLine, fillGradient }
+    /// `bubble`: the bubble's own drawing without the connector (a long text's tiled body, else the bitmap).
+    enum Target: Hashable { case cell, content, typing, receiptOld, receiptNew, connector, connectorLine, fillGradient, bubble }
     struct Entry {
         var id: Int
         var target: Target
@@ -600,6 +601,8 @@ final class RowCell: UICollectionViewCell {
         // the previous row's gradient counter-springs (ledger .fillGradient) while `applied` restarted empty.
         for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, receiptOld] { l.removeAllAnimations() }
         badge?.removeAllAnimations(); badgeGlyph?.removeAllAnimations()
+        // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
+        if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
     }
 

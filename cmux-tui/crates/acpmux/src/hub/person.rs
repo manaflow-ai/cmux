@@ -56,6 +56,16 @@
 //!   policy, a rule or a mode: those widen and stay the person's own.
 //!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
 //!   cannot read the key from its memory.
+//! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's
+//!   session cannot check a proof made with the peer's key, so it forwards
+//!   every answer for that session (allow, deny, cancel) and the peer
+//!   decides; a forwarded answer counts hops (`server/peer_forward.rs`). `answeredBy` from a
+//!   connection that is not the person counts only together with a proof
+//!   that counts. `initialize` and `_acpmux/status` name the run
+//!   (`personInstance`); status says whether it holds a key (`personKey`).
+//!   The key reaches a daemon that `acpmux daemon start --person-key-fd 0`
+//!   launches over a socket pair, only after the daemon said it is not
+//!   dumpable (`daemon.rs`).
 //!
 //! [`Hub::person_check`] is the one check, run for every request before it
 //! is handled or forwarded. Without the person, a client may read prompts and
@@ -158,6 +168,38 @@ pub const SPENT_LIMIT: usize = 4096;
 /// A spent decision nonce is kept this long.
 pub const SPENT_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
+/// Who answers a prompt, for the authoritative check in
+/// `Hub::respond_permission`: whether the connection is the person, and the
+/// decision proof (`decisionNonce`, `personDecision`) the answer carries.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Answerer<'a> {
+    pub person: bool,
+    pub decision: Option<(&'a str, &'a str)>,
+}
+
+impl<'a> Answerer<'a> {
+    /// The answerer of a `permission_respond` with `params`.
+    pub fn of(person: bool, params: &'a Value) -> Self {
+        let meta = params.pointer("/_meta/acpmux");
+        let field = |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str);
+        let decision = match (field(DECISION_NONCE_FIELD), field(DECISION_FIELD)) {
+            (Some(nonce), Some(proof)) => Some((nonce, proof)),
+            _ => None,
+        };
+        Self { person, decision }
+    }
+}
+
+/// What the request check decided for a request that may go on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PersonVerdict {
+    /// Handle it as usual.
+    Handle,
+    /// An answer for a peer's prompt: forward it to the peer, which decides;
+    /// never handle it here (`server/requests.rs`).
+    PeerOnly,
+}
+
 /// This launch's person key, once the app gave it.
 #[derive(Default)]
 pub struct PersonGate {
@@ -171,6 +213,11 @@ pub struct PersonGate {
 }
 
 impl PersonGate {
+    /// Whether this daemon run holds a person key (never the key itself).
+    pub fn has_key(&self) -> bool {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+    }
+
     /// This daemon run's id (16 random bytes, lowercase hex).
     pub fn instance(&self) -> &str {
         self.instance.get_or_init(|| new_nonce()[..32].to_owned())
@@ -435,24 +482,40 @@ impl Hub {
         person: bool,
         m: &str,
         params: &Value,
-    ) -> Result<(), RpcError> {
+    ) -> Result<PersonVerdict, RpcError> {
         if person {
-            return Ok(());
+            return Ok(PersonVerdict::Handle);
         }
+        if m == method::MUX_PERMISSION_RESPOND && self.is_peer_session(params) {
+            // A peer's prompt: the peer is the only one that decides its
+            // prompts (with its own key and rules); it gets the whole
+            // request, an allow, a deny or a cancel (slice 2b). The request
+            // handler forwards it and never handles it here.
+            return Ok(PersonVerdict::PeerOnly);
+        }
+        self.person_check_local(m, params).await.map(|()| PersonVerdict::Handle)
+    }
+
+    /// `person_check` for a request this daemon handles itself.
+    async fn person_check_local(&self, m: &str, params: &Value) -> Result<(), RpcError> {
         match m {
             method::MUX_PERMISSION_RESPOND => {
-                // Who answered for the person is the person's own claim.
-                if params
-                    .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
-                    .is_some_and(|v| !v.is_null())
+                let option = params.get("optionId").filter(|v| !v.is_null());
+                let proved = option.is_some_and(|o| self.person_decided(params, o));
+                // Who answered for the person is the person's own claim, or
+                // comes with the person's decision proof (cx-0q7o).
+                if !proved
+                    && params
+                        .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+                        .is_some_and(|v| !v.is_null())
                 {
                     return Err(person_required("answeredBy"));
                 }
                 // No option: a cancel.
-                let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
+                let Some(option) = option else {
                     return Ok(());
                 };
-                if self.option_rejects(params, option) || self.person_decided(params, option) {
+                if proved || self.option_rejects(params, option) {
                     Ok(())
                 } else {
                     Err(person_required("allowing a permission"))
@@ -567,6 +630,16 @@ impl Hub {
             let name = params.get("name").and_then(Value::as_str)?;
             cfg.presets.get(name).and_then(|p| p.policy)
         }
+    }
+
+    /// Whether the request names a peer's session (this daemon does not
+    /// have it): `server/peer_forward.rs` forwards it whole, and the peer
+    /// checks it with its own key, which this daemon does not hold. The same
+    /// condition as the forward's.
+    fn is_peer_session(&self, params: &Value) -> bool {
+        crate::server::session_key(params)
+            .ok()
+            .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
     }
 
     /// Whether a relayed allow carries the person's decision proof for the

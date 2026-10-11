@@ -17,7 +17,9 @@
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  accent-color: AccentColor;
+  /* The theme accent: the text color by default (no system blue), the theme's hue with
+     appearance.accent. */
+  accent-color: var(--cmux-accent, AccentColor);
   /* Keyboard focus stays visible without competing with the content. The host theme supplies
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
