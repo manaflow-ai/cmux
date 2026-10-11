@@ -793,7 +793,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create checkpoint"
+            "value": "Create Checkpoint"
           }
         },
         "ja": {
@@ -1055,7 +1055,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow for this chat"
+            "value": "Allow for This Chat"
           }
         },
         "ja": {
@@ -1186,7 +1186,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow once"
+            "value": "Allow Once"
           }
         },
         "ja": {
@@ -1448,7 +1448,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Expand permission details"
+            "value": "Expand Permission Details"
           }
         },
         "ja": {
@@ -1579,7 +1579,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh permissions"
+            "value": "Refresh Permissions"
           }
         },
         "ja": {
@@ -1710,7 +1710,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check and retry permission"
+            "value": "Check and Retry Permission"
           }
         },
         "ja": {
@@ -1841,7 +1841,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Revoke chat permission"
+            "value": "Revoke Chat Permission"
           }
         },
         "ja": {
