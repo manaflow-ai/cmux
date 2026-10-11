@@ -167,6 +167,8 @@ try:
     if isinstance(result, tuple):
         check("Safari" in result[1].get("title", ""), f"Safari's steps name Safari ({result[1].get('title')})")
     imported = wait_for(lambda: next((t for t in toasts() if "Imported: 2" in t), None), "the passwords toast", 30)
+    if not imported:
+        print("note: csv still in place:", os.path.exists(os.path.join(EXPORTS, "passwords.csv")), "toasts:", toasts(), flush=True)
     check(imported is not None, f"the picked passwords CSV is imported ({toasts()})")
     check("not-a-real-password" not in json.dumps(rpc("debug.toast")), "no password shows in a toast")
 finally:

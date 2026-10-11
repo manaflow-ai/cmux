@@ -35,7 +35,14 @@ struct BrowserFileImport {
                 case nil: failures.append(BrowserFileImportStrings.notAnExport(url.lastPathComponent))
                 }
             }
-            return failures.isEmpty ? nil : ActionWorkFailure(failures.joined(separator: " "))
+            guard !failures.isEmpty else { return nil }
+            let message = failures.joined(separator: " ")
+            // A palette or menu run waits for nothing: the person sees the failure here.
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                _ = CmuxToastCenter.shared.show(CmuxToast(id: "browser-file-import-failed", message: message, duration: .seconds(12)),
+                                            in: window)
+            }
+            return ActionWorkFailure(message)
         })
     }
 
