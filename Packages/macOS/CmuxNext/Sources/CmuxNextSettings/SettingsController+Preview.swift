@@ -42,7 +42,8 @@ extension SettingsController {
         }
         previewingKey = nil
         await reload()
-        previewSnapshot = nil
+        // A preview that started while the write reloaded keeps showing.
+        if previewingKey == nil { previewSnapshot = nil }
     }
 
     /// `root` with `path` set to `value` (nil removes it), creating objects

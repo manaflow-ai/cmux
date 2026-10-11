@@ -52,6 +52,24 @@ import Testing
         #expect(try !String(contentsOf: url, encoding: .utf8).contains("Rose Pine"))
     }
 
+    /// Only the theme previews on the terminals: a slider's preview (font size) never reloads the
+    /// Ghostty config on every step of the drag.
+    @Test func aSliderPreviewDoesNotReloadTheTerminals() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        var reloads = 0
+        terminal.reload = { reloads += 1 }
+        terminal.follow(settings)
+        let before = reloads
+        for size in [14.0, 15, 16] {
+            #expect(settings.preview(try descriptor("terminal.fontSize"), .number(size)))
+            for _ in 0..<50 { await Task.yield() }
+        }
+        #expect(reloads == before)
+        settings.endPreview()
+    }
+
     @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
