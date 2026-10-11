@@ -182,6 +182,25 @@ async fn prompt_streams_and_records() {
 }
 
 #[tokio::test]
+async fn summary_last_message_is_the_reply_last_line() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["lastMessage"], Value::Null);
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "looked around\n\n```\n\nAll   tests pass.\n"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        hub.session_summary(&session)["lastMessage"],
+        json!({"role": "agent", "text": "All tests pass."})
+    );
+}
+
+#[tokio::test]
 async fn permission_is_routed_to_clients_and_answered() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
@@ -204,6 +223,11 @@ async fn permission_is_routed_to_clients_and_answered() {
     assert_eq!(pending["request"]["toolCall"]["title"], "rm -rf /");
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["status"], "waiting");
+    // No reply yet: the row shows the prompt.
+    assert_eq!(
+        hub.session_summary(&session)["lastMessage"],
+        json!({"role": "user", "text": "ask: rm -rf /"})
+    );
     c.request(
         method::MUX_PERMISSION_RESPOND,
         json!({"sessionId": id, "permissionId": pid, "optionId": "yes"}),
