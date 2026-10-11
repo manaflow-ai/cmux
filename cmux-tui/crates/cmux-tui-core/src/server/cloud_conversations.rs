@@ -97,6 +97,17 @@ pub(super) struct HistoryParams {
     limit: u32,
 }
 
+/// `cloud-conversation-thread` (`conversation-thread-v1`).
+#[derive(Deserialize)]
+pub(super) struct ThreadParams {
+    conversation: String,
+    root: String,
+    #[serde(default)]
+    after_seq: Option<u64>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
 #[derive(Deserialize)]
 pub(super) struct TargetParams {
@@ -181,6 +192,11 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     Ok(service(mux, client)?.history(&conversation, before_seq, limit)?)
 }
 
+pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Result<Value> {
+    let ThreadParams { conversation, root, after_seq, limit } = params;
+    Ok(service(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
+}
+
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
     let service = service(mux, client)?;
     check_origin(mux, client, params.origin.as_deref())?;
@@ -231,6 +247,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
         Command::CloudInboxList(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
+            | Command::CloudConversationThread(_)
             | Command::CloudConversationOp(_)
             | Command::CloudMuxAck(_)
     )

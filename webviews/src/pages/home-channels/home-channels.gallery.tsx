@@ -20,11 +20,13 @@ type Props = {
   offline?: boolean;
   /** The Chief's running reply in the Chief DM. */
   draft?: MockDraft;
+  /** Adds #incident, a thread with more replies than one page. */
+  longThread?: boolean;
 };
 
-function HomeChannelsGallery({ select, thread, offline = false, draft }: Props) {
+function HomeChannelsGallery({ select, thread, offline = false, draft, longThread = false }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft));
+    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread));
     if (select)
       void created.select(select).then(() => {
         if (thread) created.openThread(thread);
@@ -92,6 +94,26 @@ export default componentEntry<Props>({
     thread: {
       note: "The thread panel open on the sidebar-fix message.",
       props: { select: "c-release", thread: "c-release-m2" },
+    },
+    "thread-long": {
+      note: "A thread past one page: the panel counts every reply (the owner's stats), then loads the rest.",
+      props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
+      play: async (ctx) => {
+        const panelText = (selector: string) =>
+          [...ctx.document.querySelectorAll(`.hc-thread ${selector}`)].map((node) => node.textContent?.trim() ?? "");
+        const scroller = { selector: ".hc-thread .hc-timeline" };
+        // The first page: 100 of the 130 replies, and the control for the rest.
+        await ctx.waitFor(
+          () => panelText(".hc-md").includes("Update 100.") && ctx.document.querySelector(".hc-thread-more"),
+        );
+        // The count is the owner's (every reply), not the loaded ones.
+        await ctx.scroll(scroller, "top");
+        await ctx.waitFor(() => panelText(".hc-replies-line").some((line) => line.includes("130")));
+        await ctx.click({ selector: ".hc-thread-more" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".hc-thread-more"));
+        await ctx.scroll(scroller, "bottom");
+        await ctx.waitFor(() => panelText(".hc-md").includes("Update 130."));
+      },
     },
     switcher: {
       note: "Cmd-K opens the switcher; the best match is highlighted.",

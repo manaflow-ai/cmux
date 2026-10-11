@@ -93,6 +93,15 @@ public protocol HomeSource: Sendable {
     /// Up to `limit` messages before `beforeSeq`, ascending.
     func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message]
 
+    /// `history` with the owner's stats of the thread roots in the page
+    /// (default: none, Model/Thread.swift).
+    func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage
+
+    /// The root and up to `limit` replies after `afterSeq` (ascending) of one
+    /// thread, with the owner's stats of the whole thread (default: a
+    /// bounded history scan, Model/Thread.swift).
+    func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage
+
     /// Sends an intent to its owner. Throws `HomeRejection`.
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult
 

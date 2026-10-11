@@ -157,7 +157,28 @@ nonisolated final class DaemonHomeSource: HomeSource {
             try await ConversationClient(self.requireConnection()).snapshot(conversation.rawValue, tail: min(max(tail, 1), 500))
         }
         return ConversationPage(conversation: HomeCoreMapping.summary(page.conversation),
-                                messages: page.messages.map(HomeCoreMapping.message))
+                                messages: page.messages.map(HomeCoreMapping.message),
+                                threads: page.threads.map { HomeCoreMapping.thread($0) })
+    }
+
+    func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
+        let page = try await Self.mapped {
+            try await ConversationClient(self.requireConnection())
+                .historyPage(conversation.rawValue, before: beforeSeq, limit: min(max(limit, 1), 500))
+        }
+        return HistoryPage(messages: page.messages.map(HomeCoreMapping.message), threads: page.threads.map { HomeCoreMapping.thread($0) })
+    }
+
+    /// The owner's thread read; a daemon from before `conversation-thread-v1` scans history.
+    func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
+        let connection = try requireConnection()
+        guard await connection.identity?.supports(DaemonCapabilities.shared.conversationThread) == true else {
+            return try await scanThread(of: conversation, root: root, after: afterSeq, limit: limit)
+        }
+        let page = try await Self.mapped {
+            try await ConversationClient(connection).thread(conversation.rawValue, root: root.rawValue, after: afterSeq, limit: limit)
+        }
+        return HomeCoreMapping.threadPage(page, message: HomeCoreMapping.message)
     }
 
     func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {

@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 #[path = "conversation_import.rs"]
 mod import;
 pub(crate) use import::ImportedMessage;
+#[path = "conversation_threads.rs"]
+pub(crate) mod threads;
 
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
@@ -203,6 +205,7 @@ impl ConversationStore {
              ) WITHOUT ROWID;",
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
+        transaction.execute_batch(threads::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)

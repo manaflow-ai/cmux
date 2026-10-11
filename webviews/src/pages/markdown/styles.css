@@ -330,6 +330,7 @@ body {
   top: 0.3em;
   --cmux-markdown-checkbox-secondary: var(--cmux-md-muted-color);
   --cmux-markdown-checkbox-accent: var(--cmux-md-task-checked-color);
+  --cmux-markdown-checkbox-ink: var(--cmux-surface-token, Canvas);
 }
 
 .md-prose hr {

@@ -23,12 +23,14 @@ extension ScreenContentView {
         let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
         guard let strip else {
             scrollState = ColumnScrollState()
+            settleCarried()
             applyPresentation()
             return rowsNeedFrames
         }
         scrollState.mode = mode
         let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
+        settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
         return apply(effects) || rowsNeedFrames
     }

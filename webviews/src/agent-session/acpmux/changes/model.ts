@@ -57,6 +57,10 @@ export type ChangesLoad =
 /// `turn` reads a turn's checkpoint pair (turnCheckpoint.ts), when the host keeps them.
 export type ChangesSource = {
   diff: (scope: ChangeScope) => Promise<unknown>;
+  /// Stages files (or unstages them), named as `diff` names them; absent where the view can't.
+  stage?: (paths: string[], unstage: boolean) => Promise<unknown>;
+  /// Opens the pushed branch's pull request: `{url, number}`; absent where the view can't.
+  pullRequest?: () => Promise<unknown>;
   status?: () => Promise<unknown>;
   turn?: (turn: { rowId: string }) => Promise<unknown>;
 };

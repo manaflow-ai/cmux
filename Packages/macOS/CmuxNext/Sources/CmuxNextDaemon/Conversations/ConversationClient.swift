@@ -40,6 +40,17 @@ public struct ConversationClient: Sendable {
         return try await connection.request(ConversationHistoryRequest(conversation: conversation, beforeSeq: seq, limit: limit)).messages
     }
 
+    /// `conversation-thread`; throws `missingCapabilities` on a daemon without `conversation-thread-v1`.
+    public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
+        try await require()
+        return try await connection.request(ConversationThreadRequest(conversation: conversation, root: root, afterSeq: seq, limit: limit))
+    }
+
+    public func historyPage(_ conversation: String, before seq: UInt64, limit: Int) async throws -> ConversationHistory {
+        try await require()
+        return try await connection.request(ConversationHistoryRequest(conversation: conversation, beforeSeq: seq, limit: limit))
+    }
+
     public func op(_ request: ConversationOpRequest) async throws -> ConversationOpResult {
         try await require()
         return try await connection.request(request)

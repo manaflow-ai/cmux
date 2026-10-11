@@ -66,9 +66,16 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
             content.layer?.masksToBounds = true
             surface.contentView.addSubview(content)
         }
-        // The floating chat stays where it was moved to.
-        if !isVisible, !holdsChat, let screen = Self.screenUnderPointer() {
-            setFrame(Self.placement(size: frame.size, in: screen.visibleFrame), display: false)
+        // The floating chat stays where it was moved to; summoned on another screen, it opens where it was left there.
+        if !isVisible, let screen = Self.screenUnderPointer() {
+            let composer = Self.placement(size: holdsChat ? Self.size : frame.size, in: screen.visibleFrame)
+            let display = FloatingChatFrames.display(screen)
+            if !holdsChat {
+                setFrame(composer, display: false)
+            } else if let target = FloatingChatFrames.summoned(onDisplay: self.screen.map(FloatingChatFrames.display), toDisplay: display,
+                                                               saved: frames.frame(onDisplay: display), near: composer, in: screen.visibleFrame) {
+                setFrame(target, display: false)
+            }
         }
         // Raise never activates the app; under no-activate it does not take the keys either.
         WindowActivation.show(self, .raise)
