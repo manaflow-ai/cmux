@@ -34,6 +34,7 @@ jobs:
     environment: artifacts
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -41,18 +42,45 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
-      - name: Trunk commits and pins
+      - name: Trunk commits, pins and windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           # The repository is public: the blobless fetch and lazy blob reads need no token.
-          git fetch --quiet --filter=blob:none origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
-          git rev-list origin/main origin/feat-cmux-next > "$RUNNER_TEMP/trunk-commits.txt"
+          git fetch --quiet --filter=blob:none origin \
+            "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next" \
+            "+refs/heads/nightly-next:refs/remotes/origin/nightly-next"
+          git rev-list origin/main origin/feat-cmux-next origin/nightly-next > "$RUNNER_TEMP/trunk-commits.txt"
           wc -l < "$RUNNER_TEMP/trunk-commits.txt"
           # Every commit a pin file ever named on either branch, not only the tips: a Release build of
           # an older commit installs its pin's prefix, and some pins were PR heads squashed away.
-          git log -p --format= origin/main origin/feat-cmux-next -- \
-            scripts/cmux-next/cmux-tui.pin images/cmux-vm/inputs.lock.json web/services/vms/images/manifest.json \
-            > "$RUNNER_TEMP/pins.txt"
+          # Tag commits (cmux-tui-v*, cmux-app-ffi-*) and the cmux-next-dev release target join them.
+          {
+            git log -p --format= origin/main origin/feat-cmux-next -- \
+              scripts/cmux-next/cmux-tui.pin images/cmux-vm/inputs.lock.json web/services/vms/images/manifest.json
+            git for-each-ref refs/tags --format='%(objectname) %(*objectname)'
+            gh release view cmux-next-dev --repo "$REPOSITORY" --json targetCommitish --jq .targetCommitish
+          } > "$RUNNER_TEMP/pins.txt"
+          # One window per tip (what the app resolvers pick) and per nightly-next build still on its
+          # release: the build number is the run id and attempt, and the resolver searched 50 commits.
+          {
+            for tip in origin/main origin/feat-cmux-next origin/nightly-next; do
+              git rev-list --max-count=5000 "$tip" | paste -sd' '
+            done
+            # A rerun of a release or RC tag bundles the newest published commit in its history.
+            git for-each-ref 'refs/tags/v*' --format='%(objectname)' | while read -r tag; do
+              git rev-list --max-count=500 "$tag" | paste -sd' '
+            done
+            gh release view nightly-next --repo "$REPOSITORY" --json assets --jq '.assets[].name' |
+              sed -nE 's/^cmux-nightly-next-macos-[a-z0-9_]+-([0-9]{3,})\.dmg$/\1/p' | sort -u |
+              while read -r build; do
+                head_sha="$(gh api "repos/$REPOSITORY/actions/runs/$((build / 100))" --jq .head_sha)"
+                git rev-list --max-count=64 "$head_sha" | paste -sd' '
+              done
+          } > "$RUNNER_TEMP/windows.txt"
+          wc -l < "$RUNNER_TEMP/windows.txt"
 
       - name: Prune
         env:
@@ -60,8 +88,41 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CF_R2_ACCOUNT_ID) }}
           PRUNE_DELETE: ${{ (inputs.delete || vars.R2_BINARIES_PRUNE_DELETE == '1') && 'true' || 'false' }}
+          COLD_CERT: .github/cold-tier/cmux-lawrence-cold.pem
         run: |
           set -euo pipefail
-          args=(--endpoint-url "$R2_ENDPOINT" --trunk-commits "$RUNNER_TEMP/trunk-commits.txt" --pin-file "$RUNNER_TEMP/pins.txt")
+          args=(--endpoint-url "$R2_ENDPOINT" --trunk-commits "$RUNNER_TEMP/trunk-commits.txt"
+                --pin-file "$RUNNER_TEMP/pins.txt" --windows "$RUNNER_TEMP/windows.txt")
           if [ "$PRUNE_DELETE" = true ]; then args+=(--delete); fi
+          # Cold copies need the host's certificate to encrypt the presigned deletes to.
+          if [ -f "$COLD_CERT" ]; then args+=(--cold-out "$RUNNER_TEMP/cold"); fi
           python3 scripts/ci/cmux_binaries_prune.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the cold queue
+        # Always: a run that queues nothing (dry run, deletes switched off, a failure) must replace
+        # the last queue, or the host keeps deleting from it for days.
+        if: ${{ always() && hashFiles('.github/cold-tier/cmux-lawrence-cold.pem') != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CF_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          cold="$RUNNER_TEMP/cold"
+          mkdir -p "$cold"
+          if [ ! -f "$cold/queue.json" ] || [ "${{ job.status }}" != success ]; then
+            echo "no cold queue this run: publishing an empty one"
+            rm -f "$cold/deletes.json"
+            printf '{"generated": "%s", "groups": []}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$cold/queue.json"
+            echo '{}' > "$cold/deletes.json"
+          fi
+          # The presigned deletes are secret: only cmux-lawrence's private key opens them, and the
+          # plain file never leaves this runner.
+          openssl smime -encrypt -binary -aes256 -outform DER -in "$cold/deletes.json" \
+            -out "$cold/deletes.p7m" .github/cold-tier/cmux-lawrence-cold.pem
+          rm -f "$cold/deletes.json"
+          for name in deletes.p7m queue.json; do
+            python3 scripts/ci/upload-r2-object.py --file "$cold/$name" --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries --key "cold-queue/$name" --cache-control "no-cache, no-store, must-revalidate"
+          done

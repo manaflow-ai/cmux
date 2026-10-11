@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """The cmux-binaries pruner deletes only unpinned, old branch-head prefixes, metadata first."""
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import urllib.error
 
 import yaml
@@ -51,12 +53,20 @@ class FakeBucket:
             raise urllib.error.HTTPError(key, 404, "Not Found", {}, None)
         return self.bodies[key]
 
+    def read_bytes(self, key):
+        return self.bodies.get(key, f"bytes of {key}").encode()
+
     def delete(self, key):
         self.deleted.append(key)
 
 
-def run(bucket, delete=True, pins=()):
-    return prune.prune(bucket, NOW, trunk=TRUNK, pins=set(pins), delete=delete)
+def run(bucket, delete=True, pins=(), windows=(), cold_out=None):
+    return prune.prune(bucket, NOW, trunk=TRUNK, pins=set(pins), delete=delete, windows=list(windows),
+                       cold_out=cold_out, signer=lambda method, key: f"https://signed/{method}/{key}")
+
+
+def trunk(n):
+    return f"{n:040x}"
 
 
 class Prune(unittest.TestCase):
@@ -81,7 +91,7 @@ class Prune(unittest.TestCase):
             "cmux-tui/tree/v2-abc/source.json": json.dumps({"commit": sha(5), "family": "branch"}),
             "cmux-tui/tree/v2-abc/completion-windows.json": json.dumps({"sourceCommit": sha(9)}),
         })
-        bucket.add_build("cmux-tui", MAIN, 400)
+        bucket.add_build("cmux-tui", MAIN, 20)
         bucket.add_build("cmux-tui", sha(2), 90)
         bucket.add_build("cmux-tui", sha(3), 13)
         bucket.add_build("cmux-tui", sha(4), 90)
@@ -138,6 +148,81 @@ class Prune(unittest.TestCase):
         self.assertEqual(bucket.deleted + broken.deleted, [])
 
 
+class TrunkRule(unittest.TestCase):
+    def test_old_trunk_builds_keep_one_snapshot_a_day_and_the_rest_go(self):
+        bucket = FakeBucket()
+        bucket.add_build("cmux-tui", trunk(10), 40.2)   # same UTC day, older
+        bucket.add_build("cmux-tui", trunk(11), 40.1)   # that day's newest: cold
+        bucket.add_build("cmux-tui", trunk(12), 29)     # under 30 days: kept
+        summary = run(bucket)
+        self.assertEqual({key.split("/")[1] for key in bucket.deleted}, {trunk(10)})
+        self.assertEqual(summary["cold"]["cmux-tui"][0], 1)
+
+    def test_the_newest_published_commits_behind_a_shipped_build_stay(self):
+        bucket = FakeBucket()
+        for n in range(20, 26):
+            bucket.add_build("cmux-tui", trunk(n), 60 + n / 100)
+        # A shipped nightly-next build's window, newest first; 21 was never published.
+        window = [trunk(30), trunk(21 + 100), trunk(25), trunk(24), trunk(23), trunk(22)]
+        run(bucket, windows=[window])
+        deleted = {key.split("/")[1] for key in bucket.deleted}
+        self.assertTrue({trunk(25), trunk(24), trunk(23)}.isdisjoint(deleted))
+        self.assertIn(trunk(22), deleted)  # fourth in the window, not the day's snapshot
+
+    def test_cold_prefixes_are_queued_with_sha256_and_a_private_delete_list_only_when_deleting(self):
+        bucket = FakeBucket()
+        bucket.add_build("cmux-tui", trunk(40), 50)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "cold")
+            run(bucket, delete=False, cold_out=out)
+            self.assertFalse(out.exists())
+            summary = run(bucket, cold_out=out)
+            queue = json.loads((out / "queue.json").read_text())
+            deletes = json.loads((out / "deletes.json").read_text())
+            mode = (out / "deletes.json").stat().st_mode & 0o777
+        self.assertEqual(summary["cold_queued"][0], 1)
+        objects = queue["groups"][0]["objects"]
+        self.assertEqual(objects[0]["key"], f"cmux-tui/{trunk(40)}/manifest.json")
+        key = objects[0]["key"]
+        self.assertEqual(objects[0]["sha256"], hashlib.sha256(f"bytes of {key}".encode()).hexdigest())
+        self.assertEqual(deletes[key], f"https://signed/DELETE/{key}")
+        self.assertNotIn("signed", json.dumps(queue))
+        self.assertEqual(mode, 0o600)
+        self.assertEqual(bucket.deleted, [])  # cold prefixes stay until the host has both copies
+
+    def test_presigned_urls_are_scoped_to_one_object_and_expire(self):
+        env = {"AWS_ACCESS_KEY_ID": "AK", "AWS_SECRET_ACCESS_KEY": "SK"}
+        with mock.patch.dict(prune.os.environ, env):
+            url = prune.presign("DELETE", "https://acct.r2.cloudflarestorage.com", "cmux-binaries",
+                                "cmux-tui/abc/manifest.json", now=NOW)
+        self.assertTrue(url.startswith("https://acct.r2.cloudflarestorage.com/cmux-binaries/cmux-tui/abc/manifest.json?"))
+        self.assertIn("X-Amz-Expires=604800", url)
+        self.assertIn("X-Amz-SignedHeaders=host", url)
+        self.assertRegex(url, r"X-Amz-Signature=[0-9a-f]{64}$")
+        self.assertNotIn("SK", url)
+
+
+class ColdSnapshots(unittest.TestCase):
+    def test_a_cold_relay_keeps_its_cmux_tui_beside_it(self):
+        bucket = FakeBucket()
+        # The relay of the day's newest cmux-tui commit landed earlier than another commit's relay.
+        bucket.add_build("cmux-tui", trunk(50), 40.10)
+        bucket.add_build("chatmux-relay", trunk(50), 40.30)
+        bucket.add_build("cmux-tui", trunk(51), 40.20)
+        bucket.add_build("chatmux-relay", trunk(51), 40.15)
+        summary = run(bucket)
+        self.assertEqual({key.split("/")[1] for key in bucket.deleted}, {trunk(51)})
+        self.assertEqual((summary["cold"]["cmux-tui"][0], summary["cold"]["chatmux-relay"][0]), (1, 1))
+
+    def test_a_prefix_without_a_manifest_takes_no_window_slot(self):
+        bucket = FakeBucket()
+        for n in (60, 61, 62, 63):
+            bucket.add_build("cmux-tui", trunk(n), 70 + n / 1000)
+        bucket.objects = [o for o in bucket.objects if o["key"] != f"cmux-tui/{trunk(60)}/manifest.json"]
+        run(bucket, windows=[[trunk(60), trunk(61), trunk(62), trunk(63)]])
+        self.assertNotIn(trunk(63), {key.split("/")[1] for key in bucket.deleted})
+
+
 class Main(unittest.TestCase):
     def test_an_empty_pin_history_stops_the_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,6 +249,17 @@ class Workflow(unittest.TestCase):
         pins_step = next(step for step in job["steps"] if "pins.txt" in str(step.get("run", "")))
         self.assertIn("git log -p", pins_step["run"])
         self.assertNotIn("|| true", pins_step["run"])
+        self.assertIn("windows.txt", pins_step["run"])
+        self.assertIn("nightly-next", pins_step["run"])
+        # The presigned deletes leave the runner only encrypted to the host's certificate.
+        publish = next(step for step in job["steps"] if step.get("name") == "Publish the cold queue")
+        script = publish["run"]
+        self.assertLess(script.index("openssl smime -encrypt"), script.index("upload-r2-object.py"))
+        self.assertLess(script.index('rm -f "$cold/deletes.json"'), script.index("upload-r2-object.py"))
+        self.assertIn("for name in deletes.p7m queue.json", script)
+        # A run that queues nothing replaces the last queue with an empty one.
+        self.assertIn("always()", publish["if"])
+        self.assertIn('"groups": []', script)
         self.assertIn("vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
