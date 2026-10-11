@@ -63,6 +63,12 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
     expect(result.searches).toContain("rea");
   });
 
+  test("after picking a path markdown escapes, typing on leaves the picker closed", async () => {
+    const result = await play("mention-escaped-path");
+    expect(result.play, result.report).toBe("pass");
+    expect(result.searches).toEqual(["ini"]);
+  });
+
   test("an @ inside a word opens nothing and asks the host for nothing", async () => {
     const result = await play("mention-mid-word");
     expect(result.play, result.report).toBe("pass");
