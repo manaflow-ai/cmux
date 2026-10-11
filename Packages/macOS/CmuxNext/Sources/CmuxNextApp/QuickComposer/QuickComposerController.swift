@@ -73,6 +73,8 @@ final class QuickComposerController {
             return
         }
         let window = window ?? makeWindowOnce()
+        // Summoned to type in: a floating chat folded to its compact bar opens back out.
+        if floatingState.collapsed { setCollapsed(false) }
         window.present(chat, focus: chat.webView)
     }
 
