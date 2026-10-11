@@ -248,26 +248,24 @@ struct CloudWorkspaceCreationRevealTests {
             app.cloudWorkspaceCoordinator = coordinator
             app.cloudWorkspaceOperationController = operations
             let manager = TabManager(createInitialWorkspace: false, cloudWorkspaceSelection: coordinator.makeSelectionState())
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
             closed = manager
-            let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+            app.registerMainWindowContextForTesting(tabManager: manager, window: window)
+            // Resolve the test window through the same lifecycle index used by
+            // AppKit before making it the active owner.
+            _ = app.contextForMainWindow(window)
+            app.setActiveMainWindow(window)
             try #require(entryPoint == "resolved"
                 ? app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager)
                 : app.performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: "a"))
             for await _ in entered.stream { break }
             #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
-            app.unregisterMainWindowContextForTesting(windowId: windowID)
-            manager.finalizeAllWorkspacesForWindowClose()
-            if TerminalController.shared.activeTabManagerForCallerNotification() === manager {
-                // The test host's process-wide caller slot can outlive the
-                // window route. Clear it before checking the manager's weak
-                // lifetime so a retired fixture cannot be kept alive by the
-                // next test's notification fallback.
-                TerminalController.shared.setActiveTabManager(nil)
-            }
-            // AppDelegate.shared is a strong test singleton. Restore it before
-            // leaving the scope so the orphaned route cannot keep this closed
-            // window's manager alive while the async create is paused.
-            AppDelegate.shared = previousAppDelegate
+            #expect(app.commitMainWindowClose(window))
         }
         #expect(closed == nil, "A create in flight must not keep a closed window's manager alive")
         release.continuation.yield(())

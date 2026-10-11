@@ -71,6 +71,19 @@ import Testing
         #expect(TerminalPointerGestureState.clipboardWriteCount(isDrag: false, clickCount: 99) == 3)
     }
 
+    @Test func shiftClickCompletesOneCopySelection() {
+        #expect(TerminalPointerGestureState.clipboardWriteCount(
+            isDrag: false,
+            clickCount: 1,
+            isShiftClick: true
+        ) == 1)
+        #expect(TerminalPointerGestureState.clipboardWriteCount(
+            isDrag: false,
+            clickCount: 1,
+            isShiftClick: false
+        ) == 0)
+    }
+
     @Test func newerPressReplacesUnfinishedPress() throws {
         var state = TerminalPointerGestureState()
         state.begin(windowNumber: 7, timestamp: 10, modifierFlagsRawValue: 1, permitsLinkActivation: true, pressPointX: 10, pressPointY: 20)

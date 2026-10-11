@@ -8619,10 +8619,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            terminalSurface.allowsAutomaticClipboardWrite == false {
             let callbackCount = TerminalPointerGestureState.clipboardWriteCount(
                 isDrag: completion.isDrag,
-                clickCount: event.clickCount
+                clickCount: event.clickCount,
+                isShiftClick: releaseFlags.contains(.shift)
             )
-            let dragSelectionCommitted = !completion.isDrag || ghostty_surface_has_selection(surface)
-            if callbackCount > 0, dragSelectionCommitted {
+            if callbackCount > 0 {
                 terminalSurface.permitClipboardWriteForUserGesture(writeCount: callbackCount)
             }
         }

@@ -16,9 +16,14 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
     /// - Parameters:
     ///   - isDrag: Whether pointer motion completed a drag selection.
     ///   - clickCount: AppKit's click count for the release event.
+    ///   - isShiftClick: Whether Shift was held for a single-click selection.
     /// - Returns: The bounded callback count, or zero for a plain click.
-    public static func clipboardWriteCount(isDrag: Bool, clickCount: Int) -> Int {
-        guard isDrag || clickCount > 1 else { return 0 }
+    public static func clipboardWriteCount(
+        isDrag: Bool,
+        clickCount: Int,
+        isShiftClick: Bool = false
+    ) -> Int {
+        guard isDrag || clickCount > 1 || isShiftClick else { return 0 }
         guard clickCount > 1 else { return 1 }
         return min(max(clickCount - 1, 1), 3)
     }
