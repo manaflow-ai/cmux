@@ -111,7 +111,7 @@ final class RoutingVisitSink: BrowserHistoryPersistence {
         }
     }
 
-    deinit {
+    nonisolated deinit {
         continuation.finish()
     }
 
