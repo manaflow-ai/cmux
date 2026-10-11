@@ -5,13 +5,15 @@ import Foundation
 actor TerminalPastePreparationProcess {
     private let process: Process
     private let livenessPipe: Pipe
+    private let readinessPipe: Pipe?
     private var continuation: CheckedContinuation<Int32, Error>?
     private var didStart = false
 
     init(
         executableURL: URL,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        readinessSignal: (@Sendable () -> Void)? = nil
     ) {
         let process = Process()
         process.executableURL = executableURL
@@ -19,10 +21,23 @@ actor TerminalPastePreparationProcess {
         process.environment = environment
         let livenessPipe = Pipe()
         process.standardInput = livenessPipe
-        process.standardOutput = FileHandle.nullDevice
+        // A worker that reports startup writes one byte to stdout once its
+        // own code runs, then redirects stdout away from this pipe.
+        let readinessPipe = readinessSignal.map { readinessSignal in
+            let pipe = Pipe()
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                handle.readabilityHandler = nil
+                if !handle.availableData.isEmpty {
+                    readinessSignal()
+                }
+            }
+            return pipe
+        }
+        process.standardOutput = readinessPipe ?? FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         self.process = process
         self.livenessPipe = livenessPipe
+        self.readinessPipe = readinessPipe
     }
 
     func run() async throws -> Int32 {
@@ -42,12 +57,14 @@ actor TerminalPastePreparationProcess {
                 do {
                     try process.run()
                     try? livenessPipe.fileHandleForReading.close()
+                    try? readinessPipe?.fileHandleForWriting.close()
                     didStart = true
                     if Task.isCancelled {
                         kill()
                     }
                 } catch {
                     closeLivenessPipe()
+                    closeReadinessPipe()
                     self.continuation = nil
                     process.terminationHandler = nil
                     continuation.resume(throwing: error)
@@ -69,6 +86,7 @@ actor TerminalPastePreparationProcess {
         didStart = false
         process.terminationHandler = nil
         closeLivenessPipe()
+        closeReadinessPipe()
         continuation?.resume(returning: status)
         continuation = nil
     }
@@ -76,5 +94,12 @@ actor TerminalPastePreparationProcess {
     private func closeLivenessPipe() {
         try? livenessPipe.fileHandleForReading.close()
         try? livenessPipe.fileHandleForWriting.close()
+    }
+
+    private func closeReadinessPipe() {
+        guard let readinessPipe else { return }
+        readinessPipe.fileHandleForReading.readabilityHandler = nil
+        try? readinessPipe.fileHandleForReading.close()
+        try? readinessPipe.fileHandleForWriting.close()
     }
 }
