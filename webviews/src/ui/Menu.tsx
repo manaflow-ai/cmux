@@ -177,6 +177,8 @@ export interface MenuPopupProps {
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
+  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
+  flip?: boolean;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -197,6 +199,7 @@ export function MenuPopup({
   label,
   className,
   side = "bottom",
+  flip = true,
   align = "start",
   anchor,
   finalFocus,
@@ -209,6 +212,7 @@ export function MenuPopup({
         className="ui-positioner"
         anchor={anchor}
         side={side}
+        collisionAvoidance={flip ? undefined : { side: "none" }}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >

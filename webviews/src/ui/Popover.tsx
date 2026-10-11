@@ -56,6 +56,8 @@ export interface PopoverProps {
   className?: string;
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
+  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
+  flip?: boolean;
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -70,6 +72,7 @@ export function Popover({
   label,
   className,
   side = "bottom",
+  flip = true,
   initialFocus,
   finalFocus,
   children,
@@ -86,6 +89,7 @@ export function Popover({
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
           side={side}
+          collisionAvoidance={flip ? undefined : { side: "none" }}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >

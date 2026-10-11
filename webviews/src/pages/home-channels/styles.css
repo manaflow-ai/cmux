@@ -477,7 +477,7 @@ body,
   position: relative;
   padding: 0 12px;
   border: 1px solid var(--page-separator);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--cmux-surface-token, Canvas);
   color: var(--page-text-2);
   font-size: var(--text-caption);
@@ -738,7 +738,7 @@ body,
   height: 24px;
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--hc-fill-strong);
   color: var(--page-text);
   font: inherit;
