@@ -274,6 +274,10 @@ def _command_name(target: str) -> str:
 
 
 INIT_SUBMODULE_SCRIPT = "init-submodule.sh"
+INIT_SUBMODULE_PATHS = {
+    "scripts/ci/init-submodule.sh",
+    "./scripts/ci/init-submodule.sh",
+}
 
 
 def _is_ghostty_init(words: list[str]) -> bool:
@@ -282,7 +286,7 @@ def _is_ghostty_init(words: list[str]) -> bool:
     script_words = words[1:] if words and _command_name(words[0]) == "bash" else words
     if (
         len(script_words) == 2
-        and _command_name(script_words[0]) == INIT_SUBMODULE_SCRIPT
+        and script_words[0] in INIT_SUBMODULE_PATHS
         and script_words[1] == "ghostty"
     ):
         return True

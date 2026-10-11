@@ -46,8 +46,11 @@ done
 
 reset_submodule() {
   git submodule deinit -f -- "$path" >/dev/null 2>&1 || true
-  rm -rf "$modules_dir" "$path"
-  mkdir -p "$path"
+  # A failed removal (for example a file a killed Windows git child still
+  # holds) must not end the retries; the next attempt reports the real error.
+  rm -rf "$modules_dir" "$path" \
+    || echo "::warning::could not fully remove the $path submodule state" >&2
+  mkdir -p "$path" || true
 }
 
 attempt=1

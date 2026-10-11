@@ -190,11 +190,17 @@ def test_retrying_init_script_satisfies_guard() -> None:
             steps:
               - run: bash scripts/ci/init-submodule.sh vendor/bonsplit ghostty
               - run: ./scripts/install-zig-ci.sh
+          other-script:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash tools/init-submodule.sh ghostty
+              - run: ./scripts/install-zig-ci.sh
         """
     )
 
-    assert len(failures) == 1, failures
-    assert "other-submodule" in failures[0], failures
+    assert len(failures) == 2, failures
+    assert any("other-submodule" in failure for failure in failures), failures
+    assert any("other-script" in failure for failure in failures), failures
 
 
 def test_function_body_runs_at_invocation_not_definition() -> None:
