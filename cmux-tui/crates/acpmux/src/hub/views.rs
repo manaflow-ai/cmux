@@ -17,6 +17,8 @@ use super::*;
 ///
 /// A peer's session that is `unreachable` mid-turn or with a question
 /// waiting is `lost`: that turn cannot answer, nor the question be answered.
+/// So is a `disconnected` one whose turn has not ended yet (the agent died
+/// before its turn recorded `lastTurn`).
 ///
 /// Reads only the summary's own fields, so a summary whose `status` changes
 /// afterwards (a peer going unreachable) is re-decided from it.
@@ -28,6 +30,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     match status {
         "closed" => None,
         "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
+        "disconnected" if !summary["turn"].is_null() => Some("lost"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
         "running" => Some("working"),
