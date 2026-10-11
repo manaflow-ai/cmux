@@ -339,8 +339,8 @@
   // (fires per keystroke - live search), autofocus (default true; pass
   // false for persistent fields that should wait for a click). The host
   // focuses an autofocus field on appear only when the user gave the sidebar
-  // focus: a click in it just now (rename editors) or focus already in one of
-  // its fields. A field mounted any other way, such as by a data update while
+  // focus: its click handler just created it and focus hasn't moved since
+  // (rename editors), or focus is already in one of its fields. A field mounted any other way, such as by a data update while
   // the user types in a terminal, stays unfocused. Return submits, Escape
   // cancels.
   g.TextField = (value, opts) => {

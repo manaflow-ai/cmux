@@ -5,4 +5,6 @@ import AppKit
 /// its own fields apart from every other focusable view in the window.
 final class SceneTextField: NSTextField {
     weak var autofocusGate: SceneAutofocusGate?
+    /// The scene node this field renders; the gate grants focus per node.
+    var nodeId = ""
 }

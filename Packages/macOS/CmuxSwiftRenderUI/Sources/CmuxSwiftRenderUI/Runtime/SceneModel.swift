@@ -79,7 +79,8 @@ public final class SceneStore {
     public private(set) var rootId: String?
     @ObservationIgnored private var nodes: [String: SceneNode] = [:]
     /// When this scene's autofocus text fields may take keyboard focus. The
-    /// host notes clicks on it; the fields ask it before focusing.
+    /// host delivers clicks through it and the store reports created nodes;
+    /// the fields ask it before focusing.
     @ObservationIgnored let autofocusGate = SceneAutofocusGate()
 
     public init() {}
@@ -104,6 +105,7 @@ public final class SceneStore {
         case "create":
             guard let type = op["type"] as? String else { return }
             nodes[id] = SceneNode(id: id, type: type)
+            autofocusGate.noteNodeCreated(id)
         case "update":
             guard let node = nodes[id], let key = op["key"] as? String else { return }
             let value = op["value"].flatMap { ScenePropValue(json: $0) }

@@ -216,22 +216,109 @@ struct SceneTextFieldAutofocusTests {
         #expect(harness.window.firstResponder === harness.terminal)
     }
 
-    /// A click authorizes one focus move, soon after it; typing, submits and
-    /// drag feedback authorize none.
+    /// The click itself moved focus out of the sidebar (selecting a
+    /// workspace focuses its terminal); the data update that follows mounts
+    /// a hidden field within the click window. It must not take focus.
+    @Test func clickThatMovesFocusAwayLetsNoLaterMountTakeIt() async throws {
+        let harness = try host("""
+        sidebar(() => VStack([
+          Button("Select workspace", () => {}),
+          ForEach({ items: () => data.fields() ?? [] }, () =>
+            TextField("", { onEdit: (t) => log(t) }).opacity(0)
+          ),
+        ]))
+        """)
+        defer { harness.window.orderOut(nil) }
+        let newTerminal = TerminalStandIn(frame: NSRect(x: 240, y: 0, width: 400, height: 400))
+        harness.window.contentView?.addSubview(newTerminal)
+        let rootId = try #require(harness.engine.rootId)
+        let buttonId = try #require(harness.engine.store?.node(rootId)?.children.first)
+
+        harness.tap(buttonId)
+        #expect(harness.window.makeFirstResponder(newTerminal))
+        harness.update(["fields": .array([.string("probe")])])
+        await pump { !harness.textFields().isEmpty }
+        await settle()
+
+        #expect(harness.window.firstResponder === newTerminal)
+    }
+
+    /// Same attack inside the click: its handler mounts the hidden field and
+    /// the host's action then focuses a terminal before the field's focus
+    /// hop runs.
+    @Test func clickMountedFieldLosesItsGrantWhenFocusMoves() async throws {
+        let harness = try host("""
+        const [shown, setShown] = signal(false);
+        sidebar(() => VStack([
+          Button("Select workspace", () => setShown(true)),
+          ForEach({ items: () => (shown() ? ["probe"] : []) }, () =>
+            TextField("", { onEdit: (t) => log(t) }).opacity(0)
+          ),
+        ]))
+        """)
+        defer { harness.window.orderOut(nil) }
+        let newTerminal = TerminalStandIn(frame: NSRect(x: 240, y: 0, width: 400, height: 400))
+        harness.window.contentView?.addSubview(newTerminal)
+        let rootId = try #require(harness.engine.rootId)
+        let buttonId = try #require(harness.engine.store?.node(rootId)?.children.first)
+
+        harness.tap(buttonId)
+        #expect(harness.window.makeFirstResponder(newTerminal))
+        await pump { !harness.textFields().isEmpty }
+        await settle()
+
+        #expect(harness.window.firstResponder === newTerminal)
+    }
+
+    /// A click that leaves focus alone still authorizes only the fields its
+    /// own handler created, not one a later data update mounts.
+    @Test func clickDoesNotAuthorizeADataMountedField() async throws {
+        let harness = try host("""
+        sidebar(() => VStack([
+          Button("Refresh", () => {}),
+          ForEach({ items: () => data.fields() ?? [] }, () =>
+            TextField("", { onEdit: (t) => log(t) }).opacity(0)
+          ),
+        ]))
+        """)
+        defer { harness.window.orderOut(nil) }
+        let rootId = try #require(harness.engine.rootId)
+        let buttonId = try #require(harness.engine.store?.node(rootId)?.children.first)
+
+        harness.tap(buttonId)
+        harness.update(["fields": .array([.string("probe")])])
+        await pump { !harness.textFields().isEmpty }
+        await settle()
+
+        #expect(harness.window.firstResponder === harness.terminal)
+    }
+
+    /// A click authorizes one focus move, for a node its handler created,
+    /// soon after it; typing and submits authorize none.
     @Test func clickAuthorizesOneFocusMoveWithinTheWindow() {
+        _ = NSApplication.shared
         var clock = ContinuousClock.now
-        let gate = SceneAutofocusGate(now: { clock })
-        for event in ["edit", "submit", "cancel", "move", "dragChange"] {
-            gate.noteEvent(event)
-            #expect(!gate.consumeRecentGesture(), "\(event) must not authorize focus")
+        let window = NSWindow(
+            contentRect: NSRect(x: -4000, y: -4000, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        let gate = SceneAutofocusGate(now: { clock }, windows: { [window] })
+        for event in ["edit", "submit", "cancel", "move"] {
+            gate.deliver(event) { gate.noteNodeCreated(event) }
+            #expect(!gate.allowsFocus(nodeId: event, in: window), "\(event) must not authorize focus")
         }
 
-        gate.noteEvent("tap")
-        #expect(gate.consumeRecentGesture())
-        #expect(!gate.consumeRecentGesture())
+        gate.deliver("tap") { gate.noteNodeCreated("rename") }
+        gate.noteNodeCreated("later")
+        #expect(!gate.allowsFocus(nodeId: "later", in: window))
+        gate.deliver("tap") { gate.noteNodeCreated("rename") }
+        #expect(gate.allowsFocus(nodeId: "rename", in: window))
+        #expect(!gate.allowsFocus(nodeId: "rename", in: window))
 
-        gate.noteEvent("doubletap")
+        gate.deliver("doubletap") { gate.noteNodeCreated("rename") }
         clock = clock.advanced(by: SceneAutofocusGate.gestureWindow + .milliseconds(1))
-        #expect(!gate.consumeRecentGesture())
+        #expect(!gate.allowsFocus(nodeId: "rename", in: window))
     }
 }

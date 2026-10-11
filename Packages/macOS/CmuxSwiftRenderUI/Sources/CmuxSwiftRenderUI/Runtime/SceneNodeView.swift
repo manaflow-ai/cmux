@@ -334,6 +334,7 @@ private struct SceneTextFieldView: NSViewRepresentable {
     func makeNSView(context: Context) -> SceneTextField {
         let field = SceneTextField(string: node.string("text") ?? "")
         field.autofocusGate = autofocusGate
+        field.nodeId = node.id
         field.placeholderString = node.string("placeholder")
         field.isBordered = false
         field.drawsBackground = false
@@ -357,7 +358,7 @@ private struct SceneTextFieldView: NSViewRepresentable {
             // as it is then.
             DispatchQueue.main.async { [weak field] in
                 guard let field, let window = field.window,
-                      autofocusGate.allowsFocus(in: window) else { return }
+                      autofocusGate.allowsFocus(nodeId: field.nodeId, in: window) else { return }
                 window.makeFirstResponder(field)
                 field.currentEditor()?.selectAll(nil)
             }

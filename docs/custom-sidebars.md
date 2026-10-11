@@ -106,9 +106,9 @@ examples.
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields such as a search box). An autofocus
 field takes keyboard focus when it appears only if the user gave the sidebar
-focus: it was mounted by a click in that sidebar (a button, tap, double-click
-or menu item, such as Rename), or one of that sidebar's fields already has
-focus. A field that appears any other way, for example after a data update
+focus: that sidebar's click handler created it (a button, tap, double-click
+or menu item, such as Rename) and keyboard focus hasn't moved since the click,
+or one of that sidebar's fields already has focus. A field that appears any other way, for example after a data update
 while you're typing in a terminal, stays unfocused until clicked, so sidebar
 code can't capture keystrokes meant for another pane.
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
