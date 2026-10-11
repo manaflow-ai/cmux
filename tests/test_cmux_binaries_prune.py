@@ -261,6 +261,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("always()", publish["if"])
         self.assertIn('"groups": []', script)
         self.assertIn("vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
+        # A dispatch decides by its input alone: delete=false is a dry run even when the variable is on.
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.delete", condition)
+        self.assertIn("github.event_name == 'schedule' && vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
 
