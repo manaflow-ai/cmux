@@ -52,7 +52,9 @@ function StatusMark({ status }: { status: FloatingStatus }) {
   if (status === "idle") return null;
   const label = t(status === "attention" ? "sidebar.markInput" : "sidebar.markRunning");
   return (
-    <span className="acpmux-floating-status" data-status={status} role="status" aria-label={label} title={label} />
+    <span className="acpmux-floating-status" data-status={status} title={label}>
+      <span className="acpmux-hidden-label">{label}</span>
+    </span>
   );
 }
 
