@@ -24,7 +24,11 @@ def png_renditions(data: bytes) -> dict[str, bytes]:
     renditions: dict[str, bytes] = {}
     offset = 8
     while offset < len(data):
+        if offset + 8 > len(data):
+            raise AssertionError("truncated icns element header")
         kind, length = struct.unpack(">4sI", data[offset : offset + 8])
+        if length < 8:
+            raise AssertionError(f"icns element {kind!r} has length {length}")
         body = data[offset + 8 : offset + length]
         if body.startswith(PNG_SIGNATURE):
             renditions[kind.decode("ascii")] = body
