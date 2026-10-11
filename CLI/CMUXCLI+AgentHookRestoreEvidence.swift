@@ -50,6 +50,30 @@ extension CMUXCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "approval_policy" || key == "sandbox_mode"
     }
+
+    /// Whether an OMP hook has no launch candidate to publish or invalidate.
+    ///
+    /// PID-only diagnostics describe the hook's dispatch context, not a
+    /// replacement executable. Preserve an existing binding in that case, but
+    /// never synthesize a bare `omp` command from the missing capture.
+    private func ompLaunchCaptureIsUnavailable(
+        _ launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        guard let launchCommand,
+              launchCommand.arguments.isEmpty,
+              normalizedHookValue(launchCommand.executablePath) == nil else {
+            return false
+        }
+        switch launchCommand.rejectionReason {
+        case .some(.argvUnavailable),
+             .some(.nativeProcessDoesNotDescribeKind),
+             .some(.argvLooksLikeShellWrapper):
+            return true
+        default:
+            return false
+        }
+    }
+
     func agentHookSessionHasDurableResumeEvidence(
         kind: String,
         launchCommand: AgentHookLaunchCommandRecord?

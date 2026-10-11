@@ -34050,14 +34050,15 @@ struct CMUXCLI {
                 )
                 return false
             }
+        } else if launchCommand == nil || ompLaunchCaptureIsUnavailable(launchCommand) {
+            // No capture cannot prove the existing binding stale. Keep it in
+            // place while refusing to synthesize a PATH-dependent command.
+            return false
         } else if let launchCommand,
                   !agentHookSessionHasDurableResumeEvidence(
                       kind: kind,
                       launchCommand: launchCommand
                   ) {
-            // An absent capture provides no executable to publish, but it also
-            // does not prove that an existing binding is stale. Preserve that
-            // binding while refusing to synthesize a PATH-dependent command.
             clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
