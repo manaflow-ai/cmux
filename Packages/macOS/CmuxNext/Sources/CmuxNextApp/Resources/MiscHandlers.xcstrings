@@ -2228,6 +2228,268 @@
         }
       }
     },
+    "handlers.misc.failed.archiveChatNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive Chat works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل أرشفة الدردشة في دردشات الوكيل. ركّز على واحدة أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arhiviranje chata radi u chatovima s agentom. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér chat virker i agentchats. Fokusér en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Chat archivieren“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivar chat funciona en chats de agente. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiver la discussion fonctionne dans les discussions d’agent. Activez-en une d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivia chat funziona nelle chat con agenti. Seleziona prima una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットをアーカイブはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការទុកការជជែកក្នុងបណ្ណសារដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 보관은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver chat fungerer i agentchatter. Fokuser én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiwizacja czatu działa w czatach z agentem. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivar conversa funciona em conversas com agentes. Foque uma primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архивирование чата работает в чатах с агентом. Сначала выберите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บแชทเข้าคลังใช้ได้ในแชทเอเจนต์ โฟกัสแชทหนึ่งก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbeti arşivle, ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архівування чату працює в чатах з агентом. Спершу виберіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu trữ cuộc trò chuyện hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“归档聊天”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「封存聊天」適用於代理聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.copyCodeNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Last Code Block works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل نسخ آخر كتلة تعليمات برمجية في دردشات الوكيل. ركّز على واحدة أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiranje posljednjeg bloka koda radi u chatovima s agentom. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér seneste kodeblok virker i agentchats. Fokusér en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Letzten Codeblock kopieren“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar el último bloque de código funciona en chats de agente. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier le dernier bloc de code fonctionne dans les discussions d’agent. Activez-en une d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia l'ultimo blocco di codice funziona nelle chat con agenti. Seleziona prima una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最後のコードブロックをコピーはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចម្លងប្លុកកូដចុងក្រោយដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 코드 블록 복사는 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier siste kodeblokk fungerer i agentchatter. Fokuser én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiowanie ostatniego bloku kodu działa w czatach z agentem. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar o último bloco de código funciona em conversas com agentes. Foque uma primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копирование последнего блока кода работает в чатах с агентом. Сначала выберите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกบล็อกโค้ดล่าสุดใช้ได้ในแชทเอเจนต์ โฟกัสแชทหนึ่งก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son kod bloğunu kopyala, ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювання останнього блоку коду працює в чатах з агентом. Спершу виберіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép khối mã cuối cùng hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“拷贝最后一个代码块”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「拷貝最後一個程式碼區塊」適用於代理聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.searchFilesNeedsAgentChat": {
       "extractionState": "manual",
       "localizations": {
