@@ -90,6 +90,9 @@ export function Switcher({ conversations, me, strings, onPick, onClose }: Switch
         }}
       />
       {results.length === 0 && <p className="hc-switcher-none">{strings.t("switcher.none")}</p>}
+      <p className="hc-switcher-hint" aria-hidden="true">
+        {strings.t("switcher.hint")}
+      </p>
     </Dialog>
   );
 }
