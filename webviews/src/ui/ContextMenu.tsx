@@ -86,7 +86,7 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
             // pane) still opens the menu at the pointer above the page (cx-j4sd).
             <div
               className="ui-context-menu-backdrop"
-              style={{ position: "fixed", inset: 0, zIndex: 60 }}
+              style={{ position: "fixed", inset: 0, zIndex: "var(--layer-overlay, 60)" }}
               onPointerDown={() => close()}
             >
               <div
