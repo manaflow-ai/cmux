@@ -37,7 +37,6 @@ public nonisolated struct SiteDataSummary: Hashable, Sendable {
     }
 
     public var firstPartyCookies: Int { entries.filter { !$0.isThirdParty }.reduce(0) { $0 + $1.cookieCount } }
-    public var thirdPartySites: [SiteDataEntry] { entries.filter(\.isThirdParty) }
     public var siteCount: Int { entries.count }
 
     /// Groups cookie domains (".cdn.example.com", "example.com") into sites

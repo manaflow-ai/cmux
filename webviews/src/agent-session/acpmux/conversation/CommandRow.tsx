@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { Check, ChevronRight, Spinner } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
@@ -24,6 +25,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         title={tool.command}
+        ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
         onClick={() => setOpen((value) => !value)}
       >
         <code className="cv-command__line">{tool.command}</code>

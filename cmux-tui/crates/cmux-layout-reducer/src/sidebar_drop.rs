@@ -97,6 +97,9 @@ pub enum Payload {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Request {
+    /// The base-layout y to resolve. `resolve_drag` derives it from the
+    /// card's points, so its request may leave it out.
+    #[serde(default)]
     pub y: f64,
     pub payload: Payload,
     pub rows: Vec<Row>,

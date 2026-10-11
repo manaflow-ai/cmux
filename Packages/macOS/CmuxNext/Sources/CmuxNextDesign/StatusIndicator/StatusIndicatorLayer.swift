@@ -121,9 +121,6 @@ public final class StatusIndicatorLayer {
         return nil
     }
 
-    /// Number of sublayers alive (tests: idle must be zero).
-    public var liveSublayerCount: Int { layer.sublayers?.count ?? 0 }
-
     /// Show `plan` with `config`. Cheap when nothing changed.
     public func apply(_ plan: StatusIndicatorPlan, config: StatusIndicatorConfig) {
         guard plan != self.plan || config != self.config else { return }
