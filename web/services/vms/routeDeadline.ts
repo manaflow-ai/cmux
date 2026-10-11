@@ -84,6 +84,36 @@ export const VM_ROUTE_DEADLINES = {
   resize: { clientTimeoutMs: 120_000, maxDurationMs: 300_000, mutating: true },
   /** CLI 90 s (Mac 120 s). */
   openPort: { clientTimeoutMs: 90_000, maxDurationMs: 120_000, mutating: false },
+  /** VMClient machine read, 60 s URLRequest default. */
+  getVm: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: false },
+  /** VMClient.rename, 60 s URLRequest default. */
+  rename: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
+  /**
+   * Mac enrollment 60 s (iOS 20 s). Enrollment took up to 190 s in production,
+   * so the Mac's 60 s is kept for builds that send no budget: a 15 s answer
+   * would cut enrollments those builds complete today. Retries are refused
+   * as busy while one runs and reuse the device's tunnel once it exists.
+   */
+  tunnelEnroll: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
+  tunnelRead: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: false },
+  /**
+   * iOS 20 s. The Mac's sign-out revoke gives up at 8 s and ignores the
+   * answer; the revoke continues through after() either way.
+   */
+  tunnelRevoke: { clientTimeoutMs: 20_000, maxDurationMs: 300_000, mutating: true },
+  /**
+   * SSH attach 16 min (cmux-remote 20 s, iOS 90 s; both state their budget).
+   * Attach may resume the machine (~107 s at the median), so builds that send
+   * no budget keep the long wait. Attach is re-entrant: a retry mints a new
+   * endpoint for the same machine.
+   */
+  attach: { clientTimeoutMs: 960_000, maxDurationMs: 960_000, mutating: true },
+  /** VMClient session list, 60 s URLRequest default. */
+  sessionList: { clientTimeoutMs: 60_000, maxDurationMs: 960_000, mutating: false },
+  /** Session attach 16 min, like attach. */
+  sessionOpen: { clientTimeoutMs: 960_000, maxDurationMs: 960_000, mutating: true },
+  /** Mac/CLI/iOS 16 min, capped by maxDuration; retries reuse the Idempotency-Key. */
+  create: { clientTimeoutMs: 960_000, maxDurationMs: 600_000, mutating: true },
 } as const satisfies Record<string, VmRouteDeadlineEntry>;
 
 export type VmRouteDeadlineOperation = keyof typeof VM_ROUTE_DEADLINES;
