@@ -86,7 +86,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   }
 
   /// acpmux's answer to a prompt while the turn runs: no reply until its turn, only an event.
-  function prompted(ws: { send(data: string): void }, params: Record<string, any>): void {
+  function prompted(ws: { send(data: string): void }, params: Record<string, any>, id?: number): void {
     prompts.push(params);
     const meta = params._meta?.acpmux ?? {};
     const text = (params.prompt ?? []).map((block: { text?: string }) => block.text ?? "").join("");
@@ -113,6 +113,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         params: event,
       }),
     );
+    // acpmux checks a queued prompt again when its turn comes (`check_dispatch`) and may refuse it.
+    if (text === "refused at its turn")
+      setTimeout(() => {
+        const error = { code: -32602, message: "web_control.refused: the chat's mode changed" };
+        ws.send(JSON.stringify({ jsonrpc: "2.0", id, error }));
+      }, 300);
   }
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
@@ -132,7 +138,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
             method: string;
             params?: Record<string, any>;
           };
-          if (message.method === "session/prompt") return prompted(ws, message.params ?? {});
+          if (message.method === "session/prompt") return prompted(ws, message.params ?? {}, message.id);
           if (message.method === "session/cancel") cancels.push(message.params ?? {});
           if (message.id !== undefined)
             ws.send(
@@ -217,6 +223,17 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         ),
         queued: await page.locator(".acpmux-queued").count(),
       }).toEqual({ meta: [{ steer: true, interrupt: true }], queued: 0 });
+      await page.close();
+    });
+
+    test("a queued prompt refused when its turn comes is back in the transcript, with Retry", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("refused at its turn");
+      await page.keyboard.press("Enter");
+      const failed = page.locator(".cv-user__status--failed", { hasText: "the chat's mode changed" });
+      await failed.waitFor();
+      expect(await failed.getByRole("button", { name: "Retry" }).count()).toBe(1);
       await page.close();
     });
 
