@@ -599,7 +599,8 @@ fn lease_label(label: Option<&str>, session: &str) -> String {
 }
 
 /// The caller's terminal id when it has a cmux terminal id's shape
-/// (`term_` and up to 64 letters, digits, `_` or `-`), else none.
+/// (`term_`, then letters, digits, `_` or `-`; at most 64 characters in
+/// all), else none.
 fn lease_terminal(terminal: Option<&str>) -> Option<String> {
     terminal
         .filter(|id| {
