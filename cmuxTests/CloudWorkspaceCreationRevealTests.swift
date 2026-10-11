@@ -261,6 +261,7 @@ struct CloudWorkspaceCreationRevealTests {
             // AppKit before making it the active owner.
             _ = app.contextForMainWindow(window)
             app.setActiveMainWindow(window)
+            TerminalController.shared.setActiveTabManager(manager)
             try #require(entryPoint == "resolved"
                 ? app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager)
                 : app.performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: "a"))

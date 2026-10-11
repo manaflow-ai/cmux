@@ -19126,7 +19126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if tabManager === closingTabManager {
+        let closingManagerOwnsCallerRouting =
+            tabManager === closingTabManager
+            || TerminalController.shared.activeTabManagerForCallerNotification() === closingTabManager
+        if closingManagerOwnsCallerRouting {
             let nextContext: MainWindowContext? = {
                 if let keyWindow = shortcutRoutingKeyWindow,
                    let ctx = contextForMainTerminalWindow(keyWindow, reindex: false) {
