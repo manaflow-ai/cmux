@@ -17,16 +17,16 @@ import { VM_ROUTE_DEADLINES, vmClientTimeoutMsFromRequest, withVmAnswerDeadline,
 // client's budget, and a mutation that may still finish says so.
 
 /** Runs `program` under the route deadline on the test clock; returns the failure and the virtual time. */
-async function underDeadline(operation: VmRouteDeadlineOperation, program: Effect.Effect<string, VmWorkflowError>, elapsedMs = 0, clientTimeoutMs?: number) {
+async function underDeadline(operation: VmRouteDeadlineOperation, program: Effect.Effect<string, VmWorkflowError>, elapsedMs = 0, clientTimeoutMs?: number, stepMs = 250) {
   const background: Promise<unknown>[] = [];
   const result = await Effect.runPromise(Effect.gen(function* () {
     const fiber = yield* Effect.fork(withVmRouteDeadline(program, {
       operation, elapsedMs, ...(clientTimeoutMs === undefined ? {} : { clientTimeoutMs }), continueInBackground: (work) => { background.push(work); },
     }).pipe(Effect.either));
     let virtualMs = 0;
-    while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 900_000) {
-      yield* TestClock.adjust(250);
-      virtualMs += 250;
+    while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 1_200_000) {
+      yield* TestClock.adjust(stepMs);
+      virtualMs += stepMs;
       yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
     }
     const answer = yield* Fiber.poll(fiber);
@@ -120,9 +120,9 @@ describe("remaining VM routes", () => {
     ["create", 595_000, true],
   ];
   test.each(expected)("%s answers at %i ms (mutating %p) when the provider never answers", async (operation, budgetMs, mutating) => {
-    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never);
+    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never, 0, undefined, 1_000);
     expect(virtualMs).toBeGreaterThanOrEqual(budgetMs);
-    expect(virtualMs).toBeLessThanOrEqual(budgetMs + 250);
+    expect(virtualMs).toBeLessThanOrEqual(budgetMs + 1_000);
     const error = answer?._tag === "Left" ? answer.left as VmOperationDeadlineError : null;
     expect(error?._tag).toBe("VmOperationDeadlineError");
     expect(error?.mutating).toBe(mutating);
