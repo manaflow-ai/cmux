@@ -126,7 +126,10 @@ describe("remaining VM routes", () => {
     const error = answer?._tag === "Left" ? answer.left as VmOperationDeadlineError : null;
     expect(error?._tag).toBe("VmOperationDeadlineError");
     expect(error?.mutating).toBe(mutating);
-    expect(background).toHaveLength(1);
+    // Work continues in the background only while the route's maxDuration
+    // leaves time for it; a budget that reaches maxDuration leaves none.
+    const continues = VM_ROUTE_DEADLINES[operation].maxDurationMs - 5_000 - budgetMs > 0;
+    expect(background).toHaveLength(continues ? 1 : 0);
   });
 
   test("a create whose provider hangs into a gateway 502 answers in progress, not an outage", async () => {
