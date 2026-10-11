@@ -11,6 +11,7 @@ import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
+import type { ReviewThread } from "./changes/reviewThreads";
 import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
@@ -110,7 +111,7 @@ export function DiffPanel({
   const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
-  const { load, retry, branch } = useScopeChanges(source, scope);
+  const { load, retry, branch, threads } = useScopeChanges(source, scope);
   const [commitOpen, setCommitOpen] = useState(false);
   // A commit closes the form and reloads the scope; a push changes only the branch state.
   const git = useGitWrite(
@@ -136,6 +137,11 @@ export function DiffPanel({
   }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  const threadsByPath = useMemo(() => {
+    const byPath = new Map<string, ReviewThread[]>();
+    for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
+    return byPath;
+  }, [threads]);
   /// A git scope's body before its files: loading, failed or empty.
   const scopeState =
     scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
@@ -443,6 +449,7 @@ export function DiffPanel({
                   onPainted={onPainted}
                   review={file.outside ? undefined : hunkReview}
                   focusAfter={focusAfter}
+                  threads={threadsByPath.get(file.displayPath)}
                 />
               )),
             )

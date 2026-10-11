@@ -25,9 +25,11 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
     static let maximumComments = 50
     static let maximumBody = 20_000
 
+    /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
+    private static let required = "!"
     /// The read, with the pull request's owner, name and number as variables.
     static let query = """
-        query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+        query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
           pullRequest(number: $number) { reviewThreads(first: \(maximumThreads)) { nodes {
             isResolved isOutdated path line diffSide
             comments(first: \(maximumComments)) { nodes { author { login } body url } } } } } } }
@@ -82,6 +84,19 @@ public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
 extension AgentPaneGitPullRequest {
     /// The review threads of `folder`'s branch's pull request, read with `gh` there.
     @concurrent static func threads(in folder: String, gh: String) async -> Outcome {
-        .threads(url: nil, number: nil, [])
+        let cli = { (arguments: [String]) in
+            await AgentPaneGitProcess.output(arguments, executable: gh, directory: folder, timeout: networkTimeout, network: true)
+        }
+        let view = await cli(["pr", "view", "--json", "url,number,state"])
+        guard view.status == 0 else {
+            return view.text.contains("no pull requests found") ? .threads(url: nil, number: nil, []) : .refused(message(view))
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(view.text.utf8)) as? [String: Any],
+              let url = object["url"] as? String, let arguments = AgentPaneGitReviewThread.arguments(for: url) else {
+            return .refused(message(view))
+        }
+        let read = await cli(arguments)
+        guard read.status == 0, let threads = AgentPaneGitReviewThread.list(fromGraphQL: read.text) else { return .refused(message(read)) }
+        return .threads(url: url, number: object["number"] as? Int, threads)
     }
 }
