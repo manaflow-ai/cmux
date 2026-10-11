@@ -98,7 +98,66 @@ function synthetic(element: Element, kind: string): void {
   if (kind === "click") fire("click");
 }
 
-function syntheticKey(key: string): void {
+const TABBABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "iframe",
+  "object",
+  "embed",
+  "audio[controls]",
+  "video[controls]",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function isTabbable(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || element.tabIndex < 0) return false;
+  if (element.hidden || element.closest("[hidden], [inert]")) return false;
+  if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  return style?.display !== "none" && style?.visibility !== "hidden" && style?.visibility !== "collapse";
+}
+
+function tabbableElements(): HTMLElement[] {
+  const elements: HTMLElement[] = [];
+  const visit = (root: Document | Element | ShadowRoot) => {
+    for (const child of Array.from(root.children)) {
+      if (isTabbable(child)) elements.push(child);
+      if (child.shadowRoot) visit(child.shadowRoot);
+      visit(child);
+    }
+  };
+  visit(document);
+  const normal = elements.filter((element) => element.tabIndex === 0);
+  const positive = elements
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => element.tabIndex > 0)
+    .sort((a, b) => a.element.tabIndex - b.element.tabIndex || a.index - b.index)
+    .map(({ element }) => element);
+  return [...positive, ...normal];
+}
+
+function deepestActiveElement(): Element {
+  let target: Element = document.activeElement ?? document.body;
+  while (target instanceof HTMLElement && target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  return target;
+}
+
+function moveFocusForTab(backward: boolean): void {
+  const elements = tabbableElements();
+  if (!elements.length) return;
+  const current = deepestActiveElement();
+  const index = elements.indexOf(current as HTMLElement);
+  const next = index < 0 ? (backward ? elements.at(-1) : elements[0]) : elements[index + (backward ? -1 : 1)];
+  if (next && next !== current) next.focus({ preventScroll: true });
+}
+
+export function syntheticKey(key: string): void {
   const parts = key.split("+");
   const name = parts.pop()!;
   // Playwright exposes the space key as " "; the gallery DSL spells it "Space".
@@ -110,8 +169,7 @@ function syntheticKey(key: string): void {
     shiftKey: parts.includes("Shift"),
   };
   // The focused element, inside open shadow roots too (a web component's focused row).
-  let target: Element = document.activeElement ?? document.body;
-  while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  const target = deepestActiveElement();
   const keydown = new KeyboardEvent("keydown", {
     key: eventKey,
     bubbles: true,
@@ -120,6 +178,10 @@ function syntheticKey(key: string): void {
     ...modifiers,
   });
   target.dispatchEvent(keydown);
+  // KeyboardEvent dispatch does not run the browser's default focus traversal. Reproduce Tab for
+  // the gallery shell, which has no trusted-input driver. The hosted matrix runner uses Playwright
+  // instead, so its native traversal remains authoritative.
+  if (!keydown.defaultPrevented && eventKey === "Tab") moveFocusForTab(modifiers.shiftKey);
   target.dispatchEvent(
     new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
   );
