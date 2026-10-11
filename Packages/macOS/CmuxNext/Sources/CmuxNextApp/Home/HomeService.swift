@@ -84,9 +84,6 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
-    /// The Chief tile's avatar, the one the Chief header shows: read by
-    /// `refreshChiefAvatar()`, set by the header's avatar picker.
-    var chiefAvatar: HomeChiefAvatar?
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]

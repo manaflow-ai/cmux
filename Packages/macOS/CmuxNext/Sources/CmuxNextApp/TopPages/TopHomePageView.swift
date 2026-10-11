@@ -120,7 +120,7 @@ final class TopHomePageView: NSView {
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
             for await (all, archived, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefAvatar)
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar)
             }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)

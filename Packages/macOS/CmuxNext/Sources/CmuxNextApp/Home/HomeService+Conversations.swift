@@ -78,7 +78,7 @@ extension HomeService {
             account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatar: { [weak self] in self?.chiefAvatar })
+            chiefAvatar: { [weak self] in self?.directory.chiefAvatar })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed
@@ -95,7 +95,7 @@ extension HomeService {
         // task-owner: one profile read off the main actor; ends when it is set
         Task { [weak self] in
             let avatar = await Task.detached { files.tileAvatar() }.value
-            self?.chiefAvatar = avatar ?? HomeHostView.defaultTileAvatar
+            self?.directory.chiefAvatar = avatar ?? HomeHostView.defaultTileAvatar
         }
     }
 }

@@ -63,7 +63,7 @@ final class HomeHostView: NSView {
         sidebar.onAvatar = { [weak self, weak service] text in
             self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
             self?.transcript.avatarText = text
-            service?.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
+            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
         }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
