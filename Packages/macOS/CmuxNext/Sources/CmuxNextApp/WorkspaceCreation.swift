@@ -90,7 +90,8 @@ enum WorkspaceCreation {
         guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
               tabs.canHost(on: daemon), let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
-            if let session = spawn.firstSession, let localHost = tabs.localHost {
+            if let session = spawn.firstSession {
+                guard let localHost = tabs.localHost else { throw DaemonError.notConnected }
                 // A chat of this Mac's acpmux: its tab shows it as soon as the tree lists it.
                 let record = AgentSessionRef(host: localHost, hostName: tabs.localHostName, session: session)
                 _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,

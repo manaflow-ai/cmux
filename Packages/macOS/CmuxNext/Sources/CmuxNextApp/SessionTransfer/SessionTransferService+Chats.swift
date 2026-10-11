@@ -61,7 +61,9 @@ extension SessionTransferService {
         environment["ACPMUX_SOCKET"] = socket
         if let home = item.acpmuxHome { environment["ACPMUX_HOME"] = home }
         let arguments = ["--json", "transfer", session, "--to", own.socketPath] + (interrupt ? ["--interrupt"] : [])
-        guard let result = await Self.runToEnd(own.executable, arguments, environment: environment, limit: Self.chatMoveLimit) else {
+        // A pull past its deadline starts no move nobody waits for.
+        try Task.checkCancellation()
+        guard let result = try await Self.runToEnd(own.executable, arguments, environment: environment, limit: Self.chatMoveLimit) else {
             throw Failure.chatInChats
         }
         guard result.status == 0 else { throw Failure.chatNotMoved(Self.acpmuxReason(result.stderr, status: result.status)) }
@@ -136,41 +138,51 @@ extension SessionTransferService {
     }
 
     /// Runs `executable` and returns its exit status and output, or nil when it is still running
-    /// after `limit`; it is never ended early (nor when the caller is cancelled). Output goes to
-    /// files, so a daemon it starts cannot hold an end-of-file wait open.
+    /// after `limit` or the caller is cancelled; it is never ended early. Output goes to files
+    /// (a daemon it starts cannot hold an end-of-file wait open), which go once it exits.
+    /// Throws when it could not start.
     private nonisolated static func runToEnd(_ executable: URL, _ arguments: [String], environment: [String: String],
-                                             limit: Duration) async -> (status: Int32, stdout: Data, stderr: Data)? {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-transfer-\(UUID().uuidString)")
-        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else { return nil }
+                                             limit: Duration) async throws -> (status: Int32, stdout: Data, stderr: Data)? {
+        let files = FileManager.default
+        let directory = files.temporaryDirectory.appendingPathComponent("cmux-transfer-\(UUID().uuidString)")
         let stdoutURL = directory.appendingPathComponent("stdout"), stderrURL = directory.appendingPathComponent("stderr")
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        guard let stdout = try? FileHandle(forWritingTo: stdoutURL), let stderr = try? FileHandle(forWritingTo: stderrURL) else { return nil }
         let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdout
-        process.standardError = stderr
-        let exited = AsyncStream<Int32> { continuation in
-            process.terminationHandler = { continuation.yield($0.terminationStatus); continuation.finish() }
-        }
-        do { try process.run() } catch { return nil }
-        try? stdout.close()
-        try? stderr.close()
-        let status = await withTaskGroup(of: Int32?.self) { group in
-            group.addTask { await exited.first { _ in true } }
-            group.addTask {
-                // wakeup-allow: one-shot deadline (how long a pull waits for the move)
-                try? await Task.sleep(for: limit)
-                return nil
+        do {
+            try files.createDirectory(at: directory, withIntermediateDirectories: true)
+            files.createFile(atPath: stdoutURL.path, contents: nil)
+            files.createFile(atPath: stderrURL.path, contents: nil)
+            let stdout = try FileHandle(forWritingTo: stdoutURL), stderr = try FileHandle(forWritingTo: stderrURL)
+            defer { try? stdout.close(); try? stderr.close() }
+            process.executableURL = executable
+            process.arguments = arguments
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdout
+            process.standardError = stderr
+            try Task.checkCancellation()
+            let exited = AsyncStream<(status: Int32, stdout: Data, stderr: Data)> { continuation in
+                // Also after the wait gave up: the output is read and its files go.
+                process.terminationHandler = { process in
+                    let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
+                    try? FileManager.default.removeItem(at: directory)
+                    continuation.yield((process.terminationStatus, out, err))
+                    continuation.finish()
+                }
             }
-            defer { group.cancelAll() }
-            return await group.next() ?? nil
+            try process.run()
+            return await withTaskGroup(of: (status: Int32, stdout: Data, stderr: Data)?.self) { group in
+                group.addTask { await exited.first { _ in true } }
+                group.addTask {
+                    // wakeup-allow: one-shot deadline (how long a pull waits for the move)
+                    try? await Task.sleep(for: limit)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                return await group.next() ?? nil
+            }
+        } catch {
+            try? files.removeItem(at: directory)
+            throw error is CancellationError ? error : Failure.chatNotMoved(String(describing: error))
         }
-        guard let status else { return nil }
-        defer { try? FileManager.default.removeItem(at: directory) }
-        return (status, (try? Data(contentsOf: stdoutURL)) ?? Data(), (try? Data(contentsOf: stderrURL)) ?? Data())
     }
 }

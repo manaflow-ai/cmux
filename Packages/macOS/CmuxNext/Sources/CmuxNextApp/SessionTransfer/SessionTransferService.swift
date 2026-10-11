@@ -116,6 +116,8 @@ final class SessionTransferService {
         var moved: [TransferJSONValue] = []
         var failed: [TransferJSONValue] = []
         for (peer, item) in selected {
+            // A pull past its deadline (the control router cancels it) moves nothing more.
+            try Task.checkCancellation()
             do {
                 try await move(item, from: peer, interrupt: interrupt)
                 moved.append(item.json)
