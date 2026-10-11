@@ -198,7 +198,7 @@ impl Hub {
     pub(super) async fn run_prompt(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        mut blocks: Vec<Value>,
+        blocks: Vec<Value>,
         client: &str,
         steer: bool,
         opts: PromptOptions,
@@ -287,10 +287,17 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
+            interrupt: steer && opts.interrupt,
         };
-        let (turn_id, waiting, guard) = match self.queue_slot(session, slot, &mut accept).await {
+        let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
+        {
             Ok(slot) => slot,
             Err(withdrawn) => return Ok(withdrawn),
+        };
+        // A prompt that waited runs what its queue entry holds now (`queue_edit.rs` may edit it).
+        let (mut blocks, text, control, trust_gate) = match run {
+            Some(r) => (r.blocks.clone(), prompt_text(&r.blocks), r.control, r.trust_gate),
+            None => (blocks, text, control, trust_gate),
         };
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
