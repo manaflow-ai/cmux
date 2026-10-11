@@ -4,7 +4,7 @@
 // filterable @pierre/trees file tree.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
-import type { TurnFile } from "./diff";
+import type { DiffHunk, TurnFile } from "./diff";
 import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
@@ -26,6 +26,9 @@ import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
+import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
+import { useGitWrite } from "./changes/useGitWrite";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -79,6 +82,9 @@ export function DiffPanel({
   review,
   reviewFiles,
   turn,
+  gitIntent,
+  onGitIntentHandled,
+  writeKeys,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -93,11 +99,41 @@ export function DiffPanel({
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
+  /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
+  /// pushes, as the toolbar's buttons do.
+  gitIntent?: { op: GitWriteOp; nonce: number };
+  /// The view took `gitIntent`; the page clears it so a later view never replays it.
+  onGitIntentHandled?: () => void;
+  /// The session's idempotency keys, kept by the page across a close and reopen of the view.
+  writeKeys?: WriteKeys;
 }) {
   const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch } = useScopeChanges(source, scope);
+  const [commitOpen, setCommitOpen] = useState(false);
+  // A commit closes the form and reloads the scope; a push changes only the branch state.
+  const git = useGitWrite(
+    source,
+    (op) => {
+      if (op === "commit") setCommitOpen(false);
+      if (op !== "push") retry();
+    },
+    writeKeys,
+  );
+  const commitMessage = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (commitOpen) commitMessage.current?.focus();
+  }, [commitOpen]);
+  const handledIntent = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!gitIntent || handledIntent.current === gitIntent.nonce) return;
+    handledIntent.current = gitIntent.nonce;
+    if (gitIntent.op === "push") void git.push();
+    else if (commitOpen) commitMessage.current?.focus();
+    else setCommitOpen(true);
+    onGitIntentHandled?.();
+  }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed or empty.
@@ -177,7 +213,6 @@ export function DiffPanel({
   const panel = useRef<HTMLElement>(null);
   // j/k move between files as picking them in the tree does; n/p between changes.
   const selectedFile = useStableCallback(() => selected);
-  useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
     const node = panel.current;
     return node ? bindDiffPanelEscape(node, onClose) : undefined;
@@ -200,24 +235,43 @@ export function DiffPanel({
   // its absolute path; git.stage takes it from the repository's top, as git.diff listed it. A
   // rename is both of its paths, or half of it would stay behind.
   const unstages = scope === "staged" ? true : scope === "unstaged" || scope === "uncommitted" ? false : undefined;
-  const stageFile = useStableCallback((path: string) => {
-    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
-    const root = load.changeSet.root?.replace(/\/+$/, "");
-    const inRepository = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
-    const previous = load.changeSet.files.find((file) => file.path === inRepository)?.previousPath;
+  // Stage hunk and Unstage hunk (cx-ncc.74): Unstaged stages a hunk, Staged unstages it. Uncommitted
+  // has none: its hunks are HEAD against the worktree, part of which may be staged already.
+  const hunkUnstages = scope === "staged" ? true : scope === "unstaged" ? false : undefined;
+  const withPrevious = (
+    path: string,
+    changeSet: { root?: string; files: { path: string; previousPath?: string }[] },
+  ) => {
+    const top = changeSet.root?.replace(/\/+$/, "");
+    const named = top && path.startsWith(`${top}/`) ? path.slice(top.length + 1) : path;
+    const previous = changeSet.files.find((file) => file.path === named)?.previousPath;
+    return previous ? [named, previous] : [named];
+  };
+  const changeIndex = (asked: Promise<unknown>) => {
     latestOpen.current += 1;
     setOpenFailure(undefined);
-    source
-      .stage(previous ? [inRepository, previous] : [inRepository], unstages)
-      .then(retry, (error: unknown) =>
-        setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
-      );
+    asked.then(retry, (error: unknown) =>
+      setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
+    );
+  };
+  const stageFile = useStableCallback((path: string) => {
+    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
+    changeIndex(source.stage(withPrevious(path, load.changeSet), unstages));
+  });
+  const stageHunk = useStableCallback((path: string, hunk: DiffHunk) => {
+    if (!source?.stageHunk || hunkUnstages === undefined || load.state !== "loaded") return;
+    const lines = hunk.lines.map((line) => (line.type === "add" ? "+" : line.type === "del" ? "-" : " ") + line.text);
+    changeIndex(source.stageHunk(withPrevious(path, load.changeSet), lines, hunkUnstages));
   });
   const canStage = source?.stage !== undefined && unstages !== undefined;
+  const canStageHunk = source?.stageHunk !== undefined && hunkUnstages !== undefined;
+  const hunkKey = canStageHunk ? (hunkUnstages ? "u" : "s") : undefined;
+  useDiffKeys(panel, body, revealFromTree, selectedFile, hunkKey);
   const on = useMemo<FileActions>(
     () => ({
       openFile,
       stage: canStage ? { unstage: unstages === true, run: stageFile } : undefined,
+      stageHunk: canStageHunk ? { unstage: hunkUnstages === true, run: stageHunk } : undefined,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -241,7 +295,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile, canStage, unstages, stageFile],
+    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -323,6 +377,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label={t("changes.viewTools")}>
+          <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
@@ -359,6 +414,13 @@ export function DiffPanel({
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
+      <GitWriteBar
+        git={git}
+        formOpen={commitOpen}
+        onCloseForm={() => setCommitOpen(false)}
+        messageRef={commitMessage}
+        reloadKey={load.state === "loaded" ? load.changeSet : load.state}
+      />
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
@@ -395,7 +457,7 @@ export function DiffPanel({
       {hunkReview && (
         <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
       )}
-      {files.length > 0 && !scopeState && <DiffKeyHints />}
+      {files.length > 0 && !scopeState && <DiffKeyHints hunkKey={hunkKey} />}
     </section>
   );
 }

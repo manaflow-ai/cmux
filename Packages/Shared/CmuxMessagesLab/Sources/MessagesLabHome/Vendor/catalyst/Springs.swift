@@ -190,13 +190,16 @@ enum Springs {
     static var bubbleWidth: SpringElement { osElement("bubble.width") }
     static var bubbleCenterY: SpringElement { osElement("bubble.centerY") }
     static var bubbleScale: SpringElement { osElement("bubble.scale") }
-    /// The send morph's elements for one send: after a draft that shrinks the field (macOS 27), the
-    /// `.fieldShrink` fits (refit3, cx-3cb.6); else the elements above.
+    /// The send morph's elements for one send (macOS 27): after a draft that shrinks the field, the
+    /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, the `.oneLine` fits where they
+    /// exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
+    /// macOS 26: the elements above. (gpui and rawmath read the base elements for every send.)
     struct Bubble {
         var right, width, centerY, scale, opacity: SpringElement
         init(fieldShrinks: Bool) {
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
-                fieldShrinks && !ComposeMetrics.macOS26 ? (Springs.all[n + ".fieldShrink"] ?? base) : base
+                guard !ComposeMetrics.macOS26 else { return base }
+                return Springs.all[n + (fieldShrinks ? ".fieldShrink" : ".oneLine")] ?? base
             }
             right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
             centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)

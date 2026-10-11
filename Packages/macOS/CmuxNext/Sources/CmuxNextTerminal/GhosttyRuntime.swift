@@ -197,7 +197,7 @@ public final class GhosttyRuntime {
         if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
-            ghostty_config_load_default_files(config)
+            loadDefaultFiles(into: config)
         }
         ghostty_config_load_recursive_files(config)
         for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {

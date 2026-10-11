@@ -585,6 +585,10 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.commit": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "git.diff": {
       "scope": "git:read",
       "class": "read"
@@ -596,6 +600,10 @@
     "git.files.search": {
       "scope": "git:read",
       "class": "read"
+    },
+    "git.push": {
+      "scope": "git:external",
+      "class": "mutation"
     },
     "git.status": {
       "scope": "git:read",

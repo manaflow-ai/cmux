@@ -21,7 +21,7 @@ name: cmux-next PR autofix
 #     ffi-release environment, for feat-cmux-next only
 #     (tests/test_ci_signing_secrets_need_release_environment.py). Until the
 #     App's secrets exist the job leaves the repairs in the artifact. It
-#     applies the patch with the base commit's scripts/cmux-next/pr-autofix-apply.sh
+#     applies the patch with the base branch tip's scripts/cmux-next/pr-autofix-apply.sh
 #     (only repair outputs; never a workflow, manifest or lockfile) and pushes
 #     one commit to the pull request's branch.
 # No loop: a head that is already an autofix commit (its Autofix-Run trailer)
@@ -53,17 +53,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # The autofix's own scripts come from the base commit, so a branch cut
-      # before they existed is repaired too; the generators they run are the
-      # pull request's own.
+      # The autofix's own scripts come from the base branch's tip, so a branch
+      # cut before they existed is repaired too; the generators they run are
+      # the pull request's own. Not pull_request.base.sha: GitHub leaves it at
+      # the base the PR last moved onto, which for #19029 was a day old and
+      # had no autofix-areas.sh.
       - name: Autofix scripts from the base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive "$BASE_SHA" scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
+          git archive FETCH_HEAD scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
 
       - name: Changed areas
@@ -71,6 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
           if git log -1 --format=%B | grep -q '^Autofix-Run: '; then
@@ -79,7 +82,16 @@ jobs:
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > "$RUNNER_TEMP/changed.txt"
+          # The files API, not `gh pr diff`: GitHub refuses the diff of a PR
+          # over 300 files (HTTP 406), and this lists up to 3000. A rename lists
+          # both paths. Past 3000 it stops without an error, so such a PR runs
+          # every area.
+          if [ "$CHANGED_FILES" -ge 3000 ]; then
+            "$AUTOFIX/autofix-areas.sh" --all | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
           "$AUTOFIX/autofix-areas.sh" < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
@@ -213,12 +225,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The apply script comes from the base commit: the patch was made by the
-      # pull request's code, and the script decides what of it may be pushed.
+      # The apply script comes from the base branch's tip (as the repair's
+      # scripts do): the patch was made by the pull request's code, and the
+      # script decides what of it may be pushed.
       - name: Check out the base's apply script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           path: base
           persist-credentials: false
           sparse-checkout: scripts/cmux-next

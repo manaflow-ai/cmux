@@ -34,10 +34,7 @@ fn pipelined_new_tabs_start_hosts_in_parallel_in_request_order() {
     let pane = anchor["pane"].as_u64().expect("run omitted its pane");
     wait_for_host_records(&harness.host_root(), 1);
     // Hosts launched from here on wait at the gate before Ready.
-    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
-    // SAFETY: `path` is a NUL-terminated string that outlives the call.
-    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0, "mkfifo {gate:?}");
-    let gate_guard = ReadyGate(gate);
+    let gate_guard = HostGate::create(gate);
 
     let stream = transport::connect(&harness.socket).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
@@ -96,20 +93,30 @@ fn pipelined_new_tabs_start_hosts_in_parallel_in_request_order() {
     wait_for_host_records(&harness.host_root(), 1 + TABS as usize);
 }
 
-/// The FIFO `CMUX_TUI_TEST_HOST_READY_GATE` names. Hosts that find it wait
-/// before Ready until it is opened for writing. Dropping the gate opens it
-/// once (releasing any waiting host) and removes it.
-struct ReadyGate(PathBuf);
+/// The FIFO `CMUX_TUI_TEST_HOST_READY_GATE` (before Ready) or
+/// `CMUX_TUI_TEST_HOST_EXIT_GATE` (before an ended host releases its record
+/// and live marker) names. Hosts that find it wait until it is opened for
+/// writing. Dropping the gate opens it once (releasing any waiting host)
+/// and removes it.
+pub(crate) struct HostGate(pub(crate) PathBuf);
 
-impl ReadyGate {
+impl HostGate {
+    /// Make the FIFO at `path`: hosts that reach the gate from now on wait.
+    pub(crate) fn create(path: PathBuf) -> Self {
+        let raw = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: `raw` is a NUL-terminated string that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(raw.as_ptr(), 0o600) }, 0, "mkfifo {path:?}");
+        Self(path)
+    }
+
     /// Open the gate: every waiting host and every later one passes while
     /// the returned descriptor stays open. Read-write never blocks.
-    fn open(&self) -> fs::File {
+    pub(crate) fn open(&self) -> fs::File {
         fs::OpenOptions::new().read(true).write(true).open(&self.0).unwrap()
     }
 }
 
-impl Drop for ReadyGate {
+impl Drop for HostGate {
     fn drop(&mut self) {
         // Remove while open: a host past its existence check still gets
         // through, and a later one finds no gate.
