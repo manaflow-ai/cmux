@@ -31,4 +31,13 @@ struct ClassicGhosttyLayerTests {
         defer { try? FileManager.default.removeItem(at: support) }
         #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support) == 15)
     }
+
+    @Test @MainActor func thisChannelsLayerWins() throws {
+        // Next nightly ships as classic nightly's bundle: its own layer, not stable's.
+        let support = try Self.support(["com.cmuxterm.app/config.ghostty": "font-size = 17\n",
+                                        "com.cmuxterm.app.nightly/config.ghostty": "font-size = 15\n"])
+        defer { try? FileManager.default.removeItem(at: support) }
+        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support,
+                                                    bundleIdentifier: "com.cmuxterm.app.nightly") == 15)
+    }
 }
