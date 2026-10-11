@@ -102,7 +102,7 @@ fn meta(cwd: &Path, extra: Value) -> Value {
 }
 
 /// The manifest of a bundle made of `meta` as `session.json` and `files`, and its files.
-fn manifest(meta: &Value, files: &[(&str, &[u8])]) -> (Value, Vec<(String, Vec<u8>)>) {
+fn bundle_manifest(meta: &Value, files: &[(&str, &[u8])]) -> (Value, Vec<(String, Vec<u8>)>) {
     let mut all = vec![("session.json".to_owned(), serde_json::to_vec_pretty(meta).unwrap())];
     all.extend(files.iter().map(|(p, d)| (p.to_string(), d.to_vec())));
     let listed: Vec<Value> = all.iter().map(|(p, d)| json!({"path": p, "size": d.len()})).collect();
@@ -123,7 +123,7 @@ async fn receive(
     meta: &Value,
     files: &[(&str, &[u8])],
 ) -> Result<String, String> {
-    let (manifest, all) = manifest(meta, files);
+    let (manifest, all) = bundle_manifest(meta, files);
     let r = c
         .request("_acpmux/transfer_receive", json!({"manifest": manifest, "guard": guard}))
         .await?;
@@ -530,7 +530,7 @@ async fn a_guard_is_checked_kept_by_the_receive_and_taken_only_on_the_local_sock
     let home = std::fs::canonicalize(dirs::home_dir().unwrap()).unwrap();
     let (hub, mut dst) = daemon(config("ask", json!({})), None).await;
     let m = meta(root.path(), json!({}));
-    let (manifest, _) = manifest(&m, &[]);
+    let (manifest, _) = bundle_manifest(&m, &[]);
 
     for bad in [
         json!({"control": "web", "roots": [home]}),
@@ -572,7 +572,7 @@ async fn a_guard_is_checked_kept_by_the_receive_and_taken_only_on_the_local_sock
     for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
         let mut c = remote_client(&hub, origin);
         let m = meta(root.path(), json!({}));
-        let (manifest, _) = manifest(&m, &[]);
+        let (manifest, _) = bundle_manifest(&m, &[]);
         let params = json!({"manifest": manifest, "guard": guard("web", &[root.path()])});
         let r = c.request("_acpmux/transfer_receive", params).await;
         assert!(r.as_ref().is_err_and(|e| e.contains("Method not found")), "{origin:?}: {r:?}");
