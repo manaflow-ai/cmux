@@ -108,10 +108,19 @@ final class PageWKWebView: WKWebView {
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
 
+    /// Keeps AppKit's AutoFill out of the open menu (``PageMenuSystemItems``).
+    private let menuSystemItems = PageMenuSystemItems()
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         openedMenu = menu
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         super.willOpenMenu(menu, with: event)
+        menuSystemItems.watch(menu)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        menuSystemItems.stop()
+        super.didCloseMenu(menu, with: event)
     }
 
     /// Removes every item but Copy (and the separators around removed items).

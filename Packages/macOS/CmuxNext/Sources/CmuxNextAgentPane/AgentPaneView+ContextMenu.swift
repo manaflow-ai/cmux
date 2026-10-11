@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPages
 import WebKit
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
@@ -8,9 +9,18 @@ import WebKit
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
 
+    /// Keeps AppKit's AutoFill out of the open menu (``PageMenuSystemItems``).
+    private let menuSystemItems = PageMenuSystemItems()
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         contextMenuEditor?(menu)
         super.willOpenMenu(menu, with: event)
+        menuSystemItems.watch(menu)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        menuSystemItems.stop()
+        super.didCloseMenu(menu, with: event)
     }
 }
 
