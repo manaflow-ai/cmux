@@ -62,9 +62,11 @@ await requireBrowserLane("changes-stage-hunk-keys.test.ts", async () => {
       report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     }));
     await page.close();
-    // The play throws when s staged anything but the second hunk ("fail"); "warn" is a stage
-    // measure (a scope menu's popup layer, a cold page's long frame), not the keys.
-    expect(result.play === "pass" || result.play === "warn", result.report).toBe(true);
-    expect(result.report).not.toContain('"error"');
+    // The play throws when s staged anything but the second hunk: the report then has `error`.
+    // Its status also folds in the stage's own measures of each step, and switching to Unstaged
+    // replaces the files (a layout shift, a cold page's long frame), which is not what this tests.
+    const report = JSON.parse(result.report ?? "{}") as { error?: string; steps?: { step: string }[] };
+    expect(report.error, result.report).toBeUndefined();
+    expect(report.steps?.map((step) => step.step).slice(-3), result.report).toEqual(["press n", "press n", "press s"]);
   });
 });
