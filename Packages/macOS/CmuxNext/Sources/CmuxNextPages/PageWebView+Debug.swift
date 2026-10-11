@@ -4,7 +4,7 @@ import CmuxNextDesign
 public import Foundation
 import AppKit
 import ObjectiveC
-import WebKit
+public import WebKit
 
 /// The generic page debug verb (`debug.page {page, state | snapshot}`): what any page shows, read
 /// from the DOM, and the page as WebKit rendered it. Absorbed from the Settings lead's
