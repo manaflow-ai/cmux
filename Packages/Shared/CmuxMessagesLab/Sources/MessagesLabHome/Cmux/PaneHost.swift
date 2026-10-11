@@ -249,8 +249,8 @@ extension TranscriptDocumentView {
 /// projection of HomeStore (the single writer), so `install` takes the
 /// adapter's conversation, there is no pager, responder or write-through
 /// source, and the user's changes leave through `intents` instead of being
-/// dispatched (send, tapback); the wake timer is the host's scheduler; reply,
-/// edit and undo send are not offered (HomeOp has no reply, edit or unsend);
+/// dispatched (send, tapback); the wake timer is the host's scheduler; edit
+/// and undo send are not offered in the pane;
 /// the attachment intake (picker, paste, drop) is the host's (`intents`),
 /// the chips, morph and bubbles MessagesLab's.
 final class ChatController: NSObject, NSTextViewDelegate {
@@ -296,9 +296,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
-    /// the owner can honor `.reply` (`intents.canReply`); HomeOp has no
-    /// reply operation yet, so a swipe would open a thread nothing can send to.
+    /// the owner can honor `.reply` (`intents.canReply`).
     private(set) lazy var swipe = SwipeReply(controller: self)
+    /// cmux: the thread and reply view's Esc and clicks (PaneHost+Thread.swift).
+    private(set) lazy var thread = PaneThread(controller: self)
     static let args = ProcessInfo.processInfo.arguments
     /// Test modes never take focus.
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
@@ -385,7 +386,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install() }
+        if intents?.canReply == true { swipe.install(); thread.install() }
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -435,6 +436,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        thread.note(a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
         // run at the start of the next display frame, so they do not add their commits to
         // the keystroke's frame; a send goes first only past statuses and typing (message
@@ -543,7 +545,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
-        if isWorking { onStop?() }
+        // In the field a working agent stops first (one Esc), as before threads; then the
+        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
+        if isWorking { onStop?(); return }
+        _ = thread.escape()
     }
 
     // MARK: Drops
@@ -588,7 +593,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
         let held = hold.fired
         hold.cancel()
-        if held { return }
+        if held || thread.swallowed(e) { return }
         if selection.mouseUp() { return }
         if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
     }
@@ -597,6 +602,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let demo else { return }
         if picker != nil { closePicker(); return }
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
+        if thread.clicked(p) { return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.

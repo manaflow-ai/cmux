@@ -62,6 +62,7 @@ import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
+import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
@@ -96,7 +97,15 @@ import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
-import { clearFindHighlights, paintFindHighlights, useChatFind, type ChatFind } from "./conversation/chatFind";
+import {
+  clearFindHighlights,
+  FindReveal,
+  findRowIndex,
+  isFindRow,
+  paintFindHighlights,
+  useChatFind,
+  type ChatFind,
+} from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
@@ -130,6 +139,7 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
+import { instructionsRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -669,6 +679,7 @@ function RowFrame({
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
+      data-row-card={row.ended ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -749,6 +760,15 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const JUMP_LATEST_DISTANCE = 80;
 /// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
 const JUMP_LATEST_SETTLE_MS = 600;
+/// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
+function scrollRangeIn(scroller: HTMLElement, range: Range) {
+  const box = range.getBoundingClientRect();
+  const view = scroller.getBoundingClientRect();
+  if (box.top < view.top || box.bottom > view.bottom)
+    scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
+}
+/// How long Find keeps a new match in view while its groups open and the rows above it measure.
+const FIND_REVEAL_MS = 600;
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1219,14 +1239,41 @@ export function VirtualTranscript({
   // text is drawn, the match itself; every commit repaints the highlights over the mounted rows.
   const findQuery = find?.open ? find.query : "";
   const findTarget = find?.matches[find.active];
+  // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
+  // once its fold is open.
+  const findIndex = findTarget ? findRowIndex(rows, findTarget.rowId) : -1;
+  const drawnId = rows[findIndex]?.id;
+  const drawnCard = Boolean(rows[findIndex]?.ended);
   const revealing = useRef<string | undefined>(undefined);
-  const targetKey = findTarget && findQuery ? `${findTarget.rowId}:${findTarget.occurrence}:${findQuery}` : undefined;
+  const targetKey =
+    findTarget && findQuery && drawnId !== undefined
+      ? `${drawnId}:${drawnCard}:${findTarget.occurrence}:${findQuery}`
+      : undefined;
+  // A group or call that opens to show the match asks for a render here, so the highlights and
+  // the scroll below see its text.
+  const [, setRevealed] = useState(0);
+  // Keyed on what it names, not the match object, which is new on each update while Find is open:
+  // a new value would open again every group a reader closed.
+  const findReveal = useMemo(
+    () =>
+      drawnId !== undefined && findQuery
+        ? {
+            rowId: drawnId,
+            card: drawnCard,
+            needle: findQuery.toLocaleLowerCase(),
+            repaint: () => setRevealed((count) => count + 1),
+          }
+        : undefined,
+    [drawnId, drawnCard, findQuery],
+  );
+  const revealUntil = useRef(0);
   useLayoutEffect(() => {
     revealing.current = targetKey;
+    revealUntil.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
-    const top = layout.tops[findTarget.rowIndex];
-    const bottom = top + layout.heights[findTarget.rowIndex];
+    const top = layout.tops[findIndex];
+    const bottom = top + layout.heights[findIndex];
     if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -1235,12 +1282,27 @@ export function VirtualTranscript({
     const node = ref.current;
     if (!node) return;
     if (!findQuery) return clearFindHighlights();
-    const current = paintFindHighlights(node, findQuery, findTarget);
+    const current = paintFindHighlights(
+      node,
+      findQuery,
+      findTarget && drawnId !== undefined
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTarget.occurrence }
+        : undefined,
+    );
     if (!current || revealing.current !== targetKey) return;
-    revealing.current = undefined;
-    const box = current.getBoundingClientRect();
-    const view = node.getBoundingClientRect();
-    if (box.top < view.top || box.bottom > view.bottom) node.scrollTop += box.top - view.top - node.clientHeight / 3;
+    // A match in a closed group is drawn before the group opens (with no size), and it moves as the
+    // opened parts and the rows above it measure, so it is kept in view for a moment once drawn.
+    if (!revealUntil.current) revealUntil.current = performance.now() + FIND_REVEAL_MS;
+    if (performance.now() > revealUntil.current) {
+      revealing.current = undefined;
+      return;
+    }
+    if (current.getBoundingClientRect().height === 0) return;
+    // Inner scrollers first (a command's output scrolls on its own), then the transcript.
+    for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
+      if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+        scrollRangeIn(box, current);
+    scrollRangeIn(node, current);
   });
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.
@@ -1320,52 +1382,54 @@ export function VirtualTranscript({
           width={width}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-          <div ref={thread} className="acpmux-thread">
-            {rows.slice(range.first, range.last).map((row, index) => {
-              const absoluteIndex = range.first + index;
-              const kind = rowKind(row);
-              const Component = registry[kind] ?? NoticeRow;
-              const isExpanded = expanded.has(row.id);
-              const controls =
-                row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
-              return (
-                <RowFrame
-                  key={`${sessionId ?? ""}:${row.id}`}
-                  row={row}
-                  kind={kind}
-                  index={absoluteIndex}
-                  setSize={canLoadOlder ? -1 : rows.length}
-                  top={layout.tops[absoluteIndex]}
-                  rowWidth={transcriptRowWidth(width)}
-                  expanded={isExpanded}
-                  observer={observer}
-                  report={reportDrawn}
-                  enter={enteringRows.current.has(row.id)}
-                  onEntered={onEntered}
-                  active={effectiveActiveRowId === row.id}
-                  selected={selectedRows.has(absoluteIndex)}
-                  tabStop={tabStopId === row.id}
-                  onFocus={() => rowFocus(row.id)}
-                  onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
-                  copyable={transcriptHasFloatingCopy(row)}
-                  onCopy={() =>
-                    copyRows(selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id])
-                  }
-                >
-                  <Component
+        <FindReveal.Provider value={findReveal}>
+          <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
+            <div ref={thread} className="acpmux-thread">
+              {rows.slice(range.first, range.last).map((row, index) => {
+                const absoluteIndex = range.first + index;
+                const kind = rowKind(row);
+                const Component = registry[kind] ?? NoticeRow;
+                const isExpanded = expanded.has(row.id);
+                const controls =
+                  row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
+                return (
+                  <RowFrame
+                    key={`${sessionId ?? ""}:${row.id}`}
                     row={row}
-                    onToggleActivity={onToggleActivity}
-                    onOpenDiff={onOpenDiff}
+                    kind={kind}
+                    index={absoluteIndex}
+                    setSize={canLoadOlder ? -1 : rows.length}
+                    top={layout.tops[absoluteIndex]}
+                    rowWidth={transcriptRowWidth(width)}
                     expanded={isExpanded}
-                    controls={controls}
-                    githubRepository={githubRepository}
-                  />
-                </RowFrame>
-              );
-            })}
+                    observer={observer}
+                    report={reportDrawn}
+                    enter={enteringRows.current.has(row.id)}
+                    onEntered={onEntered}
+                    active={effectiveActiveRowId === row.id}
+                    selected={selectedRows.has(absoluteIndex)}
+                    tabStop={tabStopId === row.id}
+                    onFocus={() => rowFocus(row.id)}
+                    onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                    copyable={transcriptHasFloatingCopy(row)}
+                    onCopy={() =>
+                      copyRows(selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id])
+                    }
+                  >
+                    <Component
+                      row={row}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      expanded={isExpanded}
+                      controls={controls}
+                      githubRepository={githubRepository}
+                    />
+                  </RowFrame>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </FindReveal.Provider>
       </div>
       {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
     </>
@@ -1511,6 +1575,7 @@ function AcpmuxPane() {
   const [chooseFolder, setChooseFolder] = useState(false);
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
+  const [pastTurns, setPastTurns] = useState<PastTurn[]>();
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
   /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
@@ -1744,17 +1809,21 @@ function AcpmuxPane() {
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
     [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName],
   );
-  const transcriptRows = useMemo(() => {
-    if (childRows) return childRows;
+  // The chat's rows before turns fold their work, which Find searches (a closed fold included).
+  const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
-    const rows = groups?.supported
+    return groups?.supported
       ? snapshot.rows.filter(
           (row) =>
             row.kind !== "permission" ||
             (!row.permission?.groupId && !groupedIds.has(row.permission?.permissionId ?? "")),
         )
       : snapshot.rows;
+  }, [snapshot.rows, snapshot.permissionGroups]);
+  const transcriptRows = useMemo(() => {
+    if (childRows) return childRows;
+    const rows = sourceRows;
     return withMoveRows(
       withShellRows(
         withSubagentRows(
@@ -1765,16 +1834,7 @@ function AcpmuxPane() {
       ),
       sessionMoves,
     );
-  }, [
-    childRows,
-    snapshot.rows,
-    expanded,
-    snapshot.isWorking,
-    snapshot.clockOffsetMs,
-    snapshot.permissionGroups,
-    chatShellRuns,
-    sessionMoves,
-  ]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
   /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
   const lineage = useMemo(
     () => ({
@@ -1789,7 +1849,22 @@ function AcpmuxPane() {
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // Find in Chat over the transcript; the page actions read it through `findRef`.
-  const find = useChatFind(transcriptRows);
+  const findRows = childRows ?? sourceRows;
+  const find = useChatFind(findRows);
+  // A match in a turn's closed "Worked for" opens it, so the transcript draws the row.
+  const findTarget = find.open ? find.matches[find.active] : undefined;
+  // Before paint, so the transcript scrolls to the match in the same frame.
+  useLayoutEffect(() => {
+    if (!findTarget || childRows || transcriptRows.some((row) => isFindRow(row, findTarget.rowId))) return;
+    const user = findRows
+      .slice(0, findTarget.rowIndex + 1)
+      .reverse()
+      .find((row) => row.kind === "user");
+    if (!user) return;
+    const fold = `${WORKED}-${user.id}`;
+    setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
+  }, [findTarget?.rowId, findTarget?.occurrence]);
   const findRef = useRef(find);
   findRef.current = find;
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -2350,6 +2425,8 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
+            // Search Files… (Cmd-P): the composer opens its file search.
+            "searchFiles",
           ].includes(name)
         ) {
           window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
@@ -2509,6 +2586,7 @@ function AcpmuxPane() {
           revealTurn?: unknown;
           chooseFolder?: boolean;
           folderNeeded?: { reason?: unknown };
+          pastTurns?: unknown;
           machineName?: unknown;
           githubRepository?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
@@ -2522,6 +2600,7 @@ function AcpmuxPane() {
             ? { reason: host.folderNeeded.reason }
             : undefined,
         );
+        setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -3106,8 +3185,15 @@ function AcpmuxPane() {
             },
           ]
         : [];
+    // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
+    const instructions = quick
+      ? undefined
+      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
+          ignoreFailure(callNative("project.instructions", { cwd, name })),
+        );
     const tools: ChatMenuItem[] = [
       ...replay,
+      ...(instructions ? [instructions] : []),
       {
         key: "inspector",
         label: t("inspector.title"),
@@ -4004,6 +4090,8 @@ function AcpmuxPane() {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
+                ) : freshView && pastTurns ? (
+                  <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (

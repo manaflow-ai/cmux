@@ -199,7 +199,12 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     focusRing: accent ?? withAlpha(fg, 0.4),
     glassTint: withAlpha(bg, isDark ? 0.4 : 0.3),
     shadow: mixed(bg, BLACK, 0.85),
-    textSelection: input.selectionBackground ?? mixed(bg, fg, 0.22),
+    // The config's selection only when text reads on it (ThemeTokens.swift: an inverse-video
+    // selection would hide the text).
+    textSelection:
+      input.selectionBackground && contrast(primary, composited(input.selectionBackground, bg)) >= MINIMUM_MARK_CONTRAST
+        ? input.selectionBackground
+        : mixed(bg, fg, 0.22),
     attention: status(3),
     danger: status(1),
     success: status(2),

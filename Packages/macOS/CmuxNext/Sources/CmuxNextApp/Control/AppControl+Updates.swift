@@ -88,6 +88,14 @@ extension AppControl {
         }
         #if DEBUG
         service?.router.register([
+            // `debug.update_surfaces {action: "show-popover"}`: opens the active
+            // window's staged-update highlights popover (the React surface) for proofs.
+            .mainActor("debug.update_surfaces") { [weak services = appServices] _ in
+                guard let sidebar = services?.windows.active?.sidebar.container.sidebarView else {
+                    throw ControlError.invalidParams("debug.update_surfaces: no active window")
+                }
+                return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+            },
             .mainActor("debug.update_indicator") { call in
                 updater.debugIndicatorPhase = UpdateIndicatorPhase(debugParams: call.params)
                 return .value(.object(["phase": .string(String(describing: updater.indicatorPhase))]))

@@ -56,13 +56,29 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         if let change = Self.change(params) { states[change.session] = change.state }
     }
 
-    /// One decoded `_acpmux/session_changed` (decode it off the main actor): the session and
-    /// its new state (nil: no indicator, or purged). Nil when the line names no session state.
-    public static func change(_ params: [String: Any]) -> (session: String, state: AgentTurnState?)? {
+    /// One decoded `_acpmux/session_changed` (decode it off the main actor): the session, its
+    /// new state (nil: no indicator, or purged) and its last message (`lastMessage`, cx-13w3.1).
+    /// Nil when the line names no session state.
+    public static func change(_ params: [String: Any]) -> (session: String, state: AgentTurnState?, lastMessage: String?)? {
         guard let id = params["sessionId"] as? String else { return nil }
-        if params["kind"] as? String == "purged" { return (id, nil) }
+        if params["kind"] as? String == "purged" { return (id, nil, nil) }
         guard let summary = params["session"] as? [String: Any] else { return nil }
-        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary))
+        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary), lastMessage(summary))
+    }
+
+    /// A summary's `lastMessage` text: the reply's last line, else the prompt; nil before one.
+    public static func lastMessage(_ summary: [String: Any]) -> String? {
+        guard let text = (summary["lastMessage"] as? [String: Any])?["text"] as? String, !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// The last message of every session of a watch result.
+    public static func lastMessages(_ result: [String: Any]) -> [String: String] {
+        var messages: [String: String] = [:]
+        for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+            if let id = summary["sessionId"] as? String, let text = lastMessage(summary) { messages[id] = text }
+        }
+        return messages
     }
 
     /// Sets one session's state. False when it already had that state: the caller then
@@ -106,6 +122,9 @@ public final class AgentTurnStateStore {
 
     /// The states of the sessions on `localHost`.
     public var states = AgentTurnStates()
+    /// Each session's last message (expanded sidebar rows, cx-13w3.1), apart from
+    /// `states` so a new reply redraws only the rows that show it.
+    public var lastMessages: [String: String] = [:]
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
@@ -116,5 +135,11 @@ public final class AgentTurnStateStore {
     public func state(for ref: AgentSessionRef) -> AgentTurnState? {
         guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
         return states[session]
+    }
+
+    /// The last message of the session an agent chat tab shows.
+    public func lastMessage(for ref: AgentSessionRef) -> String? {
+        guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
+        return lastMessages[session]
     }
 }

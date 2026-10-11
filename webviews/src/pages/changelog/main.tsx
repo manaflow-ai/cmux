@@ -8,6 +8,7 @@ import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { MockChangelogProvider } from "./mockProvider";
 import { ChangelogStore, parseDesign, parseSpan } from "./store";
+import { mountUpdateSurface, parseSurface } from "./surface";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -36,4 +37,9 @@ function defaultClient(): PageClient | null {
 }
 
 const root = document.getElementById("root");
-if (root && document.documentElement.dataset.cmuxPage === "changelog") mountChangelogPage(root);
+if (root && document.documentElement.dataset.cmuxPage === "changelog") {
+  // The sidebar's update surfaces open this bundle on `#/surface/<kind>` (surface.tsx).
+  const surface = parseSurface(location.hash);
+  if (surface) mountUpdateSurface(root, surface, defaultClient());
+  else mountChangelogPage(root);
+}

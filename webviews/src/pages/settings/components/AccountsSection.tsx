@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
 import type { AccountsButton, AccountsRow } from "../ops";
+import { t } from "../strings";
 
 export function AccountsSection() {
   const store = useStore();
@@ -50,6 +51,11 @@ function AccountsBody() {
             {accounts.refresh}
           </button>
         </div>
+        {accounts.groups.length === 0 && (
+          <output className="row-help block" data-accounts-empty="">
+            {t("settingsPage.accounts.empty")}
+          </output>
+        )}
       </section>
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>

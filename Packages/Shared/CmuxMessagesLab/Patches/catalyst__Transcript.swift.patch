@@ -46,7 +46,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1055,6 +1058,16 @@
+@@ -1063,6 +1066,16 @@
              RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
          }
          CATransaction.commit()

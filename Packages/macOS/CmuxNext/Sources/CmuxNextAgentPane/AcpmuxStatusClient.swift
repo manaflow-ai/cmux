@@ -36,6 +36,14 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxChatOpenPlan(result: result)
     }
 
+    /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
+    /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
+    @concurrent static func chatTranscript(socketPath: String, key: String,
+                                           deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
+        return AgentPanePastTurn.turns(result: result)
+    }
+
     /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
     /// running for the next daemon. With `endAgents` (Quit Everything) they
     /// end, except the agents of `keepSessions`.
