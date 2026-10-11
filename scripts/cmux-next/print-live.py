@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Live check: File > Print… of a web page in both engines (cx-d0d.20).
+"""Live check: File > Print… of a web page in both engines (cx-d0d.20), and a WebKit page's own
+window.print() (cx-d0d.64).
 
   scripts/cmux-next/print-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit]
 
@@ -8,7 +9,8 @@ page and runs the Print… action (`browserPrint`, the File menu's and the palet
 
   - Chromium: its print preview opens over the page (a Chromium dialog window attached to
     the page window), as the page's own window.print() does; closing the tab closes it;
-  - WebKit: the system print panel opens as a sheet on the tab's window.
+  - WebKit: the system print panel opens as a sheet on the tab's window. Then the page's own
+    window.print() opens it too, and its script goes on once Escape cancels the panel.
 
 Nothing is printed: the panels are left open and the app is quit at the end. Snapshots of
 what opened go to --out. GUI host only (a capture mini). Exits 1 when a check fails.
@@ -162,6 +164,21 @@ def run_engine(engine):
             time.sleep(1)
             snapshot(shown[0], "webkit-print-panel")
             snapshot(next(w for w in window_list() if w["id"] == main), "webkit-window")
+        rpc("debug.key", {"key": "escape"})
+        check(bool(quiet_wait(lambda: not sheets(main), 10)), f"{engine}: Escape cancels the print panel")
+        # window.print() blocks the page until the panel ends: called from a timer so the
+        # eval answers, with the title set after it returns.
+        page("setTimeout(() => { window.print(); document.title = 'printed'; }, 0); true")
+        shown = quiet_wait(lambda: sheets(main), 10)
+        check(bool(shown), f"{engine}: the page's window.print() opens the system print panel ({window_list()})")
+        if shown:
+            time.sleep(1)
+            snapshot(shown[0], "webkit-window-print-panel")
+            check(page("document.title") != "printed", f"{engine}: the page waits while the panel shows")
+            rpc("debug.key", {"key": "escape"})
+            check(bool(quiet_wait(lambda: not sheets(main), 10)), f"{engine}: Escape cancels the page's print panel")
+            check(bool(quiet_wait(lambda: page("document.title") == "printed", 10)),
+                  f"{engine}: the page's script goes on after the panel ({page('document.title')!r})")
     TAB = None
 
 
