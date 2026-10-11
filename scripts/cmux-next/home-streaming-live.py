@@ -23,7 +23,7 @@ text and never bring A back (debug.home draft and window snapshots).
 Usage (under `zsh -lic`, for the subrouter route):
   home-streaming-live.py --tag <tag> --app <path to cmux DEV <tag>.app> --out DIR [--late-turn]
 """
-import argparse, json, os, shutil, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, fcntl, glob, json, os, shutil, signal, socket, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -46,6 +46,17 @@ SCRATCH = tempfile.mkdtemp(prefix=f"home-streaming-{TAG}-")
 PROMPT = "Write about 250 words on why tests should run at product boundaries. Plain prose, no lists."
 os.makedirs(opts.out, exist_ok=True)
 app = None
+
+
+def tag_slug(raw):
+    """AcpmuxEnvironment.tagSlug: lowercase ASCII letters and digits, other runs become one '-'."""
+    slug = ""
+    for ch in raw.lower():
+        if ch.isascii() and ch.isalnum():
+            slug += ch
+        elif not slug.endswith("-"):
+            slug += "-"
+    return slug.strip("-")
 
 
 def fnv1a32(text):
@@ -103,6 +114,46 @@ def stop_sessions():
                        env=env, capture_output=True, timeout=60)
 
 
+def acpmux_released(home, seconds=20):
+    """Waits until the acpmux daemon of `home` released daemon.lock and every
+    agent host its records name exited; a host still running at the deadline
+    is ended by its recorded pid. True when nothing of `home` is left."""
+    def lock_free():
+        path = os.path.join(home, "daemon.lock")
+        if not os.path.exists(path):
+            return True
+        with open(path, "a") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(f, fcntl.LOCK_UN)
+                return True
+            except OSError:
+                return False
+
+    def host_pids():
+        pids = []
+        for record in glob.glob(os.path.join(home, "hosts", "*.json")) + glob.glob(os.path.join(home, "hosts", "*", "*.json")):
+            try:
+                pid = json.load(open(record)).get("host_pid")
+            except (OSError, ValueError):
+                continue
+            if isinstance(pid, int) and pid > 1:
+                try:
+                    os.kill(pid, 0)
+                    pids.append(pid)
+                except OSError:
+                    pass
+        return pids
+
+    released = wait(lambda: lock_free() and not host_pids(), seconds, step=0.25)
+    left = host_pids()
+    for pid in left:
+        os.kill(pid, signal.SIGTERM)
+    with open(os.path.join(opts.out, "cleanup.log"), "a") as log:
+        log.write(f"{home}: daemon.lock free={lock_free()} hosts left={left} released={bool(released)}\n")
+    return bool(released)
+
+
 def cleanup():
     rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     if app:
@@ -110,8 +161,16 @@ def cleanup():
             app.wait(timeout=30)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": os.path.join(MUX_HOME, "acpmux")},
-                   capture_output=True, timeout=60)
+    # Both acpmux daemons of the tag: the Chief's (its home) and the app's
+    # agent daemon (~/.acpmux/tags/<slug>, AcpmuxEnvironment.tagSlug); a
+    # daemon left running keeps its agent harnesses (and their PTYs) alive.
+    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser(f"~/.acpmux/tags/{tag_slug(TAG)}")):
+        done = subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": home},
+                              capture_output=True, text=True, timeout=60)
+        with open(os.path.join(opts.out, "cleanup.log"), "a") as log:
+            log.write(f"acpmux daemon shutdown ACPMUX_HOME={home}: rc={done.returncode} "
+                      f"out={done.stdout.strip()[:300]!r} err={done.stderr.strip()[:300]!r}\n")
+        acpmux_released(home)
     stop_sessions()
 
 
