@@ -9,7 +9,7 @@ import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
-import { PullRequestMerge } from "./PullRequestMerge";
+import { PullRequestMerge, type MergeResult, type Merging } from "./PullRequestMerge";
 
 const STATES: Record<string, StringKey> = {
   open: "header.prState.open",
@@ -35,10 +35,13 @@ export function PullRequestChip({
 }: {
   pullRequest: HeaderPullRequest;
   /// Merge (PullRequestMerge.tsx); absent where the chat can't merge from here.
-  onMerge?: (number: number) => Promise<unknown>;
+  onMerge?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Where Merge stands for this pull request, kept here: the popover's content unmounts on close.
+  const [merge, setMerge] = useState<{ url: string; merging: Merging }>();
+  const merging = merge?.url === pullRequest.url ? merge.merging : { step: "idle" as const };
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
@@ -110,7 +113,14 @@ export function PullRequestChip({
             ))}
           </ul>
         )}
-        {onMerge && <PullRequestMerge key={pullRequest.number} pullRequest={pullRequest} merge={onMerge} />}
+        {onMerge && (
+          <PullRequestMerge
+            pullRequest={pullRequest}
+            merging={merging}
+            setMerging={(next) => setMerge({ url: pullRequest.url, merging: next })}
+            merge={onMerge}
+          />
+        )}
       </Popover>
     </>
   );

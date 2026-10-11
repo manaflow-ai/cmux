@@ -22403,6 +22403,268 @@
         }
       }
     },
+    "agentPane.error.gitMergeBehind": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الفرع متأخر عن فرعه الأساسي. حدّثه، ثم ادمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova grana zaostaje za svojom osnovom. Ažurirajte je, pa spojite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne gren er bagud i forhold til sin base. Opdater den, og flet derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Branch liegt hinter seiner Basis. Aktualisiere ihn, dann führe zusammen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This branch is behind its base. Update it, then merge."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta rama está por detrás de su base. Actualízala y luego fusiona."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette branche est en retard sur sa base. Mettez-la à jour, puis fusionnez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo branch è indietro rispetto alla base. Aggiornalo, poi unisci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブランチはベースより遅れています。更新してからマージしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាខានេះនៅពីក្រោយមូលដ្ឋានរបស់វា។ សូមធ្វើបច្ចុប្បន្នភាព រួចបញ្ចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브랜치가 기본 브랜치보다 뒤처져 있습니다. 업데이트한 다음 병합하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne grenen ligger bak grunnen sin. Oppdater den, og flett deretter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta gałąź jest za swoją bazą. Zaktualizuj ją, potem scal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este branch está atrás da base. Atualize-o e depois mescle."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта ветка отстаёт от базовой. Обновите её, затем выполните слияние."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สาขานี้ตามหลังสาขาหลัก อัปเดตก่อน แล้วจึงผสาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dal temelinin gerisinde. Güncelleyin, sonra birleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця гілка відстає від базової. Оновіть її, потім виконайте злиття."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhánh này đang chậm hơn nhánh gốc. Hãy cập nhật rồi hợp nhất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支落后于其基础分支。请先更新，再合并。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支落後於其基礎分支。請先更新，再合併。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال GitHub يتحقق مما إذا كان يمكن دمج طلب السحب هذا. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub još provjerava može li se ovaj zahtjev za povlačenje spojiti. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub tjekker stadig, om denne pull request kan flettes. Prøv igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub prüft noch, ob dieser Pull Request zusammengeführt werden kann. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub is still checking whether this pull request can merge. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub aún está comprobando si esta solicitud de incorporación se puede fusionar. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub vérifie encore si cette pull request peut être fusionnée. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub sta ancora verificando se questa pull request può essere unita. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub はこのプルリクエストをマージできるかまだ確認中です。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub នៅតែពិនិត្យថាតើសំណើទាញនេះអាចបញ្ចូលបានឬអត់។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub가 아직 이 풀 리퀘스트의 병합 가능 여부를 확인하고 있습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub sjekker fortsatt om denne pull requesten kan flettes. Prøv igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub wciąż sprawdza, czy ten pull request można scalić. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub ainda está verificando se este pull request pode ser mesclado. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ещё проверяет, можно ли слить этот пул-реквест. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ยังตรวจสอบอยู่ว่าพูลรีเควสต์นี้ผสานได้หรือไม่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub bu çekme isteğinin birleştirilip birleştirilemeyeceğini hâlâ denetliyor. Biraz sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ще перевіряє, чи можна злити цей пул-реквест. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub vẫn đang kiểm tra xem pull request này có hợp nhất được không. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 仍在检查此拉取请求能否合并。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 仍在檢查此提取要求能否合併。請稍後再試。"
+          }
+        }
+      }
+    },
     "agentPane.error.gitMergeChanged": {
       "extractionState": "manual",
       "localizations": {

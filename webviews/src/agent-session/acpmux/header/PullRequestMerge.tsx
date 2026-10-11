@@ -1,12 +1,18 @@
 // Merge on the PR chip's status (cx-ncc.77.4, Codex desktop's): a pull request that is open, every
-// check passed, nothing in conflict and no changes requested offers Merge. It asks once more in
+// check passed, nothing in conflict and no review outstanding offers Merge. It asks once more in
 // place (no dialog), then the App merges that pull request at the head this Mac has, or says why
-// not. The App checks all of it again with GitHub before it merges.
-import { useState } from "react";
+// not; a base branch with a merge queue takes it into the queue. The App checks all of it again
+// with GitHub before it merges. The chip keeps where the merge stands, so closing the popover
+// mid-merge never offers a second one.
+import { useEffect, useRef } from "react";
 import { useT } from "../i18n";
 import type { HeaderPullRequest } from "./headerState";
 
-type Merging = { step: "idle" | "confirm" | "merging" | "merged" } | { step: "failed"; message: string };
+export type Merging =
+  | { step: "idle" | "confirm" | "merging" | "merged" | "queued" }
+  | { step: "failed"; message: string };
+/// What the App's merge answered: merged, or taken into a merge queue.
+export type MergeResult = { queued: boolean };
 
 /// Whether the page offers Merge for `pullRequest`.
 export function readyToMerge(pullRequest: HeaderPullRequest) {
@@ -14,25 +20,36 @@ export function readyToMerge(pullRequest: HeaderPullRequest) {
     pullRequest.state === "open" &&
     pullRequest.mergeable === "mergeable" &&
     pullRequest.review !== "changes_requested" &&
+    pullRequest.review !== "review_required" &&
     (pullRequest.checks.state === "passing" || pullRequest.checks.state === "none")
   );
 }
 
 export function PullRequestMerge({
   pullRequest,
+  merging,
+  setMerging,
   merge,
 }: {
   pullRequest: HeaderPullRequest;
-  merge: (number: number) => Promise<unknown>;
+  merging: Merging;
+  setMerging: (merging: Merging) => void;
+  merge: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
 }) {
   const t = useT();
-  const [merging, setMerging] = useState<Merging>({ step: "idle" });
+  const box = useRef<HTMLDivElement>(null);
+  // The control the reader pressed is replaced; the next one takes focus, when focus was here.
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!box.current || (active && active !== document.body && !box.current.contains(active))) return;
+    box.current.querySelector<HTMLElement>("[data-focus-next]")?.focus();
+  }, [merging.step]);
   // A merge under way or done stays in view, though the pull request is no longer ready.
   if (merging.step === "idle" && !readyToMerge(pullRequest)) return null;
   const run = () => {
     setMerging({ step: "merging" });
-    merge(pullRequest.number).then(
-      () => setMerging({ step: "merged" }),
+    merge({ number: pullRequest.number, url: pullRequest.url }).then(
+      (result) => setMerging({ step: result.queued ? "queued" : "merged" }),
       (error: unknown) =>
         setMerging({
           step: "failed",
@@ -41,9 +58,11 @@ export function PullRequestMerge({
     );
   };
   return (
-    <div className="acpmux-pr-merge" data-step={merging.step}>
-      {merging.step === "merged" ? (
-        <output>{t("header.prMerged")}</output>
+    <div ref={box} className="acpmux-pr-merge" data-step={merging.step}>
+      {merging.step === "merged" || merging.step === "queued" ? (
+        <output tabIndex={-1} data-focus-next="">
+          {t(merging.step === "merged" ? "header.prMerged" : "header.prMergeQueued")}
+        </output>
       ) : merging.step === "confirm" || merging.step === "merging" ? (
         <>
           <span className="acpmux-pr-merge-question">
@@ -53,6 +72,7 @@ export function PullRequestMerge({
             <button
               type="button"
               className="acpmux-pr-merge-cancel"
+              data-focus-next=""
               aria-disabled={merging.step === "merging" ? true : undefined}
               onClick={() => merging.step === "confirm" && setMerging({ step: "idle" })}
             >
@@ -71,7 +91,12 @@ export function PullRequestMerge({
       ) : (
         <>
           {merging.step === "failed" && <output role="alert">{merging.message}</output>}
-          <button type="button" className="acpmux-pr-merge-start" onClick={() => setMerging({ step: "confirm" })}>
+          <button
+            type="button"
+            className="acpmux-pr-merge-start"
+            data-focus-next=""
+            onClick={() => setMerging({ step: "confirm" })}
+          >
             {t("header.prMerge")}
           </button>
         </>

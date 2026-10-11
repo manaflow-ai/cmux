@@ -3065,14 +3065,15 @@ function AcpmuxPane() {
               Array.isArray(hunk) ? hunk.map(String) : [],
               unstage === true,
             ),
-          "git.pullRequest": ({ action, number }) =>
-            client.gitPullRequest(
-              action === "threads"
-                ? { action }
-                : action === "merge" && typeof number === "number"
-                  ? { action, number }
-                  : {},
-            ),
+          "git.pullRequest": ({ action, number, url }) =>
+            action === "threads"
+              ? client.gitPullRequest({ action })
+              : action === "merge"
+                ? // A merge names the pull request it means; one that does not is refused, never an Open.
+                  Number.isInteger(number) && typeof url === "string"
+                  ? client.gitPullRequest({ action, number: number as number, url })
+                  : Promise.reject(new Error(translate("header.prMergeFailed")))
+                : client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -4173,11 +4174,15 @@ function AcpmuxPane() {
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd
-                          ? (number) =>
-                              callNative("git.pullRequest", { action: "merge", number }).then(() => {
+                          ? ({ number, url }) =>
+                              callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
+                                const result = value as { merged?: unknown; queued?: unknown } | null;
+                                if (result?.merged !== true && result?.queued !== true)
+                                  throw new Error(translate("header.prMergeFailed"));
                                 void callNative("pane.tabState", { refresh: true })
                                   .then(setHeaderState)
                                   .catch(() => undefined);
+                                return { queued: result.queued === true };
                               })
                           : undefined
                       }

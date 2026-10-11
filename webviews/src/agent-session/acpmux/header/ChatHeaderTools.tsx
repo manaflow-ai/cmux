@@ -13,6 +13,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from ".
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
+import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
   QUICK_ACTION_IDS,
@@ -126,7 +127,7 @@ export function ChatHeaderTools({
   expand?: string;
   onExpanded?: () => void;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
-  onMergePullRequest?: (number: number) => Promise<unknown>;
+  onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);

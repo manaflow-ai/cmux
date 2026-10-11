@@ -19,7 +19,7 @@ type HeaderToolsProps = {
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
-  onMergePullRequest?: (number: number) => Promise<unknown>;
+  onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
   expand?: string;
   onExpanded?: () => void;
 };
@@ -269,7 +269,12 @@ export default componentEntry<HeaderToolsProps>({
     },
     "pull-request-merge": {
       note: "A green pull request's status offers Merge, which asks once more in place before merging (cx-ncc.77.4).",
-      props: { ...base, hasChanges: true, onChanges: () => undefined, onMergePullRequest: async () => undefined },
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        onMergePullRequest: async () => ({ queued: false }),
+      },
       play: pullRequestMerge,
     },
     "customize-menu": {

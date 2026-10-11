@@ -4,32 +4,39 @@ import Foundation
 /// when it is the one the page showed, open and not a draft, GitHub calls its merge state clean
 /// (checks, reviews and conflicts settled) with every check passed, and its head is this Mac's
 /// HEAD. gh then merges exactly that head with the user's default method; nothing is pushed and no
-/// branch is deleted.
+/// branch is deleted. A base branch with a merge queue takes it into the queue, which the reply says.
 extension AgentPaneGitPullRequest {
     static let mergeFields = "url,number,state,isDraft,mergeStateStatus,headRefOid,statusCheckRollup"
 
-    @concurrent static func merge(_ number: Int, in folder: String, gh: String) async -> Outcome {
+    @concurrent static func merge(_ number: Int, url shown: String, in folder: String, gh: String) async -> Outcome {
         let cli = { (arguments: [String]) in
             await AgentPaneGitProcess.output(arguments, executable: gh, directory: folder, timeout: networkTimeout, network: true)
         }
         let view = await cli(["pr", "view", "--json", mergeFields])
         guard view.status == 0, let object = AgentPaneGitReviewThread.object(in: view.text),
               let url = object["url"] as? String, isPullRequestURL(url) else { return .refused(message(view)) }
-        guard object["number"] as? Int == number else { return .refused(mergeChangedMessage) }
+        guard object["number"] as? Int == number, url == shown else { return .refused(mergeChangedMessage) }
         guard (object["state"] as? String)?.uppercased() == "OPEN" else { return .refused(mergeNotOpenMessage) }
         let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
         let checks = AgentPanePullRequest.checks(rollup).state
-        guard object["isDraft"] as? Bool != true, ["CLEAN", "HAS_HOOKS"].contains((object["mergeStateStatus"] as? String)?.uppercased()),
-              checks == "passing" || checks == "none" else { return .refused(mergeNotReadyMessage) }
+        let mergeState = (object["mergeStateStatus"] as? String)?.uppercased()
+        guard object["isDraft"] as? Bool != true, checks == "passing" || checks == "none" else { return .refused(mergeNotReadyMessage) }
+        guard mergeState != "BEHIND" else { return .refused(mergeBehindMessage) }
+        guard mergeState != "UNKNOWN" else { return .refused(mergeUnknownMessage) }
+        guard ["CLEAN", "HAS_HOOKS"].contains(mergeState) else { return .refused(mergeNotReadyMessage) }
         let local = await AgentPaneGitProcess.output(["-C", folder, "rev-parse", "HEAD"], timeout: localTimeout)
         guard let head = object["headRefOid"] as? String, head.count >= 40, head.allSatisfy(\.isHexDigit),
               local.status == 0, local.text.trimmingCharacters(in: .whitespacesAndNewlines) == head else {
             return .refused(mergeHeadMessage)
         }
         let how = await method(cli, url: url)
-        let merged = await cli(["pr", "merge", String(number), "--\(how)", "--match-head-commit", head])
+        // By its url, so gh merges the pull request it just viewed and not another with that number.
+        let merged = await cli(["pr", "merge", url, "--\(how)", "--match-head-commit", head])
         guard merged.status == 0 else { return .refused(message(merged)) }
-        return .merged(url: url, number: number)
+        // A base branch with a merge queue takes it into the queue, not merged yet.
+        let after = await cli(["pr", "view", url, "--json", "state"])
+        let state = (AgentPaneGitReviewThread.object(in: after.text)?["state"] as? String)?.uppercased()
+        return .merged(url: url, number: number, queued: state != "MERGED")
     }
 
     /// The user's default merge method for the repository (`merge`, `squash` or `rebase`); `merge`
@@ -58,6 +65,19 @@ extension AgentPaneGitPullRequest {
     nonisolated static var mergeNotReadyMessage: String {
         String(localized: "agentPane.error.gitMergeNotReady",
                defaultValue: "GitHub says this pull request isn't ready to merge: a check, a review or a conflict is still open.",
+               bundle: .module)
+    }
+
+    /// GitHub wants the branch updated with its base first.
+    nonisolated static var mergeBehindMessage: String {
+        String(localized: "agentPane.error.gitMergeBehind",
+               defaultValue: "This branch is behind its base. Update it, then merge.", bundle: .module)
+    }
+
+    /// GitHub has not worked out yet whether it can merge (just after a push).
+    nonisolated static var mergeUnknownMessage: String {
+        String(localized: "agentPane.error.gitMergeUnknown",
+               defaultValue: "GitHub is still checking whether this pull request can merge. Try again in a moment.",
                bundle: .module)
     }
 
