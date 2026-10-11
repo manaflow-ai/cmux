@@ -404,7 +404,7 @@ final class CloudBrowserAccessState {
             navigationURL = url
         } else if model?.route == .loopback, var remote = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             let host = model?.target.host.lowercased()
-            remote.host = host == "::1" ? "[::1]" : host
+            remote.host = host.map { $0.contains(":") ? "[\($0)]" : $0 }
             remote.port = model?.target.port
             remoteURL = remote.url
             navigationURL = url

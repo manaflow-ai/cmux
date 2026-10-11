@@ -61,6 +61,10 @@ public struct RemoteLoopbackProxyAlias {
                 let mapped = bytes[12..<16].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
                 return mapped >> 24 == 127 || mapped == 0
             }
+            if bytes[10] == 0, bytes[11] == 0 {
+                let compatible = bytes[12..<16].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+                if compatible >> 24 == 127 || compatible == 0 { return true }
+            }
             return bytes.dropLast().allSatisfy { $0 == 0 } && bytes[15] <= 1
         }
         // NAT64 embeds an IPv4 address in 64:ff9b::/96. It is still a
@@ -89,6 +93,9 @@ public struct RemoteLoopbackProxyAlias {
         let bytes = withUnsafeBytes(of: &ipv6) { Array($0) }
         if bytes.allSatisfy({ $0 == 0 }) { return true }
         if bytes.prefix(10).allSatisfy({ $0 == 0 }), bytes[10] == 0xFF, bytes[11] == 0xFF {
+            return bytes[12..<16].allSatisfy { $0 == 0 }
+        }
+        if bytes.prefix(12).allSatisfy({ $0 == 0 }) {
             return bytes[12..<16].allSatisfy { $0 == 0 }
         }
         return bytes[0..<4] == [0x00, 0x64, 0xFF, 0x9B]
