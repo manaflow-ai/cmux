@@ -3018,6 +3018,13 @@ mod tests {
     }
 
     #[test]
+    fn probe_capabilities_include_ssh_payload_macos_from_client() {
+        // The app's packager bundles macOS SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-macos-from-client"));
+    }
+
+    #[test]
     fn agent_hooks_flag_collects_providers() {
         let args = ["host", "--agent-hooks", "claude, codex,", "--agent-hooks", "gemini"]
             .map(str::to_string);
