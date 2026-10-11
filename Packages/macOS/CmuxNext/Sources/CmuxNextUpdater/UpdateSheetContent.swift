@@ -38,6 +38,8 @@ nonisolated public enum UpdateSheetButton: Sendable, Hashable {
     case done
     case relaunch
     case releaseNotes(URL)
+    /// The channel's installer, for an update that failed in the app.
+    case downloadManually(URL)
 
     public var title: String {
         switch self {
@@ -48,6 +50,7 @@ nonisolated public enum UpdateSheetButton: Sendable, Hashable {
         case .done: UpdaterStrings.done
         case .relaunch: UpdaterStrings.relaunch
         case .releaseNotes: UpdaterStrings.releaseNotes
+        case .downloadManually: UpdaterStrings.downloadManually
         }
     }
 
@@ -55,7 +58,7 @@ nonisolated public enum UpdateSheetButton: Sendable, Hashable {
     public var dismisses: Bool {
         switch self {
         case .later, .cancel, .done: true
-        case .install, .retry, .relaunch, .releaseNotes: false
+        case .install, .retry, .relaunch, .releaseNotes, .downloadManually: false
         }
     }
 }

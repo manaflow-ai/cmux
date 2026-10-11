@@ -247,6 +247,9 @@ def main():
                     help="v1 runs with SUAutomaticallyUpdate on and starts with Sparkle's scheduled background "
                          "check (Sparkle's own silent driver stages the update, as on a Mac whose nightly "
                          "preferences have automatic updates on)")
+    ap.add_argument("--readonly-install", action="store_true",
+                    help="make the app's folder read-only after the update stages: the click must not quit; "
+                         "the failure sheet with Download Manually shows (the install preflight)")
     ap.add_argument("--break-staged", action="store_true",
                     help="delete Sparkle's staged installation after the update stages: the install must fail "
                          "visibly while the app runs (the failure sheet with Download Manually), never as a dead click")
@@ -380,6 +383,8 @@ def main():
         if terminal:
             terminal.start(v1)
             agent.start()
+        if a.readonly_install:
+            os.chmod(os.path.dirname(v1), 0o555)
         if a.break_staged:
             staged_dir = os.path.join(os.environ["HOME"], "Library/Caches", i1["CFBundleIdentifier"],
                                       "org.sparkle-project.Sparkle/Installation")
@@ -389,7 +394,7 @@ def main():
         reply = rpc(sock, "action.run", {"id": INSTALL_ACTION})
         t_reply = time.time()
         log("install", json.dumps(reply)[:200])
-        if a.break_staged:
+        if a.break_staged or a.readonly_install:
             sheet = marks.wait(lambda rows: first(rows, "failure_content.*", pid=v1_pid), 60)
             # A moment for the sheet to open after the failure state (it opens in the same turn).
             presented = marks.wait(lambda rows: first(rows, "failure_sheet_presented", pid=v1_pid), 5)
@@ -477,6 +482,8 @@ def main():
                                               (v1_pid, v2_pid), click_after_keep=not a.click_at_stage)
             log("second hop", json.dumps(result["second_hop"]))
     finally:
+        if a.readonly_install and os.path.isdir(os.path.dirname(v1)):
+            os.chmod(os.path.dirname(v1), 0o755)
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
         for pid in [result.get("v2_pid"), result.get("v1_pid")]:
