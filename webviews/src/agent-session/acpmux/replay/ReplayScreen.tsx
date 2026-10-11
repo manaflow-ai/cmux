@@ -20,17 +20,19 @@ type Loaded = { client: AcpmuxDirectClient; timeline: ReplayTimeline };
 /// How far the arrow keys move replay time.
 const ARROW_STEP_MS = 5_000;
 
-/// Shows replay time `time.current`: the transcript through that point, the scrubber's thumb and
-/// (once a second) the clock.
+/// Shows replay time `time.current`: the transcript through that point, the scrubber's thumb,
+/// (once a second) the clock, and the turn Continue from here would fork through.
 function showAt(
   loaded: Loaded,
   time: RefObject<number>,
   scrub: RefObject<HTMLInputElement | null>,
   setSecond: (second: number) => void,
+  setForkSeq: (seq: number | undefined) => void,
 ) {
   loaded.client.seekReplay(seqAt(loaded.timeline, time.current));
   if (scrub.current) scrub.current.value = String(Math.round(time.current));
   setSecond(Math.floor(time.current / 1000));
+  setForkSeq(continueSeq(loaded.timeline, time.current));
 }
 
 /// A recorded chat played back read-only, as it happened (cx-osmw): its events fold into the
@@ -66,6 +68,7 @@ export function ReplayScreen({
   const time = useRef(0);
   const scrub = useRef<HTMLInputElement>(null);
   const [second, setSecond] = useState(0);
+  const [forkSeq, setForkSeq] = useState<number | undefined>();
 
   useEffect(() => {
     let live = true;
@@ -87,13 +90,13 @@ export function ReplayScreen({
   const ready = typeof loaded === "object" ? loaded : undefined;
   useEffect(() => {
     if (!ready) return;
-    showAt(ready, time, scrub, setSecond);
+    showAt(ready, time, scrub, setSecond, setForkSeq);
     if (!playing) return;
     let last = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
       time.current = Math.min(time.current + (now - last) * speed, ready.timeline.duration);
       last = now;
-      showAt(ready, time, scrub, setSecond);
+      showAt(ready, time, scrub, setSecond, setForkSeq);
       if (time.current >= ready.timeline.duration) setPlaying(false);
       else frame = requestAnimationFrame(tick);
     });
@@ -103,7 +106,7 @@ export function ReplayScreen({
   const seek = (to: number) => {
     if (!ready) return;
     time.current = Math.min(Math.max(to, 0), ready.timeline.duration);
-    showAt(ready, time, scrub, setSecond);
+    showAt(ready, time, scrub, setSecond, setForkSeq);
   };
   const togglePlaying = () => {
     if (!ready) return;
@@ -142,13 +145,6 @@ export function ReplayScreen({
   useEffect(() => {
     if (ready) play.current?.focus();
   }, [ready]);
-
-  // The clock's whole second, so the button never offers a turn the transcript has not shown.
-  const canContinue = ready !== undefined && continueSeq(ready.timeline, second * 1000) !== undefined;
-  const continueHere = () => {
-    const seq = ready && continueSeq(ready.timeline, time.current);
-    if (seq !== undefined) onContinue?.(seq);
-  };
 
   return (
     <KeyboardScope className="acpmux-replay" handleKeyDown={onKeyDown}>
@@ -240,8 +236,8 @@ export function ReplayScreen({
                 type="button"
                 className="acpmux-replay-continue"
                 title={t("replay.continueHint")}
-                disabled={!canContinue}
-                onClick={continueHere}
+                disabled={forkSeq === undefined}
+                onClick={() => forkSeq !== undefined && onContinue(forkSeq)}
               >
                 {t("replay.continue")}
               </button>

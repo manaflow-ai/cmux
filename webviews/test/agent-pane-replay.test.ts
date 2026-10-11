@@ -250,7 +250,7 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       await replay.getByText("All 12 tests in api/client.test.ts pass.").waitFor();
       await proceed.click();
       await page.locator(".acpmux-replay").waitFor({ state: "detached" });
-      await page.locator(".acpmux-composer-field").waitFor();
+      await page.locator(".acpmux-composer-prompt").waitFor();
 
       expect({ midTurn, forks: forkRequests }).toEqual({
         midTurn: true,
