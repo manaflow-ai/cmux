@@ -69,7 +69,7 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "find", title: String(localized: "action.find", defaultValue: "Find…", bundle: .module),
                 keywords: ["search"], defaultShortcut: Shortcut("f", modifiers: [.command]), category: .terminal,
-                symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
+                symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [CatalogArgument.textString.optional], targets: [.pane],
                 cliName: "terminal find", mainMenu: .edit
             ),
