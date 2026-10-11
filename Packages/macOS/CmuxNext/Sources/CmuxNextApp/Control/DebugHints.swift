@@ -1,17 +1,44 @@
 #if DEBUG
+import AppKit
 import CmuxNextControl
 import CmuxNextSettings
 
 /// `debug.hints` (DEBUG builds): whether hint mode shows, what is typed, and
-/// each label with its control (role, title, window rect), for
-/// scripts/cmux-next/hint-mode-e2e.py.
+/// each label with its control (role, title, window rect), plus the menu
+/// AppKit tracks now (a Shift label opens a context menu), for
+/// scripts/cmux-next/hint-mode-e2e.py and jump-keys-e2e.py. `dismiss_menu`
+/// closes that menu.
 @MainActor
 enum DebugHints {
-    static func report(_ hints: WindowHintController) -> JSONValue {
-        guard let shown = hints.shown else { return ["active": false, "typed": "", "hints": []] }
+    private static var tracked: NSMenu?
+    private static var observers: [NSObjectProtocol] = []
+
+    /// Starts following menu tracking (once, when the method registers).
+    static func watchMenus() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
+                let menu = note.object as? NSMenu
+                MainActor.assumeIsolated { tracked = menu } // main-proof: observer on queue: .main
+            },
+            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { note in
+                let menu = note.object as? NSMenu
+                MainActor.assumeIsolated { if tracked === menu { tracked = nil } } // main-proof: observer on queue: .main
+            },
+        ]
+    }
+
+    static func report(_ hints: WindowHintController, params: [String: JSONValue]) -> JSONValue {
+        let menu: JSONValue = tracked.map { menu in
+            ["open": true, "items": .array(menu.items.map { .string($0.isSeparatorItem ? "-" : $0.title) })]
+        } ?? ["open": false, "items": []]
+        if params["dismiss_menu"]?.boolValue == true { tracked?.cancelTracking() }
+        guard let shown = hints.shown else { return ["active": false, "typed": "", "hints": [], "menu": menu] }
         return [
             "active": true,
             "typed": .string(shown.typed),
+            "menu": menu,
             "hints": .array(shown.hints.map { hint in
                 let rect = hint.target.rect
                 return [

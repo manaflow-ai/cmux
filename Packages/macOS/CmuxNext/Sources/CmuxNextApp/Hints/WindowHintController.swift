@@ -5,9 +5,11 @@ import CmuxNextBrowser
 /// the window gets a one or two letter label (``LinkHintSession``'s Vimium
 /// labels) and typing a whole label clicks that control, as the person's own
 /// click. The controls come from the window's accessibility tree
-/// (``WindowHintTargets``). The key router hands this controller every key
-/// while labels show; Escape, a chord, any other key, a click or another
-/// window ends it. A preview feature (`labs.previewFeatures`) until styled.
+/// (``WindowHintTargets``). Typing a label's last letter with Shift
+/// right-clicks the control instead, so every context menu opens from the
+/// keyboard. The key router hands this controller every key while labels
+/// show; Escape, a chord, any other key, a click or another window ends it.
+/// A preview feature (`labs.previewFeatures`) until styled.
 @MainActor
 final class WindowHintController {
     struct Hint: Equatable {
@@ -81,7 +83,7 @@ final class WindowHintController {
         case .pick(let picked):
             let hint = current.hints.first { $0.target.point == picked }
             cancel()
-            if let hint { Self.click(at: hint.target.center, in: home) }
+            if let hint { Self.click(at: hint.target.center, in: home, menu: event.modifierFlags.contains(.shift)) }
         }
         return true
     }
@@ -101,12 +103,14 @@ final class WindowHintController {
 
     /// A click at `point` (window coordinates), queued like the person's
     /// own: a control that tracks the mouse after the down finds the up.
-    private static func click(at point: NSPoint, in window: NSWindow) {
+    /// `menu`: a right mouse down alone, which opens the context menu and
+    /// leaves it open for the keyboard (an up could pick the item under it).
+    private static func click(at point: NSPoint, in window: NSWindow, menu: Bool = false) {
         let time = ProcessInfo.processInfo.systemUptime
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        for type in menu ? [NSEvent.EventType.rightMouseDown] : [.leftMouseDown, .leftMouseUp] {
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time,
                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                                 clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else { continue }
+                                                 clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) else { continue }
             NSApp.postEvent(event, atStart: false)
         }
     }
