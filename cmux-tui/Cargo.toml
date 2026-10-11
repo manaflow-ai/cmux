@@ -40,6 +40,7 @@ members = [
     "crates/cmux-unix-socket",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
+    "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
@@ -96,6 +97,7 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
+    "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/chatmux-relay",
@@ -169,6 +171,7 @@ cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }

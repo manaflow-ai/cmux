@@ -38,7 +38,8 @@ pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_
     None => env!("CARGO_PKG_VERSION"),
 };
 pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
-pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
+/// This build's source revision stamp (crates/cmux-build-identity).
+pub use cmux_build_identity::BUILD_IDENTITY;
 
 #[derive(Debug, Clone)]
 pub struct SshBootstrapConfig {

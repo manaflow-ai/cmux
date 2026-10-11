@@ -44,7 +44,7 @@ fn source_revision(manifest_dir: &Path) -> String {
     let source_root = manifest_dir
         .parent()
         .and_then(Path::parent)
-        .unwrap_or_else(|| panic!("cmux-remote is not inside the cmux-tui workspace"));
+        .unwrap_or_else(|| panic!("cmux-build-identity is not inside the cmux-tui workspace"));
     let source_root = source_root.canonicalize().unwrap_or_else(|error| {
         panic!("could not resolve cmux-tui source root {}: {error}", source_root.display())
     });

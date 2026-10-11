@@ -23,6 +23,8 @@ name = "cmux-tui-hook"
 path = "src/bin/cmux-tui-hook.rs"
 
 [dependencies]
+# The source revision stamp on every target (`identify`, version skew).
+cmux-build-identity.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 cmux-tui-cdp.workspace = true

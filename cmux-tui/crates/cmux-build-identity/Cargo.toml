@@ -1,0 +1,16 @@
+[package]
+name = "cmux-build-identity"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux-tui source revision stamp (commit plus a hash of uncommitted source changes), on every platform"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+# This root package uses Cargo's Git-aware default fingerprint to notice new
+# workspace-root files without recursively walking target/.
+cmux-tui-source-watch = { path = "../.." }
