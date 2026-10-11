@@ -504,7 +504,8 @@ enum SidebarMotion {
     /// Off: every change shows at once (benches; a host may turn it off).
     static var enabled = true
     /// Typing bubble in: a scale spring of 0.209 s and a 0.12 s fade, both 0.05 s after the change
-    /// (transcript `typing.pop`, `typing.fade`). Out: a 0.2 s fade 0.02 s after it (`typing.out`).
+    /// (the iOS transcript's `typing.pop`, `typing.fade`; the macOS transcript now uses Messages' fits
+    /// `typing.scale`, `typing.opacity`). Out: a 0.2 s fade 0.02 s after it (`typing.out`).
     static let typingInDelay: CFTimeInterval = 0.05
     static let typingPop: CFTimeInterval = 0.209
     static let typingFade: CFTimeInterval = 0.12
