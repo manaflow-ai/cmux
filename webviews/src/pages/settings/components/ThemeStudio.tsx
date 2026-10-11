@@ -83,18 +83,21 @@ export function ThemeStudio() {
         : undefined) ?? terminal;
   const app = appSource ? deriveAppTheme(appSource) : null;
 
-  const write = (next: ThemeSpec | null) => {
-    if (next) void store.set(THEME_KEY, formatThemeSpec(next));
-    else void store.reset(THEME_KEY);
-  };
+  const write = (next: ThemeSpec | null) =>
+    next ? store.set(THEME_KEY, formatThemeSpec(next)) : store.reset(THEME_KEY);
   const previewTerminal = (name: string | null) => {
     setPreviewing(name ? { name, target: "terminal" } : null);
     if (name) store.preview(THEME_KEY, name);
     else store.previewEnd(THEME_KEY);
   };
+  const previewApp = (name: string | null) => {
+    setPreviewing(name ? { name, target: "app" } : null);
+    if (name) store.preview(APP_THEME_KEY, name);
+    else store.previewEnd(APP_THEME_KEY);
+  };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
-  const picker = (id: string, value: string | null, onPick: (name: string | null) => void) => (
+  const picker = (id: string, value: string | null, onPick: (name: string | null) => void | Promise<unknown>) => (
     <ThemePicker
       value={value}
       names={names}
@@ -111,7 +114,7 @@ export function ThemeStudio() {
     const other = side === "light" ? "dark" : "light";
     const keep = current(other) ?? (other === "light" ? DEFAULT_LIGHT : DEFAULT_DARK);
     const chosen = name ?? (side === "light" ? DEFAULT_LIGHT : DEFAULT_DARK);
-    write({ kind: "pair", light: side === "light" ? chosen : keep, dark: side === "dark" ? chosen : keep });
+    return write({ kind: "pair", light: side === "light" ? chosen : keep, dark: side === "dark" ? chosen : keep });
   };
   const report = app ? contrastReport(app) : [];
   const lowest = (token: string) =>
@@ -161,12 +164,12 @@ export function ThemeStudio() {
                       onToggle={(on) => {
                         const name = themeFor(spec, scheme, fallbackName);
                         if (on)
-                          write({
+                          void write({
                             kind: "pair",
                             light: scheme === "light" ? name : DEFAULT_LIGHT,
                             dark: scheme === "dark" ? name : DEFAULT_DARK,
                           });
-                        else write({ kind: "single", name });
+                        else void write({ kind: "single", name });
                       }}
                     />
                   </div>
@@ -240,8 +243,8 @@ export function ThemeStudio() {
                     disabled={!state.connected || !state.readable || appManaged !== null}
                     configLabel={text(appRow.default_label) || t("settingsPage.theme.matchTerminal")}
                     configColors={terminal}
-                    onPick={(name) => void (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
-                    onPreview={(name) => setPreviewing(name ? { name, target: "app" } : null)}
+                    onPick={(name) => (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
+                    onPreview={previewApp}
                   />
                 </div>
               </div>

@@ -367,6 +367,7 @@
       "report-focus",
       "resize-surface",
       "resolve-terminal",
+      "restart-tab",
       "run",
       "save-screen-group",
       "save-tab-group",
@@ -579,6 +580,12 @@
     },
     {
       "name": "conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-draft",
       "streams": [
         "subscribe"
       ]

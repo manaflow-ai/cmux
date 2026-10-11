@@ -241,6 +241,9 @@ nonisolated final class HomeChannelsEventPump: Sendable {
                 pending.stale.insert(page.conversation.id.rawValue)
             case .intentsRevoked:
                 break
+            case .draft:
+                // The React Channels Home does not show running replies yet (cx-dnql).
+                break
             case .typing(let conversation, let participant, let on):
                 pending.typing.append(.object([
                     "conversation": .string(conversation.rawValue), "participant": .string(participant.rawValue), "on": .bool(on),

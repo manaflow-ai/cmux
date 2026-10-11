@@ -67,15 +67,8 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
-    /// The quick panel's page asked to hide the panel (`quick.dismiss`).
-    @ObservationIgnored public var onQuickDismiss: (() -> Void)?
-    /// The quick panel's page asked to open its chat in the main window
-    /// (`quick.openInWindow`). Gets the chat's session, nil before the
-    /// first prompt.
-    @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
-    /// The quick panel's Return started its chat (`quick.startInBackground`): the
-    /// session goes to the sidebar; the reply waits until the host placed it or failed.
-    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
+    /// Start Agent's panel (``AgentPaneQuickHooks``): its page's `quick.*` requests.
+    @ObservationIgnored public var quick: AgentPaneQuickHooks?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -267,6 +260,7 @@ public final class AgentPaneModel {
             onRenderRate?(full)
             return AgentPaneReply.success()
         case .painted:
+            AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd, let search, let run):
@@ -281,6 +275,7 @@ public final class AgentPaneModel {
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabContext:
+            AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
             // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
             guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
@@ -330,32 +325,29 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target): return await openFile(path, target: target)
-        case .quickDismiss:
-            guard let onQuickDismiss else { return Self.unsupported("quick.dismiss") }
-            onQuickDismiss()
-            return AgentPaneReply.success()
+        case .quickDismiss, .quickSetOnTop, .quickSetCollapsed: return quick?.respond(to: request) ?? Self.unsupported("quick")
         case .openPreview(let url):
             guard let onOpenPreview, onOpenPreview(url) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
         case .quickOpenInWindow(let session):
-            guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }
+            guard let openInWindow = quick?.openInWindow else { return Self.unsupported("quick.openInWindow") }
             if let session, session != sessionId {
                 sessionId = session
                 newTab = nil
                 onSessionChange?(session)
             }
-            onQuickOpenInWindow(sessionId)
+            openInWindow(sessionId)
             return AgentPaneReply.success()
         case .quickStartInBackground(let start):
-            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            guard let startInBackground = quick?.startInBackground else { return Self.unsupported("quick.startInBackground") }
             if start.sessionId != sessionId {
                 sessionId = start.sessionId
                 newTab = nil
                 onSessionChange?(start.sessionId)
             }
-            await onQuickStartInBackground(start)
+            await startInBackground(start)
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }

@@ -17,6 +17,10 @@ export const QUICK_MESSAGES = {
   openInWindow: "quick.openInWindow",
   /// Return (Start Agent): the chat has started; put it in the sidebar and hide the panel.
   startInBackground: "quick.startInBackground",
+  /// The floating chat's keep-on-top (cx-b9qi): `{onTop}`.
+  setOnTop: "quick.setOnTop",
+  /// The floating chat's compact bar: `{collapsed}`.
+  setCollapsed: "quick.setCollapsed",
 } as const;
 
 /// Calls `onDismiss` for an Escape no open menu, picker, palette or panel took. Those handle Escape
