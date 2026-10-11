@@ -2,6 +2,10 @@
 //! message between tool calls) gets a refusal, never a queued prompt, when
 //! the session cannot steer now: no turn runs, or its agent does not steer
 //! (the fake agent advertises no steering).
+//!
+//! Also the queue's steering ops (`hub/queue_edit.rs`): `_acpmux/queue_edit`
+//! moves, edits and sends a queued prompt now, and a steer with
+//! `_meta.acpmux.interrupt` stops a turn its agent cannot steer and runs next.
 
 use super::*;
 
@@ -81,4 +85,141 @@ async fn a_codex_turn_that_took_a_steer_answers_its_own_prompt_too() {
         let reason = result.as_ref().and_then(|r| r.get("stopReason")).cloned();
         assert_eq!(reason, Some(json!("end_turn")), "prompt {rid}: {result:?}");
     }
+}
+
+fn text_prompt(id: &str, prompt_id: &str, text: &str) -> Value {
+    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
+}
+
+/// A session whose agent runs "until-cancel" now, with `queued` prompts waiting behind it.
+async fn busy_with_queue(c: &mut TestClient, queued: &[(&str, &str)]) -> String {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-turn", "until-cancel")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    for (prompt_id, text) in queued {
+        c.send(method::SESSION_PROMPT, text_prompt(&id, prompt_id, text)).await;
+        c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| {
+            p["promptId"] == *prompt_id && p["queued"] == true
+        })
+        .await;
+    }
+    id
+}
+
+/// The order the agent answered queued prompts in ("echo: <text>" chunks), up to `last`.
+async fn echoes_until(c: &mut TestClient, last: &str) -> Vec<String> {
+    let seen = c
+        .collect_until(|m, p| m == method::SESSION_UPDATE && p["update"]["content"]["text"] == last)
+        .await;
+    seen.iter()
+        .filter_map(|(m, p)| {
+            (m == method::SESSION_UPDATE).then(|| p["update"]["content"]["text"].as_str())
+        })
+        .flatten()
+        .filter(|t| t.starts_with("echo: "))
+        .map(str::to_owned)
+        .collect()
+}
+
+async fn queue_order(c: &mut TestClient, id: &str) -> Vec<String> {
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    attached["session"]["queue"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| q["promptId"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn queue_ops_move_and_rewrite_queued_prompts_before_their_turn() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_with_queue(&mut c, &[("p-a", "a"), ("p-b", "b"), ("p-c", "c")]).await;
+    let moved = c
+        .request(
+            "_acpmux/queue_edit",
+            json!({"sessionId": id, "promptId": "p-c", "op": "move", "index": 0}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(moved["ok"], true, "{moved}");
+    let edited = c
+        .request(
+            "_acpmux/queue_edit",
+            json!({"sessionId": id, "promptId": "p-b", "op": "update", "text": "b2"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(edited["ok"], true, "{edited}");
+    assert_eq!(queue_order(&mut c, &id).await, ["p-c", "p-a", "p-b"]);
+
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    assert_eq!(echoes_until(&mut c, "echo: b2").await, ["echo: c", "echo: a", "echo: b2"]);
+    let gone = c
+        .request(
+            "_acpmux/queue_edit",
+            json!({"sessionId": id, "promptId": "p-a", "op": "move", "index": 0}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(gone["ok"], false, "a prompt that ran no longer waits: {gone}");
+}
+
+#[tokio::test]
+async fn queue_ops_send_now_stops_a_turn_its_agent_cannot_steer() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_with_queue(&mut c, &[("p-a", "a"), ("p-b", "b")]).await;
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(attached["session"]["steering"], false, "{attached}");
+    let sent = c
+        .request(
+            "_acpmux/queue_edit",
+            json!({"sessionId": id, "promptId": "p-b", "op": "send_now"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent["sent"], "interrupt", "{sent}");
+    assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: b", "echo: a"]);
+}
+
+#[tokio::test]
+async fn queue_ops_steer_with_interrupt_stops_a_turn_its_agent_cannot_steer() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_with_queue(&mut c, &[("p-a", "a")]).await;
+    let mut now = text_prompt(&id, "p-now", "now");
+    now["_meta"]["acpmux"]["steer"] = json!(true);
+    now["_meta"]["acpmux"]["interrupt"] = json!(true);
+    c.send(method::SESSION_PROMPT, now).await;
+    assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: now", "echo: a"]);
+}
+
+#[tokio::test]
+async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
+    let env = BTreeMap::from([("FAKE_CODEX_STEER".to_owned(), "1".to_owned())]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-turn", "work")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "turn: work").await;
+    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-a", "more")).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-a" && p["queued"] == true)
+        .await;
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(attached["session"]["steering"], true, "{attached}");
+
+    let sent = c
+        .request(
+            "_acpmux/queue_edit",
+            json!({"sessionId": id, "promptId": "p-a", "op": "send_now"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent["sent"], "steer", "{sent}");
+    // The running turn took it: one turn answered both prompts.
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "answered 2").await;
+    assert!(queue_order(&mut c, &id).await.is_empty());
 }
