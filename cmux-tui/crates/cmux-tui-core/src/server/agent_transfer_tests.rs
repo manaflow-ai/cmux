@@ -20,8 +20,7 @@ use serde_json::{Value, json};
 
 use super::super::agent_session_attach_tests::{
     ABORT_FAILS_CHAT, BUNDLE_MANIFEST, BUNDLE_SESSION, Client, FakeAcpmux, MOVING_CHAT, SESSION,
-    UNGUARDED_CHAT,
-    agent_tab, assert_code, mux_with, run, terminal_pane,
+    UNGUARDED_CHAT, agent_tab, assert_code, mux_with, run, terminal_pane,
 };
 use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
 use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle};
