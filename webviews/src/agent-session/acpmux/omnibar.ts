@@ -4,12 +4,13 @@ import type { TabKind } from "./NewTabPage";
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,
 /// commands and browser history. The host sends it with the new tab page.
 export type OmnibarContext = {
-  tabs: { id: string; kind: TabKind; title: string; detail?: string; workspace?: string }[];
+  /// `icon`: a browser tab's or page's favicon, a `data:image/` URL from the host.
+  tabs: { id: string; kind: TabKind; title: string; detail?: string; workspace?: string; icon?: string }[];
   workspaces: { id: string; name: string; detail?: string }[];
   sessions: { sessionId: string; title: string; harness?: string; detail?: string }[];
   folders: string[];
   commands: string[];
-  history: { url: string; title?: string }[];
+  history: { url: string; title?: string; icon?: string }[];
 };
 
 export const EMPTY_OMNIBAR: OmnibarContext = {
@@ -25,6 +26,11 @@ export const EMPTY_OMNIBAR: OmnibarContext = {
 export const MAX_NEW_TAB_ENTRIES = 40;
 
 const string = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+/// A favicon the host sent: an inline image only (the page's CSP allows `img-src data:`).
+const icon = (value: unknown) => {
+  const text = string(value);
+  return text?.startsWith("data:image/") ? { icon: text } : {};
+};
 const records = (value: unknown) =>
   (Array.isArray(value) ? value : []).filter(
     (item): item is Record<string, unknown> => typeof item === "object" && item !== null,
@@ -44,7 +50,14 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
         const detail = string(tab.detail);
         const workspace = string(tab.workspace);
         return [
-          { id, kind: tab.kind as TabKind, title, ...(detail ? { detail } : {}), ...(workspace ? { workspace } : {}) },
+          {
+            id,
+            kind: tab.kind as TabKind,
+            title,
+            ...(detail ? { detail } : {}),
+            ...(workspace ? { workspace } : {}),
+            ...icon(tab.icon),
+          },
         ];
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
@@ -67,19 +80,19 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       .flatMap((entry) => {
         const url = string(entry.url);
         const title = string(entry.title);
-        return url ? [{ url, ...(title ? { title } : {}) }] : [];
+        return url ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
   };
 }
 
 export type OmnibarRow =
-  | { type: "tab"; id: string; kind: TabKind; title: string; detail?: string }
+  | { type: "tab"; id: string; kind: TabKind; title: string; detail?: string; icon?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "session"; id: string; title: string; harness?: string; detail?: string }
   | { type: "folder"; path: string }
   | { type: "command"; command: string }
-  | { type: "history"; url: string; title?: string }
+  | { type: "history"; url: string; title?: string; icon?: string }
   /// The typed text as the selected kind: run it, open or search it.
   | { type: "run"; text: string }
   | { type: "open"; text: string }
@@ -117,6 +130,7 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     kind: tab.kind,
     title: tab.title,
     ...(tab.detail || tab.workspace ? { detail: [tab.workspace, tab.detail].filter(Boolean).join(" · ") } : {}),
+    ...(tab.icon ? { icon: tab.icon } : {}),
   }));
   const workspaces = context.workspaces.map((workspace): OmnibarRow => ({
     type: "workspace",
@@ -137,6 +151,7 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     type: "history",
     url: entry.url,
     ...(entry.title ? { title: entry.title } : {}),
+    ...(entry.icon ? { icon: entry.icon } : {}),
   }));
 
   if (!text) {

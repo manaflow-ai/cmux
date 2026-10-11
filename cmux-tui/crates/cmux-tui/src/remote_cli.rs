@@ -2196,7 +2196,13 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
         install_agent_hooks(agent_hook_providers(&providers));
     }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
-    tokio_runtime()?.block_on(proxy_stdio(&link))
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(proxy_stdio(&link));
+    // Tokio reads stdin on a blocking thread that cannot be cancelled: when
+    // the link side ended first, do not wait for the next byte on stdin
+    // before exiting (cx-bj1o review).
+    runtime.shutdown_background();
+    result
 }
 
 /// `--agent-hooks claude,codex` names providers; empty items are dropped.
@@ -2799,7 +2805,17 @@ where
         copy(&mut socket_read, &mut stdout).await?;
         stdout.shutdown().await
     };
-    tokio::try_join!(upload, download)?;
+    // The SSH carrier is the link: when stdin ends (the client or sshd went
+    // away), nothing reads stdout anymore either. Waiting for the sidecar to
+    // close its side kept this process alive, re-parented to pid 1, with the
+    // link socket open, so the daemon never started the resume lease and the
+    // browser runtimes of the link's streams lived on (cx-bj1o). Either side
+    // ending now ends the relay; dropping the socket closes the link, and the
+    // daemon keeps terminals and resumable streams for its resume lease.
+    tokio::select! {
+        result = upload => result?,
+        result = download => result?,
+    }
     Ok(())
 }
 

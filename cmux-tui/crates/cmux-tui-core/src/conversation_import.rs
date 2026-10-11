@@ -172,6 +172,7 @@ impl ConversationStore {
                     author: message.author.clone(),
                     parts: message.parts.clone(),
                     reply_to: None,
+                    thread_root: None,
                     created_at: message.created_at.clone(),
                     edited_at: None,
                     retracted_at: None,

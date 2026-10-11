@@ -49,6 +49,9 @@ public final class UpdaterService {
     @ObservationIgnored let cardTimer: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
+    /// Opens the changelog page for the releases after `from` up to `to`
+    /// (set by the App).
+    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
@@ -61,6 +64,19 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// Where a staged update is recorded for the next build's What's New
+    /// (nil: not recorded).
+    @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
+    /// The record last written, so an unchanged one is not written again.
+    @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
+    /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
+    @ObservationIgnored var keptRunningBuild: KeepState?
+    @ObservationIgnored var keepTask: Task<Void, Never>?
+    /// The click that installs, before Sparkle takes over (set by the App:
+    /// the windows go at once). ``installAbandoned`` undoes it when the
+    /// install ends without a relaunch.
+    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -124,12 +140,15 @@ public final class UpdaterService {
 
     /// - Parameter enableSparkle: false builds no Sparkle driver even for a
     ///   release identity (tests, demos).
+    /// - Parameter recordsUpdates: false neither writes nor reads the update
+    ///   record What's New shows after an update (tests, demos).
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
+                recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
@@ -139,8 +158,10 @@ public final class UpdaterService {
         self.prober = prober
         self.defaults = defaults
         self.switcher = switcher
-        whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, defaults: defaults,
-                                  sources: Self.whatsNewSources(identity: identity))
+        let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
+        self.lastUpdates = lastUpdates
+        whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
+                                  sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         let log = UpdateLogBuffer()
         self.log = log
         // The managed policy is re-read by the driver on every start and check,
@@ -153,7 +174,11 @@ public final class UpdaterService {
             controller.installsUpdatesInBackground = true
             self.controller = controller
         } else {
+            #if DEBUG
+            controller = enableSparkle ? UpdateHarness.current?.controller(identity: identity, log: log, defaults: defaults, policy: policy) : nil
+            #else
             controller = nil
+            #endif
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
@@ -258,6 +283,9 @@ public final class UpdaterService {
     /// check (the shared driver's attempt flow, so never a stale version).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
+        #if DEBUG
+        UpdateHarness.mark("install_clicked")
+        #endif
         if needsSheet { presentUpdateUI?() }
         controller.model.setOverrideState(nil)
         syncFlowPhase()
@@ -352,6 +380,9 @@ extension UpdaterService: UpdateActionDelegate {
     /// `applicationShouldTerminate` path.
     public func updaterWillRelaunchApplication() {
         log.append("relaunching for update")
+        #if DEBUG
+        UpdateHarness.mark("will_relaunch")
+        #endif
         willRelaunch?()
     }
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896.
+// cmux-tui mux protocol 12, IR db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,25 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentPresenceActivity {
+    #[serde(rename = "thinking")]
+    Thinking,
+    #[serde(rename = "editing")]
+    Editing,
+    #[serde(rename = "reading")]
+    Reading,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "browsing")]
+    Browsing,
+    #[serde(rename = "computer_use")]
+    ComputerUse,
+    #[serde(rename = "waiting")]
+    Waiting,
 }
 
 #[rustfmt::skip]
@@ -376,6 +395,8 @@ pub struct ConversationMessage {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub retracted_at: Option<String>,
     pub seq: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
 }
 
 #[rustfmt::skip]

@@ -62,6 +62,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
     /// workspace's agent folder, after a real gesture (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     case chooseFolder
+    /// A folder the user picked for a chat (`workspace.useFolder {cwd, confirm}`, cx-nn3e): the
+    /// host answers whether it is used at once, asked about first (the home folder) or refused
+    /// (`/`, above the home folder). `confirm` is the user's answer to the question, on its click.
+    case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
@@ -81,6 +85,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
+    /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
+    /// address only; a click that closes the open preview may name none.
+    case preview(url: String?, toggle: Bool)
+    /// The header's right-click menu saved the quick actions (`pane.setQuickActions
+    /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
+    case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.

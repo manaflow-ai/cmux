@@ -121,5 +121,5 @@ extension URL {
     // Literals a test parses; /dev/null stands in rather than a trap.
     public static let browserExtensionWebStore = URL(string: "https://chromewebstore.google.com/category/extensions")
         ?? URL(fileURLWithPath: "/dev/null")
-    public static let browserExtensionManagement = URL(string: "chrome://extensions") ?? URL(fileURLWithPath: "/dev/null")
+    public static let browserExtensionManagement = URL(string: "chrome://extensions/") ?? URL(fileURLWithPath: "/dev/null")
 }

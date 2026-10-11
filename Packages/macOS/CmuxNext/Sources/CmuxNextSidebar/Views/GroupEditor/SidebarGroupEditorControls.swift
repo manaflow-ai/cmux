@@ -87,7 +87,7 @@ final class SidebarGroupEditorRow: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private let shortcut = NSTextField(labelWithString: "")
-    private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
+    private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {
         self.item = item
@@ -133,9 +133,9 @@ final class SidebarGroupEditorRow: NSView {
         updateColors()
     }
 
-    private func updateColors() {
+    private func updateColors(animated: Bool = false) {
         performWithTheme {
-            layer?.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+            if let layer { ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: animated) }
             label.textColor = Palette.textPrimary
             icon.contentTintColor = Palette.textSecondary
             shortcut.textColor = Palette.textTertiary
@@ -169,6 +169,8 @@ enum GroupEditorStrings {
     static var more: String { String(localized: "sidebar.group.more", defaultValue: "Group options", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }
     static var expand: String { String(localized: "sidebar.group.expand", defaultValue: "Expand group", bundle: .module) }
+    static var customColor: String { String(localized: "sidebar.groupColor.custom", defaultValue: "Custom color", bundle: .module) }
+    static var emoji: String { String(localized: "sidebar.groupEditor.emoji", defaultValue: "Choose emoji or icon", bundle: .module) }
 
     /// A dot's spoken name: none, or its slot in the theme's palette (the
     /// color itself follows the theme, so no fixed color word is used).

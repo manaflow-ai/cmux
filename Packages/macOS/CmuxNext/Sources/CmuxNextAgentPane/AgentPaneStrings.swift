@@ -95,6 +95,14 @@ extension AgentPaneView {
         String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
     }
 
+    /// Shown when the pane runs on another cmux install's acpmux (NIGHTLY and Release share
+    /// `~/.acpmux`): this app cannot allow that daemon's requests (cx-fcaq).
+    static var otherInstallMessage: String {
+        String(localized: "agentPane.otherInstall.message",
+               defaultValue: "This chat runs on another cmux install's agent service. Approve its requests in that app.",
+               bundle: .module)
+    }
+
     static var reloadTitle: String {
         String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .module)
     }
@@ -114,6 +122,8 @@ extension AgentPaneHostError {
             String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
+        case .chiefStopped:
+            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
         }

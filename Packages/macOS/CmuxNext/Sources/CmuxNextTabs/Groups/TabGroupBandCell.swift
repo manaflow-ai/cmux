@@ -46,8 +46,9 @@ final class TabGroupBandCell {
 
     private func updateColors() {
         themeScope.perform {
-            washLayer.backgroundColor = color.wash.cgColor
-            lineLayer.backgroundColor = color.swatch.cgColor
+            // The theme's palette color, as the sidebar's groups draw it (GroupColor.headerFill).
+            washLayer.backgroundColor = color.headerFill.withAlphaComponent(0.09).cgColor
+            lineLayer.backgroundColor = color.headerFill.cgColor
         }
     }
 }

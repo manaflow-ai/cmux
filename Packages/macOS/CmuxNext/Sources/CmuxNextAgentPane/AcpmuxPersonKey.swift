@@ -141,7 +141,7 @@ nonisolated enum AcpmuxPersonKey {
                 logger.error("acpmux person handoff request failed: \(String(describing: error), privacy: .public)")
                 return false
             }
-            return await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(15))
+            return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         } catch {
             // An older daemon without the method has no person rule to satisfy.
             logger.info("acpmux person_enroll: \(String(describing: error), privacy: .public)")

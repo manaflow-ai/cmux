@@ -74,6 +74,8 @@ enum SidebarStyle {
     /// group line): its hover and selection fills never cover the line, so
     /// the line runs unbroken from the header to the last member.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    /// The group header's color dot, on the line's x (cx-25az).
+    static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
@@ -83,9 +85,9 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// Muted tint for a user color, shared with tab groups (`GroupColor`).
+    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
-        color.swatch
+        color.markColor
     }
 
 }

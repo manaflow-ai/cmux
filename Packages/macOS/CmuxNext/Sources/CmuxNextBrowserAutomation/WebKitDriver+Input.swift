@@ -47,7 +47,7 @@ extension WebKitDriver {
         return .null
     }
 
-    /// `nativeCommand: false` (a clipboard shortcut, WebKitDriver+Clipboard):
+    /// `nativeCommand: false` (a clipboard shortcut, WebKitClipboard):
     /// the page gets the key, but its editing command (`paste:`, which reads
     /// the system pasteboard) does not run.
     func inputKey(_ params: DriverParams, nativeCommand: Bool = true) async throws(DriverError) -> DriverJSON {

@@ -52,7 +52,20 @@ const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux ch
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
 
+/// The daemon settings owner (cx-9ce.10) has no CLI verb or MCP policy yet:
+/// `cmux settings` stays on the app socket with its user confirm sheet, and
+/// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
+/// policy decision cx-ncc.32.
+const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("settings.schema", SETTINGS_REASON),
+    ("settings.list", SETTINGS_REASON),
+    ("settings.get", SETTINGS_REASON),
+    ("settings.snapshot", SETTINGS_REASON),
+    ("settings.set", SETTINGS_REASON),
+    ("settings.reset", SETTINGS_REASON),
+    ("settings.reset_all", SETTINGS_REASON),
     ("credential.verify", CREDENTIAL_REASON),
     ("credential.mint", CREDENTIAL_REASON),
     ("credential.rotate", CREDENTIAL_REASON),
@@ -119,6 +132,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
+    ("workspace.agent_start.get", AGENT_START_REASON),
     ("agent.message.list", AGENT_MESSAGE_REASON),
     ("agent.message.mark", AGENT_MESSAGE_REASON),
     ("agent.message.send", AGENT_MESSAGE_REASON),
@@ -158,6 +172,9 @@ const APP_WORKSPACE_REASON: &str = "The hosting app opens an installed app's one
      from its sidebar item (app-screens-v1); agents open apps through the apps tools.";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
+
+const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
+     chat opens; an agent already runs in its folder (cx-9aps).";
 
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();

@@ -165,6 +165,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>end</string>
+			<key>pfm_description</key>
+			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>end</string>
+				<string>afterCurrent</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>hover</string>
 			<key>pfm_description</key>
 			<string>On Hover shows each tab bar's + only while the pointer is over that tab bar.</string>
@@ -237,6 +254,72 @@
 			<string>Cmd-W Closes Pinned Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.</string>
+			<key>pfm_name</key>
+			<string>tabs.swapCmdTAndCmdN</string>
+			<key>pfm_title</key>
+			<string>Swap Cmd-T and Cmd-N</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<key>pfm_name</key>
+			<string>tabs.tabBar.terminal</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>always</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar in Terminal Panes</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<key>pfm_name</key>
+			<string>tabs.tabBar.browser</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>always</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar in Browser Panes</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<key>pfm_name</key>
+			<string>tabs.tabBar.agent</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>always</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar in Agent Chats</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -972,6 +1055,29 @@
 			<string>appearance.appTheme</string>
 			<key>pfm_title</key>
 			<string>App Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>neutral</string>
+			<key>pfm_description</key>
+			<string>The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.</string>
+			<key>pfm_name</key>
+			<string>appearance.accent</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>neutral</string>
+				<string>theme</string>
+				<string>red</string>
+				<string>green</string>
+				<string>yellow</string>
+				<string>blue</string>
+				<string>magenta</string>
+				<string>cyan</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Accent</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -3352,6 +3458,18 @@
 			<string>Copy Terminal Notifications to the Feed</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.</string>
+			<key>pfm_name</key>
+			<string>feed.agentPermissionPrompts</string>
+			<key>pfm_title</key>
+			<string>Send Agent Permission Requests to the Feed</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

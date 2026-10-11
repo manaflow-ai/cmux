@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896. */
+/* cmux-tui mux protocol 12, IR db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,6 +16,8 @@ export type ActivitySnapshot = {
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
 };
+
+export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
 export type AgentRecord = {
   "session": (string) | null;
@@ -233,6 +235,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread_root"?: string;
 };
 
 export type ConversationPart = {
