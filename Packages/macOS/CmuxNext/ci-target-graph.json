@@ -114,7 +114,9 @@
         "CmuxNextSettings"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "scripts/cmux-next/pin-cmux-tui.sh"
+      ]
     },
     "CmuxNextAgentQuestion": {
       "kind": "regular",
