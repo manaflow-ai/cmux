@@ -2,11 +2,6 @@
 
 use super::*;
 
-/// What limits a session's agent as far as acpmux can tell. `policy` is
-/// always the acpmux permission policy (the session's own, else
-/// `default_policy`), so sessions on different harnesses compare; the
-/// harness's mode is only named in `detail`. Host isolation is never
-/// claimed, and no sandbox is inferred from a mode name.
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
@@ -19,17 +14,21 @@ use super::*;
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
 ///
+/// A peer's session that is `unreachable` mid-turn or with a question
+/// waiting is `lost`: that turn cannot answer, nor the question be answered.
+///
 /// Reads only the summary's own fields, so a summary whose `status` changes
 /// afterwards (a peer going unreachable) is re-decided from it.
 pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
     let last = summary["lastTurn"]["status"].as_str();
-    let answered = matches!(last, Some("completed" | "ok"));
+    let answered = last == Some("completed");
+    let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
     match status {
         "closed" => None,
-        _ if summary["pendingPermissions"].as_u64().unwrap_or(0) > 0 || status == "waiting" => {
-            Some("input")
-        }
+        "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
+        "waiting" => Some("input"),
+        _ if pending => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if !answered => Some("lost"),
@@ -38,6 +37,11 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     }
 }
 
+/// What limits a session's agent as far as acpmux can tell. `policy` is
+/// always the acpmux permission policy (the session's own, else
+/// `default_policy`), so sessions on different harnesses compare; the
+/// harness's mode is only named in `detail`. Host isolation is never
+/// claimed, and no sandbox is inferred from a mode name.
 pub(super) fn enforcement(m: &SessionMeta, default_policy: Option<PermissionPolicy>) -> Value {
     let policy = m
         .permission_policy

@@ -56,8 +56,11 @@ async fn an_agent_gone_without_an_answer_is_lost() {
     c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
         .await
         .unwrap();
-    let s = settled(&hub, &mut c, &id, |s| s["status"] == "disconnected").await;
-    assert_eq!(s["lastTurn"]["status"], "cancelled", "{s}");
+    // The exit can land before the cancelled turn is recorded: wait for both.
+    let s = settled(&hub, &mut c, &id, |s| {
+        s["status"] == "disconnected" && s["lastTurn"]["status"] == "cancelled"
+    })
+    .await;
     assert_eq!(s.get("indicator"), Some(&json!("lost")), "{s}");
 }
 

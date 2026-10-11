@@ -185,6 +185,11 @@ impl Hub {
             summary["name"] = Value::String(full);
         }
         summary["peer"] = Value::String(peer.to_owned());
+        // A peer from before `indicator` sends none: decide it here.
+        if summary.get("indicator").is_none() {
+            summary["indicator"] =
+                super::views::status_indicator(&summary).map_or(Value::Null, Value::from);
+        }
         summary
     }
 
