@@ -60,7 +60,12 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
             },
           },
           cmuxAcpmuxActions: {
-            ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, ...(draft ? { draft } : {}) }),
+            ready: async () => ({
+              protocolVersion: 1,
+              transport: "mock",
+              newSession: true,
+              ...(draft ? { draft } : {}),
+            }),
           },
         });
       },
