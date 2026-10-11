@@ -96,7 +96,6 @@ export async function POST(
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
-        deadline: { operation: "fork" },
         onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,

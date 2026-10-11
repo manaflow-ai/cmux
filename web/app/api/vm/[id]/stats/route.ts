@@ -8,10 +8,6 @@ import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { getVmStats } from "../../../../../services/vms/workflows";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
-// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
-// route's answer deadline continues through after() until this limit.
-export const maxDuration = 60;
-
 // Live CPU / memory / disk for one machine. Sleeping machines answer `asleep`
 // without being woken.
 export async function GET(
@@ -34,7 +30,7 @@ export async function GET(
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request, deadline: { operation: "stats" } });
+      }), { request });
       if (!run.ok) return run.response;
       return jsonResponse(run.value);
     },
