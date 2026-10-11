@@ -9,6 +9,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var sideTabs: Bool
     /// The header actions (`splitRight`, `splitBrowserRight`) whose split is open, sorted.
     public var lit: [String]
+    public var pullRequest: AgentPanePullRequest?
     /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
     public var floatingChat: Bool
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
