@@ -255,6 +255,9 @@ public actor CloudVMService: CloudVMServing {
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
+        // The server answers inside this budget (web/services/vms/routeDeadline.ts),
+        // so a slow provider yields "still in progress" before this request times out.
+        request.setValue(String(Int((request.timeoutInterval * 1000).rounded())), forHTTPHeaderField: "x-cmux-client-timeout-ms")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudAPIError.malformedResponse("non-HTTP response")

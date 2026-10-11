@@ -130,6 +130,20 @@ export async function vmGuestUnresponsiveCopy(locale: Locale): Promise<VmRequire
   };
 }
 
+/** Localized copy for a VM route that answered at its deadline (routeDeadline.ts). */
+export async function vmRouteDeadlineCopy(kind: "inProgress" | "providerTimeout", locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: `vmErrors.${kind}`,
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized guidance when the provider account's network rule capacity is exhausted. */
 export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({

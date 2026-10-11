@@ -54,6 +54,9 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 function fakes(options: {
   row: CloudVmRow;
   providerStatus?: "running" | "paused";
+  /** Successive getStatus answers; the last one repeats. */
+  providerStatuses?: Array<"creating" | "running" | "paused">;
+  pauseState?: "paused" | "in_progress" | "not_paused" | "destroyed";
   withPause?: boolean;
   withResume?: boolean;
   stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
@@ -94,6 +97,9 @@ function fakes(options: {
       memoryTotalMb: options.stats?.memoryTotalMb ?? 8 * 1024,
       diskTotalMb: options.stats?.diskTotalMb ?? 32768,
     }),
+    ...(options.pauseState
+      ? { getPauseState: () => Effect.succeed(options.pauseState) }
+      : {}),
     ...(options.withPause === false
       ? {}
       : {
@@ -111,6 +117,10 @@ function fakes(options: {
         },
         getStatus: (_provider: string, providerVmId: string) => {
           recorded.statusProbes.push(providerVmId);
+          const sequence = options.providerStatuses;
+          if (sequence && sequence.length > 0) {
+            return Effect.succeed(sequence[Math.min(recorded.statusProbes.length - 1, sequence.length - 1)]);
+          }
           return Effect.succeed(options.providerStatus ?? "running");
         },
       }),
@@ -133,6 +143,17 @@ async function failureTag(
   return failure._tag === "Some" ? ((failure.value as { _tag?: string })._tag ?? "unknown") : "die";
 }
 
+describe("retries during an in-flight first call", () => {
+  // A resume the route answered as in progress is still starting at the
+  // provider. The retry waits for it instead of resuming twice.
+  test("a resume retry while the first resume is starting waits for it", async () => {
+    const { recorded, layer } = fakes({ row: machineRow({ status: "paused" }), providerStatuses: ["creating", "running"] });
+    const result = await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.resumed).toEqual([]);
+  });
+});
+
 describe("pauseVm", () => {
   test("parks a running machine: provider pause, row paused, usage event", async () => {
     const { recorded, layer } = fakes({ row: machineRow() });
@@ -150,6 +171,39 @@ describe("pauseVm", () => {
     expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
     expect(recorded.events).toEqual([]);
+  });
+
+  // A pause whose route answered "in progress" (routeDeadline.ts) may finish
+  // at the provider after the response. The retry must not pause twice: it
+  // reconciles the row with the provider's observed status.
+  test("a retry after a pause that finished in the background records it without pausing again", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "paused" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused" }]);
+    expect(recorded.events).toEqual([{ eventType: "vm.paused", metadata: { source: "user" } }]);
+  });
+
+  test("a retry while the first pause is still pausing answers in progress without pausing again", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "in_progress" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a machine gone at the provider answers not found without a pause call", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "destroyed" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmNotFoundError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a powered-off machine is not a finished pause: it is paused", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "not_paused" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual(["fs-1"]);
   });
 
   test("a provider without pause fails with the unsupported error (the route's 501)", async () => {
