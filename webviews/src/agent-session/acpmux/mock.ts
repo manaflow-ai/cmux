@@ -267,7 +267,7 @@ export class MockAcpmuxSocket {
     if (pending)
       this.emit(target, { mux: "permission_decision", msg: { permissionId: (pending.msg as any).permissionId } });
     this.emit(target, { mux: "turn_result", msg: { status } });
-    this.touch(target, { status: "idle", pendingPermissions: 0 });
+    this.touch(target, { status: "idle", pendingPermissions: 0, indicator: status === "completed" ? "done" : null });
   }
 
   send(raw: string): void {
@@ -509,6 +509,7 @@ export class MockAcpmuxSocket {
       turnCount: Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1,
       unread: false,
       status: "running",
+      indicator: "working",
     });
     const running = { cancelled: false, target };
     this.running = running;
@@ -528,7 +529,7 @@ export class MockAcpmuxSocket {
       endAt !== undefined ? started + endAt : undefined,
     );
     this.running = undefined;
-    this.touch(target, { status: "idle" });
+    this.touch(target, { status: "idle", indicator: running.cancelled ? null : "done" });
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
   }
 

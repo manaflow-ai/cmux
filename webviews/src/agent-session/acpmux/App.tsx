@@ -93,6 +93,8 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { UserBubble } from "./conversation/UserBubble";
+import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import { clearFindHighlights, paintFindHighlights, useChatFind, type ChatFind } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
@@ -343,6 +345,7 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
+  pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
@@ -366,7 +369,11 @@ const MessageRow = memo(
               <pre className="cv-user__context-text selectable">{envelope.context}</pre>
             </details>
           )}
-          <div className="cv-user__bubble selectable">{envelope ? envelope.task : (row.text ?? "")}</div>
+          {envelope ? (
+            <div className="cv-user__bubble selectable">{envelope.task}</div>
+          ) : (
+            <UserBubble row={row} text={row.text ?? ""} />
+          )}
           <FailedPrompt row={row} />
           {row.status && (
             <div className="cv-user__status">
@@ -1616,6 +1623,10 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
+  const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
+  const editSeqsKey = editableKey(editSeqs);
+  const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
   const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
   // another machine or in the cloud gets none (its CLI is not this Mac's).
@@ -1903,6 +1914,16 @@ function AcpmuxPane() {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
       }),
+      ...(stableEditSeqs.size > 0 && {
+        edit: {
+          seqs: stableEditSeqs,
+          send: (rowId: string, throughSeq: number, text: string) =>
+            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
+              (sent) => sent === true,
+              () => false,
+            ),
+        },
+      }),
       ...(connected && {
         retry: (rowId: string, prompt: string) =>
           void callNative("chat.send", {
@@ -1931,6 +1952,7 @@ function AcpmuxPane() {
     [
       forkable,
       forkSeq,
+      stableEditSeqs,
       connected,
       hunkReview,
       loginCommand,
@@ -2757,6 +2779,19 @@ function AcpmuxPane() {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
           },
+          // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
+          // edited text with the prompt's attachments; the original chat stays as it was.
+          "chat.editResend": async ({ rowId, throughSeq, text }) => {
+            harnessSwitch.cancel();
+            const attachments = client.retryAttachmentsFor(String(rowId ?? ""));
+            const forked = await client.fork(Number(throughSeq));
+            if (!forked) return false;
+            await persistSession(forked);
+            // The reader may open another chat while the fork is saved: the edit belongs to the fork.
+            if (client.selectedSession !== forked) return false;
+            await send(String(text ?? ""), attachments);
+            return true;
+          },
           "chat.ask": ({ question }) => client.ask(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
             const sessionId = await client.forkAside(Number(throughSeq));
@@ -2775,6 +2810,7 @@ function AcpmuxPane() {
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
+          "git.pullRequest": () => client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };

@@ -80,7 +80,8 @@ nonisolated extension CloudHomeSource {
                 if state.viewed.contains(conversation) { state.removed.remove(conversation) }
             }
             return ConversationPage(conversation: state.joined(conversation) ?? summary,
-                                    messages: page.messages.map { CloudHomeMapping.message($0, identity: identity) })
+                                    messages: page.messages.map { CloudHomeMapping.message($0, identity: identity) },
+                                    threads: page.threads.map { HomeCoreMapping.thread($0, author: identity.toHome) })
         }
     }
 

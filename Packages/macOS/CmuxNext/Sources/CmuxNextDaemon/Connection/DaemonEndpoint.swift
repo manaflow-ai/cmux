@@ -214,6 +214,9 @@ public struct DaemonCapabilities: Sendable {
     /// `thread_root` on conversation messages, and a send that moves the
     /// sender's own read cursor (cmux-tui/spec/commands.md `conversation-op`).
     public let conversationThreads = "conversation-threads-v1"
+    /// `conversation-thread` (and `cloud-conversation-thread` with the cloud
+    /// transport) and the owner's `threads` stats on snapshot and history pages.
+    public let conversationThread = "conversation-thread-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
     /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
     /// commands and their `cloud-*` events. Advertised only when the daemon
@@ -300,7 +303,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,

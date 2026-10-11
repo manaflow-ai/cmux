@@ -6,6 +6,8 @@ public protocol CloudConversationCommands: Sendable {
     func inboxList(limit: Int) async throws -> CloudInboxList
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot
     func history(_ conversation: String, before seq: UInt64, limit: Int) async throws -> CloudConversationHistory
+    /// `cloud-conversation-thread` (`conversation-thread-v1`).
+    func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread
     func op(_ request: CloudConversationOpRequest) async throws -> CloudConversationOpResult
     func subscribeInbox() async throws -> CloudSubscription
     func subscribe(_ conversation: String) async throws -> CloudSubscription
@@ -70,6 +72,10 @@ public struct CloudConversationClient: CloudConversationCommands {
         try await network(CloudConversationHistoryRequest(conversation: conversation, beforeSeq: seq, limit: limit))
     }
 
+    public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
+        try await network(CloudConversationThreadRequest(conversation: conversation, root: root, afterSeq: seq, limit: limit))
+    }
+
     public func op(_ request: CloudConversationOpRequest) async throws -> CloudConversationOpResult {
         try await network(request)
     }
@@ -84,6 +90,13 @@ public struct CloudConversationClient: CloudConversationCommands {
 
     public func unsubscribe(_ conversation: String) async throws {
         _ = try await local(CloudConversationUnsubscribeRequest(conversation: conversation))
+    }
+}
+
+extension CloudConversationCommands {
+    /// Fakes and daemons without the read: the caller falls back to history.
+    public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationThread])
     }
 }
 
