@@ -97,6 +97,12 @@ const loadedScope = {
 const loadedSource: ChangesSource = {
   diff: async (scope: ChangeScope) => ({ ...loadedScope, scope }),
   status: async () => ({ branch: "feat/gallery", base: "main", ahead: 2, behind: 0 }),
+  // The Staged scope's commit bar: Draft fills a message after a beat; Commit succeeds.
+  draftCommit: () =>
+    new Promise((resolve) =>
+      setTimeout(() => resolve("Fix the scope menu's focus ring\n\nThe ring followed the pointer, not the key."), 600),
+    ),
+  commit: () => new Promise((resolve) => setTimeout(resolve, 400)),
 };
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {

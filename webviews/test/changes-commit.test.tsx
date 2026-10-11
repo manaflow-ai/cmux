@@ -114,7 +114,7 @@ test("Staged drafts a message with the agent, takes an edit, commits it, then re
     await settle();
     expect(committed).toEqual(["Say two, not one"]);
     expect(view.message()!.value).toBe("");
-    expect(view.container.querySelector(".acpmux-commit-bar [role=status]")?.textContent).toBe("Committed");
+    expect(view.container.querySelector(".acpmux-commit-bar output")?.textContent).toBe("Committed");
     expect(view.reads).toEqual(["staged", "staged"]);
   } finally {
     await act(async () => view.root.unmount());

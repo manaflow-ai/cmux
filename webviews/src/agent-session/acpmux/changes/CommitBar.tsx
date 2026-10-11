@@ -77,7 +77,7 @@ export function CommitBar({
             {status.message}
           </span>
         ) : (
-          <span className="acpmux-commit-status" role="status">
+          <output className="acpmux-commit-status">
             {status?.kind === "drafting"
               ? t("commit.drafting")
               : status?.kind === "committing"
@@ -85,7 +85,7 @@ export function CommitBar({
                 : status?.kind === "committed"
                   ? t("commit.committed")
                   : ""}
-          </span>
+          </output>
         )}
         {draft && (
           <button type="button" className="acpmux-commit-draft" disabled={busy} onClick={runDraft}>
