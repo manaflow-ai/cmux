@@ -14,7 +14,8 @@ import os
 ///
 /// The guard counts `-[NSView layout]` calls per view in one run-loop turn
 /// (an override that calls `super.layout()` counts; one that does not is
-/// invisible). A normal turn lays out a view one to three times. When one
+/// invisible), restarting when the view's window changes frame: an animated
+/// resize (zoom) lays the window out once per frame inside one turn. A normal turn lays out a view one to three times. When one
 /// view passes ``bound`` in one turn, the guard records a ``Report`` with
 /// the view's class, its superview chain and its window class, logs a fault
 /// and calls ``onLoop`` (the app sends it to Sentry as a non-fatal event).
@@ -58,8 +59,9 @@ public final class LayoutPassGuard {
     public private(set) var maxPassesInOneTurn = 0
     public private(set) var isInstalled = false
 
-    /// Per view this turn; the weak reference tells a reused address apart.
-    private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int, broken: Bool)] = [:]
+    /// Per view this turn, at its window's frame; the weak reference tells a
+    /// reused address apart.
+    private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int, broken: Bool, windowFrame: NSRect)] = [:]
     /// Views broken in the last turn: a view broken again is not asked to
     /// lay out once more, so a loop that persists settles instead of
     /// spinning every turn.
@@ -110,7 +112,7 @@ public final class LayoutPassGuard {
     /// Whether `view`'s layout is skipped: broken this turn.
     fileprivate func skips(_ view: NSView) -> Bool {
         guard breaksLoops, let entry = turnCounts[ObjectIdentifier(view)] else { return false }
-        return entry.broken && entry.view.object === view
+        return entry.broken && entry.view.object === view && entry.windowFrame == (view.window?.frame ?? .zero)
     }
 
     /// Layouts of one view in one turn past which the turn is a loop:
@@ -137,9 +139,10 @@ public final class LayoutPassGuard {
             classCounts[typeID] = (type, 1)
         }
         let id = ObjectIdentifier(view)
+        let windowFrame = view.window?.frame ?? .zero
         var count = 1
-        if let entry = turnCounts[id], entry.view.object === view { count = entry.count + 1 }
-        turnCounts[id] = (Weak(view), count, false)
+        if let entry = turnCounts[id], entry.view.object === view, entry.windowFrame == windowFrame { count = entry.count + 1 }
+        turnCounts[id] = (Weak(view), count, false, windowFrame)
         if count > maxPassesInOneTurn { maxPassesInOneTurn = count }
         // Most views lay out once or twice a turn; only a third layout walks the window.
         guard count > 2, count == limit(for: view) + 1 else { return }
@@ -162,7 +165,7 @@ public final class LayoutPassGuard {
     /// Skips `view`'s further layouts this turn and, unless it was broken
     /// last turn too, asks for one layout on the next turn.
     private func breakLoop(of view: NSView, id: ObjectIdentifier, count: Int) {
-        turnCounts[id] = (Weak(view), count, true)
+        turnCounts[id] = (Weak(view), count, true, view.window?.frame ?? .zero)
         guard !brokenLastTurn.contains(id) else { return }
         DispatchQueue.main.async { [weak view] in
             // main-proof: DispatchQueue.main runs its blocks on the main thread
