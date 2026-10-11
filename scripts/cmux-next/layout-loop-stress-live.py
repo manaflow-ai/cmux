@@ -113,6 +113,11 @@ def loop_breaker_check(app):
     if not any(loop.get("view_class") == "LayoutLoopFixtureView" and loop.get("broken") for loop in loops):
         return ["layout loop fixture: no broken loop reported for LayoutLoopFixtureView (%s): %s" % (
             json.dumps(layers.get("layout_loop_fixture")), json.dumps(loops)[:300])]
+    # A broken loop must settle: one limit's worth of layouts, one deferred
+    # retry, then quiet, not a limit's worth every frame for two seconds.
+    layouts = (layers.get("layout_loop_fixture") or {}).get("layouts") or 0
+    if layouts > 200:
+        return ["layout loop fixture: the broken loop kept running (%d layouts in 2 s)" % layouts]
     print("layout loop fixture: broken and reported, app answering (%s)" % json.dumps(layers.get("layout_loop_fixture")), flush=True)
     return []
 
