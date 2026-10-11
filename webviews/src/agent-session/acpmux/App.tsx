@@ -3255,7 +3255,8 @@ function AcpmuxPane() {
     [replaying],
   );
   const transcript = (
-    <ArtifactContext.Provider value={openArtifact}>
+    // Quick Chat's panel has no room beside it: its fences have no Open preview.
+    <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
       <ImageViewerContext.Provider value={openImage}>
         <ShellActionsContext.Provider value={shellActions}>
           <TurnActionsContext.Provider value={turnActions}>

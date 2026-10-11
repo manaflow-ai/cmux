@@ -10,7 +10,7 @@ import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Close, Copy } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
+import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -92,7 +92,32 @@ export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClo
   );
 }
 
+/// A document that can run script waits for Run, as a render card does: the frame shares the pane's
+/// web process, so a busy loop would freeze the pane. Markup without script draws at once.
+const runsScript = (code: string) => /<script\b|\son[a-z]+\s*=|javascript:/i.test(code);
+
 function ArtifactFrame({ html, title }: { html: string; title: string }) {
+  const t = useT();
+  const [running, setRunning] = useState(() => ranRenders.has(html) || !runsScript(html));
+  if (!running)
+    return (
+      <div className="acpmux-artifact-run">
+        <button
+          type="button"
+          className="acpmux-review-changes"
+          onClick={() => {
+            ranRenders.add(html);
+            setRunning(true);
+          }}
+        >
+          {t("render.run")}
+        </button>
+      </div>
+    );
+  return <RunningFrame html={html} title={title} />;
+}
+
+function RunningFrame({ html, title }: { html: string; title: string }) {
   const { frame } = useRenderFrame(html);
   return (
     <iframe

@@ -201,6 +201,12 @@
 .acpmux-artifact-doc {
   padding: 4px 20px 20px;
 }
+.acpmux-artifact-run {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .acpmux-artifact-frame {
   flex: 1;
   width: 100%;
