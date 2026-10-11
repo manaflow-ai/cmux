@@ -118,6 +118,8 @@ def open_in_home(conversation):
     # The first run after launch can come before the window's Home page takes it: ask again until it shows.
     def opened():
         if shown() != conversation:
+            # Home first (a window still starting can take the conversation and stay on its new tab), then the conversation.
+            rpc("action.run", {"id": "home.show", "focus": True})
             last_open["reply"] = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation},
                                                     "focus": True})
             time.sleep(1)  # test harness: one request per second while Home starts, not app code
@@ -140,8 +142,12 @@ def compare(name, conversation, expected, shot):
     hidden = [e for e in expected if e not in (view or [])]
     check(f"{name}: the Home view shows every message in order", bool(view) and [x for x in view if x in expected] == expected,
           {"hidden": hidden, "view": view, "store": store})
+    time.sleep(1.0)  # test harness: let the newest row's arrival settle before the screenshot
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, shot)})
 
+
+# A root longer than one line: the live reply's root preview wraps it (MessagesLab a4a0edb).
+ROOT = "Q4 plan: who takes the migration, the backfill and the cleanup of the old tables after next week's cutover?"
 
 pid = None
 if not opts.no_launch:
@@ -179,17 +185,17 @@ try:
     thread = new_group(f"thread-{stamp}")
     if check("thread: a local channel", bool(thread)):
         send(thread, "Before the thread")
-        send(thread, "Q4 plan: who takes the migration?")
-        root = poll(lambda: message_id(thread, "Q4 plan: who takes the migration?"))
+        send(thread, ROOT)
+        root = poll(lambda: message_id(thread, ROOT))
         send(thread, "I can take the schema part.", root)
         send(thread, "I will do the backfill after it.", root)
         poll(lambda: len(owner_texts(thread)) >= 4)
         check("thread: Home shows the channel", bool(open_in_home(thread)), rpc("debug.home"))
         send(thread, "After the thread")
-        compare("thread, after", thread, ["Before the thread", "Q4 plan: who takes the migration?", "I can take the schema part.",
+        compare("thread, after", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                           "I will do the backfill after it.", "After the thread"], "thread-after.png")
         send(thread, "Third reply, arriving live.", root)
-        compare("thread, live reply", thread, ["Before the thread", "Q4 plan: who takes the migration?", "I can take the schema part.",
+        compare("thread, live reply", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                                "I will do the backfill after it.", "After the thread", "Third reply, arriving live."],
                 "thread-live.png")
 finally:

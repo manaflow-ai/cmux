@@ -61,8 +61,15 @@ extension ChatController {
         let time = DateFormatter()
         time.dateStyle = .none
         time.timeStyle = .short
-        return visibleMessages().map { m in
-            let e = MessageAccessibilityElement(messageID: m.id)
+        // cmux: MessagesLab 30495be (TranscriptAccess.swift:75), this file stays at bd65bbf: the
+        // elements are kept, one per message id and reused. AX clients hold them between calls; an
+        // element made on every call was freed before a client read it (the AX dump's list was empty).
+        let visible = visibleMessages()
+        let keep = Set(visible.map(\.id))
+        selection.axElements = selection.axElements.filter { keep.contains($0.key) }
+        return visible.map { m in
+            let e = selection.axElements[m.id] ?? MessageAccessibilityElement(messageID: m.id)
+            selection.axElements[m.id] = e
             let msg = store.state.message(m.id)
             let sender = msg.map { msg in
                 msg.senderId == store.state.me ? NativeStrings.you
@@ -98,6 +105,8 @@ struct TextPosition: Equatable { var key: String; var offset: Int }
 /// Drag-to-select across rows. The highlight is a shape layer over the rows,
 /// recomputed when the transcript moves or changes.
 final class TranscriptSelection {
+    /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
+    var axElements: [ID: MessageAccessibilityElement] = [:]
     unowned let controller: ChatController
     let layer = CAShapeLayer()
     private(set) var anchor: TextPosition?

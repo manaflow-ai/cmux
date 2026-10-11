@@ -16,7 +16,20 @@
              }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
-@@ -789,7 +794,8 @@
+@@ -285,10 +290,10 @@
+         // A root can be a 100k-character message: only the characters that 4 lines can hold are laid out
+         // (no 10 pt glyph is narrower than 2 pt, so 2 per pt of width is more than 4 lines), at most 2000;
+         // a cut text always ends in "…".
+-        let limit = 16 + 2 * Int(min(992, max(0, maxWidth.isFinite ? maxWidth : 0)))
++        let limit = 16 + 2 * CrashGuard.int(min(992, max(0, maxWidth.isFinite ? maxWidth : 0)), in: 0...992) // cmux: crash program, checked conversion of the clamped width
+         let end = text.index(text.startIndex, offsetBy: limit, limitedBy: text.endIndex) ?? text.endIndex
+         let cut = end < text.endIndex
+-        let flat = String(text[..<end]).replacingOccurrences(of: "\n", with: " ")
++        let flat = String(text.prefix(limit)).replacingOccurrences(of: "\n", with: " ") // cmux: crash program, no range subscript (same cut as `end`)
+         let tl = TextLayout.make(flat, runs: [], maxWidth: maxWidth, font: textFont)
+         let ns = flat as NSString
+         var lines: [String] = []
+@@ -855,7 +860,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -26,18 +39,18 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -801,6 +807,10 @@
-                 }
+@@ -868,6 +874,10 @@
              }
              prev = m; prevIndex = idx
-+        }
+         }
 +        // cmux: the host's notice, centered like the date row, under the newest message.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
 +            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
-         }
++        }
          if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-@@ -883,7 +893,7 @@
+         }
+@@ -955,7 +965,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -46,7 +59,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -902,7 +912,7 @@
+@@ -974,7 +984,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -55,7 +68,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -952,7 +962,8 @@
+@@ -1024,7 +1034,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -65,7 +78,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -985,7 +996,8 @@
+@@ -1057,7 +1068,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }
