@@ -105,13 +105,14 @@ def paced_drag(x, y, to_x, to_y, seconds=0.45):
     return {"frames": frames}
 
 
-def first_pill():
-    """The focused pane's first tab pill in window points (`debug.pane_chrome`)."""
-    for window in (rpc("debug.pane_chrome") or {}).get("windows") or []:
-        for pane in window.get("panes") or []:
-            if pane.get("pill"):
-                return pane["pill"]
-    return None
+def first_pill(busiest=False):
+    """The first pane's first tab pill in window points (`debug.pane_chrome`);
+    with `busiest`, the narrowest one, in the pane holding the most tabs."""
+    pills = [pane["pill"] for window in (rpc("debug.pane_chrome") or {}).get("windows") or []
+             for pane in window.get("panes") or [] if pane.get("pill")]
+    if busiest and pills:
+        return min(pills, key=lambda pill: pill[2])
+    return pills[0] if pills else None
 
 
 def tabs():
@@ -189,7 +190,7 @@ def drag():
         action("newSurface")
         time.sleep(0.5)  # test harness: one tab at a time
     save_layout("drag")
-    pill = first_pill()
+    pill = first_pill(busiest=True)
     if not pill:
         print("drag: skipped, pane_chrome reports no tab pill", flush=True)
         return
