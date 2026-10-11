@@ -12,14 +12,16 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
     if shortcutWindow?.firstResponder is TextBoxInputTextView {
         return false
     }
-    let terminalFindFieldOwnsResponder = cmuxFindTextFieldOwner(for: shortcutWindow?.firstResponder)?
-        .identifier?.rawValue == "TerminalFindSearchTextField"
+    let terminalFindField = cmuxFindTextFieldOwner(for: shortcutWindow?.firstResponder)
+        .flatMap { $0.identifier?.rawValue == "TerminalFindSearchTextField" ? $0 : nil }
     let targetTabManager = appDelegate.synchronizeActiveMainWindowContext(preferredWindow: shortcutWindow)
 
     guard let panel = (targetTabManager ?? appDelegate.tabManager)?.selectedTerminalPanel,
           panel.searchState != nil,
+          // A find field outside this panel (another window's terminal) closes its own find.
+          terminalFindField.map({ $0.isDescendant(of: panel.hostedView) }) ?? true,
           !shortcutResponderHasMarkedText(shortcutWindow?.firstResponder),
-          terminalFindFieldOwnsResponder || appDelegate.allowsTerminalKeyboardFocus(
+          terminalFindField != nil || appDelegate.allowsTerminalKeyboardFocus(
               workspaceId: panel.workspaceId,
               panelId: panel.id,
               in: shortcutWindow
