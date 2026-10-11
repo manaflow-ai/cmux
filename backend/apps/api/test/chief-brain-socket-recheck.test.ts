@@ -126,7 +126,7 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     res.webSocket!.accept()
     res.webSocket!.close()
     // The placed brain acks its wakes with this token (cx-59n8.17).
-    const ack = () => call("/v1/ops", c.token, { op: "mux.ack", params: { agent: c.chief.id, conversation, seq: msg!.seq }, idempotency_key: crypto.randomUUID(), origin: "agent" })
+    const ack = () => call("/v1/ops", c.token, { op: "mux.ack", params: { agent: c.chief.id, conversation, seq: msg!.seq }, idempotency_key: crypto.randomUUID() })
     let acked = await ack()
     for (let i = 0; i < 20 && !acked.json.ok; i++) {
       await runAlarm(c.userDO)
