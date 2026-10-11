@@ -106,6 +106,8 @@ final class ChatsFeed {
     /// Applies everything since the last drain, then publishes once.
     private func apply(_ drain: MainActorLineDrain<Message>, from connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
+        let started = ContinuousClock.now
+        defer { DebugTimings.chatsFeedApplied(lines: drain.values.count, ContinuousClock.now - started) }
         var changed = false
         var lagged = false
         for message in drain.values {

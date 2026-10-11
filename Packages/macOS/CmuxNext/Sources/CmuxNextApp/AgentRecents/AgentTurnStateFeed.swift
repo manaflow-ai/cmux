@@ -62,6 +62,8 @@ final class AgentTurnStateFeed {
         // One main-actor batch at a time, never a Task per line (MainActorLineBatch).
         connection.start(send: Self.watchRequest, decode: { $0 }) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
+            let started = ContinuousClock.now
+            defer { DebugTimings.turnStatesApplied(lines: drain.values.count, ContinuousClock.now - started) }
             for line in drain.values { handle(line) }
             // Dropped lines leave the states incomplete: reconnect for a fresh page.
             if drain.overflowed, !drain.closed { connection.cancel() }
