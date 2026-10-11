@@ -8118,6 +8118,14 @@ swept after 24 h. acpmux's forget is not a daemon command. A receive whose
 manifest lacks a plain `transferId` and `sessionId` is
 `agent_transfer.bad_request`.
 
+A receive its finish ended (the finish succeeded, failed for good, or met a
+team VM) stays askable: its receive-abort sends the same forget again and
+answers `landed`, so a pump whose finish answer was lost learns whether the
+chat arrived before it commits or aborts the source. The daemon keeps the
+16 most recent such receives in memory, each for 24 h; a daemon restart
+forgets them (`agent_transfer.unknown_receive`). Writes and finishes of a
+settled receive stay `agent_transfer.unknown_receive`.
+
 ### agent-transfer-finish
 
 `{id, cmd:"agent-transfer-finish", receive_id, name?}` imports the chat in the

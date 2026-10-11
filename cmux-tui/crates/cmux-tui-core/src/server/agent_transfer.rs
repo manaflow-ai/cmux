@@ -21,7 +21,10 @@
 //! - `agent-transfer-receive-abort {receive_id}`: forgets the receive and has
 //!   acpmux forget its move (`_acpmux/transfer_forget` with the transfer and
 //!   session ids of the receive's own manifest): acpmux drops the receive's
-//!   files and refuses that move from then on.
+//!   files and refuses that move from then on. A receive its finish ended
+//!   (settled) can still be asked, so a pump that lost the finish answer
+//!   learns whether the chat landed (`landed`) before it commits or aborts
+//!   the source.
 //!
 //! Machine kind: receive and finish read `agent-session-start`'s host gate
 //! at each call and refuse on a team VM and on a Cloud VM of unknown kind
@@ -74,6 +77,8 @@ pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
 const DEFAULT_READ: u64 = 1 << 20;
 const MAX_RECEIVES: usize = 16;
+/// Settled receives kept for a pump's question (the oldest goes first).
+const MAX_SETTLED: usize = 16;
 const MAX_MOVES: usize = 16;
 const MAX_CALLS: usize = 8;
 /// A receive or move not touched that long is forgotten (acpmux sweeps its
@@ -123,6 +128,8 @@ pub struct AgentTransferHost {
 pub(crate) struct AgentTransfers {
     host: RwLock<Option<AgentTransferHost>>,
     receives: Mutex<HashMap<String, Receive>>,
+    /// Receives a finish ended: only a receive-abort still names them.
+    settled: Mutex<HashMap<String, Settled>>,
     moves: Mutex<HashMap<String, Move>>,
     calls: AtomicUsize,
 }
@@ -131,6 +138,12 @@ pub(crate) struct AgentTransfers {
 struct Receive {
     cwd: String,
     /// The move and chat its manifest names (what a forget drops).
+    moved: Moved,
+    touched: Instant,
+}
+
+/// A receive its finish ended (it landed, or it never can).
+struct Settled {
     moved: Moved,
     touched: Instant,
 }
@@ -177,6 +190,31 @@ impl AgentTransfers {
         let entry = moves.get_mut(transfer_id).ok_or(Refusal::UnknownTransfer)?;
         entry.touched = Instant::now();
         entry.files.get(path).cloned().ok_or(Refusal::BadRequest)
+    }
+
+    /// Ends the receive `receive_id`, keeping what a receive-abort asks.
+    fn settle(&self, receive_id: &str) {
+        let Some(receive) = lock(&self.receives).remove(receive_id) else { return };
+        let mut settled = lock(&self.settled);
+        settled.retain(|_, entry| entry.touched.elapsed() < STALE);
+        while settled.len() >= MAX_SETTLED {
+            let oldest = settled.iter().min_by_key(|(_, entry)| entry.touched);
+            let Some(oldest) = oldest.map(|(id, _)| id.clone()) else { break };
+            settled.remove(&oldest);
+        }
+        settled.insert(receive_id.to_owned(), Settled { moved: receive.moved, touched: Instant::now() });
+    }
+
+    /// The move a receive-abort forgets: a live receive's (dropped here) or
+    /// a settled one's (kept, so the question can be asked again).
+    fn take_for_abort(&self, receive_id: &str) -> Option<Moved> {
+        if let Some(receive) = lock(&self.receives).remove(receive_id) {
+            return Some(receive.moved);
+        }
+        let mut settled = lock(&self.settled);
+        let entry = settled.get_mut(receive_id).filter(|e| e.touched.elapsed() < STALE)?;
+        entry.touched = Instant::now();
+        Some(entry.moved.clone())
     }
 
     fn full<T>(map: &mut HashMap<String, T>, cap: usize, touched: impl Fn(&T) -> Instant) -> bool {
@@ -546,7 +584,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             if let Err(refusal) = host_gate(mux) {
                 // A team VM stays one: the receive can never finish here.
                 if refusal == Refusal::TeamVmBlocked {
-                    lock(&transfers.receives).remove(&receive_id);
+                    transfers.settle(&receive_id);
                 }
                 return Err(refusal.into());
             }
@@ -555,9 +593,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
             // Without this entry no write or finish reaches the receive; acpmux
             // drops its files and refuses the move from now on (its forget).
-            let receive =
-                lock(&transfers.receives).remove(&receive_id).ok_or(Refusal::UnknownReceive)?;
-            Prepared::Forget(receive.moved)
+            Prepared::Forget(transfers.take_for_abort(&receive_id).ok_or(Refusal::UnknownReceive)?)
         }
         Verb::Begin(BeginParams { surface, interrupt }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
@@ -705,7 +741,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             let finished = call("_acpmux/transfer_finish", params, FINISH_TIMEOUT);
             if ends_receive(&finished) {
-                lock(&transfers.receives).remove(&receive_id);
+                transfers.settle(&receive_id);
             }
             Ok(json!({"session": finished?}))
         }
