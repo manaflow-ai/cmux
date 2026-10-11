@@ -9,6 +9,7 @@ extension PageWebView {
         _ = claimState.end()
         loaded = false
         paintedUptime = nil
+        repaintsAtNextLayout = false
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
     }
