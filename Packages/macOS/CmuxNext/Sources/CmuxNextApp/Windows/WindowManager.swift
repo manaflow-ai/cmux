@@ -235,6 +235,7 @@ final class WindowManager {
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
+        enterRestoredFullScreen(launch)
         return launch
     }
 
@@ -302,6 +303,19 @@ final class WindowManager {
         let behind = behindWindows.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
+        enterRestoredFullScreen(controller)
+    }
+
+    /// A window saved in full screen enters it again, once, after it is on
+    /// screen (next run loop turn: AppKit ignores the toggle before that).
+    /// Test windows never do.
+    private func enterRestoredFullScreen(_ controller: WindowController) {
+        guard controller.state.restoresFullScreen, ordersWindowsIn, services.environment.testWindow == nil else { return }
+        controller.state.restoresFullScreen = false
+        Task { @MainActor [weak controller] in
+            guard let window = controller?.window, window.isVisible, !window.styleMask.contains(.fullScreen) else { return }
+            window.toggleFullScreen(nil)
+        }
     }
 
     /// Brings a window forward (not key and no activation under
