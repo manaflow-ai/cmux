@@ -9,7 +9,8 @@ use super::*;
 /// - `working`: a turn runs.
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
-///   `unreachable`) and the last turn did not answer.
+///   `unreachable`) and the chat's last turn did not answer. A chat with
+///   no turn yet has nothing to lose.
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -31,7 +32,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         _ if pending => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
-        "disconnected" | "unreachable" if !answered => Some("lost"),
+        "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         _ if answered => Some("done"),
         _ => None,
     }
