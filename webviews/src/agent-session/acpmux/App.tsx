@@ -104,6 +104,7 @@ import {
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
+import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -2442,6 +2443,8 @@ function AcpmuxPane() {
           },
           // The native context menu's Open Image: the image the page reported under the pointer.
           "chat.menu.openImage": async () => openReportedImage(),
+          // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
+          "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -2589,8 +2592,9 @@ function AcpmuxPane() {
       delete window.cmuxAcpmuxActions;
       notifyDraftActionsChanged();
     };
-    // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
-  }, [harnessSwitch, queryClient, toggleInspector]);
+    // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
+    // the early New Tab flag, one object from a useState initializer).
+  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
     | undefined;

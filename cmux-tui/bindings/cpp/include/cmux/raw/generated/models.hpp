@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa";
+inline constexpr std::string_view kProtocolIrSha256 = "e1da218602f37e98ffecdc5d0a9c5c526f9711e51fe63eb6517768e857a30b22";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -270,6 +270,8 @@ struct ConversationBindRequest;
 struct ConversationBindResult;
 struct ConversationCreateRequest;
 struct ConversationCreateResult;
+struct ConversationDraftRequest;
+struct ConversationDraftResult;
 struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
@@ -1794,6 +1796,25 @@ struct ConversationCreateResult {
     ConversationSummary conversation{};
     bool replayed{};
     friend bool operator==(const ConversationCreateResult&, const ConversationCreateResult&) = default;
+};
+
+struct ConversationDraftRequest {
+    std::string conversation{};
+    bool done{};
+    bool fresh{};
+    Field<std::string> harness{};
+    std::string kind{};
+    std::uint64_t segment{};
+    std::uint64_t seq{};
+    std::string text{};
+    Field<bool> truncated{};
+    std::string turn{};
+    friend bool operator==(const ConversationDraftRequest&, const ConversationDraftRequest&) = default;
+};
+
+struct ConversationDraftResult {
+    bool published{};
+    friend bool operator==(const ConversationDraftResult&, const ConversationDraftResult&) = default;
 };
 
 struct ConversationHistoryRequest {
@@ -6628,6 +6649,18 @@ template <>
 struct Codec<ConversationCreateResult> {
     static Result<Json> encode(const ConversationCreateResult& value);
     static Result<ConversationCreateResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationDraftRequest> {
+    static Result<Json> encode(const ConversationDraftRequest& value);
+    static Result<ConversationDraftRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationDraftResult> {
+    static Result<Json> encode(const ConversationDraftResult& value);
+    static Result<ConversationDraftResult> decode(const Json& value);
 };
 
 template <>

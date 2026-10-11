@@ -65,9 +65,6 @@ public final class ServerHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// The size the surface wants (a menubar popover sizes to it).
-    public var preferredSize: NSSize { hosting.fittingSize }
-
     public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {

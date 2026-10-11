@@ -62,6 +62,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_ATTACHMENT_UPLOAD = new CommandMetadata("conversation-attachment-upload", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_BIND = new CommandMetadata("conversation-bind", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_CREATE = new CommandMetadata("conversation-create", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_DRAFT = new CommandMetadata("conversation-draft", Authority.LOCAL_ADMIN, 12, "conversation-draft-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_HISTORY = new CommandMetadata("conversation-history", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_IMPORT = new CommandMetadata("conversation-import", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -311,6 +312,7 @@ public final class Commands {
         values.put("conversation-attachment-upload", CONVERSATION_ATTACHMENT_UPLOAD);
         values.put("conversation-bind", CONVERSATION_BIND);
         values.put("conversation-create", CONVERSATION_CREATE);
+        values.put("conversation-draft", CONVERSATION_DRAFT);
         values.put("conversation-history", CONVERSATION_HISTORY);
         values.put("conversation-import", CONVERSATION_IMPORT);
         values.put("conversation-list", CONVERSATION_LIST);

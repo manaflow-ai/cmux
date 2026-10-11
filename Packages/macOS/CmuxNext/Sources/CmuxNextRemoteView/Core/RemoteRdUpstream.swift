@@ -102,11 +102,6 @@ public nonisolated final class RemoteRdUpstream {
         return Data(buffer[0..<length])
     }
 
-    /// The bitrate the encoder should aim for now.
-    public func targetBitsPerSecond(nowMicros: UInt64) -> UInt64 {
-        cmux_rd_upstream_target_bps(handle, nowMicros)
-    }
-
     /// Reports a path change (the link moved to another path class).
     func setPath(_ path: UInt32) throws(RemoteRdCoreError) {
         _ = try RemoteRdCoreError.check(cmux_rd_upstream_set_path(handle, path))

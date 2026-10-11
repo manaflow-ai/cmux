@@ -48,11 +48,6 @@ public final class MockTasksSource: TasksSource {
         for intent in intents { commit(intent) }
     }
 
-    /// Forget held intents (they were lost with the connection).
-    public func dropHeld() {
-        held.removeAll()
-    }
-
     public func disconnect() {
         connected = false
         held.removeAll()

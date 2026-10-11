@@ -199,8 +199,6 @@ final class BrowserTabService {
     /// Forgets incognito start URLs (the incognito session ended).
     func forgetIncognitoURLs() { incognitoURLs.removeAll() }
 
-    func cefAvailable() -> Bool { cefUnavailable() == nil }
-
     /// Why Chromium cannot open a tab (localized), nil when it can.
     func cefUnavailableReason() -> String? {
         cefUnavailable().map(Self.message)
