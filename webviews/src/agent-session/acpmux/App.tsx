@@ -140,7 +140,7 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
-import { instructionsRow } from "./header/instructionsRow";
+import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -3243,9 +3243,16 @@ function AcpmuxPane() {
       : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
           ignoreFailure(callNative("project.instructions", { cwd, name })),
         );
+    // Files every chat in the folder reads: copied into it and named in that file (cx-ncc.67).
+    const projectFiles = quick
+      ? undefined
+      : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
+          ignoreFailure(callNative("project.addFiles", { cwd, name })),
+        );
     const tools: ChatMenuItem[] = [
       ...replay,
       ...(instructions ? [instructions] : []),
+      ...(projectFiles ? [projectFiles] : []),
       {
         key: "inspector",
         label: t("inspector.title"),
