@@ -274,6 +274,21 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
+    "working-stop": {
+      note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
+      snapshot: chat(working, { isWorking: true }),
+      afterCall: { "chat.cancel": chat(working, { isWorking: false }) },
+      checks: {
+        layoutShiftMax: {
+          value: 0.001,
+          reason: "Stopping updates the location picker busy state and permits its subpixel compositor adjustment.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Send"]'));
+      },
+    },
     queued: {
       note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
       snapshot: chat(working, {
