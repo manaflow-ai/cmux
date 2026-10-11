@@ -250,6 +250,9 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
         unsafe { libc::kill(acpmux, libc::SIGKILL) };
     }
     assert_eq!(status.unwrap().code(), Some(0), "a stop on request exits 0");
-    assert_eq!(calls, "shutdown\n", "the host shuts down the acpmux it was starting");
+    assert_eq!(
+        calls, "shutdown\n",
+        "the host shuts down the acpmux it was starting"
+    );
     assert!(ended, "no acpmux of this host is left running");
 }
