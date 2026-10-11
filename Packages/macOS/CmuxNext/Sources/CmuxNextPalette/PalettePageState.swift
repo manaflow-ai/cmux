@@ -6,14 +6,36 @@ final class PageState {
     }
 
     let kind: Kind
+    /// The navigation level that shows this page (`PaletteNavLevel.id`).
+    var levelID = 0
+    /// The level's generation this page last searched for.
+    var generation = 0
+
+    // A palette reset (Tab Search, Cmd-Shift-P reopen) releases this inside an
+    // action's task-local scope; teardown must not need a main-actor hop (cx-t7hu).
+    nonisolated deinit {}
+
+    /// Created while another level was on top: load its providers when it
+    /// is first shown.
+    var needsLoad = true
     var query = ""
-    var selectedRowID: String?
     var providerItems: [String: [PaletteItem]] = [:]
     var pendingProviders = Set<String>()
     var tasks: [Task<Void, Never>] = []
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
+    /// The rows on screen stand in for a rank still running off the main
+    /// actor (provider order or a cached rank): an empty stand-in is not
+    /// "No results" yet.
+    var awaitsRank = false
+    /// Item last reported to the page's `onHighlight`.
+    /// False until the page reported its first highlight: the row selected
+    /// when the page opens is not a choice yet, so it previews nothing.
+    var hasInitialHighlight = false
+    var highlightedItemID: String?
+    /// A closing command of this page ran: leaving it is not a cancel.
+    var committed = false
 
     /// Merged provider items, their section table, and the Sendable search
     /// entries handed to the searcher. `version` bumps on every rebuild so
@@ -37,6 +59,21 @@ final class PageState {
         }
     }
 
+    var symbol: String {
+        switch kind {
+        case .list(let page): page.symbol
+        case .textInput(let spec): spec.symbol
+        }
+    }
+
+    /// The page's empty-query row (Search Tabs: the previous tab).
+    var emptyQuerySelection: Int? {
+        guard case .list(let page) = kind else { return nil }
+        if let id = page.emptyQuerySelectionID,
+           let index = lastSections?.flatMap(\.rows).firstIndex(where: { $0.id == id }) { return index }
+        return page.emptyQuerySelection > 0 ? page.emptyQuerySelection : nil
+    }
+
     var sectionOrders: [Int] { sections.map(\.order) }
 
     /// Merges provider items in provider order, dropping duplicate IDs.
@@ -58,8 +95,30 @@ final class PageState {
                     sections.append(item.section)
                 }
                 items.append(item)
-                entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery, sectionIndex: sectionIndex))
+                entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery && item.queryPrefix == nil,
+                                                  sectionIndex: sectionIndex))
             }
+        }
+        // The empty query's Suggested section (rows with a suggestion rank);
+        // appended after the item sections, like the typing section.
+        if page.showsRecent, entries.contains(where: { $0.suggestedRank != nil }) {
+            let suggestedIndex = sections.count
+            sections.append(.suggested)
+            for position in entries.indices where entries[position].suggestedRank != nil {
+                entries[position].suggestedSectionIndex = suggestedIndex
+            }
+        }
+        // One ranked list while typing (`mergesSectionsWhenTyping`); appended
+        // last, so a row's own section index never moves.
+        if page.mergesSectionsWhenTyping, !entries.isEmpty {
+            let merged: Int
+            if let existing = sectionIndexByID[PaletteSection.results.id] {
+                merged = existing
+            } else {
+                merged = sections.count
+                sections.append(.results)
+            }
+            for position in entries.indices { entries[position].typingSectionIndex = merged }
         }
         self.items = items
         self.entries = entries

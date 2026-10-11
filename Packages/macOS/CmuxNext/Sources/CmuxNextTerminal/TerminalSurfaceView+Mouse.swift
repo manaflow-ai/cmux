@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Mouse, scroll, pressure, and cursor shape. Ghostty turns these into
 // selection or, when the program enabled a mouse mode, into mouse reports
@@ -20,6 +20,7 @@ extension TerminalSurfaceView {
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {
+        session?.surfaceClicked()
         if !isFirstResponder { window?.makeFirstResponder(self) }
         sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
     }

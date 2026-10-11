@@ -1,0 +1,30 @@
+[
+  {
+    "id": "agent-pane.transcript--edited-files--en--Apple_System_Colors--w760",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.transcript",
+      "variant": "edited-files",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 760,
+      "height": 560
+    }
+  },
+  {
+    "id": "pages.markdown--readme--ja--Catppuccin_Latte--w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "pages.markdown",
+      "variant": "readme",
+      "locale": "ja",
+      "theme": "Catppuccin Latte",
+      "colorScheme": "light",
+      "fontSize": 15,
+      "scale": 1.25,
+      "width": 420,
+      "height": 640
+    }
+  }
+]

@@ -1,7 +1,6 @@
 /// `layout.defaultColumnWidth` in cmux.json: the width of a new column as a
-/// proportion of the viewport, 0.1 to 1.0; 0.5 when unset (niri
-/// `default-column-width { proportion 0.5; }`, plans/cmux-next/niri.md).
-/// niri also takes `fixed <px>`; cmux does not, because the daemon stores
+/// proportion of the viewport, 0.1 to 1.0; 0.5 when unset (plans/cmux-next/column-scroll.md).
+/// Fixed pixel widths are not supported, because the daemon stores
 /// column widths as viewport fractions, so a fixed width would change on
 /// every window resize.
 public nonisolated enum DefaultColumnWidthSetting {

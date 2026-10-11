@@ -105,7 +105,7 @@ class StoreRun:
         collector = Collector(run_id="store", extra_routes=pages.ROUTES).start()
         app = TaggedApp(self.tag, extensions=[e["dir"] for e in group], log_dir=self.out).launch()
         try:
-            app.action("tab new-chromium", {"url": collector.url + "/home.html"})
+            app.open_chromium(collector.url + "/home.html")
             if not cdp.wait_target(app.cdp_port, lambda t: "/home.html" in t.get("url", ""), 90):
                 raise RuntimeError("Chromium did not start within 90 s")
             time.sleep(6)  # let workers finish onInstalled before reading errors
@@ -137,7 +137,19 @@ class StoreRun:
     def extension_info(self, app):
         browser = self.browser_session(app)
         try:
-            target = browser.call("Target.createTarget", {"url": "chrome://extensions"})["targetId"]
+            # Open it as a cmux tab: CDP's createTarget uses the default
+            # browser context, which has no cmux window (cmux refuses the
+            # tab), and DevTools does not know the pane profiles' contexts.
+            before = {t.get("id") for t in cdp.targets(app.cdp_port)}
+            result = app.open_chromium("chrome://extensions")
+            if (result.get("error") or {}).get("code") == "unavailable":
+                return self.socket_extension_info(app)
+            opened = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before
+                                     and t.get("url", "").startswith("chrome://extensions"), 15)
+            if not opened:
+                pages = [t.get("url") for t in cdp.targets(app.cdp_port) if t.get("type") == "page"]
+                raise RuntimeError(f"chrome://extensions did not open: {result}; pages {pages}")
+            target = opened["id"]
             page = cdp.wait_target(app.cdp_port, lambda t: t.get("id") == target, 10)
             session = cdp.Session(page["webSocketDebuggerUrl"])
             time.sleep(1)
@@ -148,6 +160,20 @@ class StoreRun:
         finally:
             browser.close()
 
+    @staticmethod
+    def socket_extension_info(app):
+        """What `browser.extensions` reports, for builds where automation may not open
+        Chromium's own pages (agent-driven tabs refuse chrome://): load state, but no
+        manifest or worker errors (`manifestErrors` None)."""
+        report = app.call("browser.extensions").get("result") or {}
+        if report.get("error") or not report.get("extensions"):
+            raise RuntimeError(f"browser.extensions: {report.get('error') or 'no extensions'}")
+        return {item["id"]: {"name": item.get("name"), "version": item.get("version"),
+                             "state": "ENABLED" if item.get("enabled") else "DISABLED",
+                             "disableReasons": item.get("disable_reasons") or [],
+                             "manifestErrors": None, "runtimeErrors": None, "views": []}
+                for item in report.get("extensions") or []}
+
     def check(self, app, collector, entry, info):
         if not info:
             self.row(entry, "loaded", "fail", "not in chrome://extensions")
@@ -155,8 +181,12 @@ class StoreRun:
         enabled = info["state"] == "ENABLED"
         self.row(entry, "loaded", "pass" if enabled else "fail",
                  f"{info['name']} {info['version']}" + ("" if enabled else f" state {info['state']} {info['disableReasons']}"))
-        errors = info["manifestErrors"] + info["runtimeErrors"]
-        self.row(entry, "worker_no_errors", "pass" if not errors else "fail", "; ".join(errors[:3]) or ", ".join(info["views"]) or "idle")
+        if info["manifestErrors"] is None:
+            self.row(entry, "worker_no_errors", "unverified", "automation may not open chrome://extensions to read errors")
+        else:
+            errors = info["manifestErrors"] + info["runtimeErrors"]
+            self.row(entry, "worker_no_errors", "pass" if not errors else "fail",
+                     "; ".join(errors[:3]) or ", ".join(info["views"]) or "idle")
         manifest = entry["manifest"]
         action = manifest.get("action") or manifest.get("browser_action") or {}
         check = entry["check"]
@@ -174,17 +204,41 @@ class StoreRun:
             except Exception as error:  # noqa: BLE001
                 self.row(entry, check, "fail", error)
 
+    @staticmethod
+    def wait_tabs_settled(app, quiet=2.0, timeout=15):
+        def shown():
+            return [t.get("url") for t in (app.call("debug.cef").get("result") or {}).get("devtools") or []]
+        deadline = time.monotonic() + timeout
+        last, since = shown(), time.monotonic()
+        while time.monotonic() < deadline and time.monotonic() - since < quiet:
+            time.sleep(0.25)
+            now = shown()
+            if now != last:
+                last, since = now, time.monotonic()
+
     def popup(self, app, entry, name, action):
         if not action.get("default_popup"):
             self.row(entry, "popup", "unsupported", "no default_popup in the manifest")
             return
         prefix = f"chrome-extension://{entry['id']}/"
+        # Extensions open welcome tabs after install; a new foreground tab
+        # closes an open action popup. Click once the shown
+        # tabs stopped changing.
+        self.wait_tabs_settled(app)
         before = {t.get("id") for t in cdp.targets(app.cdp_port)}
-        app.call("debug.extensions.click", {"extension": entry["id"]})
+        clicked = app.call("debug.extensions.click", {"extension": entry["id"]}).get("result")
         target = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before and t.get("type") == "page"
                                  and t.get("url", "").startswith(prefix), 8)
         if not target:
-            self.row(entry, "popup", "fail", "toolbar click opened no popup")
+            # Say what the first click did, then click once more: a popup on
+            # the second click means the first one was lost.
+            first = {"click": clicked, "popup": app.call("debug.extensions.popup").get("result"),
+                     "tabs": [t.get("url") for t in (app.call("debug.cef").get("result") or {}).get("devtools") or []]}
+            app.call("debug.extensions.click", {"extension": entry["id"]})
+            second = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before and t.get("type") == "page"
+                                     and t.get("url", "").startswith(prefix), 8)
+            self.row(entry, "popup", "fail", f"toolbar click opened no popup; first click {first}; "
+                     f"second click {'opened it' if second else 'opened none'}")
             return
         session = cdp.Session(target["webSocketDebuggerUrl"])
         try:
@@ -212,7 +266,7 @@ class StoreRun:
             app.call("debug.extensions.popup", {"hide": True})
 
     def open_page(self, app, collector, path):
-        app.action("tab new-chromium", {"url": collector.url + path})
+        app.open_chromium(collector.url + path)
         target = cdp.wait_target(app.cdp_port, lambda t: t.get("type") == "page" and path in t.get("url", ""), 15)
         if not target:
             raise RuntimeError(f"no Chromium page for {path}")
@@ -324,7 +378,8 @@ class StoreRun:
                  (target or {}).get("url", "no extension page opened") + ("" if in_cmux else " (not a cmux tab)" if target else ""))
 
     def check_new_tab(self, app, collector, entry, info, _):
-        app.action("tab new-chromium", {"url": "chrome://newtab/"})
+        # A plain new Chromium tab shows chrome://newtab (automation may not open it by URL).
+        app.open_selected("openBrowser", {"engine": "cef"})
         prefix = f"chrome-extension://{entry['id']}/"
         target = cdp.wait_target(app.cdp_port, lambda t: t.get("type") == "page" and t.get("url", "").startswith(prefix), 10)
         self.row(entry, "new_tab_override", "pass" if target else "fail",

@@ -1,4 +1,4 @@
-import GhosttyKit
+import GhosttyNextKit
 
 /// Copies `ghostty_action_s` (ghostty.h:1143-1250) into a Sendable value.
 nonisolated enum GhosttyActionDecoder {
@@ -54,7 +54,16 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_TOGGLE_MAXIMIZE: return .host(.toggleMaximize)
         case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE: return .host(.toggleCommandPalette)
         case GHOSTTY_ACTION_INSPECTOR: return .host(.toggleInspector)
-        case GHOSTTY_ACTION_PROMPT_TITLE: return .host(.promptTitle)
+        case GHOSTTY_ACTION_PROMPT_TITLE:
+            return .host(payload.prompt_title == GHOSTTY_PROMPT_TITLE_WINDOW ? .promptWindowTitle : .promptTitle)
+        case GHOSTTY_ACTION_SET_WINDOW_TITLE:
+            // Same payload layout as set_title (apprt SetTitle).
+            return .host(.setWindowTitle(payload.set_title.title.map { String(cString: $0) } ?? ""))
+        case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .host(.toggleVisibility)
+        case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .host(.toggleTabOverview)
+        case GHOSTTY_ACTION_PRESENT_TERMINAL: return .host(.presentTerminal)
+        case GHOSTTY_ACTION_GOTO_WINDOW: return .host(.gotoWindow(next: payload.goto_window == GHOSTTY_GOTO_WINDOW_NEXT))
+        case GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW: return .host(.moveTabToNewWindow)
         case GHOSTTY_ACTION_CHECK_FOR_UPDATES: return .host(.checkForUpdates)
         case GHOSTTY_ACTION_UNDO: return .host(.undo)
         case GHOSTTY_ACTION_REDO: return .host(.redo)
@@ -65,12 +74,9 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_PWD:
             return .pwd(payload.pwd.pwd.map { String(cString: $0) } ?? "")
         case GHOSTTY_ACTION_RING_BELL: return .ringBell
-        case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            let note = payload.desktop_notification
-            return .desktopNotification(
-                title: note.title.map { String(cString: $0) } ?? "",
-                body: note.body.map { String(cString: $0) } ?? ""
-            )
+        // GHOSTTY_ACTION_DESKTOP_NOTIFICATION stays unhandled: the daemon
+        // parses OSC 9/777/99 from every terminal's output, shown or not,
+        // and posts it with source `terminal` (notification-source-v1).
         case GHOSTTY_ACTION_OPEN_URL:
             let open = payload.open_url
             guard let url = string(open.url, length: Int(open.len)) else { return nil }

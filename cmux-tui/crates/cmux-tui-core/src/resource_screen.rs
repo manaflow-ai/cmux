@@ -1,9 +1,11 @@
-//! One public screen representation for snapshots and journal restatements.
+//! One public screen representation for snapshots, event deltas and journal
+//! restatements.
 //!
-//! The session snapshot and registry-side journal batches (such as the
-//! startup repair) build screen values here from durable registry rows, so an
-//! event-feed client that applies a restated screen holds exactly what a
-//! fresh snapshot would show.
+//! The session snapshot, the topology and effect projections behind
+//! `session.events`, and registry-side journal batches (such as the startup
+//! repair) all build screen values here from durable registry rows, so an
+//! event-feed client that applies a screen upsert holds exactly what a fresh
+//! snapshot would show (projection convergence).
 use std::collections::HashMap;
 
 use serde_json::{Value, json};
@@ -21,12 +23,24 @@ pub(crate) fn public_screen_value(
     tabs_by_pane: &HashMap<&PanePublicId, Vec<&RegistryTab>>,
     panes_by_id: &HashMap<&PanePublicId, &RegistryPane>,
 ) -> anyhow::Result<Value> {
-    let index = u32::try_from(screen.position)
-        .map_err(|_| anyhow::anyhow!("resource index exceeds uint32"))?;
     let focused = topology.active_workspace.as_ref() == Some(&screen.workspace_id)
         && topology.active_screens.iter().any(|(workspace, active)| {
             workspace == &screen.workspace_id && active.as_ref() == Some(&screen.public_id)
         });
+    screen_value(screen, focused, tabs_by_pane, panes_by_id)
+}
+
+/// The one builder of a published screen value. Every path that publishes a
+/// screen (snapshot, event deltas, journal restatements) calls it, so an event
+/// upsert and a snapshot at the same revision are equal.
+pub(crate) fn screen_value(
+    screen: &RegistryScreen,
+    focused: bool,
+    tabs_by_pane: &HashMap<&PanePublicId, Vec<&RegistryTab>>,
+    panes_by_id: &HashMap<&PanePublicId, &RegistryPane>,
+) -> anyhow::Result<Value> {
+    let index = u32::try_from(screen.position)
+        .map_err(|_| anyhow::anyhow!("resource index exceeds uint32"))?;
     Ok(json!({
         "id": screen.public_id,
         "workspace_id": screen.workspace_id,
@@ -35,6 +49,10 @@ pub(crate) fn public_screen_value(
         "focused": focused,
         "layout": public_layout_document(screen, tabs_by_pane, panes_by_id)?,
     }))
+}
+
+pub(crate) fn panes_by_id(panes: &[RegistryPane]) -> HashMap<&PanePublicId, &RegistryPane> {
+    panes.iter().map(|pane| (&pane.public_id, pane)).collect()
 }
 
 pub(crate) fn tabs_by_pane(tabs: &[RegistryTab]) -> HashMap<&PanePublicId, Vec<&RegistryTab>> {
@@ -80,11 +98,16 @@ fn public_viewport_node(
         .iter()
         .map(|column| {
             anyhow::ensure!(column.width.is_finite(), "viewport column width is not finite");
-            Ok(json!({
+            let mut value = json!({
                 "column_id": column.id,
                 "width": f64::from(column.width),
                 "root": public_layout_node(&column.layout, tabs_by_pane, panes_by_id)?,
-            }))
+            });
+            // `dock-columns-v1`: omitted while the column scrolls.
+            if let Some(dock) = column.dock {
+                value["dock"] = serde_json::to_value(dock)?;
+            }
+            Ok(value)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(json!({

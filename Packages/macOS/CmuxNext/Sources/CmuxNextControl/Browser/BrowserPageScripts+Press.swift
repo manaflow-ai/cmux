@@ -6,7 +6,7 @@ import Foundation
 /// since synthetic events run no browser default action.
 extension BrowserPageScripts {
     /// Presses `key` on the focused element, after focusing `selector` when given.
-    static func press(_ key: BrowserPageKey, selector: String?) -> String {
+    static func press(_ key: BrowserPressKey, selector: String?) -> String {
         let target = selector.map { find($0) + "if (typeof el.focus === 'function') { el.focus(); }\nconst target = el;" }
             ?? "const target = document.activeElement || document.body || document.documentElement;\nif (!target) { return { error: 'No focused element' }; }"
         return wrap(target + """

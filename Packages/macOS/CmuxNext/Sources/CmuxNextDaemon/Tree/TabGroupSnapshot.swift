@@ -1,13 +1,13 @@
 import Foundation
 
-/// Chrome-style tab group inside one pane's strip (`tab-groups-v1`): named,
+/// A tab group inside one pane's strip (`tab-groups-v1`): named,
 /// colored, collapsible, members contiguous. Wire shape `Pane.tab_groups[]`:
 /// `{id, name, color, collapsed, saved_id, start, count, surfaces}`. Command
 /// results carry the same object without the run fields.
 public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
     public var id: TabGroupID
     public var name: String
-    /// One of Chrome's nine (`grey`, `blue`, `red`, `yellow`, `green`, `pink`,
+    /// One of the nine group colors (`grey`, `blue`, `red`, `yellow`, `green`, `pink`,
     /// `purple`, `cyan`, `orange`).
     public var color: String?
     public var collapsed: Bool

@@ -57,7 +57,7 @@ final class ProgressLineView: NSView {
     }
 
     private func updateColor() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             bar.backgroundColor = Palette.focusRing.withAlphaComponent(0.8).cgColor
         }
     }

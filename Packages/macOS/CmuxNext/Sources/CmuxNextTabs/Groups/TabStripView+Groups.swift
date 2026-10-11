@@ -36,12 +36,12 @@ extension TabStripView {
             let chip = TabGroupChipCell(group: item, memberCount: count)
             chip.metrics = metrics
             chip.font = Typography.caption
-            chip.appearance = effectiveAppearance
+            chip.themeScope = themeScope
             chip.scale = window?.backingScaleFactor ?? 2
             chip.accessibility.setAccessibilityParent(self)
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
             let band = TabGroupBandCell(color: item.colorToken)
-            band.appearance = effectiveAppearance
+            band.themeScope = themeScope
             if let clip = tabsClip.layer {
                 band.addTo(clip)
                 clip.addSublayer(chip.layer)
@@ -128,25 +128,18 @@ extension TabStripView {
         return .group(group, memberTitles: members)
     }
 
-    /// Hover card for a chip: the group name and its member titles.
-    func hoverChip(_ group: TabGroupID) {
-        guard !hoverCardSuppressed, let item = groups.byID[group], let chip = groups.chips[group], let window, NSApp.isActive else { return }
-        let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
-        hoverCard.hover(groupHoverContent(item), anchor: anchor, tabWidth: metrics.minInactiveTabWidth, parent: window)
-    }
-
     // MARK: - Editor bubble
 
     /// Opens the Liquid Glass group editor under the chip. The App's
     /// "Edit group" action calls this too.
     public func showGroupEditor(for group: TabGroupID) {
         guard let item = groups.byID[group], let chip = groups.chips[group], let window else { return }
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
-        groupEditor.show(group: item, anchor: anchor, parent: window)
+        groupEditor.show(group: item, anchor: anchor, parent: window, themeAnchor: self)
     }
 
-    /// Click-and-hold on a chip opens the editor (Chrome).
+    /// Click-and-hold on a chip opens the editor.
     func startChipHold(_ group: TabGroupID) {
         groups.holdTask?.cancel()
         let sleep = groups.sleep

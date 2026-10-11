@@ -37,25 +37,41 @@ if [[ -z "$derived_data" || -z "$archs" ]]; then
 fi
 derived_data="$(mkdir -p "$derived_data" && cd "$derived_data" && pwd)"
 
-# Xcode exports every build setting to script phases. rustc records
-# MACOSX_DEPLOYMENT_TARGET in its dep-info and the cc crate reruns build scripts
-# when SDKROOT changes, so both must match the phase's values or Cargo would
-# rebuild. The project uses one deployment target for every configuration.
-deployment_targets="$(
-  grep -o 'MACOSX_DEPLOYMENT_TARGET = [0-9.]*' "$ROOT/cmux.xcodeproj/project.pbxproj" \
-    | awk '{print $3}' | sort -u
-)"
-if [[ "$(printf '%s\n' "$deployment_targets" | wc -l | tr -d ' ')" != "1" ]]; then
-  echo "error: expected one MACOSX_DEPLOYMENT_TARGET in the project, found: $deployment_targets" >&2
+# Read what the authoritative "Build Diff Sidecar" phase uses from the
+# project instead of assuming it: the app target that owns the phase (its
+# TARGET_TEMP_DIR holds the Cargo target directory) and the sidecar's own
+# macOS floor (CMUX_DIFF_SIDECAR_MIN_MACOS, which build-diff-sidecar.sh hands
+# cargo as MACOSX_DEPLOYMENT_TARGET). rustc records that value in its
+# dep-info, so a different one would make the phase rebuild. The project's
+# targets have different deployment targets (cmux-next 26.0, the CLI 14.0),
+# so a project-wide value does not exist.
+read -r phase_target sidecar_min_macos < <(python3 - "$ROOT/cmux.xcodeproj/project.pbxproj" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+phase = re.search(r'(\w+) /\* Build Diff Sidecar \*/ = \{.*?shellScript = "(.*?)";\n', text, re.S)
+if not phase:
+    sys.exit("error: no 'Build Diff Sidecar' phase in the project")
+floor = re.search(r'CMUX_DIFF_SIDECAR_MIN_MACOS=([0-9.]+)', phase.group(2))
+target = None
+for match in re.finditer(r'\w+ /\* [^*]+ \*/ = \{\s*isa = PBXNativeTarget;(.*?)\n\t\t\};', text, re.S):
+    body = match.group(1)
+    if re.search(r'\b' + phase.group(1) + r' /\* Build Diff Sidecar \*/', body):
+        target = re.search(r'\bname = "?([^";]+)"?;', body).group(1)
+if not target or not floor:
+    sys.exit("error: cannot find the target or the macOS floor of the 'Build Diff Sidecar' phase")
+print(target, floor.group(1))
+PY
+)
+if [[ -z "${phase_target:-}" || -z "${sidecar_min_macos:-}" ]]; then
+  echo "error: cannot read the Build Diff Sidecar phase from the project" >&2
   exit 1
 fi
-export MACOSX_DEPLOYMENT_TARGET="$deployment_targets"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 export SDKROOT
 
 # The diff sidecar keeps its Cargo target directory under the app target's
 # TARGET_TEMP_DIR: $(PROJECT_TEMP_DIR)/$(CONFIGURATION)/$(TARGET_NAME).build.
-target_temp_dir="$derived_data/Build/Intermediates.noindex/cmux.build/$configuration/cmux.build"
+target_temp_dir="$derived_data/Build/Intermediates.noindex/cmux.build/$configuration/$phase_target.build"
 mkdir -p "$target_temp_dir"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/cmux-helper-prebuild.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
@@ -78,7 +94,7 @@ run_helper() {
 run_helper diff-sidecar env \
   TARGET_TEMP_DIR="$target_temp_dir" \
   CMUX_DIFF_SIDECAR_ARCHS="$archs" \
-  CMUX_DIFF_SIDECAR_MIN_MACOS="$MACOSX_DEPLOYMENT_TARGET" \
+  CMUX_DIFF_SIDECAR_MIN_MACOS="$sidecar_min_macos" \
   "$ROOT/scripts/build-diff-sidecar.sh" &
 sidecar_pid=$!
 # cmux-cua remains in the authoritative Xcode phase. Its source checkout

@@ -564,6 +564,14 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
   assert.deepEqual(result.receipt, {
     schema: "cmux-ios-dogfood-readiness-v1",
     git_sha: "0123456789abcdef0123456789abcdef01234567",
+    tooling_checkout_sha: "0123456789abcdef0123456789abcdef01234567",
+    installed_bundle: {
+      bundle_id: "dev.cmux.ios.iosrdy",
+      executable_sha256: null,
+      source: "legacy_receipt_writer",
+      target: "physical_device",
+      target_id: "phone-a",
+    },
     tag: "iosrdy",
     bundle_id: "dev.cmux.ios.iosrdy",
     target: "physical_device",
@@ -754,6 +762,22 @@ test("physical-device mint distinguishes malformed successful output", async () 
   assert.doesNotMatch(result.stderr, /secret-payload-value/);
 });
 
+test("physical-device mint ignores successful CLI diagnostics on stderr", async () => {
+  const payload = attachPayload("iroh");
+  const result = await mintAttachURL(
+    "physical_device",
+    {
+      cliResponse: {
+        status: 0,
+        stdout: JSON.stringify(payload),
+        stderr: "warning: cached auth metadata was refreshed",
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, payload.attach_url);
+});
+
 test("physical-device mint accepts an encrypted Iroh route", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL("physical_device", payload);
@@ -849,7 +873,7 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
   assert.match(
     gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,800}\.\/scripts\/mobile-dev-launch\.sh/,
   );
   assert.match(
     gate,

@@ -48,6 +48,12 @@ public struct ResourceReport: Sendable, Equatable {
 
     public static let empty = ResourceReport()
 
+    /// The per-tab rows under a workspace's total: its heaviest tabs, or none
+    /// for a lone tab, whose numbers are the total.
+    public func breakdown(_ limit: Int) -> [TabResourceReport] {
+        tabs.count > 1 ? topConsumers(limit) : []
+    }
+
     /// The heaviest tabs first: CPU (to 0.1%), then memory, then input order.
     public func topConsumers(_ limit: Int) -> [TabResourceReport] {
         let ranked = tabs.enumerated().filter(\.element.available).sorted { lhs, rhs in
@@ -74,7 +80,8 @@ public struct ResourceReport: Sendable, Equatable {
 ///   previous and the current sample of that process. A process with no
 ///   previous sample (new, or the first sample) adds no CPU; the whole CPU
 ///   value is nil when there is no previous sample set.
-public enum ResourceAggregator {
+public struct ResourceAggregator {
+    public init() {}
     public static func report(current: ResourceSampleSet, previous: ResourceSampleSet?) -> ResourceReport {
         let sharedKeys = Set(current.shared.map(\.key))
         let previousSamples = previous?.samples

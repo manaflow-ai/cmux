@@ -1,20 +1,15 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// The onboarding window: a compact, flat window in the theme's background
-/// with only a close button. Return continues, Escape skips the rest,
-/// Command-[ goes back. Closing it by any means ends the flow as skipped
-/// unless the last step finished it.
+/// The tool window (Import from Browser, Computer Use setup): a transparent
+/// window whose screen draws its own Liquid Glass or opaque surface, with
+/// only a close button. Return runs the primary button, Escape skips.
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    private var shownDensity: Density
-    private var densityLoop: RenderLoop?
-
     public init(model: OnboardingModel) {
         self.model = model
-        shownDensity = DesignSettings.shared.density
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -22,45 +17,29 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.title = OnboardingStrings.windowTitle
+        window.title = model.step == .importData ? OnboardingStrings.importTitle : OnboardingStrings.computerUseTitle
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.backgroundColor = Palette.windowBackground
         window.animationBehavior = .alertPanel
+        // The close button stays visible (Lane 20: every window of its own
+        // shows it); Escape and Skip also dismiss.
         // A fixed size: content never grows the window.
         window.contentMinSize = OnboardingMetrics.windowSize
         window.contentMaxSize = OnboardingMetrics.windowSize
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
-        ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
-        window.contentView = OnboardingRootView(model: model)
+        // Kind `.onboarding`: a clear window with only a close button; each
+        // variant's surface draws its own glass or opaque background
+        // (`OnboardingSurfaceView`).
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
             case .skipAll: model?.finish(completed: false)
-            case .back: model?.back()
             }
         }
         model.onEnd = { [weak self] _ in self?.window?.close() }
-        densityLoop = RenderLoop { [weak self] in self?.densityDidChange(DesignSettings.shared.density) }
-    }
-
-    /// Density changes every metric and font: rebuild the content at the
-    /// new sizes and resize the window around its center.
-    private func densityDidChange(_ density: Density) {
-        guard density != shownDensity, let window else { return }
-        shownDensity = density
-        let size = OnboardingMetrics.windowSize
-        let old = window.frame
-        let content = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
-        let frame = NSRect(x: old.midX - content.width / 2, y: old.maxY - content.height, width: content.width, height: content.height)
-        window.contentMinSize = size
-        window.contentMaxSize = size
-        window.contentView = OnboardingRootView(model: model)
-        Motion.animateTimed(.move) { window.animator().setFrame(frame, display: true) }
     }
 
     @available(*, unavailable)
@@ -73,22 +52,30 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         model.stepDidAppear()
     }
 
+    /// Closes the window through its close button (the same AppKit path a
+    /// click on it takes). Automation uses this.
+    public func closeWithCloseButton() {
+        guard let window else { return }
+        if let button = window.standardWindowButton(.closeButton) { button.performClick(nil) } else { window.performClose(nil) }
+    }
+
     public func windowWillClose(_ notification: Notification) {
-        model.finish(completed: false)
+        model.leave()
         onClose?()
     }
 }
 
 /// Routes the flow's keys; everything else goes to the focused control.
 final class OnboardingWindow: NSWindow {
-    enum Key { case next, skipAll, back }
+    enum Key { case next, skipAll }
     var onKey: ((Key) -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch (event.keyCode, flags) {
-        case (36, []), (76, []): onKey?(.next)            // Return, Enter
-        case (33, .command): onKey?(.back)                 // Command-[
+        // A held key repeats: only a fresh press moves on (it must not also accept the password consent).
+        case (36, []) where !event.isARepeat, (76, []) where !event.isARepeat: onKey?(.next)  // Return, Enter
+        case (36, []), (76, []): break
         default: super.keyDown(with: event)
         }
     }

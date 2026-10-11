@@ -65,6 +65,24 @@ nonisolated enum FocusEvent: Hashable, Sendable, Codable {
     /// The window's sidebar was shown or hidden. Hiding it while it (or
     /// its rename field) has the keyboard returns focus to the content.
     case sidebarVisibility(hidden: Bool)
+    /// The pane this window's record saved for `workspace` (relaunch): the
+    /// pane that workspace focuses when it first shows, unless focus there
+    /// already moved.
+    case restoredPane(String, workspace: String)
+}
+
+extension FocusEvent {
+    /// Moves focus or selection on purpose (a pane or tab choice, a focus
+    /// target, a new intent or expectation, a drop landing): what an action
+    /// run without view-change permission must not send. Reports of what
+    /// AppKit or the daemon did (responder, topology, key, overlays) are not.
+    var changesView: Bool {
+        switch self {
+        case .focusPane, .selectTab, .focusTarget, .beginIntent, .expect: true
+        case .dragEnded(.dropped): true
+        default: false
+        }
+    }
 }
 
 /// Outputs of the reducer, applied by `FocusEffectApplier` after the

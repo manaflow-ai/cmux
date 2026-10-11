@@ -17,8 +17,17 @@ nonisolated public struct UpdaterUnavailable: Error, Equatable, CustomStringConv
         self.description = description
     }
 
+    init(text: String) {
+        self.init(description: text)
+    }
+
     static func cannotSwitch(to target: AppChannelSwitchTarget, from track: UpdateTrack) -> UpdaterUnavailable {
         cannotSwitch(to: target.rawValue, from: track)
+    }
+
+    /// `UpdateChannel` pins this Mac to `channel`.
+    static func managedChannel(_ channel: String) -> UpdaterUnavailable {
+        UpdaterUnavailable(description: UpdaterStrings.managedChannel(channel))
     }
 
     static func cannotSwitch(to target: String, from track: UpdateTrack) -> UpdaterUnavailable {

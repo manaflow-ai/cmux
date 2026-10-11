@@ -10,6 +10,7 @@ extension DaemonEvent {
         case .paneAdded(let d), .paneClosed(let d): d.clientTransactionID
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d): d.clientTransactionID
         case .treeChanged(let transaction), .layoutChanged(_, let transaction): transaction
+        case .conversationChanged(let event): event.transaction
         default: nil
         }
     }
@@ -56,9 +57,23 @@ extension DaemonEvent {
             case "bell": return .bell(surface: try d(EventPayload.SurfaceField.self).surface)
             case "notification": return .notification(try d(DaemonNotification.self))
             case "agent-changed": return .agentChanged(try d(AgentStatus.self))
+            case "agent-presence-changed": return .agentPresenceChanged(try d(AgentPresence.self))
             case "frontend-projection-changed": return .frontendProjectionChanged(try d(ProjectionChange.self))
             case "terminal-registry-changed":
                 return .terminalRegistryChanged(revision: try d(EventPayload.TerminalRegistryChanged.self).terminalRevision)
+            case "bookmarks-changed":
+                let e = try d(EventPayload.BookmarksChanged.self)
+                return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
+            case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
+            case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
+            case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
+            case "terminal-clipboard-read-cancelled":
+                return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
+            case _ where CloudConversationsEvent.eventNames.contains(name):
+                guard let event = try CloudConversationsEvent.decode(name: name, line: line, decoder: decoder) else {
+                    return .unknown(name: name, payload: payload())
+                }
+                return .cloudConversations(event)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
@@ -76,6 +91,15 @@ extension DaemonEvent {
 
 /// Minimal payload shapes for events whose fields map onto enum cases.
 private enum EventPayload {
+    struct BookmarksChanged: Decodable {
+        var browserProfileID: String
+        var revision: UInt64?
+        enum CodingKeys: String, CodingKey {
+            case browserProfileID = "browser_profile_id"
+            case revision = "bookmarks_revision"
+        }
+    }
+
     struct ScreenField: Decodable {
         var screen: ScreenID
         var clientTransactionID: ClientTransactionID?
@@ -91,6 +115,11 @@ private enum EventPayload {
     }
 
     struct SurfaceField: Decodable { var surface: SurfaceID }
+
+    struct RequestField: Decodable {
+        var requestID: String
+        enum CodingKeys: String, CodingKey { case requestID = "request_id" }
+    }
 
     struct TitleChanged: Decodable {
         var surface: SurfaceID

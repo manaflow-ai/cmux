@@ -105,22 +105,27 @@ out="$(env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_BUNDLED_CLI_PATH HOME="$fa
 # The cleanup reminder must name what holds the tag's build, and never a directory other tags share.
 eval "$(awk '/^tag_build_cleanup_paths\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 eval "$(awk '/^print_tag_cleanup_commands\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$ROOT/scripts/lib/mobile-attach.sh"
+eval "$(awk '/^sanitize_bundle\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+SCRIPT_DIR="$ROOT/scripts"
 eval "$(awk '/^print_tag_cleanup_reminder\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 sandbox="$tmp/sandbox"
 mkdir -p "$sandbox"
 # Reads this test's commands out of a reminder the way a shell would after a paste, with
-# pkill and rm recording their arguments, one per line, instead of running.
+# bash (the app quit line) and rm recording their arguments, one per line, instead of
+# running.
 reminder_args() {
   local output="$1" record="$2" line=""
   : > "$record"
   (
     cd "$sandbox"
-    pkill() { printf '%s\n' "$@" >> "$record"; }
+    bash() { printf '%s\n' "$@" >> "$record"; }
     rm() { printf '%s\n' "$@" >> "$record"; }
     while IFS= read -r line; do
       [[ "$line" == *"-$$"* ]] || continue
       case "$line" in
-        "  pkill "*|"  rm "*) eval "$line" || true ;;
+        "  bash "*|"  rm "*) eval "$line" || true ;;
       esac
     done <<< "$output"
   ) >/dev/null 2>&1 || true
@@ -138,6 +143,19 @@ out="$(HOME="$fake_home" print_tag_cleanup_reminder "$tag" "$fake_home/Library/D
 reminder_args "$out" "$args"
 has_arg "$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag" "$args" \
   || fail "the reminder must still remove a per-tag DerivedData: $out"
+# Deleting a tag's bundle leaves its detached cmux-tui owner running from the deleted
+# executable. The reminder stops the OWNER through the bundle's own binary before any rm.
+# It never ends terminals: a pasted command cannot check that no terminal runs a job, and
+# terminals end only through their owner (never a signal); their hosts keep running.
+own_app="$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug/cmux DEV $tag.app"
+stop_line="$(printf '%s\n' "$out" | grep -F -- "--session cmux-app-$tag server stop" || true)"
+[[ -n "$stop_line" ]] || fail "the reminder does not stop the tag's cmux-tui owner: $out"
+[[ "$stop_line" == *"$(printf '%q' "$own_app/Contents/Resources/bin/cmux-tui")"* ]] \
+  || fail "the stop does not run the tag bundle's own cmux-tui: $stop_line"
+[[ "$out" != *"--end-terminals"* ]] || fail "the reminder must never force the tag's terminals: $out"
+first_rm="$(printf '%s\n' "$out" | grep -n '^  rm ' | head -1 | cut -d: -f1)"
+stop_at="$(printf '%s\n' "$out" | grep -nF -- "server stop" | head -1 | cut -d: -f1)"
+(( stop_at < first_rm )) || fail "the owner must be stopped before the bundle is removed: $out"
 
 # The reminder is pasted into a shell, so a path carrying shell syntax must come back out
 # as that literal path and must never run.
@@ -157,7 +175,20 @@ has_arg "$evil_dd/Build/Products/Debug/cmux DEV ddevil-$$.app" "$args" \
   || fail "a stale tag's app behind a symlink target with shell syntax does not parse back to its path: $out"
 has_arg "$evil_home/Library/Application Support/cmux/cmuxd-dev-$tag.sock" "$args" \
   || fail "a HOME with shell syntax does not parse back to its path: $out"
-has_arg "cmux DEV $tag.app/Contents/MacOS/cmux DEV" "$args" || fail "the pkill pattern does not parse back to the app's process: $out"
+has_arg "cmux DEV $tag.app/Contents/MacOS/cmux DEV" "$args" || fail "the app quit line does not parse back to the app's executable: $out"
+has_arg "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" "$args" || fail "the app quit line does not name the tag's bundle id: $out"
+# Never a pattern kill (rule c, cx-6so.49): the reminder quits the app through
+# cmux_stop_app_instances, which signals exact PIDs only.
+! printf '%s\n' "$out" | grep -Eq '(^|[[:space:];&|(])(pkill|killall)[[:space:]]' \
+  || fail "the reminder must never pkill or killall: $out"
+quit_line="$(printf '%s\n' "$out" | grep -F 'cmux_stop_app_instances' | head -1)"
+[[ -n "$quit_line" ]] || fail "the reminder does not quit the app through cmux_stop_app_instances: $out"
+spy="$tmp/spy"; mkdir -p "$spy"
+for tool in pkill killall; do
+  printf '#!/bin/sh\necho %s "$@" >> %q\n' "$tool" "$tmp/signals" > "$spy/$tool"; chmod +x "$spy/$tool"
+done
+(cd "$sandbox" && PATH="$spy:$PATH" eval "$quit_line") >/dev/null 2>&1 || true
+[[ ! -s "$tmp/signals" ]] || fail "the app quit line ran pkill or killall: $(cat "$tmp/signals")"
 [[ "$out" != *"pwned-tag"* ]] || fail "the reminder offers cleanup for a /tmp name that is not a tag slug: $out"
 
 echo "PASS: reload.sh shared DerivedData default"

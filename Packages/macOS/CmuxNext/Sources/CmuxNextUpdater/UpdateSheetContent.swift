@@ -98,3 +98,15 @@ extension UpdateSheetContent {
                            link: item.releaseNotesURL.map(UpdateSheetButton.releaseNotes), buttons: [.done])
     }
 }
+
+extension UpdateSheetContent {
+    /// The sheet while the organization requires a newer version
+    /// (`MinimumVersion`): it says so and offers no "Later".
+    func requiring(_ version: String) -> UpdateSheetContent {
+        var copy = self
+        let line = UpdaterStrings.updateRequired(version)
+        copy.detail = detail.map { "\(line)\n\($0)" } ?? line
+        copy.buttons = buttons.filter { $0 != .later }
+        return copy
+    }
+}

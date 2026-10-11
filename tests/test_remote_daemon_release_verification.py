@@ -50,6 +50,13 @@ class ReleaseVerificationTests(unittest.TestCase):
     def write_manifest(self):
         self.manifest_path.write_text(json.dumps(self.manifest))
 
+    def test_suffixed_channel_per_release_tag(self):
+        # The cmux-next track publishes `-nightly.<build>` versions to release nightly-next.
+        self.assertEqual(verify.suffixed_channel("nightly"), "nightly")
+        self.assertEqual(verify.suffixed_channel("nightly-next"), "nightly")
+        self.assertEqual(verify.suffixed_channel("rc"), "rc")
+        self.assertIsNone(verify.suffixed_channel("v0.64.25"))
+
     def test_complete_assets_embed_and_verify(self):
         manifest = verify.verify_assets(self.manifest_path, self.root)
         verify.verify_bundle(self.app, manifest, embed=True)

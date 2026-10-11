@@ -1,11 +1,16 @@
 // Site state for Page Info through CEF's own API (ABI 3): content settings of
 // the browser's request context (Chromium's HostContentSettingsMap, the
-// store Chrome's Page Info edits), the context's cookie manager, and the
-// visible navigation entry's SSL status.
+// store Chromium's Page Info edits), the context's cookie manager, and the
+// visible navigation entry's SSL status, and clearing the context's
+// certificate error decisions (Page Info "Turn on warnings"), and tab
+// favicons downloaded through the tab's own request context.
 
 #include <cstdlib>
 #include <cstring>
 
+#include "include/cef_callback.h"
+#include "include/cef_browser.h"
+#include "include/cef_image.h"
 #include "include/cef_cookie.h"
 #include "include/cef_parser.h"
 #include "include/cef_ssl_status.h"
@@ -135,6 +140,31 @@ class DeleteReply : public CefDeleteCookiesCallback {
   IMPLEMENT_REFCOUNTING(DeleteReply);
 };
 
+// Clears the certificate decisions, then closes the connections (CEF asks
+// for both: a kept connection would skip the next verification), then
+// replies. One callback object per step; `context_` is set for the first.
+class ClearCertificatesReply : public CefCompletionCallback {
+ public:
+  ClearCertificatesReply(CefRefPtr<CefRequestContext> context, int browser_id, int reply)
+      : context_(context), browser_id_(browser_id), reply_(reply) {}
+
+  void OnComplete() override {
+    if (context_) {
+      CefRefPtr<CefRequestContext> context = context_;
+      context_ = nullptr;
+      context->CloseAllConnections(new ClearCertificatesReply(nullptr, browser_id_, reply_));
+      return;
+    }
+    EmitOnUI(browser_id_, reply_, 1, "[]");
+  }
+
+ private:
+  CefRefPtr<CefRequestContext> context_;
+  int browser_id_;
+  int reply_;
+  IMPLEMENT_REFCOUNTING(ClearCertificatesReply);
+};
+
 std::string Base64(CefRefPtr<CefBinaryValue> der) {
   if (!der || der->GetSize() == 0) {
     return std::string();
@@ -143,6 +173,31 @@ std::string Base64(CefRefPtr<CefBinaryValue> der) {
   der->GetData(bytes.data(), bytes.size(), 0);
   return CefBase64Encode(bytes.data(), bytes.size()).ToString();
 }
+
+// A favicon CefBrowserHost::DownloadImage fetched: REPLY a = HTTP status,
+// s1 = the 1x representation as base64 PNG ("" when none decoded).
+class FaviconReply : public CefDownloadImageCallback {
+ public:
+  FaviconReply(int browser_id, int reply) : browser_id_(browser_id), reply_(reply) {}
+
+  void OnDownloadImageFinished(const CefString& image_url, int http_status_code, CefRefPtr<CefImage> image) override {
+    std::string png;
+    int width = 0;
+    int height = 0;
+    CefRefPtr<CefBinaryValue> data = image && !image->IsEmpty() ? image->GetAsPNG(1.0f, true, width, height) : nullptr;
+    if (data && data->GetSize() > 0) {
+      std::string bytes(data->GetSize(), '\0');
+      data->GetData(bytes.data(), bytes.size(), 0);
+      png = CefBase64Encode(bytes.data(), bytes.size()).ToString();
+    }
+    EmitOnUI(browser_id_, reply_, http_status_code, png);
+  }
+
+ private:
+  int browser_id_;
+  int reply_;
+  IMPLEMENT_REFCOUNTING(FaviconReply);
+};
 
 }  // namespace
 
@@ -161,10 +216,11 @@ int cmux_shim_content_setting(int browser_id, const char* url, const char* type)
 int cmux_shim_set_content_setting(int browser_id, const char* url, const char* type, int value) {
   cef_content_setting_types_t content_type;
   CefRefPtr<CefRequestContext> context = ContextOf(browser_id);
-  if (!context || !url || !*url || !LookupType(type, &content_type) || value < 0 ||
+  if (!context || !url || !LookupType(type, &content_type) || value < 0 ||
       value >= CEF_CONTENT_SETTING_VALUE_NUM_VALUES) {
     return 0;
   }
+  // "" sets the profile default (CEF ignores it for an incognito context).
   CefString target(url);
   context->SetContentSetting(target, target, content_type, static_cast<cef_content_setting_values_t>(value));
   return 1;
@@ -183,6 +239,26 @@ int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const c
     return 0;
   }
   return manager->DeleteCookies(url, name ? name : "", new DeleteReply(browser_id, reply)) ? 1 : 0;
+}
+
+int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser || !url || !*url || max_size <= 0) {
+    return 0;
+  }
+  // As a favicon (Chromium's favicon request flags), from the cache when it
+  // has the icon, in the tab's request context: its cookies and profile.
+  browser->GetHost()->DownloadImage(url, true, static_cast<uint32_t>(max_size), false, new FaviconReply(browser_id, reply));
+  return 1;
+}
+
+int cmux_shim_clear_certificate_exceptions(int browser_id, int reply) {
+  CefRefPtr<CefRequestContext> context = ContextOf(browser_id);
+  if (!context) {
+    return 0;
+  }
+  context->ClearCertificateExceptions(new ClearCertificatesReply(context, browser_id, reply));
+  return 1;
 }
 
 char* cmux_shim_ssl_status(int browser_id) {

@@ -1,0 +1,129 @@
+//! Part of `Hub`; see `hub/mod.rs`. The harness command line a session
+//! spawns with: its profile, its preset's env, args and system prompt file.
+
+use super::*;
+
+use crate::config::check_preset_args;
+
+impl Hub {
+    /// `session/new` or `session/load` params for acpmux session `id`'s ACP
+    /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
+    /// a remote origin or an isolated profile.
+    pub(super) fn acp_params(
+        &self,
+        id: &str,
+        meta: &SessionMeta,
+        profile: &HarnessProfile,
+        session_id: Option<&str>,
+    ) -> Value {
+        let servers = crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id);
+        let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
+        if let Some(id) = session_id {
+            params["sessionId"] = json!(id);
+        }
+        params
+    }
+
+    /// The profile as it is spawned for this session: family and profile
+    /// default env underneath the profile's own, the preset's env on top,
+    /// then `${cwd}`, `${home}`, `${model}` and a leading `~/` expanded in
+    /// every env value and argv word. The preset's args (checked against the
+    /// allowlist again) and its system prompt file (checked against its
+    /// recorded sha256) are appended here, at every spawn; a remote-origin
+    /// session never gets either.
+    pub(super) async fn spawn_profile(
+        &self,
+        session: &Session,
+        profile: &HarnessProfile,
+        defaults_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<HarnessProfile, RpcError> {
+        self.spawn_profile_for(&session.meta(), profile, defaults_env).await
+    }
+
+    /// `spawn_profile` for a session's meta, also before the session exists
+    /// (the session pool keys and starts hidden sessions with it).
+    pub(super) async fn spawn_profile_for(
+        &self,
+        meta: &SessionMeta,
+        profile: &HarnessProfile,
+        defaults_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<HarnessProfile, RpcError> {
+        let mut p = profile.clone();
+        for (k, v) in defaults_env {
+            p.env.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        let mut prompt_file = None;
+        {
+            let cfg = self.config.read().await;
+            if let Some(name) = &meta.preset
+                && let Some(preset) = cfg.presets.get(name)
+            {
+                if meta.remote_origin && preset.shapes_command() {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {name:?} now carries harness args or a system prompt, which a remote-origin session never starts with"
+                    )));
+                }
+                check_preset_args(profile.kind, &preset.args).map_err(RpcError::invalid_params)?;
+                for (k, v) in &preset.env {
+                    p.env.insert(k.clone(), v.clone());
+                }
+                p.argv.extend(preset.args.iter().cloned());
+                if let Some(sha) = &preset.system_prompt_sha256 {
+                    if profile.kind != crate::config::HarnessKind::ClaudeStdio {
+                        return Err(RpcError::invalid_params(format!(
+                            "preset {name:?} has a system prompt, which only Claude Code harnesses take"
+                        )));
+                    }
+                    let dir = cfg.presets_dir().ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "preset {name:?} has a system prompt, but this daemon has no state directory"
+                        ))
+                    })?;
+                    prompt_file = Some(
+                        crate::config::checked_system_prompt(&dir, name, sha)
+                            .map_err(RpcError::invalid_params)?,
+                    );
+                }
+            }
+        }
+        let home = dirs::home_dir().unwrap_or_default();
+        let model = meta.model_request.clone().unwrap_or_default();
+        for v in p.env.values_mut() {
+            *v = expand_env_value(v, &meta.cwd, &home, &model);
+        }
+        for a in p.argv.iter_mut() {
+            *a = expand_env_value(a, &meta.cwd, &home, &model);
+        }
+        // The session's own env last, over the preset, never expanded: its
+        // values were checked as given (session_env.rs).
+        for (k, v) in &meta.session_env {
+            p.env.insert(k.clone(), v.clone());
+        }
+        // The bound route last: it owns the provider variables (routes.rs).
+        self.apply_route(meta, profile, &mut p.env).await?;
+        p.argv = self.resolved_launcher_argv(p.argv);
+        // After expansion: the path is acpmux's own, never expanded.
+        if let Some(file) = prompt_file {
+            p.argv.push("--system-prompt-file".into());
+            p.argv.push(file.to_string_lossy().into_owned());
+        }
+        Ok(p)
+    }
+}
+
+/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
+pub fn expand_env_value(
+    value: &str,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    model: &str,
+) -> String {
+    let mut out = value
+        .replace("${cwd}", &cwd.to_string_lossy())
+        .replace("${home}", &home.to_string_lossy())
+        .replace("${model}", model);
+    if let Some(rest) = out.strip_prefix("~/") {
+        out = format!("{}/{rest}", home.to_string_lossy());
+    }
+    out
+}

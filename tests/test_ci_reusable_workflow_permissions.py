@@ -474,7 +474,6 @@ MANUAL_REF_TARGETS = {
     },
     "iroh-release-gate.yml": {
         "tailscale-version-skew": "ref: ${{ needs.resolve-ref.outputs.sha }}",
-        "simulator-e2e": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "reload-build.yml": {
         "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",

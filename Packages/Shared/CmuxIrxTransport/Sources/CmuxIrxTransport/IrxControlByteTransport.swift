@@ -108,13 +108,14 @@ public actor IrxControlByteTransport: CmxByteTransport {
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
         onClose: OnClose? = nil,
-        permitsIO: @escaping @Sendable () async -> Bool = { true },
+        permitsIO: (@Sendable () async -> Bool)? = nil,
         controlRepairDeadline: Duration = IrxProtocol().controlRepairDeadline
     ) {
         self.closeCode = closeCode
         self.establish = establish
         self.onClose = onClose
-        self.permitsIO = permitsIO
+        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
+        self.permitsIO = permitsIO ?? { true }
         self.controlRepairDeadline = controlRepairDeadline
     }
 
@@ -386,28 +387,27 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let buffered = inboundPartialFrame
         guard !buffered.isEmpty else { return nil }
         let headerByteCount = MobileSyncFrameCodec.headerByteCount
+        var reader = WireByteReader(buffered)
         var boundary = 0
-        while buffered.count - boundary >= headerByteCount {
-            let headerStart = buffered.startIndex + boundary
-            var length = 0
-            for byte in buffered[headerStart..<(headerStart + headerByteCount)] {
-                length = (length << 8) | Int(byte)
-            }
+        while true {
+            var frame = reader
+            guard let header = frame.bigEndian(UInt32.self) else { break }
+            let length = Int(clamping: header)
             guard length <= MobileSyncFrameCodec.defaultMaximumFrameByteCount else {
                 inboundPartialFrame = Data()
                 return buffered
             }
-            guard buffered.count - boundary - headerByteCount >= length else { break }
+            guard frame.skip(length) else { break }
             boundary += headerByteCount + length
+            reader = frame
         }
         guard boundary > 0 else { return nil }
-        if boundary == buffered.count {
+        if reader.remainingCount == 0 {
             inboundPartialFrame = Data()
             return buffered
         }
-        let split = buffered.startIndex + boundary
-        inboundPartialFrame = Data(buffered[split...])
-        return Data(buffered[buffered.startIndex..<split])
+        inboundPartialFrame = reader.remaining
+        return Data(buffered.prefix(boundary))
     }
 
     // MARK: - Establishment

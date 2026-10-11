@@ -53,6 +53,7 @@ public final class FrameScheduler: NSObject {
         scheduler.closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak scheduler] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { scheduler?.invalidate() }
         }
         return scheduler

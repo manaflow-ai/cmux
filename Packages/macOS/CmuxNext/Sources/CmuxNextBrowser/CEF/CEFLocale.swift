@@ -4,7 +4,7 @@ import Foundation
 /// Accept-Language list (`accept_language_list`, the `intl.accept_languages`
 /// preference, `navigator.languages`).
 ///
-/// Chrome on macOS takes both from the system's preferred languages
+/// Chromium on macOS takes both from the system's preferred languages
 /// (`NSLocale.preferredLanguages`), never from LANG/LC_* (a Finder or
 /// `env -i` launch has none). The UI locale is the first preferred language
 /// that Chromium ships a locale pak for, else en-US, so CEF always gets a

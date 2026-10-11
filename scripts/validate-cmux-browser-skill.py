@@ -29,12 +29,13 @@ from typing import Iterable, Iterator, Sequence
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Verbs of `cmux browser <tab_…|page> VERB` (cmux-tui src/cli/app.rs parse_page).
+# Verbs of `cmux browser <tab_…|page> VERB` (cmux-tui src/cli/app/page.rs parse_page).
 PAGE_VERBS = frozenset(
     {
-        "back", "check", "click", "eval", "fill", "focus", "forward", "goto", "hover",
-        "navigate", "open", "press", "reload", "scroll", "scroll-into-view", "select",
-        "snapshot", "state", "text", "title", "type", "uncheck", "url", "value",
+        "back", "check", "click", "close", "eval", "fill", "focus", "forward", "goto",
+        "hover", "key", "navigate", "new-tab", "open", "press", "reload", "scroll",
+        "scroll-into-view", "scrollintoview", "select", "snapshot", "state", "switch",
+        "tabs", "text", "title", "type", "uncheck", "url", "value",
     }
 )
 
@@ -50,7 +51,7 @@ DAEMON_VERBS = frozenset(
 # browser and take no target (`cmux action list --noun browser`).
 UI_ACTIONS = frozenset(
     {
-        "delete-site-data", "import-data", "new-profile", "screenshot-page",
+        "delete-site-data", "new-profile", "screenshot-page",
         "screenshot-section", "show-javascript-console", "split-down", "split-right",
         "toggle-design-mode", "toggle-developer-tools", "toggle-focus-mode",
         "toggle-react-grab", "zoom-in", "zoom-out",

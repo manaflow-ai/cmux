@@ -41,22 +41,23 @@ import Testing
         return await router.handle(ControlRequest(method: "browser.page." + verb, params: params))
     }
 
-    @Test func keyNamesResolveAsTheOldAppDid() {
-        let enter = BrowserPageKey("Enter")
-        #expect(enter.code == "Enter" && enter.keyCode == 13)
-        #expect(BrowserPageKey("space").key == " ")
-        #expect(BrowserPageKey("Esc").key == "Escape")
-        #expect(BrowserPageKey("F5").keyCode == 116)
-        #expect(BrowserPageKey("a") == BrowserPageKey("KeyA"))
-        #expect(BrowserPageKey("A").key == "A" && BrowserPageKey("A").keyCode == 65)
-        #expect(BrowserPageKey("7").code == "Digit7")
-        // US-layout punctuation keeps its code, as page shortcuts check it.
-        #expect(BrowserPageKey("/").code == "Slash" && BrowserPageKey("/").keyCode == 191)
-        #expect(BrowserPageKey("?").code == "Slash")
-        #expect(BrowserPageKey("Shift").location == 1 && BrowserPageKey("NumpadEnter").location == 3)
-        // Other characters keep their UTF-16 unit; unknown names pass through.
-        #expect(BrowserPageKey("é").code == "" && BrowserPageKey("é").keyCode == 0xE9)
-        #expect(BrowserPageKey("Hyper").code == "Hyper" && BrowserPageKey("Hyper").keyCode == 0)
+    /// Key names resolve as the old app's did: aliases, US-layout codes for
+    /// punctuation (page shortcuts check them), and unknown names pass through.
+    @Test func pressedKeysCarryTheOldAppsNamesAndCodes() async throws {
+        let (router, engine) = install()
+        for (name, expected) in [
+            ("Enter", #"key = "Enter", code = "Enter", keyCode = 13, location = 0"#),
+            ("Esc", #"key = "Escape""#),
+            ("F5", "keyCode = 116"),
+            ("a", #"key = "a", code = "KeyA", keyCode = 65"#),
+            ("/", #"code = "Slash", keyCode = 191"#),
+            ("?", #"code = "Slash""#),
+            ("NumpadEnter", "location = 3"),
+            ("Hyper", #"code = "Hyper", keyCode = 0"#),
+        ] {
+            _ = try await call(router, "press", ["key": .string(name)]).get()
+            #expect(engine.last.contains(expected), "\(name)")
+        }
     }
 
     @Test func pressDispatchesToTheFocusedElementOrTheSelector() async throws {

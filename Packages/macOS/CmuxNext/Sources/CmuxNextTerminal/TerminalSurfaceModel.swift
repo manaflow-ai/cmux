@@ -21,7 +21,6 @@ public final class TerminalSurfaceModel {
     public internal(set) var progress: TerminalProgress?
     public internal(set) var lastCommand: TerminalCommandResult?
     public internal(set) var scrollbar: TerminalScrollbar?
-    public internal(set) var search: TerminalSearchState?
     /// Grid the surface currently renders.
     public internal(set) var grid: TerminalGridSize?
     /// Cell size in backing pixels.
@@ -30,6 +29,8 @@ public final class TerminalSurfaceModel {
     public internal(set) var isFocused = false
     /// True after the terminal's process exited.
     public internal(set) var hasExited = false
+    /// The view's link to its terminal (a daemon IO reports it).
+    public internal(set) var connection: TerminalConnectionStatus = .connected
     public internal(set) var isRendererHealthy = true
     public internal(set) var isReadOnly = false
     /// A multi-key Ghostty binding is waiting for its next key.
@@ -38,6 +39,10 @@ public final class TerminalSurfaceModel {
     public internal(set) var backgroundOverride: NSColor?
 
     public init() {}
+
+    // cx-qxxu: Cmd-T's New Tab page withdraws a terminal while its action runs; the default
+    // main-actor deinit's hop traps there (cx-t7hu). Teardown only releases values.
+    nonisolated deinit {}
 }
 
 /// Hooks the App implements to act on terminal requests. Every method has a
@@ -46,8 +51,6 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// A Ghostty keybind asked for a window, tab, or split change. Return
     /// true when handled; false lets Ghostty treat the key as unbound.
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool
-    /// OSC 9 / OSC 777 desktop notification.
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String)
     /// A link was activated (cmd-click or `open_url`). Return true when handled.
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool
     /// BEL with the `system` bell feature enabled.
@@ -62,12 +65,13 @@ public protocol TerminalSessionDelegate: AnyObject {
 public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {}
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+        return true
     }
+    /// Ghostty's `bell-features` decide (no system beep by default).
     func terminalSessionDidRingBell(_ session: TerminalSession) {
-        NSSound.beep()
+        GhosttyRuntime.shared.bellSettings.ring()
     }
     func terminalSessionDidRequestClose(_ session: TerminalSession) {}
 }

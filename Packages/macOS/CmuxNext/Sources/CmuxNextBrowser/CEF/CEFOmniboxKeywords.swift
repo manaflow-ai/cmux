@@ -23,7 +23,7 @@ import Foundation
     }
 
     /// Decodes suggestion JSON into rows: the default row for the typed text
-    /// first (Chrome shows it even before the extension answers), then the
+    /// first (shown even before the extension answers), then the
     /// extension's rows in order.
     nonisolated static func rows(json: String, keyword: OmnibarKeyword, text: String) -> [BrowserSuggestion] {
         var rows: [BrowserSuggestion] = []

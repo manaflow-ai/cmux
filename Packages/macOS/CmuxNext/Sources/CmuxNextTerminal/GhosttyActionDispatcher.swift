@@ -1,5 +1,6 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
+import CmuxNextCompat
 
 /// Routes decoded actions on the main actor.
 enum GhosttyActionDispatcher {
@@ -19,6 +20,8 @@ enum GhosttyActionDispatcher {
             guard let runtime else { return false }
             if soft, let app = runtime.app, let config = runtime.config {
                 ghostty_app_update_config(app, config)
+                // Surfaces with their own theme take it back.
+                runtime.onConfigChange?()
             } else {
                 runtime.reloadConfig()
             }
@@ -28,7 +31,7 @@ enum GhosttyActionDispatcher {
             defer { ghostty_string_free(path) }
             guard let pointer = path.ptr, path.len > 0 else { return false }
             let text = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(path.len)), as: UTF8.self)
-            NSWorkspace.shared.open(URL(fileURLWithPath: text))
+            NSWorkspace.shared.openInBackground(URL(fileURLWithPath: text))
             return true
         case .host(let hostAction):
             if let view = bridge?.view {

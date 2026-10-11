@@ -21,7 +21,7 @@ extension TabDragSession {
         } else {
             presentation = .card
             rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
-            if drag.winner != nil || drag.workspaceHighlight != nil { scale = 0.9 }
+            if drag.winner != nil || drag.workspaceHighlight != nil { scale = DragTunables.ghostTargetScale.value }
         }
         let jump = presentation != drag.presentation
         drag.presentation = presentation
@@ -40,6 +40,11 @@ extension TabDragSession {
         var moving = current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
             update(current.point)
+            moving = true
+        }
+        // A pointer resting on a pane edge sends no events: hit-test again once the edge arms.
+        if current === drag, let layout = current.winner?.provider as? LayoutTabDropTarget, let deadline = layout.dwellDeadline {
+            if CACurrentMediaTime() >= deadline { update(current.point) }
             moving = true
         }
         current.ghost.render(current.motion)
@@ -67,11 +72,15 @@ extension TabDragSession {
         removeMonitors(drag)
         if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
+        if commit { reportRefusal(drag) }
         focusDragEnded(drag, outcome: outcome)
         let winner = drag.winner
         for provider in drag.touched.values where provider !== winner?.provider || outcome == .cancel {
             provider.dropEnded(committed: nil)
         }
+        // A strip slot's outline lives in a layout that may not have answered.
+        drag.outlinedLayout?.dropExited()
+        drag.outlinedLayout = nil
         switch outcome {
         case .cancel:
             drag.lifecycle.cancel()
@@ -97,9 +106,17 @@ extension TabDragSession {
                 let target = winner?.proposal.highlightFrame ?? drag.motion.targetRect
                 let tab = drag.motion.targetRect
                 land(drag, at: CGRect(x: target.midX - tab.width / 2, y: target.midY - tab.height / 2, width: tab.width, height: tab.height),
-                     cardness: 1, opacity: 0, scale: 0.7)
+                     cardness: 1, opacity: 0, scale: DragTunables.ghostLandScale.value)
             }
         }
+    }
+
+    /// A drop where nothing answered inside a window is a resolver defect
+    /// and says so instead of springing back silently (tab-dnd). A refused
+    /// zone springs back without a word (Lawrence 2026-10-05).
+    func reportRefusal(_ drag: Drag) {
+        guard case .none = drag.resolution.preview else { return }
+        services.registry.refuse(drag.noTargetReason ?? TabDropStrings.noTarget)
     }
 
     /// Animates the ghost to its landing and closes it when it settles.

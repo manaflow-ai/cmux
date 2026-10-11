@@ -20,6 +20,8 @@ export type AgentEvent =
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
+  /** A cmux agent message the agent received (`cmux agent message`). */
+  | { kind: "agent-message"; id: string; from: string; body: string }
   | { kind: "status"; text: string }
   | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string } // streaming assistant text
@@ -108,6 +110,8 @@ export interface SessionCtx {
   // Adapter-private state (child proc, provider session/thread ids, rpc counters).
   internal: Record<string, unknown>;
   emit(evt: AgentEvent): void;
+  /** Replace replayed transcript history when its source file resets. */
+  resetHistory?(): void;
   setStatus(status: SessionStatus): void;
 }
 

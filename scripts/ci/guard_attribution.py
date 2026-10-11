@@ -60,6 +60,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -875,8 +876,13 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
     report["pr"] = pr_number(gh, run)
     if report["state"] == "green":
         # Nothing to update unless this PR already has a red guard comment.
-        if not report["pr"] or (gh and not any(PR_MARKER in str(c.get("body") or "") for c in gh.comments(report["pr"]))):
+        marked = [c for c in gh.comments(report["pr"]) if PR_MARKER in str(c.get("body") or "")] \
+            if report["pr"] and gh else []
+        if not report["pr"] or (gh and not marked):
             report["state"] = "noop"
+        elif marked:
+            # `report` edits this comment without reading the PR's comments again.
+            report["comments"] = [{"id": c.get("id"), "body": c.get("body")} for c in marked]
         return report
     failures = parse_guard_log(log)
     issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None
@@ -912,7 +918,8 @@ def pr_number(gh: GitHub | None, run: Mapping) -> int | None:
         return None
     head_repo = (run.get("head_repository") or {}).get("full_name") or ""
     owner = head_repo.split("/")[0]
-    body = gh.get(f"repos/{gh.repo}/pulls?state=open&head={owner}:{run.get('head_branch')}&per_page=5")
+    head = urllib.parse.quote(f"{owner}:{run.get('head_branch')}", safe="")
+    body = gh.get(f"repos/{gh.repo}/pulls?state=open&head={head}&per_page=5")
     for pull in body or []:  # type: ignore[union-attr]
         if (pull.get("head") or {}).get("sha") == run.get("head_sha"):
             return int(pull["number"])
@@ -1075,7 +1082,11 @@ def render_issue(report: Mapping, steps_state: Mapping[str, Mapping], fix_prs: M
 def render_pr_comment(report: Mapping) -> str:
     out = [PR_MARKER]
     if report["state"] == "green":
-        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}).")
+        # Only the fast guards: on #17074 and #17233 this line was the only bot comment while the PR's own
+        # app-host tests were red, and it read as an all-green CI.
+        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}). "
+                   "This covers only the fast guards, not CI: CI's result is the `ci-status` check, and "
+                   "the CI failure attribution comment names any failing test.")
         return "\n".join(out) + "\n"
     steps = report.get("steps") or []
     out.append(f"**`{FAST_WORKFLOW}` failed** on `{short(report.get('sha'))}` ({report.get('run_url')}). "
@@ -1190,7 +1201,8 @@ def report_pr(writer: Writer, gh: GitHub | None, repo: str, report: Mapping) -> 
     pr = report.get("pr")
     if not pr:
         return
-    existing = gh.comments(int(pr)) if gh else []
+    # A green report carries the comment `analyze` found (it read them a moment earlier).
+    existing = report["comments"] if "comments" in report else gh.comments(int(pr)) if gh else []
     current = next((c for c in existing if PR_MARKER in str(c.get("body") or "")), None)
     if report["state"] == "green" and current is None:
         return  # never red on this PR: nothing to say

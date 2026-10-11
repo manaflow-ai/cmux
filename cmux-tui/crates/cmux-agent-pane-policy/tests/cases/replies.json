@@ -1,0 +1,120 @@
+[
+ {
+  "name": "status keeps peer names",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "a",
+      "url": "ws://x?token=s"
+     },
+     {
+      "url": "y"
+     },
+     {
+      "name": 5
+     },
+     {
+      "name": "b"
+     }
+    ],
+    "webUrl": "http://t",
+    "token": "s"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "a"
+     },
+     {
+      "name": "b"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status with nothing kept",
+  "method": "_acpmux/status",
+  "page_id": "\"p\"",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "webUrl": "x"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": "p",
+   "result": {}
+  }
+ },
+ {
+  "name": "status error keeps code and message",
+  "method": "_acpmux/status",
+  "page_id": "3",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "code": -32000,
+    "message": "no",
+    "data": {
+     "secret": 1
+    }
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 3,
+   "error": {
+    "code": -32000,
+    "message": "no"
+   }
+  }
+ },
+ {
+  "name": "status error without code",
+  "method": "_acpmux/status",
+  "page_id": "3",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "message": 5
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 3,
+   "error": {
+    "code": -32603,
+    "message": ""
+   }
+  }
+ },
+ {
+  "name": "status bad page id",
+  "method": "_acpmux/status",
+  "page_id": "{",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {}
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": null,
+   "result": {}
+  }
+ }
+]

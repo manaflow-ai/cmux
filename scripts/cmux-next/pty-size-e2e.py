@@ -4,8 +4,8 @@
 Runs random layout changes (splits, closes, sidebar, zoom, density, font
 size, equalize, a workspace round trip) and foreign geometry claims (a second
 daemon client attaches to the focused terminal, claims canonical geometry at
-another size and leaves; a Mac resize or key press must take it back, tmux
-"window-size latest"), then checks every visible terminal: `stty size`
+another size and leaves; a Mac resize or key press must take it back, the
+latest active client holds geometry), then checks every visible terminal: `stty size`
 and `$COLUMNS` inside the shell must equal the grid the Ghostty mirror
 renders (`debug.surfaces`). A mismatch is what leaves zsh's PROMPT_SP `%`
 mark on its own line after Ctrl-C.

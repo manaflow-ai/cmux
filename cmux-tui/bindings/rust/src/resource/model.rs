@@ -7,6 +7,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[path = "model_layout_column.rs"]
+mod layout_column;
+#[path = "model_tab.rs"]
+mod tab;
+pub use layout_column::{LayoutColumn, LayoutColumnDock};
+pub use tab::{TabContentId, TabContentKind, TabSnapshot};
+
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -47,7 +54,6 @@ pub enum MachineStatus {
 
 /// Catalog snapshot for one machine.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct MachineSnapshot {
     pub id: MachineId,
     pub name: String,
@@ -62,7 +68,6 @@ pub struct MachineSnapshot {
 
 /// Catalog snapshot for one session.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct SessionSnapshot {
     pub id: SessionId,
     pub machine_id: MachineId,
@@ -79,7 +84,6 @@ pub struct SessionSnapshot {
 
 /// Catalog snapshot for one workspace.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceSnapshot {
     pub id: WorkspaceId,
     pub session_id: SessionId,
@@ -180,38 +184,6 @@ impl<'de> Deserialize<'de> for LayoutStack {
             ));
         }
         Ok(Self { pane_ids: wire.pane_ids, expanded_pane_id: wire.expanded_pane_id })
-    }
-}
-
-/// One stable horizontal viewport column.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LayoutColumn {
-    pub column_id: SplitId,
-    pub width: f64,
-    pub root: Box<LayoutNode>,
-}
-
-impl<'de> Deserialize<'de> for LayoutColumn {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Wire {
-            column_id: SplitId,
-            width: f64,
-            root: Box<LayoutNode>,
-        }
-
-        let wire = Wire::deserialize(deserializer)?;
-        if !wire.width.is_finite() || !(0.1..=1.0).contains(&wire.width) {
-            return Err(serde::de::Error::custom(
-                "layout column width must be finite and between 0.1 and 1",
-            ));
-        }
-        Ok(Self { column_id: wire.column_id, width: wire.width, root: wire.root })
     }
 }
 
@@ -334,7 +306,6 @@ impl LayoutDocument {
 
 /// Catalog snapshot for one screen.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ScreenSnapshot {
     pub id: ScreenId,
     pub workspace_id: WorkspaceId,
@@ -349,7 +320,6 @@ pub struct ScreenSnapshot {
 
 /// Catalog snapshot for one pane.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PaneSnapshot {
     pub id: PaneId,
     pub screen_id: ScreenId,
@@ -366,75 +336,6 @@ pub struct PaneSnapshot {
 #[serde(deny_unknown_fields)]
 pub struct PaneNeighborResult {
     pub pane: Option<PaneSnapshot>,
-}
-
-/// Kind of resource hosted by a tab.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TabContentKind {
-    Terminal,
-    Browser,
-}
-
-/// Typed content ID hosted by a tab.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TabContentId {
-    Terminal(TerminalId),
-    Browser(BrowserId),
-}
-
-/// Catalog snapshot for one tab.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TabSnapshot {
-    pub id: TabId,
-    pub pane_id: PaneId,
-    pub name: Option<String>,
-    pub index: u32,
-    pub focused: bool,
-    pub content_kind: TabContentKind,
-    pub content_id: TabContentId,
-    pub extra: BTreeMap<String, Value>,
-}
-
-impl<'de> Deserialize<'de> for TabSnapshot {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Wire {
-            id: TabId,
-            pane_id: PaneId,
-            #[serde(deserialize_with = "deserialize_nullable")]
-            name: Option<String>,
-            index: u32,
-            focused: bool,
-            content_kind: TabContentKind,
-            content_id: String,
-            #[serde(default)]
-            extra: BTreeMap<String, Value>,
-        }
-
-        let wire = Wire::deserialize(deserializer)?;
-        let content_id = match wire.content_kind {
-            TabContentKind::Terminal => {
-                TerminalId::parse(wire.content_id).map(TabContentId::Terminal)
-            }
-            TabContentKind::Browser => BrowserId::parse(wire.content_id).map(TabContentId::Browser),
-        }
-        .map_err(serde::de::Error::custom)?;
-        Ok(Self {
-            id: wire.id,
-            pane_id: wire.pane_id,
-            name: wire.name,
-            index: wire.index,
-            focused: wire.focused,
-            content_kind: wire.content_kind,
-            content_id,
-            extra: wire.extra,
-        })
-    }
 }
 
 /// Durable process outcome retained for a terminal.
@@ -497,7 +398,6 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             id: TerminalId,
             #[serde(default, deserialize_with = "deserialize_present_nullable")]
@@ -588,7 +488,6 @@ pub enum BrowserStatus {
 
 /// Catalog snapshot for one browser.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct BrowserSnapshot {
     pub id: BrowserId,
     pub tab_id: TabId,
@@ -657,7 +556,6 @@ impl<'de> Deserialize<'de> for ClientTerminalSize {
 
 /// Catalog snapshot for one connected client.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ClientSnapshot {
     pub id: ConnectedClientId,
     pub session_id: SessionId,
@@ -681,11 +579,14 @@ pub type ConnectedClientSnapshot = ClientSnapshot;
 
 /// Catalog snapshot for one notification.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct NotificationSnapshot {
     pub id: NotificationId,
     pub session_id: SessionId,
     pub title: String,
+    /// Second line under the title (`notification.create` `subtitle`); None
+    /// when the producer gave none.
+    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: NotificationLevel,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
@@ -693,6 +594,10 @@ pub struct NotificationSnapshot {
     #[serde(deserialize_with = "deserialize_decimal")]
     pub created_at_ms: u64,
     pub unread: bool,
+    /// Client ids that acknowledged the notification (empty from daemons
+    /// before the field).
+    #[serde(default)]
+    pub read_by: Vec<String>,
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -709,7 +614,6 @@ pub enum AgentSnapshotSource {
 
 /// Catalog snapshot for one detected agent.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct AgentSnapshot {
     pub id: AgentId,
     pub session_id: SessionId,
@@ -765,7 +669,6 @@ pub enum PairingStatus {
 
 /// Catalog snapshot for one pairing request.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PairingRequestSnapshot {
     pub id: PairingRequestId,
     pub session_id: SessionId,
@@ -780,7 +683,6 @@ pub struct PairingRequestSnapshot {
 
 /// Catalog snapshot for one frontend projection.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct FrontendProjectionSnapshot {
     pub id: FrontendProjectionId,
     pub session_id: SessionId,
@@ -796,7 +698,6 @@ pub struct FrontendProjectionSnapshot {
 
 /// Catalog snapshot for one sidebar view.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct SidebarViewSnapshot {
     pub id: SidebarViewId,
     pub session_id: SessionId,
@@ -831,8 +732,11 @@ pub struct ConfirmationRequiredDetails {
 }
 
 /// Complete catalog session snapshot.
+///
+/// The catalog snapshots (this envelope and every resource in it) decode
+/// forward-compatibly: fields a newer daemon adds are ignored, so a client
+/// built against an older catalog keeps its session (cx-d56v).
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ResourceSnapshot {
     pub machine: MachineSnapshot,
     pub session: SessionSnapshot,
@@ -1513,7 +1417,7 @@ where
     deserialize_generation(deserializer).map(Some)
 }
 
-fn deserialize_decimal<'de, D>(deserializer: D) -> Result<u64, D::Error>
+pub(crate) fn deserialize_decimal<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -1652,54 +1556,4 @@ where
 {
     let value = String::deserialize(deserializer)?;
     base64::engine::general_purpose::STANDARD.decode(value).map_err(serde::de::Error::custom)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TerminalScreenResult;
-
-    #[test]
-    fn terminal_screen_metadata_accepts_omitted_and_explicit_null() {
-        let base = r#"{
-            "text":"ready",
-            "cols":80,
-            "rows":24,
-            "cursor_row":0,
-            "cursor_col":0,
-            "cursor_visible":true
-        }"#;
-        let omitted: TerminalScreenResult = serde_json::from_str(base).unwrap();
-        assert_eq!(omitted.revision, None);
-        assert_eq!(omitted.osc_progress, None);
-
-        let explicit: TerminalScreenResult = serde_json::from_str(
-            r#"{
-                "text":"ready",
-                "revision":null,
-                "osc_progress":null,
-                "cols":80,
-                "rows":24,
-                "cursor_row":0,
-                "cursor_col":0,
-                "cursor_visible":true
-            }"#,
-        )
-        .unwrap();
-        assert_eq!(explicit.revision, None);
-        assert_eq!(explicit.osc_progress, None);
-    }
-
-    #[test]
-    fn terminal_screen_revision_stays_canonical_decimal() {
-        let json = r#"{
-            "text":"ready",
-            "revision":"01",
-            "cols":80,
-            "rows":24,
-            "cursor_row":0,
-            "cursor_col":0,
-            "cursor_visible":true
-        }"#;
-        assert!(serde_json::from_str::<TerminalScreenResult>(json).is_err());
-    }
 }

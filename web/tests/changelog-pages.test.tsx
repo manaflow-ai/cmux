@@ -17,7 +17,7 @@ import {
   docsPagerAdjacentItems,
   docsPagerItemIndex,
 } from "../app/lib/docs-pager-path";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import middleware from "../proxy";
 import { locales } from "../i18n/routing";
 import { ChangelogRelease } from "../app/[locale]/(landing)/docs/changelog/changelog-release";

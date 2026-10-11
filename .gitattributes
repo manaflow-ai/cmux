@@ -9,14 +9,94 @@ Resources/markdown-viewer/webviews-app/** linguist-generated
 # Xcode string catalogs are one large JSON object keyed by string id. Two
 # branches that each add a different key collide positionally, producing dozens
 # of conflict hunks with no semantic disagreement. scripts/merge-xcstrings.py
-# merges per key and defers to the default driver whenever both sides changed
-# the same key. Register it with scripts/install-git-hooks.sh (run by setup.sh);
+# merges per key and writes an ordinary conflict whenever both sides changed the
+# same key. Register it with scripts/install-git-hooks.sh (run by setup.sh);
 # without that config git silently uses the default driver.
 *.xcstrings merge=xcstrings-v2
+
+# A merge can run right after checking out a fork branch, so a driver resolved
+# from the working tree would run that branch's code with the maintainer's
+# credentials. scripts/install-git-hooks.sh installs reviewed copies into
+# $GIT_COMMON_DIR/cmux-merge-drivers and configures absolute paths to those, so
+# what git executes is not what a branch can rewrite; it also repoints the
+# older checkout-relative merge.xcstrings name at the same trusted copy.
+# scripts/ci/catch_up_pr.py pins every driver to false instead, since catch-up
+# only needs to know which paths are unmerged.
 
 # The Xcode project file collides the same way, and for a sharper reason: no
 # target here is filesystem-synchronized, so adding one source file writes four
 # entries, and two branches adding different files append to all four of the
 # same regions. scripts/merge-pbxproj.py takes the union of entries each side
-# added and defers whenever a hunk is anything else. Same registration.
+# added and writes an ordinary conflict whenever a hunk is anything else. Same
+# registration.
 cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
+
+# Generated files that two branches always collide in. Line merging cannot
+# combine two builds; the only right result is a rebuild of the merged sources.
+# `cmux-generated-v1` keeps the current branch's copy so the merge finishes,
+# then scripts/cmux-next/regenerate-web-bundles.sh rebuilds the still-committed
+# strings tables and CI's checks fail until it has.
+# The web bundles themselves (agent pane, Activity, palette ranker, webviews app,
+# pages) are build output since cx-vn5 and gitignored; their lines stay so the
+# generated catch-up still treats a merge with an older branch, whose only
+# conflicts are those deleted bundles, as generated (regenerate-web-bundles.sh
+# removes them from the index). The driver command is `true`, a git
+# no-op that runs no checked-out code. Register it with
+# scripts/install-git-hooks.sh. GitHub ignores merge drivers, so a PR still
+# shows the conflict until its branch is merged locally. The driver runs no
+# code, but it does keep one side: a branch that names another path here
+# would have that path's incoming changes dropped when a configured clone
+# merges into it. Review additions to these lines like a revert.
+# Every file the agent pane and Agent Activity builds write, not only index.html:
+# pane.js, the highlight worker and the per-locale string loaders collide too.
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/** merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/** merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js merge=cmux-generated-v1
+Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
+# The React pages (build-pages-web.sh) and the strings tables it generates from the
+# xcstrings catalogs. Only generated output; the page sources merge normally.
+Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
+# gen-strings.mjs writes every strings table, the agent pane's included.
+webviews/src/**/generated/strings.json merge=cmux-generated-v1
+# The other exports scripts/ci/next_batch.py's merger rebuilds (its
+# SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks
+# that every kept path is one of them). A kept copy that is stale fails its
+# --check until it is regenerated: regenerate-swift-exports.sh for the Swift
+# ones, cmux-tui/bindings/codegen/generate.py for the SDK. Generated files
+# without that rebuild (the app-host and cloud-wire code, the docs shortcuts,
+# the AppPlatform permission scopes) merge by line, so a lost change conflicts
+# instead of being dropped.
+plans/cmux-next/action-surfaces.json merge=cmux-generated-v1
+plans/cmux-next/actions.md merge=cmux-generated-v1
+plans/cmux-next/links.json merge=cmux-generated-v1
+plans/cmux-next/daemon-capabilities.json merge=cmux-generated-v1
+schemas/settings/settings-schema.json merge=cmux-generated-v1
+docs/mdm/com.manaflow.cmux.json merge=cmux-generated-v1
+docs/mdm/com.manaflow.cmux.plist merge=cmux-generated-v1
+docs/mdm/com.manaflow.cmux.intune.plist merge=cmux-generated-v1
+docs/mdm/managed-preferences.md merge=cmux-generated-v1
+Packages/macOS/CmuxNext/ci-target-graph.json merge=cmux-generated-v1
+# SDK wire layers (cmux-tui/bindings/codegen/generate.py): only the wholly
+# generated directories and files; go/raw and java mix in hand-written code.
+cmux-tui/bindings/go/raw/.cmux-sdk-manifest.json merge=cmux-generated-v1
+cmux-tui/bindings/python/cmux/raw/_generated/** merge=cmux-generated-v1
+cmux-tui/bindings/cpp/include/cmux/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/cpp/src/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
+cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
+# Ratchet baselines list known debt per entry. Keeping one side whole would
+# drop the other side's fixes (style ratchets only warn under their ceiling),
+# so scripts/merge-baseline.py merges entry by entry and writes a conflict only
+# when both sides changed the same entry. Same trusted registration as
+# xcstrings-v2.
+scripts/lint-namespace-types-ratchet.txt merge=cmux-baseline-v1
+scripts/lint-namespace-types-baseline.txt merge=cmux-baseline-v1
+scripts/lint-ios-package-conventions-baseline.txt merge=cmux-baseline-v1
+scripts/cmux-next/*-baseline.tsv merge=cmux-baseline-v1
+scripts/cmux-next/*-baseline.json merge=cmux-baseline-v1
+# Upstream license texts the shared Ghostty license collector ships, pinned by
+# SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
+cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace
+cmux-tui/build-support/notices/texts/** -text -whitespace

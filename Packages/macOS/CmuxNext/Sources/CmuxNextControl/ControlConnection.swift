@@ -162,7 +162,7 @@ final class ControlConnection: @unchecked Sendable {
     /// then suspends reading.
     private func emitLines() {
         while queuedLines < limits.maxQueuedLines, let newline = inbound.firstIndex(of: 0x0A) {
-            let lineData = inbound[inbound.startIndex..<newline]
+            let lineData = inbound.prefix(upTo: newline)
             inbound.removeSubrange(inbound.startIndex...newline)
             queuedLines += 1
             continuation?.yield(String(decoding: lineData, as: UTF8.self))
@@ -193,9 +193,11 @@ final class ControlConnection: @unchecked Sendable {
 
     private func flush() {
         while outboxOffset < outbox.count {
-            let written = outbox.withUnsafeBytes { raw in
-                // crash-allow: the loop runs only while the outbox has bytes, so baseAddress is set.
-                Darwin.send(descriptor, raw.baseAddress! + outboxOffset, raw.count - outboxOffset, MSG_NOSIGNAL)
+            let written = outbox.withUnsafeBytes { raw -> Int in
+                // The loop runs only while the outbox has bytes, so the base address is set;
+                // without one the send fails like a closed peer (no trap).
+                guard let base = raw.baseAddress else { errno = EPIPE; return -1 }
+                return Darwin.send(descriptor, base + outboxOffset, raw.count - outboxOffset, MSG_NOSIGNAL)
             }
             if written > 0 {
                 outboxOffset += written

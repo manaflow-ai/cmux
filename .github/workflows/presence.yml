@@ -17,7 +17,7 @@
 #
 # One-time Worker secrets (set once via `wrangler secret put`, survive every
 # deploy; see workers/presence/README.md):
-#   STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY
+#   STACK_PROJECT_ID (STACK_PUBLISHABLE_CLIENT_KEY only for a project that requires one)
 
 name: presence
 

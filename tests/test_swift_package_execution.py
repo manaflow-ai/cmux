@@ -27,10 +27,16 @@ class SwiftPackageExecutionTests(unittest.TestCase):
     def run_step(
         self, output: str, status: int = 0, package: str = "CmuxUpdater",
         step: str = "Run Swift package unit tests", ghosttykit: bool = False,
+        selected_packages: list[str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory(prefix="swift-package-execution-") as directory:
             root = Path(directory)
-            (root / "Packages/macOS" / package).mkdir(parents=True)
+            selected_packages = selected_packages or [package]
+            for selected_package in selected_packages:
+                (root / "Packages/macOS" / selected_package).mkdir(parents=True)
+                # The lane accepts only a package directory with a manifest
+                # (ebd7bcd5a43); swift itself is a stub here.
+                (root / "Packages/macOS" / selected_package / "Package.swift").write_text("// swift-tools-version:5.9\n")
             if ghosttykit:
                 # A binaryTarget on the root xcframework, like a GhosttyKit package's manifest.
                 (root / "Packages/macOS" / package / "Package.swift").write_text(
@@ -50,14 +56,14 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             log = root / "swift-output.txt"
             log.write_text(output)
             selected = root / "selected.txt"
-            selected.write_text(package + "\n")
+            selected.write_text("".join(f"{selected_package}\n" for selected_package in selected_packages))
             env = {
                 **os.environ,
                 "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
                 "FAKE_SWIFT_OUTPUT": str(log),
                 "FAKE_SWIFT_STATUS": str(status),
                 "SELECTED_PACKAGES": str(selected),
-                "SELECTED_COUNT": "1",
+                "SELECTED_COUNT": str(len(selected_packages)),
                 "RUNNER_TEMP": str(root),
             }
             return subprocess.run(
@@ -103,6 +109,24 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_cosmetic_binary_diagnostic_ignores_swiftpm_warning_error_text(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "warning: 'swift-crypto': skipping cache due to an error: The file “maintenance.lock” doesn’t exist.\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="GhosttyFixture", ghosttykit=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_cosmetic_binary_diagnostic_still_rejects_source_error(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "Foo.swift:1:2: error: x\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="GhosttyFixture", ghosttykit=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+
     def test_binary_diagnostic_is_tolerated_only_for_ghosttykit_packages(self) -> None:
         result = self.run_step(
             "error: unexpected binary framework\n"
@@ -116,6 +140,20 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             "✘ Test run with 2 tests failed after 0.001 seconds with 1 issue.\n", status=1,
         )
         self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_a_failed_package_is_reported_and_later_packages_still_run(self) -> None:
+        # A failure must not hide the results of the packages after it, and
+        # the summary table names the failed package; the lane fails at the end.
+        result = self.run_step(
+            "Foo.swift:1:2: error: broken package\n",
+            status=1,
+            selected_packages=["FirstPackage", "SecondPackage"],
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.stdout.count("::group::swift test "), 2, result.stdout)
+        table = result.stdout.split("Swift package test results:\n", 1)[1]
+        self.assertRegex(table, r"FirstPackage +failed \(exit 1\)")
+        self.assertRegex(table, r"SecondPackage +failed \(exit 1\)")
 
     def test_binary_diagnostic_exception_does_not_hide_other_process_failures(self) -> None:
         passed = "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.\n"

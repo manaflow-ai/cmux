@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextDaemon
 public import CmuxNextSettings
 public import Foundation
 
@@ -16,7 +17,8 @@ public import Foundation
 /// Path: ``LaunchIdentity/socketPath`` (the bundle/tag convention, or
 /// `CMUX_NEXT_SOCKET_PATH`). Inherited `CMUX_*` variables never choose it.
 /// Access mode: `CMUX_NEXT_SOCKET_MODE`, else cmux.json
-/// `automation.socketControlMode`, else `cmuxOnly`. Password mode checks
+/// `automation.socketControlMode`, else `automation` (any process of this
+/// user; see ``defaultAccessMode``). Password mode checks
 /// `CMUX_NEXT_SOCKET_PASSWORD` unless the App passes its own verifier.
 @MainActor
 public final class ControlService {
@@ -45,10 +47,7 @@ public final class ControlService {
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
-        let mode = explicitMode
-            ?? environment["CMUX_NEXT_SOCKET_MODE"].flatMap(parseAccessMode)
-            ?? configuredMode.flatMap(parseAccessMode)
-            ?? .cmuxOnly
+        let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
         var verifier = passwordVerifier
         if verifier == nil, let expected = environment["CMUX_NEXT_SOCKET_PASSWORD"], !expected.isEmpty {
             verifier = { @Sendable candidate in candidate == expected }
@@ -58,13 +57,17 @@ public final class ControlService {
             build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
             bundleID: launch.bundleID,
             tag: launch.tag,
-            processID: getpid()
+            processID: getpid(),
+            appBundlePath: bundle.bundleURL.path,
+            appCLIPath: bundle.resourceURL.map { $0.appendingPathComponent("bin/cmux").path }
+                .flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
         )
         return try start(
             registry: registry,
             settingsStore: settings?.file,
+            settingsWriter: settings,
             configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier,
-                                                             trustedExecutables: bundledExecutables(bundle)),
+                                                             trustedExecutables: bundledExecutables(bundle, environment: environment)),
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog
@@ -75,13 +78,15 @@ public final class ControlService {
     public static func start(
         registry: ActionRegistry,
         settingsStore: (any ControlSettingsStore)?,
+        settingsWriter: (any ControlSettingsWriter)? = nil,
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
-        let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, frameSource: frameSource)
+        let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
+                                   frameSource: frameSource)
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
@@ -92,6 +97,26 @@ public final class ControlService {
     public func stop() {
         server.stop()
         bridge.detach()
+    }
+
+    /// The mode when nothing chooses one. The socket file is 0600 in a
+    /// directory only this user can read, so the kernel already limits it to
+    /// this user; descent from the app adds no boundary and refuses this
+    /// app's own terminals (their daemon is launchd's child) and agents run
+    /// by other supervisors (acpmux). `cmuxOnly`, `password` and `off` stay
+    /// available in cmux.json.
+    public nonisolated static let defaultAccessMode: ControlAccessMode = .automation
+
+    /// `explicit`, else `CMUX_NEXT_SOCKET_MODE`, else cmux.json, else the default.
+    public nonisolated static func resolveAccessMode(
+        explicit: ControlAccessMode?,
+        environment: [String: String],
+        configured: String?
+    ) -> ControlAccessMode {
+        explicit
+            ?? environment["CMUX_NEXT_SOCKET_MODE"].flatMap(parseAccessMode)
+            ?? configured.flatMap(parseAccessMode)
+            ?? defaultAccessMode
     }
 
     /// Maps cmux.json / environment mode strings, including the old app's
@@ -117,12 +142,14 @@ public final class ControlService {
 
     /// The bundled cmux binary (`bin/cmux`, also run as `bin/cmux-tui`),
     /// whose processes host every terminal: `.cmuxOnly` admits their
-    /// descendants.
-    static func bundledExecutables(_ bundle: Bundle) -> Set<String> {
-        guard let bin = bundle.resourceURL?.appendingPathComponent("bin") else { return [] }
-        return Set(["cmux", "cmux-tui"].flatMap { name -> [String] in
-            let url = bin.appendingPathComponent(name)
-            return [url.path, url.resolvingSymlinksInPath().path]
-        })
+    /// descendants. Includes the daemon binary the launcher resolves the
+    /// same way (`CMUX_NEXT_TUI_BIN` in dev builds).
+    static func bundledExecutables(_ bundle: Bundle, environment: [String: String]) -> Set<String> {
+        var urls: [URL] = []
+        if let bin = bundle.resourceURL?.appendingPathComponent("bin") {
+            urls += ["cmux", "cmux-tui"].map { bin.appendingPathComponent($0) }
+        }
+        if let daemon = try? DaemonLauncher.resolveBinary(bundle: bundle, environment: environment) { urls.append(daemon) }
+        return Set(urls.flatMap { [$0.path, $0.resolvingSymlinksInPath().path] })
     }
 }

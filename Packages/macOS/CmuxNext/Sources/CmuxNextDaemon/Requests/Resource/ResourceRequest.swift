@@ -13,9 +13,12 @@ struct ResourceRequestEnvelope: Encodable {
     var params: [String: JSONValue]
     /// Required on mutations (1-128 UTF-8 bytes, no control characters).
     var idempotencyKey: String?
+    /// The caller's origin claim (`{claim: "page"}` or `{claim: "user", confirmation}`), sent only
+    /// to a daemon with `origin-claim-v1`; nil keeps the connection's derived origin.
+    var origin: JSONValue?
 
     enum CodingKeys: String, CodingKey {
-        case type, id, operation, params
+        case type, id, operation, params, origin
         case proto = "protocol"
         case idempotencyKey = "idempotency_key"
     }
@@ -31,6 +34,16 @@ struct ResourceRequestEnvelope: Encodable {
         params["session"] = params["session"] ?? .string("current")
         try c.encode(params, forKey: .params)
         try c.encodeIfPresent(idempotencyKey, forKey: .idempotencyKey)
+        try c.encodeIfPresent(origin, forKey: .origin)
+    }
+
+    /// The `params` object exactly as it goes on the wire (the defaults filled in): what an
+    /// origin confirmation token is bound to.
+    static func wireParams(_ params: [String: JSONValue]) -> [String: JSONValue] {
+        var params = params
+        params["machine"] = params["machine"] ?? .string("current")
+        params["session"] = params["session"] ?? .string("current")
+        return params
     }
 
     func line() throws -> Data {

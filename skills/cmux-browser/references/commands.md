@@ -40,6 +40,11 @@ cmux browser "$TAB" text body
 cmux browser "$TAB" value "#email"
 cmux browser "$TAB" fill "#email" "$APP_USERNAME"
 cmux browser "$TAB" type "#search" "query"
+cmux browser "$TAB" tabs
+cmux browser page tabs --all
+cmux browser "$TAB" new-tab https://example.com
+cmux browser "$TAB" select
+cmux browser "$TAB" close
 cmux browser "$TAB" press Enter
 cmux browser "$TAB" press Tab --selector "#email"
 cmux browser "$TAB" hover "#menu"
@@ -56,6 +61,14 @@ for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
 
+`tabs` lists the browser tabs of the tab's workspace (`page tabs`: the focused
+workspace; `--all`: every workspace) with id, title, URL, pane and whether each
+is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
+and prints its id under `created`; `select` (or `switch`) shows and focuses the
+tab; `close` closes it. They run the same actions as the tab strip, wait for
+them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
+act on the tab you name; the old `tab switch|close <index>` has no equivalent.
+
 `press KEY` sends a key to the focused element (or `--selector`'s element,
 focused first). Keys are W3C key or code names (`Enter`, `Tab`, `Escape`,
 `ArrowDown`, `PageDown`, `F5`, `Space`, `Shift`, `KeyA`, `Slash`, `Numpad1`) or
@@ -64,12 +77,13 @@ not a combination. The events are page-level (untrusted): Space activates
 buttons and checkboxes and Enter submits a single-line form field, but browser
 defaults such as Tab moving focus do not run. `hover` sends pointer and mouse
 over, enter and move events. `select SELECTOR VALUE` picks an option by its
-value. `check` and `uncheck` click only when the state differs and fail with
-`not_checkable`, `disabled` or `not_changed`. `scroll` scrolls the page, or
-one element, by `--dx`/`--dy` CSS pixels (`scroll 400` is `--dy 400`) and
-prints the new position. The old flag forms (`--selector`, `--value`, `--key`)
-and verb aliases (`key`, `scrollintoview`) still work.
-These act once and do not retry for an element that is still loading.
+value (`select` with no arguments is the tab verb above). `check` and
+`uncheck` click only when the state differs and fail with `not_checkable`,
+`disabled` or `not_changed`. `scroll` scrolls the page, or one element, by
+`--dx`/`--dy` CSS pixels (`scroll 400` is `--dy 400`) and prints the new
+position. The old flag forms (`--selector`, `--value`, `--key`) and verb
+aliases (`key`, `scrollintoview`) still work. These act once and do not retry
+for an element that is still loading.
 
 ## Daemon browsers (`browser_…`)
 
@@ -91,9 +105,10 @@ cmux browser browser_… close
 These run the same action as the menu or palette and return no page data:
 `browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser import-data`, `browser new-profile`,
-`browser zoom-in`, `browser zoom-out`, `browser toggle-design-mode`,
-`browser toggle-focus-mode`, `browser toggle-react-grab`.
+`browser delete-site-data`, `browser new-profile`,
+`browser toggle-design-mode`, `browser toggle-focus-mode`,
+`browser toggle-react-grab`. Page zoom is `cmux tab <tab_…> zoom in|out|reset`
+(the app's Zoom In, Zoom Out and Actual Size on the tab's pane).
 
 ```bash
 cmux action list --noun browser
@@ -101,15 +116,17 @@ cmux action describe "browser screenshot-page"
 cmux browser screenshot-page
 ```
 
-## Removed, no replacement yet
+## Not in the per-tab CLI (use the REPL)
 
 The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
 `errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
 `offline`, `viewport`, `dblclick`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
-`tab list|new|switch|close` inside a browser, `identify`, `profile`,
-`design-mode status` and `--snapshot-after` have no command in the new CLI.
-Waits are not supported yet; do not poll with `eval`. For a one-shot read that
+`identify`, `profile`,
+`design-mode status` and `--snapshot-after` have no per-tab command. Waits,
+cookies, storage, saved state, console, dialogs, downloads and screenshots
+are in the browser REPL ([repl-guide.md](repl-guide.md)); do not
+poll with `eval`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 
 See also [snapshot-refs.md](snapshot-refs.md) and

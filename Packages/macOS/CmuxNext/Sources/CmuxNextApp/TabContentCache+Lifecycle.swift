@@ -14,6 +14,11 @@ import CmuxNextBrowser
 /// current. That is what keeps a late completion from hiding, showing or
 /// reparenting the view of a newer selection.
 extension TabContentCache {
+    /// Drops terminal surfaces whose tabs no longer exist.
+    func prune(liveTabs: Set<String>) {
+        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
+    }
+
     // MARK: Presentation
 
     /// `presenter` shows `key` (its view is, or is about to be, in the
@@ -75,7 +80,7 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(.released(key)))
         }
         presenters = presenters.filter { $0.value.value != nil }
-        onPresentationChange?()
+        presentationChanges.notify()
     }
 
     // MARK: Lifecycle effects
@@ -112,6 +117,15 @@ extension TabContentCache {
         }
     }
 
+    /// Installs the page that replaces a tab's page (`swapPage`). The tab's
+    /// lifecycle does not change, so no reveal follows: a tab on screen
+    /// shows the new page at once (a remote view tab's Connect starts its
+    /// stream here; before, the replacement never learned it was visible).
+    func installReplacement(_ page: any BrowserTab, for key: String) {
+        _ = install(page, for: key)
+        if shownPages.contains(key) { page.setContentVisible(true) }
+    }
+
     private func reveal(_ key: String) {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
@@ -119,6 +133,7 @@ extension TabContentCache {
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)
+            shownPages.insert(key)
         }
         hibernation?.tabDidShow(key)
     }
@@ -139,6 +154,9 @@ extension TabContentCache {
             }
         }
         if let entry = browsers[key] {
+            // Only a page that was on screen: a page created or restored
+            // hidden has nothing worth a thumbnail yet.
+            if shownPages.remove(key) != nil { capturePagePreview(entry, key: key, token: token) }
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)

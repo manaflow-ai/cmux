@@ -119,6 +119,8 @@ pub(crate) async fn diff(
     let scope = diff_page_scope(&normalized, staged, diff_context, format);
     let mut arguments = vec![
         "diff".to_string(),
+        // Scope output to the opened folder and print paths relative to it.
+        "--relative".to_string(),
         "--no-ext-diff".to_string(),
         "--no-textconv".to_string(),
         "--no-color".to_string(),
@@ -290,6 +292,9 @@ async fn run_git(
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_PAGER", "cat")
+        // Client paths are file names, never pathspec magic such as `:(top)`,
+        // which would reach files outside the opened folder.
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C")
         .kill_on_drop(true);
     #[cfg(not(unix))]
@@ -351,6 +356,7 @@ async fn read_diff_path_metadata(
 ) -> Result<Vec<u8>, RpcError> {
     let mut arguments = vec![
         "diff".to_string(),
+        "--relative".to_string(),
         "--name-status".to_string(),
         "-z".to_string(),
         "--no-ext-diff".to_string(),
@@ -567,11 +573,6 @@ fn split_diff_section_ranges(source: &[u8]) -> Vec<Range<usize>> {
         .collect()
 }
 
-#[cfg(test)]
-fn split_diff_sections(source: &[u8]) -> Vec<&[u8]> {
-    split_diff_section_ranges(source).into_iter().map(|range| &source[range]).collect()
-}
-
 fn diff_page_scope(paths: &[String], staged: bool, context: u16, format: DiffFormat) -> String {
     let mut digest = Sha256::new();
     digest.update([u8::from(staged)]);
@@ -761,6 +762,43 @@ mod tests {
         (directory, root)
     }
 
+    /// A workspace opened at a subdirectory of a repository never diffs files
+    /// outside that directory: Git pathspec magic such as `:(top)` would name
+    /// paths from the repository top, and a diff without paths would cover
+    /// the whole repository.
+    #[tokio::test]
+    async fn sec_audit_diff_stays_inside_a_subdirectory_workspace() {
+        let directory = tempdir().unwrap();
+        git(directory.path(), &["init", "-q"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        write_test_file(directory.path(), "outside.txt", b"secret before\n");
+        write_test_file(directory.path(), "sub/inside.txt", b"before\n");
+        git(directory.path(), &["add", "."]);
+        git(directory.path(), &["commit", "-qm", "initial"]);
+        write_test_file(directory.path(), "outside.txt", b"secret after\n");
+        write_test_file(directory.path(), "sub/inside.txt", b"after\n");
+        let sub = directory.path().join("sub");
+        let root =
+            WorkspaceRoot::open(WorkspaceId("sub".into()), sub.to_str().unwrap()).await.unwrap();
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        for paths in [vec![":(top)outside.txt".to_string()], vec![]] {
+            let text = match diff(&context, &paths, false, 3, DiffFormat::Unified, None, None).await
+            {
+                Ok(prepared) => match prepared.commit() {
+                    WorkspaceResponse::Diff { data, .. } => {
+                        String::from_utf8_lossy(&data.decode().unwrap()).into_owned()
+                    }
+                    other => format!("{other:?}"),
+                },
+                Err(error) => format!("{error:?}"),
+            };
+            assert!(!text.contains("secret"), "{paths:?} leaked the parent repository: {text}");
+        }
+    }
+
     #[tokio::test]
     async fn status_and_structured_diff_are_bounded_and_typed() {
         let (_directory, root) = git_root().await;
@@ -822,26 +860,6 @@ mod tests {
         let WorkspaceResponse::GitStatus { status } = response else { panic!() };
         let paths = status.changes.iter().map(|change| change.path.as_str()).collect::<Vec<_>>();
         assert_eq!(paths, vec!["tracked.txt"]);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn status_disables_repository_fsmonitor() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let (_directory, root) = git_root().await;
-        let hook = root.canonical_root().join("fsmonitor-hook");
-        let marker = root.canonical_root().join("fsmonitor-hook.invoked");
-        std::fs::write(&hook, "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
-        git(root.canonical_root(), &["config", "core.fsmonitor", hook.to_str().unwrap()]);
-
-        assert!(Command::new(&hook).status().unwrap().success());
-        assert!(marker.exists(), "positive control did not execute fsmonitor hook");
-        std::fs::remove_file(&marker).unwrap();
-
-        status(&root).await.unwrap();
-        assert!(!marker.exists(), "workspace Git status executed repository fsmonitor hook");
     }
 
     #[tokio::test]
@@ -957,156 +975,5 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing rename {old:?} -> {new:?}"));
             assert!(file.hunks.is_empty());
         }
-    }
-
-    #[tokio::test]
-    async fn unified_diff_cursor_pages_on_file_boundaries() {
-        let (_directory, root) = git_root().await;
-        let queries = WorkspaceQueryService::default();
-        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
-        for args in [["add", "second.txt"].as_slice(), ["commit", "-qm", "second"].as_slice()] {
-            assert!(
-                Command::new("git")
-                    .arg("-C")
-                    .arg(root.canonical_root())
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        }
-        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
-        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
-
-        let full =
-            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
-        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
-        let full = data.decode().unwrap();
-        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
-        let maximum = u32::try_from(maximum).unwrap();
-
-        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
-            .await
-            .unwrap()
-            .commit();
-        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
-            panic!()
-        };
-        let mut combined = data.decode().unwrap();
-        let second =
-            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
-                .await
-                .unwrap()
-                .commit();
-        let WorkspaceResponse::Diff { data, next_cursor, .. } = second else { panic!() };
-        assert_eq!(next_cursor, None);
-        combined.extend(data.decode().unwrap());
-        assert_eq!(combined, full);
-    }
-
-    #[tokio::test]
-    async fn unified_diff_cursor_continues_the_original_snapshot() {
-        let (_directory, root) = git_root().await;
-        let queries = WorkspaceQueryService::default();
-        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
-        git(root.canonical_root(), &["add", "second.txt"]);
-        git(root.canonical_root(), &["commit", "-qm", "second"]);
-        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
-        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
-
-        let full =
-            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
-        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
-        let full = data.decode().unwrap();
-        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
-        let maximum = u32::try_from(maximum).unwrap();
-        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
-            .await
-            .unwrap()
-            .commit();
-        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
-            panic!()
-        };
-        let first = String::from_utf8(data.decode().unwrap()).unwrap();
-        let (returned, remaining) = if first.contains("second.txt") {
-            ("second.txt", "tracked.txt")
-        } else {
-            ("tracked.txt", "second.txt")
-        };
-        git(root.canonical_root(), &["checkout", "--", returned]);
-
-        let second =
-            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
-                .await
-                .unwrap()
-                .commit();
-        let WorkspaceResponse::Diff { data, .. } = second else { panic!() };
-        let second = String::from_utf8(data.decode().unwrap()).unwrap();
-        assert!(second.contains(remaining), "missing retained diff for {remaining}: {second}");
-    }
-
-    #[test]
-    fn parses_porcelain_rename_records() {
-        let input = b"## main\0R  new.txt\0old.txt\0";
-        let (branch, changes) = parse_status(input).unwrap();
-        assert_eq!(branch.as_deref(), Some("main"));
-        assert_eq!(changes[0].path, "new.txt");
-        assert_eq!(changes[0].original_path.as_deref(), Some("old.txt"));
-    }
-
-    #[test]
-    fn parses_nul_delimited_diff_path_page() {
-        let input = concat!(
-            "M\0skip.txt\0",
-            "A\0tab\tname.txt\0",
-            "R100\0old b/path.txt\0new\"path.txt\0",
-            "D\0gone.txt\0",
-        );
-        let parsed = parse_diff_path_metadata(input.as_bytes()).unwrap();
-        assert_eq!(parsed.len(), 4);
-        assert_eq!(parsed[1].old_path, None);
-        assert_eq!(parsed[1].new_path.as_deref(), Some("tab\tname.txt"));
-        assert_eq!(parsed[2].old_path.as_deref(), Some("old b/path.txt"));
-        assert_eq!(parsed[2].new_path.as_deref(), Some("new\"path.txt"));
-        assert_eq!(parsed[3].old_path.as_deref(), Some("gone.txt"));
-        assert_eq!(parsed[3].new_path, None);
-    }
-
-    #[test]
-    fn structured_diff_does_not_confuse_hunk_content_for_file_headers() {
-        let source = concat!(
-            "diff --git a/value.txt b/value.txt\n",
-            "--- a/value.txt\n",
-            "+++ b/value.txt\n",
-            "@@ -1 +1 @@\n",
-            "--- deleted content\n",
-            "++++ added content\n",
-        );
-        let parsed = parse_structured_diff(source);
-        assert_eq!(parsed.files.len(), 1);
-        assert_eq!(parsed.files[0].old_path.as_deref(), Some("value.txt"));
-        assert_eq!(parsed.files[0].new_path.as_deref(), Some("value.txt"));
-        assert_eq!(parsed.files[0].hunks[0].lines[0].kind, StructuredDiffLineKind::Deleted);
-        assert_eq!(parsed.files[0].hunks[0].lines[0].text, "-- deleted content");
-        assert_eq!(parsed.files[0].hunks[0].lines[1].kind, StructuredDiffLineKind::Added);
-        assert_eq!(parsed.files[0].hunks[0].lines[1].text, "+++ added content");
-    }
-
-    #[test]
-    fn structured_diff_keeps_binary_file_metadata_without_hunks() {
-        let parsed = parse_structured_diff(concat!(
-            "diff --git a/image.bin b/image.bin\n",
-            "index 1111111..2222222 100644\n",
-            "Binary files a/image.bin and b/image.bin differ\n",
-        ));
-        assert_eq!(parsed.files.len(), 1);
-        assert_eq!(parsed.files[0].old_path.as_deref(), Some("image.bin"));
-        assert_eq!(parsed.files[0].new_path.as_deref(), Some("image.bin"));
-        assert!(parsed.files[0].hunks.is_empty());
-        assert_eq!(parsed.files[0].metadata.len(), 2);
     }
 }

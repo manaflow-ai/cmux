@@ -10,9 +10,8 @@ extension MobileTerminalRenderGridReplay {
         let configPalette = frame.terminalConfigTheme?.palette
         for (index, color) in effectivePalette.enumerated() {
             guard let rgb = TerminalTheme.rgbComponents(color) else { continue }
-            if let configPalette,
-               configPalette.indices.contains(index),
-               let configRGB = TerminalTheme.rgbComponents(configPalette[index]),
+            if let configColor = configPalette?[checked: index],
+               let configRGB = TerminalTheme.rgbComponents(configColor),
                configRGB.red == rgb.red,
                configRGB.green == rgb.green,
                configRGB.blue == rgb.blue { continue }
@@ -47,18 +46,14 @@ extension MobileTerminalRenderGridReplay {
         bytes.append(contentsOf: [0x1B, 0x5C])
     }
 
-    private func appendDecimal(_ value: Int, to bytes: inout Data) {
-        if value >= 100 { bytes.append(UInt8(value / 100) + 0x30) }
-        if value >= 10 { bytes.append(UInt8((value / 10) % 10) + 0x30) }
-        bytes.append(UInt8(value % 10) + 0x30)
-    }
-
     private func appendHexByte(_ value: Int, to bytes: inout Data) {
         bytes.append(hexDigit((value >> 4) & 0x0F))
         bytes.append(hexDigit(value & 0x0F))
     }
 
-    private func hexDigit(_ value: Int) -> UInt8 {
-        value < 10 ? UInt8(value) + 0x30 : UInt8(value - 10) + 0x61
+    private func hexDigit(_ nibble: Int) -> UInt8 {
+        // Byte packing of a value masked to 0...15.
+        let digit = UInt8(truncatingIfNeeded: nibble & 0x0F)
+        return digit < 10 ? 0x30 + digit : 0x61 + digit - 10
     }
 }

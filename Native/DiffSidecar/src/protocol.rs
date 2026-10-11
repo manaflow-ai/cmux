@@ -160,7 +160,18 @@ pub enum DiffTransportKind {
     Fetch,
     WebSocket,
     WebKit,
+    /// The cmux-next page bridge: the page sends each request as a
+    /// `cmux.diff.*` call over `cmuxPage`, the host runs the sidecar's `rpc`
+    /// mode with `--resource-scheme page`, and events arrive on the
+    /// `cmux.diff.events` subscription. `endpoint` names the page provider
+    /// (`cmux.diff`). Patch resources use [`PAGE_PATCH_URL_PREFIX`].
+    Page,
 }
+
+/// Patch resources minted for the page transport start with this prefix,
+/// followed by the capability token and the manifest request path. The page
+/// host's dynamic scheme handler resolves them against the token's manifest.
+pub const PAGE_PATCH_URL_PREFIX: &str = "cmux-page://cmux.diff/__patch/";
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -180,6 +191,8 @@ pub enum DiffResult {
     SessionOpened(SessionOpened),
     SessionClosed,
     Branches(BranchListResult),
+    /// Classic page navigation. No command returns it since `branchChange`
+    /// opens a session instead; kept so existing clients still type-check.
     Navigation(NavigationResult),
 }
 
@@ -198,6 +211,10 @@ pub struct SessionOpened {
     pub session_id: String,
     pub patch: DiffResourceRef,
     pub source: DiffSource,
+    /// Changed paths the repository marks generated (`.gitattributes`
+    /// `linguist-generated` or `-diff`); the viewer collapses them by default.
+    #[serde(default)]
+    pub generated_paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
@@ -276,6 +293,7 @@ pub fn handshake(id: String) -> DiffResponse {
     let capabilities = vec![
         "resource.stream".to_owned(),
         "transport.webkit".to_owned(),
+        "transport.page".to_owned(),
         "transport.stdio".to_owned(),
     ];
     #[cfg(feature = "http-server")]

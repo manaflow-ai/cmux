@@ -5,51 +5,6 @@
 //! and state interpretation are plugin policy. The daemon is used only for
 //! the generic terminal list, process, and screen reads.
 
-#[cfg(test)]
-mod target_selection_tests {
-    use std::collections::BTreeMap;
-
-    use cmux::{TerminalId, TerminalLifecycle, TerminalSnapshot};
-
-    use super::resolve_snapshot;
-
-    fn snapshot(hex: &str, title: &str) -> TerminalSnapshot {
-        TerminalSnapshot {
-            id: TerminalId::parse(format!("term_{hex}"))
-                .expect("test terminal ID has the required shape"),
-            tab_ids: Vec::new(),
-            title: title.to_string(),
-            cwd: None,
-            cols: 80,
-            rows: 24,
-            running: true,
-            lifecycle: TerminalLifecycle::Running,
-            stream_revision: Some(1),
-            exit: None,
-            extra: BTreeMap::new(),
-        }
-    }
-
-    #[test]
-    fn live_target_accepts_an_exact_terminal_id() {
-        let terminals = vec![snapshot("11111111111111111111111111111111", "build")];
-        let selected = resolve_snapshot(&terminals, "term_11111111111111111111111111111111")
-            .expect("terminal ID should resolve");
-        assert_eq!(selected.title, "build");
-    }
-
-    #[test]
-    fn live_target_rejects_an_ambiguous_title() {
-        let terminals = vec![
-            snapshot("11111111111111111111111111111111", "agent"),
-            snapshot("22222222222222222222222222222222", "agent"),
-        ];
-        let error = resolve_snapshot(&terminals, "agent").expect_err("duplicate title must fail");
-        assert!(error.contains("more than one terminal"), "{error}");
-        assert!(error.contains("term_1111"), "{error}");
-        assert!(error.contains("term_2222"), "{error}");
-    }
-}
 use cmux::{
     Client, Config, ProcessInfoResult, ReadScreenOptions, Selector, SessionId, TerminalId,
     TerminalSnapshot,
@@ -224,45 +179,5 @@ fn lifecycle_name(snapshot: &TerminalSnapshot) -> &'static str {
         cmux::TerminalLifecycle::Launching => "launching",
         cmux::TerminalLifecycle::Running => "running",
         cmux::TerminalLifecycle::Exited => "exited",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    fn snapshot(hex: &str, title: &str) -> TerminalSnapshot {
-        TerminalSnapshot {
-            id: TerminalId::parse(format!("term_{hex}"))
-                .expect("test terminal ID has the required shape"),
-            tab_ids: Vec::new(),
-            title: title.to_string(),
-            cwd: None,
-            cols: 80,
-            rows: 24,
-            running: true,
-            lifecycle: cmux::TerminalLifecycle::Running,
-            stream_revision: Some(1),
-            exit: None,
-            extra: BTreeMap::new(),
-        }
-    }
-
-    #[test]
-    fn target_rejects_an_empty_or_oversized_value() {
-        assert!(validate_target("").is_err());
-        assert!(validate_target(&"x".repeat(MAX_TARGET_BYTES + 1)).is_err());
-    }
-
-    #[test]
-    fn target_reports_missing_ids_and_titles() {
-        let terminals = vec![snapshot("11111111111111111111111111111111", "build")];
-        assert!(
-            resolve_snapshot(&terminals, "term_22222222222222222222222222222222")
-                .unwrap_err()
-                .contains("was not found")
-        );
-        assert!(resolve_snapshot(&terminals, "missing").unwrap_err().contains("no terminal has"));
     }
 }

@@ -19,12 +19,17 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
     public var code: Int
     public var message: String
     public var failingURL: URL?
+    /// The engine draws its own page for this failure (Chromium's net error
+    /// page or one of its interstitials), so the pane shows no cmux error
+    /// view over it. cmux's view is only for failures no engine page covers.
+    public var engineShowsPage: Bool
 
-    public init(domain: String, code: Int, message: String, failingURL: URL? = nil) {
+    public init(domain: String, code: Int, message: String, failingURL: URL? = nil, engineShowsPage: Bool = false) {
         self.domain = domain
         self.code = code
         self.message = message
         self.failingURL = failingURL
+        self.engineShowsPage = engineShowsPage
     }
 
     public init(_ error: any Error) {
@@ -35,6 +40,15 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
             message: ns.localizedDescription,
             failingURL: ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL
         )
+    }
+
+    /// A TLS certificate the system does not trust (the interstitial with
+    /// Go Back and Proceed).
+    public var isCertificateError: Bool {
+        domain == NSURLErrorDomain && [
+            NSURLErrorServerCertificateUntrusted, NSURLErrorServerCertificateHasBadDate,
+            NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
+        ].contains(code)
     }
 
     /// True for failures that are not user-visible errors: a cancelled load

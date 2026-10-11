@@ -1,0 +1,16 @@
+[package]
+name = "cmux-agent-pane-policy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "What a cmux host lets the agent pane page send to acpmux: the method allowlist, params, gesture and reply rules, the LocalApp token and pane origin, and the acpmux home and socket (no I/O but reading the token file)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+unicode-normalization.workspace = true

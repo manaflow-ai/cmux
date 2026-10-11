@@ -1,0 +1,146 @@
+;; The macOS Seatbelt profile acpmux runs a remote chain's Claude Code
+;; process in (decisions.md REMOTE-SANDBOX, D-R). Every child (Claude's Bash
+;; tool included) inherits it and cannot leave it. It is the only sandbox
+;; (Claude Code's own cannot nest in it; hub/remote_sandbox.rs), and acpmux
+;; proves it with a canary at each spawn.
+;;
+;; Parameters (sandbox-exec -D, all canonical paths, no trailing slash):
+;;   CWD                 the session folder
+;;   TMPDIR              this spawn's own temporary folder (also its env)
+;;   HOME                the home directory
+;;   CLAUDE_TMP_PROJECT  Claude Code's scratch folder for this session folder
+;;                       (/private/tmp/claude-<uid>/<name>, made by acpmux)
+;;   CLAUDE_PROJECT      Claude Code's transcript folder for this session
+;;                       folder (~/.claude/projects/<name>)
+;; Seatbelt applies the last rule that matches.
+(version 1)
+(allow default)
+
+;; Writes: only the session folder, this spawn's temporary folder, Claude
+;; Code's scratch folder for this session folder, a few devices, and Claude's
+;; transcripts. Never ~/.claude.json, Claude's settings, hooks, commands,
+;; agents, skills, shell snapshots or CLAUDE.md, the shared /tmp or TMPDIR,
+;; or another terminal.
+(deny file-write* (subpath "/"))
+(allow file-write*
+  (subpath (param "CWD"))
+  (subpath (param "TMPDIR"))
+  (subpath (param "CLAUDE_TMP_PROJECT"))
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/tty")
+  (literal "/dev/dtracehelper")
+  (subpath "/dev/fd"))
+
+;; Persistence paths are never writable, also inside the session folder:
+;; hooks, settings and tool configs that later run code or instructions
+;; outside this sandbox. (A remote chain cannot `git init` or `git clone`:
+;; both write .git/config and .git/hooks.)
+;; A `.git` itself (a folder or a `gitdir:` file) is never made, renamed
+;; or removed: a renamed-in folder would bring its own config and hooks.
+;; Agent instruction files are never written: later local agents read them.
+(deny file-write*
+  (regex #"/\.git$")
+  (regex #"/\.git(/.*)?/(config(\.worktree)?|hooks(/.*)?|commondir|gitdir)$")
+  (regex #"/\.(claude|codex|vscode|zed|idea|husky|githooks)(/|$)")
+  (regex #"/(\.mcp\.json|\.envrc|\.pre-commit-config\.yaml|lefthook\.yml|\.tool-versions)$")
+  (regex #"/\.?mise(\.local)?\.toml$")
+  (regex #"/\.?mise/config\.toml$")
+  (regex #"/\.config/mise(/|$)")
+  (regex #"/\.hg/hgrc$")
+  (regex #"/\.(cursor|windsurf)(/|$)")
+  (regex #"/\.cursorrules$")
+  (regex #"/\.github/copilot-instructions\.md$")
+  (regex #"/(CLAUDE|AGENTS|CLAUDE\.local|AGENTS\.override|GEMINI)\.md$"))
+
+;; Git takes any folder with a HEAD (and objects, refs, config) for a
+;; repository, with its own config and hooks: no HEAD outside a .git.
+(deny file-write* (regex #"/HEAD$"))
+(allow file-write* (regex #"/\.git/(.+/)?HEAD$"))
+
+;; Claude Code's transcripts for this session folder only, never its
+;; memory (other projects' transcripts and memory are local agents' input).
+(allow file-write* (subpath (param "CLAUDE_PROJECT")))
+(deny file-write* (subpath (string-append (param "CLAUDE_PROJECT") "/memory")))
+
+;; A hard link would let a write in the folder land on a file outside it;
+;; a mount (a disk image the system mounts on its behalf) would cover any
+;; folder; a preference write goes through cfprefsd outside the sandbox; a
+;; LaunchServices registration (lsd.modifydb) lets an app in the folder
+;; answer a URL or file a local process opens later.
+(deny file-link)
+(deny file-mount)
+(deny user-preference-write)
+(deny mach-lookup
+  (global-name "com.apple.DiskArbitration.diskarbitrationd")
+  (global-name "com.apple.diskimagesiod")
+  (global-name "com.apple.diskimages.fsck")
+  (global-name "com.apple.pasteboard.1")
+  (global-name "com.apple.lsd.modifydb"))
+
+;; No keychain: its service would answer for every item of the user (gh,
+;; cloud and browser tokens). acpmux hands Claude Code its own credential
+;; by env instead (hub/remote_sandbox.rs).
+(deny mach-lookup
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.securityd.xpc")
+  (global-name "com.apple.securityd.general")
+  (global-name "com.apple.securityd.ckks")
+  (global-name "com.apple.securityd.sos")
+  (global-name "com.apple.securityd.aps")
+  (global-name "com.apple.securityd.systemkeychain")
+  (global-name "com.apple.security.octagon")
+  (global-name "com.apple.security.escrow-update")
+  (global-name "com.apple.security.kcsharing")
+  (global-name "com.apple.security.KeychainStasher")
+  (global-name "com.apple.security.agent")
+  (global-name "com.apple.security.authhost")
+  (global-name "com.apple.keychainsharingmessagingd")
+  (global-name "com.apple.ctkd.token-client")
+  (global-name "com.apple.ctkd.slot-client")
+  (global-name "com.apple.ctkd.slot-registry"))
+
+;; Secrets a remote chain never reads.
+(deny file-read*
+  (subpath (string-append (param "HOME") "/.ssh"))
+  (subpath (string-append (param "HOME") "/.secrets"))
+  (subpath (string-append (param "HOME") "/.aws"))
+  (subpath (string-append (param "HOME") "/.gnupg"))
+  (subpath (string-append (param "HOME") "/.kube"))
+  (subpath (string-append (param "HOME") "/.config/gh"))
+  (literal (string-append (param "HOME") "/.netrc"))
+  (literal (string-append (param "HOME") "/.git-credentials"))
+  (literal (string-append (param "HOME") "/.npmrc"))
+  (literal (string-append (param "HOME") "/.codex/auth.json"))
+  (subpath (string-append (param "HOME") "/.config/gcloud"))
+  (subpath (string-append (param "HOME") "/.azure"))
+  (literal (string-append (param "HOME") "/.docker/config.json"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (subpath "/Library/Keychains")
+  (subpath (string-append (param "HOME") "/Library/Cookies"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Google/Chrome"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
+  (subpath (string-append (param "HOME") "/Library/Safari")))
+
+;; No process outside the sandbox: no launchd jobs, no app launches, no
+;; Apple Events to other apps, no signals or task ports for processes
+;; outside this sandbox.
+(deny job-creation)
+(deny lsopen)
+(deny appleevent-send)
+(deny signal)
+(allow signal (target same-sandbox))
+(deny mach-priv-task-port)
+
+;; Network: no listening, outbound only to ports 443 and 80 (Claude's own
+;; API port is added by acpmux), never to loopback (local dev servers,
+;; daemons, the acpmux and cmux listeners), and no Unix sockets (the cmux
+;; and acpmux sockets, docker) except the system resolver.
+(deny network-bind)
+(deny network-inbound)
+(deny network-outbound)
+(allow network-outbound (remote ip "*:443") (remote ip "*:80"))
+(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
+;; @API_PORT@ (acpmux puts Claude's own API port here, before the loopback
+;; deny, so it never opens that port on loopback unless the route is there)
+(deny network-outbound (remote ip "localhost:*"))

@@ -7,15 +7,58 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     public var history: [ImportedHistoryEntry] = []
     public var openTabs: [ImportedTab] = []
     public var extensions: [ImportedExtension] = []
+    /// The kinds the user picked for this profile (an empty list then means
+    /// "the source has none", not "not imported").
+    public var kinds: Set<ImportDataKind> = []
+    /// Cookie counts (never the cookies: they go straight to the profile's store).
+    public var cookies: CookieImportReport?
+    /// Why the profile's cookies could not be read, when they could not.
+    public var cookieError: CookieImportError?
+    /// Password counts (never the values: they go straight to the profile's password store).
+    public var passwords: PasswordImportReport?
+    /// Why the profile's passwords could not be imported, when they could not.
+    public var passwordError: PasswordImporter.Failure?
     public var importedAt: Date
 
-    public init(source: ImportSourceRecord, importedAt: Date = Date()) {
+    public init(source: ImportSourceRecord, kinds: Set<ImportDataKind> = [], importedAt: Date = Date()) {
         self.source = source
+        self.kinds = kinds
         self.importedAt = importedAt
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case source, bookmarks, history, openTabs, extensions, kinds, cookies, cookieError, passwords, passwordError, importedAt
+    }
+
+    /// Files saved before `kinds` existed decode with the kinds that hold data.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(ImportSourceRecord.self, forKey: .source)
+        bookmarks = try container.decodeIfPresent([ImportedBookmark].self, forKey: .bookmarks) ?? []
+        history = try container.decodeIfPresent([ImportedHistoryEntry].self, forKey: .history) ?? []
+        openTabs = try container.decodeIfPresent([ImportedTab].self, forKey: .openTabs) ?? []
+        extensions = try container.decodeIfPresent([ImportedExtension].self, forKey: .extensions) ?? []
+        importedAt = try container.decode(Date.self, forKey: .importedAt)
+        cookies = try container.decodeIfPresent(CookieImportReport.self, forKey: .cookies)
+        cookieError = try container.decodeIfPresent(CookieImportError.self, forKey: .cookieError)
+        passwords = try container.decodeIfPresent(PasswordImportReport.self, forKey: .passwords)
+        passwordError = try container.decodeIfPresent(PasswordImporter.Failure.self, forKey: .passwordError)
+        kinds = try container.decodeIfPresent(Set<ImportDataKind>.self, forKey: .kinds) ?? Self.kindsWithData(
+            bookmarks: !bookmarks.isEmpty, history: !history.isEmpty, openTabs: !openTabs.isEmpty, extensions: !extensions.isEmpty)
+    }
+
+    private static func kindsWithData(bookmarks: Bool, history: Bool, openTabs: Bool, extensions: Bool) -> Set<ImportDataKind> {
+        var kinds: Set<ImportDataKind> = []
+        if bookmarks { kinds.insert(.bookmarks) }
+        if history { kinds.insert(.history) }
+        if openTabs { kinds.insert(.openTabs) }
+        if extensions { kinds.insert(.extensions) }
+        return kinds
+    }
+
     public var counts: ImportCounts {
-        ImportCounts(bookmarks: bookmarks.count, history: history.count, openTabs: openTabs.count, extensions: extensions.count)
+        ImportCounts(bookmarks: bookmarks.count, history: history.count, openTabs: openTabs.count, extensions: extensions.count,
+                     cookies: cookies?.written ?? 0, passwords: passwords?.imported ?? 0)
     }
 }
 
@@ -30,13 +73,18 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     public var displayName: String
     public var proposedProfileID: String
     public var targetProfileID: String
+    /// The source profile's own name ("Work"); nil for one-store browsers
+    /// (Safari, Opera) and records saved by older builds.
+    public var profileName: String?
 
-    public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String) {
+    public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
+                profileName: String? = nil) {
         self.browser = browser
         self.profileDirectory = profileDirectory
         self.displayName = displayName
         self.proposedProfileID = proposedProfileID
         self.targetProfileID = targetProfileID
+        self.profileName = profileName
     }
 
     public var sourceKey: String { "\(browser.rawValue)/\(profileDirectory)" }

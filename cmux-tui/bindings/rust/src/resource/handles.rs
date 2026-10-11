@@ -13,6 +13,9 @@ use base64::Engine;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
+mod agent;
+pub(crate) mod state_ops;
+
 fn receipt(value: &Value) -> Result<MutationReceipt> {
     wire::mutation_meta(value)
 }
@@ -659,7 +662,7 @@ impl Session {
             CreateWorkspaceOptions {
                 name,
                 initial_content: InitialContent::Terminal,
-                correlation_key: None,
+                ..CreateWorkspaceOptions::default()
             },
             MutationOptions::unique()?,
         )
@@ -670,7 +673,7 @@ impl Session {
             CreateWorkspaceOptions {
                 name,
                 initial_content: InitialContent::Empty,
-                correlation_key: None,
+                ..CreateWorkspaceOptions::default()
             },
             MutationOptions::unique()?,
         )
@@ -2604,24 +2607,6 @@ impl Notification {
 pub struct Agent {
     session: Session,
     selector: Selector<AgentId>,
-}
-
-impl Agent {
-    pub fn selector(&self) -> &Selector<AgentId> {
-        &self.selector
-    }
-
-    pub fn refresh(&self) -> Result<AgentSnapshot> {
-        let id = id_selector(&self.selector, "agent")?;
-        wire::list::<AgentSnapshot>(
-            &self.session.client.read(ops::AGENT_LIST, self.session.params())?,
-            "agents",
-            "agent",
-        )?
-        .into_iter()
-        .find(|snapshot| &snapshot.id == id)
-        .ok_or_else(|| not_found("agent", id))
-    }
 }
 
 #[derive(Clone, Debug)]

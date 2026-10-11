@@ -1,24 +1,16 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
-
 // Mouse selection, click-to-collapse, and keyboard navigation.
-
 extension SidebarListView {
     // MARK: - Mouse
-
-    struct Press {
-        var key: SidebarRowKey
-        var point: NSPoint
-        var deferredClick: WorkspaceID?
-        var cancelled = false
-    }
-
+    typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
     override func mouseDown(with event: NSEvent) {
-        hoverCard.hide()
-        if rename != nil { endRename(commit: true) }
+        hoverCards.dismiss(.click)
+        if inlineRename.isActive { inlineRename.end(commit: true) }
+        // A click in the list closes the group editor, like a click outside it.
+        if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
@@ -34,9 +26,14 @@ extension SidebarListView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch row.key {
         case let .workspace(id):
+            SidebarGroupKeys(list: self).setFocus(nil)
+            guard !model.isPlaceholder(id) else {
+                self.press = nil
+                return
+            }
             if event.clickCount == 2, flags.isEmpty {
                 self.press = nil
-                beginRename(row.key)
+                inlineRename.begin(row.key)
                 return
             }
             if flags.contains(.command) {
@@ -52,33 +49,32 @@ extension SidebarListView {
             }
             reload(animated: true)
         case let .group(group):
-            if event.clickCount == 2 {
-                // The first click's toggle is still pending (it waits out the
-                // double-click interval): cancel it and rename, so the group
-                // never collapses and re-expands under the pointer.
-                if pendingGroupToggle?.group == group { cancelPendingGroupToggle() }
-                self.press = nil
-                beginRename(row.key)
-                return
-            }
-        case .section, .emptySection:
+            // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
+            SidebarGroupKeys(list: self).setFocus(group, ring: false)
+            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands, and the
+            // chip opens its editor or, when this click's mouse-down closed it, leaves it closed.
+        case let .tab(workspace, tab):
+            // Selected at once; the press stays so a drag can take the tab.
+            model.send(.selectTab(workspace: workspace, tab: tab))
+        case .section, .emptySection, .folder:
             break
         }
         self.press = press
     }
-
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
+        if case let .tab(workspace, tab) = press.key {
+            return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
+        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
-                  !model.isFiltering else { return }
+                  !model.locksReorder else { return }
             beginDrag(press)
             guard drag != nil else { return }
         }
         updateDrag(windowPoint: event.locationInWindow)
     }
-
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
@@ -91,64 +87,35 @@ extension SidebarListView {
         switch press.key {
         case .workspace:
             if let id = press.deferredClick { model.click(id) }
+        case .tab:
+            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
                 model.send(.openGroup(group))
-            } else if isOnDisclosure(point, group: group) {
-                // The chevron has no double-click meaning: toggle at once.
-                model.send(.toggleCollapse(.group(group)))
+            } else if groupEditing.isOnChip(point, group: group) {
+                // The chip opens the group editor (cx-rcby); its chevron and
+                // the rest of the row toggle at once.
+                return groupEditing.open(group)
             } else {
-                scheduleGroupToggle(group)
-                return
+                model.send(.toggleCollapse(.group(group)))
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection:
+        case .emptySection, .folder:
             break
         }
         reload(animated: true)
     }
-
-    // MARK: - Group header single vs double click
-
-    struct PendingGroupToggle {
-        let group: GroupID
-        let task: Task<Void, Never>
-    }
-
-    /// Whether `point` (list coordinates) is on the group's chevron/folder.
-    func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
-        guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
-        return view.disclosureFrame.contains(convert(point, to: view))
-    }
-
-    /// A single click on a group header's title toggles after the system
-    /// double-click interval, so a double-click can rename instead.
-    func scheduleGroupToggle(_ group: GroupID) {
-        cancelPendingGroupToggle()
-        let clock = clickClock
-        let delay = groupToggleDelay
-        let task = Task { [weak self] in
-            // wakeup-allow: one-shot double-click disambiguation delay, cancelled by the second click
-            do { try await clock.sleep(for: delay) } catch { return }
-            guard let self, self.pendingGroupToggle?.group == group else { return }
-            self.pendingGroupToggle = nil
-            self.model.send(.toggleCollapse(.group(group)))
-            self.reload(animated: true)
-        }
-        pendingGroupToggle = PendingGroupToggle(group: group, task: task)
-    }
-
-    func cancelPendingGroupToggle() {
-        pendingGroupToggle?.task.cancel()
-        pendingGroupToggle = nil
-    }
-
+    // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
+    override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
+    override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
+    // MARK: - Group header hit testing
     // MARK: - Keyboard
-
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        // F2 renames the active workspace inline.
+        if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
             if drag != nil { return cancelDrag() }
             if !model.filterText.isEmpty {
@@ -157,6 +124,7 @@ extension SidebarListView {
                 return
             }
         }
+        if SidebarGroupKeys(list: self).handle(event, flags: flags) { return }
         switch event.specialKey {
         case .upArrow?, .downArrow?:
             let up = event.specialKey == .upArrow
@@ -167,10 +135,10 @@ extension SidebarListView {
             } else {
                 return super.keyDown(with: event)
             }
+            // The reload reveals the new active row (close-focus.md).
             reload(animated: true)
-            revealActive()
         case .carriageReturn?, .enter?:
-            if let active = model.activeWorkspaceID { beginRename(.workspace(active)) }
+            if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
         case .delete?, .deleteForward?:
             if flags == .command, !model.selection.isEmpty { model.send(.close(model.orderedSelection)) }
         default:

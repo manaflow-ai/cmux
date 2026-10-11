@@ -18,7 +18,7 @@ public nonisolated enum ShortcutRecorderStrings {
         format("palette.shortcut.numberedFamily", "%1$@ is part of %2$@. Choose another shortcut.", chord, action)
     }
     static func shortcutFamilyInConfig(_ id: String) -> String {
-        format("palette.shortcut.familyInConfig", "Numbered shortcuts are edited in cmux.json (shortcuts.bindings.%@).", id)
+        format("palette.shortcut.familyInConfig", "Numbered shortcuts are edited in cmux-next.json (shortcuts.bindings.%@).", id)
     }
     static func shortcutUsedBy(_ chord: String, _ actions: String) -> String {
         format("palette.shortcut.usedBy", "%1$@ is used by %2$@.", chord, actions)

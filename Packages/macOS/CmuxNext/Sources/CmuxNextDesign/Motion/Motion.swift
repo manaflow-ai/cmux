@@ -8,9 +8,23 @@ public import AppKit
 /// The live policy combines `DesignSettings.shared.animationSpeed`
 /// (`ui.animationSpeed`) with the system Reduce Motion setting. Reading it
 /// inside an Observation-tracked scope registers a dependency on the speed.
-public enum Motion {
+public struct Motion {
+    public init() {}
     /// Tests set this to pin Reduce Motion; nil reads the system setting.
-    public static var reduceMotionOverride: Bool?
+    /// A change posts `reduceMotionDidChange`, so a host that caches a value
+    /// derived from `reduceMotion` (StatusIndicatorAppearance) re-reads it at
+    /// once, as it does for the system setting's notification.
+    public static var reduceMotionOverride: Bool? {
+        didSet {
+            guard reduceMotionOverride != oldValue else { return }
+            NotificationCenter.default.post(name: reduceMotionDidChange, object: nil)
+        }
+    }
+
+    /// Posted on the main actor when `reduceMotionOverride` changes. The
+    /// system setting has its own notification
+    /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
+    public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
 
     /// System Reduce Motion (Accessibility > Display), or the test override.
     public static var reduceMotion: Bool {

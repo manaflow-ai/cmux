@@ -9,7 +9,7 @@ from pathlib import Path
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 SWIFT_SUMMARY = re.compile(
-    r"^\s*(?:[✔✘]\s+)?Test run with (\d+) tests?"
+    r"^\s*(?:[✔✘━]\s+)?Test run with (\d+) tests?"
     r"(?: in \d+ suites?)? (passed|failed) after .+\.$"
 )
 XCTEST_SUMMARY = re.compile(

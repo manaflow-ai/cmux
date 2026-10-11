@@ -22,7 +22,7 @@ extension CEFPaneHost {
         let id = BrowserTabID.random()
         let popupKey = CEFPaneKey(pane: BrowserPaneID(rawValue: Self.popupPrefix + id.rawValue),
                                   profile: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
-        let host = runtime.host(for: popupKey)
+        let host = runtime.host(for: popupKey, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         let tab = CEFTab(id: id, profile: key.profile, host: host, runtime: runtime)
         tab.machineStore = opener?.machineStore
         tab.navigationGuard = opener?.navigationGuard ?? .none

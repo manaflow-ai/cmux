@@ -1,0 +1,61 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
+@@ -8,6 +8,9 @@
+     var onSend: () -> Void = {}
+     var onEscape: () -> Void = {}
+     var onPasteImage: (NSImage) -> Void = { _ in }
++    /// cmux: the host's attachment intake reads the pasteboard first
++    /// (files and pictures, Home's type rule); true when it took the paste.
++    var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+     /// Marked (IME) text changed. UITextView reports marked text through
+     /// `textViewDidChange`, so the draft (and the field height) follows the
+     /// composition; NSTextView does not post a text change for it.
+@@ -217,17 +220,21 @@
+         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
+         return ok
+     }
++    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
++    // a selector into this main-actor view trapped on a post off main (crash program).
++    private var keyObservers: [NSObjectProtocol] = []
++    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
+     override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+         applyScale()
+         let nc = NotificationCenter.default
+-        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+-        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
++        keyObservers.forEach { nc.removeObserver($0) }  // cmux
++        keyObservers = []
+         guard let window else { return }
+-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
+-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
++        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
++            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
++        }
+     }
+-    @objc private func keyChanged() { updateCaret() }
+     override func setFrameSize(_ newSize: NSSize) {
+         let heightChanged = newSize.height != frame.height
+         super.setFrameSize(newSize)
+@@ -306,6 +313,7 @@
+ 
+     override func paste(_ sender: Any?) {
+         let pb = pasteboard
++        if onPastePasteboard(pb) { return }  // cmux
+         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
+         super.paste(sender)
+     }
+@@ -747,11 +755,11 @@
+         fmt.opaque = false
+         let ph = placeholder
+         placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
+-            TextDraw.line(ph, font: ComposeView.font, color: NSColor(white: 123 / 255, alpha: 1), x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
++            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+         }.cgImage
+         placeholderLayer.contentsScale = fmt.scale
+         waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
+-            NSColor(white: 144 / 255, alpha: 1).setFill()
++            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
+             // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
+             // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
+             // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.

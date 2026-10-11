@@ -1,0 +1,168 @@
+//! Part of `Hub`; see `hub/mod.rs`. `session/fork`: a new session from a
+//! parent's conversation. Its per-session env is the fork request's own,
+//! never the parent's (session_env.rs). `through` (a Claude chat only) forks
+//! through an earlier turn instead of the chat's end (`fork_at.rs`).
+
+use super::*;
+use std::sync::atomic::Ordering;
+
+impl Hub {
+    pub async fn fork(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        name: Option<String>,
+        cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
+        through: Option<u64>,
+    ) -> Result<Arc<Session>, RpcError> {
+        let parent_meta = session.meta();
+        // The profile env plus the preset's, for `agent_tools::left_out`.
+        let (is_claude, fork_env) = {
+            let cfg = self.config.read().await;
+            let profile = cfg.profile(&parent_meta.harness);
+            let mut env = profile.map(|p| p.env.clone()).unwrap_or_default();
+            if let Some(preset) = parent_meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
+                env.extend(preset.env.clone());
+            }
+            (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
+        };
+        let sid = parent_meta
+            .agent_session_id
+            .clone()
+            .ok_or_else(|| RpcError::internal("no agent session"))?;
+        let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        let id = uuid::Uuid::now_v7().to_string();
+        let cut = through.filter(|_| is_claude);
+        let mut turn_count = parent_meta.turn_count;
+        let (res, new_sid) = if let Some(through) = cut {
+            // The fork resumes a copy of Claude's transcript through that turn.
+            let history = self
+                .store
+                .events(&session.id, 0, 500_000)
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The chat moved past that turn at its next event, which acpmux logs
+            // before the next prompt reaches Claude.
+            let cut_ms = history.iter().find(|e| e.seq > through).map_or(u64::MAX, |e| e.at);
+            turn_count =
+                history.iter().filter(|e| e.seq <= through && e.kind == "turn_result").count()
+                    as u64;
+            // Claude resumes from the project directory the copy sits in.
+            if cwd != parent_meta.cwd {
+                return Err(RpcError::invalid_params(
+                    "a fork through an earlier turn keeps the chat's folder",
+                ));
+            }
+            let store = self.harness_homes().with_env(&[&fork_env]).claude;
+            let copy = super::fork_at::claude_transcript_through(&store, &sid, cut_ms)
+                .map_err(|e| RpcError::internal(format!("fork through turn: {e}")))?;
+            (json!({}), copy)
+        } else if is_claude {
+            // The fork happens when the new session's process starts with
+            // --resume <parent> --fork-session; no agent call now.
+            (json!({}), String::new())
+        } else {
+            let child = self.child_for(session).await?;
+            let res = child
+                .request(
+                    method::SESSION_FORK,
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id)}),
+                )
+                .await?;
+            let new_sid = res
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::internal("session/fork returned no sessionId"))?
+                .to_owned();
+            (res, new_sid)
+        };
+        let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
+        let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
+        let now = now_ms();
+        let meta = SessionMeta {
+            schema: META_SCHEMA.into(),
+            id: id.clone(),
+            name,
+            harness: parent_meta.harness.clone(),
+            harness_argv: parent_meta.harness_argv.clone(),
+            family: parent_meta.family.clone(),
+            preset: parent_meta.preset.clone(),
+            model_request: parent_meta.model_request.clone(),
+            cwd,
+            agent_session_id: if is_claude && cut.is_none() { None } else { Some(new_sid) },
+            status: SessionStatus::Idle,
+            created_at: now,
+            updated_at: now,
+            last_seq: 0,
+            parent_id: Some(session.id.clone()),
+            fork_seq: Some(fork_seq),
+            agent_info: parent_meta.agent_info.clone(),
+            agent_capabilities: parent_meta.agent_capabilities.clone(),
+            modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
+            config_options: res
+                .get("configOptions")
+                .cloned()
+                .filter(|v| !v.is_null())
+                .or(parent_meta.config_options.clone()),
+            models: parent_meta.models.clone(),
+            permission_policy: parent_meta.permission_policy.clone(),
+            title: None,
+            last_prompt: parent_meta.last_prompt.clone(),
+            preview: parent_meta.preview.clone(),
+            event_count: 0,
+            turn_count,
+            usage: None,
+            permission_rules: None,
+            tags: Default::default(),
+            unread: false,
+            claude_unstored: false,
+            claude_profile: None,
+            last_turn: None,
+            // A fork of a remote-origin session stays remote-origin.
+            remote_origin: parent_meta.remote_origin,
+            // Never inherited: the fork request sets its own or runs without one.
+            session_env,
+            harness_roots: vec![],
+            composer_draft: None,
+        };
+        let new = self.make_session(meta);
+        if is_claude && cut.is_none() {
+            *new.fork_from.lock().unwrap() = Some(sid.clone());
+        }
+        self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
+        self.sessions.lock().unwrap().insert(id.clone(), new.clone());
+        // Copy the transcript-relevant history so attach replays it.
+        if let Ok(history) = self.store.events(&session.id, 0, 500_000) {
+            for e in history {
+                if e.seq > fork_seq {
+                    break;
+                }
+                if matches!(
+                    e.kind.as_str(),
+                    "user_message"
+                        | "agent_message_chunk"
+                        | "agent_thought_chunk"
+                        | "tool_call"
+                        | "tool_call_update"
+                        | "plan"
+                        | "turn_started"
+                        | "turn_result"
+                        | "turn_end"
+                ) {
+                    // Each keeps its time: a later fork through it cuts Claude's
+                    // transcript there (`fork_at.rs`), and a replay plays it then.
+                    self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
+                }
+            }
+        }
+        self.append(&new, "mux", "forked", json!({"parentId": session.id, "forkSeq": fork_seq}));
+        self.append(session, "mux", "fork_child", json!({"childId": id}));
+        // The forked agent session lives in the parent's process. Load it in
+        // its own process so one session keeps one child.
+        match self.child_for(&new).await {
+            Ok(_) => {}
+            Err(e) => tracing::warn!(session = %new.id, "fork child start failed: {e}"),
+        }
+        self.save_meta(&new);
+        Ok(new)
+    }
+}

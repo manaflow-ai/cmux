@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "agents": [
+    {
+      "id": "goose", "name": "goose", "version": "1.54.0", "license": "Apache-2.0",
+      "website": "https://block.github.io/goose/",
+      "distribution": {"binary": {
+        "darwin-aarch64": {"archive": "https://example.com/goose-aarch64-apple-darwin.tar.bz2", "cmd": "./goose", "args": ["acp"], "sha256": "63738f0eed2fe9d8585a4ba988c3ffb23d600db0b43858a6cd868fa6b035a7af"},
+        "linux-x86_64": {"archive": "https://example.com/goose-x86_64-unknown-linux-gnu.tar.bz2", "cmd": "./goose", "args": ["acp"], "sha256": "bf01cb6359f7a2b1acb54ca4827e1d059b18aabb3d2b75202e21066cfd3a3396"},
+        "windows-x86_64": {"archive": "https://example.com/goose.zip", "cmd": "./goose-package\\goose.exe", "args": ["acp"]}
+      }}
+    },
+    {
+      "id": "github-copilot-cli", "name": "GitHub Copilot", "version": "1.0.93",
+      "repository": "https://github.com/github/copilot-cli",
+      "distribution": {"npx": {"package": "@github/copilot@1.0.93", "args": ["--acp"]}}
+    },
+    {
+      "id": "auggie", "name": "Auggie CLI", "version": "0.36.0",
+      "distribution": {"npx": {"package": "@augmentcode/auggie@0.36.0", "args": ["--acp"], "env": {"AUGMENT_DISABLE_AUTO_UPDATE": "1"}}}
+    },
+    {
+      "id": "fast-agent", "name": "fast-agent", "version": "0.10.1",
+      "distribution": {"uvx": {"package": "fast-agent-acp==0.10.1", "args": ["-x"]}}
+    },
+    {
+      "id": "codex-acp", "name": "Codex", "version": "2.1.1",
+      "distribution": {"npx": {"package": "@agentclientprotocol/codex-acp@2.1.1"}}
+    },
+    {
+      "id": "grok-build", "name": "Grok Build", "version": "1.0.50",
+      "distribution": {"npx": {"package": "@xai-official/grok@1.0.50", "args": ["agent", "stdio"]}}
+    },
+    {"id": "floating", "name": "No pin", "version": "1.0.0", "distribution": {"npx": {"package": "floating@latest"}}},
+    {"id": "Bad-Id", "name": "Bad id", "version": "1.0.0", "distribution": {"npx": {"package": "bad@1.0.0"}}},
+    {"id": "escape", "name": "Escape", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://example.com/e.tgz", "cmd": "../../bin/sh"}}}},
+    {"id": "preload", "name": "Preload", "version": "1.0.0", "distribution": {"npx": {"package": "preload@1.0.0", "env": {"DYLD_INSERT_LIBRARIES": "/tmp/x.dylib"}}}},
+    {"id": "plain-http", "name": "Plain http", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "http://example.com/p.tgz", "cmd": "./p"}}}},
+    {"id": "expands", "name": "Expands", "version": "1.0.0", "distribution": {"npx": {"package": "expands@1.0.0", "args": ["${HOME}"]}}},
+    {"id": "goose", "name": "goose again", "version": "9.9.9", "distribution": {"npx": {"package": "goose@9.9.9"}}}
+  ]
+}

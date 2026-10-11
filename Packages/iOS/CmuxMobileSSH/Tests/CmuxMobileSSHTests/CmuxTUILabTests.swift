@@ -54,7 +54,7 @@ struct CmuxTUILabTests {
         defer { cleanUp(session: session) }
         let ssh = try await connect()
         let control = try await CmuxTUIRemote(binaryPath: binary).connect(on: ssh, session: session)
-        let supported = await control.server.capabilities.contains(CmuxTUIControl.idleCloseCapability)
+        let supported = try #require(await control.server).capabilities.contains(CmuxTUIControl.idleCloseCapability)
         let created = try await control.createWorkspace(name: "idle", cols: 80, rows: 24)
         let surface = try #require(created.terminal?.surface)
         #expect(try await control.setIdlePolicy(surface: surface, seconds: 3_600) == supported)
@@ -71,7 +71,7 @@ struct CmuxTUILabTests {
         // Connect (starts the headless owner) and create a workspace.
         var ssh = try await connect()
         var control = try await remote.connect(on: ssh, session: session)
-        let info = await control.server
+        let info = try #require(await control.server)
         #expect(info.app == "cmux-tui")
         #expect(info.protocolVersion >= CmuxTUIControl.minimumProtocol)
         #expect(info.session == session)

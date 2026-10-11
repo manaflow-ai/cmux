@@ -14,6 +14,21 @@ The shipped `cmux` CLI (`CLI/cmux.swift`), agent hooks, and shell integration ta
 - Windows: every window's sidebar lists every workspace, so `workspace.list` returns all workspaces and `selected` means "shown in the target window".
 - Action verbs (`cmux tab reload --target …`, `action.run`) take the same refs: `surface:N` (also `tab:N`, the old CLI's display form), `pane:N`, `workspace:N`, `window:N` and old UUIDs resolve to model ids before the handler runs (`CompatActionTargets`); a surface ref names its pane or workspace for pane and workspace actions.
 
+## Sessions and qualified ids (federation stage 1, 2026-09-30)
+
+The app federates many cmux-tui sessions (data-model.md 1.1). The control socket and the CLI name every object of a remote session (SSH, Cloud) with its session first; the home session (this Mac) keeps the old forms.
+
+- Refs: `build-box:workspace:3`, `build-box:pane:7`, `build-box:surface:12`. Numbers are minted per session and kind, so `workspace:1` (home) and `build-box:workspace:1` are different objects. Windows are personal and never qualified. Workspace indexes are per session, home first, so single-session indexes do not change.
+- Qualifier: the session's machine name as one token (lowercase, `[a-z0-9._-]`), or that name plus the first 8 hex digits of its `registry_id` when two sessions share a name or the name is a ref kind (`ControlSessionNaming`). `cmux list-machines` (`system.sessions`) lists sessions with qualifier, machine, transport, state, workspace count and id.
+- Input: every command that takes a ref also takes a qualified ref, a qualified raw id (`build-box:tab_9f…`), or a UUID (global). A session is named by qualifier, `registry_id`, a unique id prefix of 4 or more characters, the App machine id (`ssh-…`, a Cloud `vm-…` id), a unique machine or session name, or `home`/`local`.
+- `--session <name|id>` (alias `--machine`): before any command, or after commands that target app objects (`CmuxCLISessionScope.objectCommands`; other commands such as `vm`, `hooks` and `remote connect` keep their own `--session`). Sent as the `session` param of `workspace.*`, `surface.*`, `pane.*`, `tab.*`, `terminal.*`, `notification.*`, `browser.*`, `system.tree` and `system.identify`, and as a qualifier on `action.run` targets. It scopes unqualified refs, indexes, lists (`list-workspaces`, `tree`, …) and the default workspace; `new-workspace --session X` creates on X. Without it, lists and bulk commands (`list-workspaces`, `list-panes` without a workspace, `tree`, `clear-notifications`) act on this Mac only, so a script that lists and closes never touches an SSH or Cloud machine; `--all-sessions` (param `all_sessions`) includes every session, home first. A single-object command with a qualified ref (`read-screen --surface build-box:surface:3`) works on any session, and workspace next/previous follow the sidebar across sessions.
+- Routing: each daemon verb goes to the session that owns the object (`CompatService.daemon(session:)`); handles are per daemon and collide across sessions, so lookups by handle are per session. Moving a tab to a pane of another session, or swapping panes across sessions, fails with a typed error; `tab move-to-workspace` across sessions moves the reference (federation stage 2).
+- JSON: workspace, pane and surface objects and the id pairs of every result carry `session_id` (the session UUID, the home session's too), `session` (the qualifier; null for home) and `machine`.
+- Read-your-writes is per session (`ControlSequenceBarrier`).
+- Verified 2026-09-30, tagged build `fed` (cmux-tui 7aac0431), second session over SSH to localhost (scratch binary and state dir): `scripts/cmux-next/cli-compat-e2e.py --remote-destination localhost …` 62/62 (45 home checks, 17 remote: `list-machines`, `--session`/`--machine` creation and lists, qualified `send`/`read-screen`, scoped `read-screen`, split and `tab rename` on the remote workspace, JSON session fields, the typed cross-session move error, close, forget). Qualifiers seen: two sessions on one host name got the `registry_id` prefix before session names were added to the qualifier.
+- Remote-terminal tabs (stage 2): `send`, `send-key` and `read-screen` reach the terminal on its own session by its `term_` id (resource API `terminal.input.write`, `terminal.input.keys`, `terminal.screen.read`); `read-screen` returns the viewport only (no `--scrollback`), `paste` sends plain text, and `clear-history` answers unsupported. Surface JSON carries `remote: {session_id, terminal_id}`.
+- Not covered: v1 text verbs take no `--session` (qualified refs work); `list-notifications` reads the home ledger only; `remote.machines` still prints its own `<label>:workspace:N` index refs.
+
 ## Status by method, ranked by use
 
 Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whether agent hooks or shell integration send it at runtime. Status: **impl** (fully backed), **daemon** (forwarded to a cmux-tui command), **app** (App intent through the work queue), **unsup** (typed unsupported, reason given).
@@ -69,6 +84,7 @@ Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whe
 | surface.move / surface.reorder | 4/4 + 1/1 | 6 + 1 | | move-surface, reorder-surface | daemon `move-tab` / `move-tab-to-workspace` |
 | pane.swap | 2/2 | 0 | | swap-pane | daemon `swap-pane` |
 | pane.break / pane.join / pane.last | 2/2 | 0 | | break/join/last-pane | unsup |
+| terminal.size_state / size_policy.set / size_counts.set / size_to_me / participants.disconnect_others / participant.disconnect | 0 | 0 | | surface size, participants, size-policy, size-counts, size-to-me, disconnect-others, disconnect-participant | unsup: shared terminal sizing (cmux-tui-contract.md section 9) |
 | workspace.reorder | 1/1 | 1 | | reorder-workspace | daemon `move-workspace` |
 | workspace.next / previous | 1/1 | 0 | | next/previous-window | app |
 | workspace.last | 1/1 | 0 | | last-window | unsup: no focus history yet |
@@ -110,7 +126,7 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | browser_api_p0 | fail | browser.wait unsupported |
 | browser_api_unsupported_matrix | fail | expects the full old browser method matrix in capabilities |
 | browser_cli_agent_port | fail | browser.wait unsupported |
-| browser_cli_wait_and_screenshot | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| browser_cli_wait_and_screenshot | fail | cmux.cmuxError: CLI failed ($HOME/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | browser_custom_keybinds | fail | 2 test(s) failed. |
 | browser_devtools_visibility_stability | fail | browser.focus_webview unsupported |
 | browser_eval_domrect | fail | browser eval of DOMRect returns null |
@@ -128,7 +144,7 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | cli_new_workspace_command_queue | pass |  |
 | cli_new_workspace_external_git_branch_refresh | fail | cmux.cmuxError: Expected refreshed sidebar cwd=PosixPath('/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/cmux_issue_91 |
 | cli_new_workspace_layout_command_queue | fail | workspace.create layout unsupported |
-| cli_non_focus_commands_preserve_workspace | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| cli_non_focus_commands_preserve_workspace | fail | cmux.cmuxError: CLI failed ($HOME/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | cli_sidebar_metadata_commands | pass |  |
 | close_surface_selection | fail | 2 test(s) failed |
 | close_workspace_selection | fail | 2 test(s) failed |
@@ -216,7 +232,7 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | terminal_notification_rendering | fail | old-app debug.* methods |
 | terminal_paste_delivery | fail | AssertionError: Use the isolated issue tag |
 | tmux_compat_geometry | fail | pane.list pixel_frame not reported |
-| tmux_compat_matrix | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| tmux_compat_matrix | fail | cmux.cmuxError: CLI failed ($HOME/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | trigger_flash | fail | old-app debug.* methods |
 | update_timing | fail | source-shape test for the old app |
 | v1_panel_creation_preserves_focus | fail | cmux.cmuxError: 'new_surface' failed: "ERROR: Unknown command 'new_surface'. cmux-next speaks v2 JSON requests only." |
@@ -237,12 +253,12 @@ tests_v2 files whose oracles are old-app `debug.*` methods, `app.focus_override`
 ## Decisions and follow-ups
 
 - Shared path: compat mutations run the registry actions the keyboard, menu, and palette run (`splitRight/Down/Left/Up`, `newSurface`, `openBrowser`, `tab.moveToNewSplit`, `newTab`, `closeWorkspace`, `renameWorkspace`, `closeTab`, `renameTab`, `palette.clearTabName`, `palette.toggleTabPin`, `palette.moveTabToNewWorkspace`, `tab.moveToWorkspace`, `palette.toggleTabUnread`) on the main actor through the work queue. Handlers report the daemon tasks they start (`ActionRegistry.track`); compat and `action.run {wait: true}` answer after those tasks finish (the daemon replied), and new refs come from a before/after tree diff. Still compat daemon calls because no targeted action exists: terminal input/reads, `notify`, `surface.move` to a pane index, `pane.swap` with a target pane, `workspace.reorder` to an index, group placement on create. Workspace select, pane focus, and tab select stay App intents over the same `WindowManager.show` / `PaneController.select` the sidebar and strip use.
-- The split, new-tab, close-tab, rename, and pin actions now work on a targeted pane or tab that no window shows, for every entrypoint. `newTab` takes optional `name`, `cwd`, `command`, `env`, `focus`; `newSurface` and the splits take `cwd`. New workspaces' first terminals get `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+- The split, new-tab, close-tab, rename, and pin actions now work on a targeted pane or tab that no window shows, for every entrypoint. `newTab` takes optional `name`, `cwd`, `command`, `env`, `focus`; `newSurface` and the splits take `cwd`. Terminal identity env: see below.
 
 - Reads that name daemon objects run on the `async` lane with one fresh `list-workspaces` (off the main actor, deadline-bound), joined with the snapshot's app-local state. The published `ControlSnapshot` lags cmux-tui by a frame plus delta delivery, and `surface.list` right after `workspace.create` returned no surfaces (tests_v2 `background_*`). Only `system.ping`, `system.capabilities`, `window.list`, and `window.current` answer from the snapshot. Moving the rest to the snapshot lane needs a write barrier (publish-after-delta for a known mutation), not a timing guess.
 - App intents publish the snapshot synchronously before replying, so `select-workspace` followed by `current-workspace` agrees.
 - The `closeWorkspace` action ends each terminal before `close-workspace`: cmux-tui keeps a closed workspace's terminal hosts and PTYs alive (one tests_v2 run leaked 251 hosts). This fixes the App's own close too; a daemon-side fix is still better.
-- Tabs and splits get `CMUX_SOCKET_PATH`/`CMUX_TAG` from `LaunchIdentity`, but no `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`: `new-tab` and `split` cannot reserve a terminal id. Only a new workspace's first terminal gets them. Hooks inside App-created terminals fall back to the focused surface. Fix: daemon-injected placement env, or `terminal_id` on `new-tab`/`split`.
+- Terminal identity env belongs to the daemon. Every terminal cmux-tui spawns gets `CMUX_TUI_TERMINAL_ID` (its public `term_` id), `CMUX_TUI_SESSION_ID`, and `CMUX_TUI_SOCKET`, and the App's `CMUX_SOCKET_PATH`/`CMUX_TAG`/`CMUX_BUNDLE_ID` reach every shell through the daemon's own environment when the App launched the daemon (`DaemonLauncher.forApp`; a daemon started elsewhere keeps its own environment). That covers new tabs, splits, terminals the CLI creates, and hosts adopted after a daemon restart, which keep their id (a dead host is never relaunched). A tab moved to another workspace keeps its terminal id, as the old app kept a moved surface's id; the Rust CLI resolves the caller's workspace from the terminal, never from env. The Rust CLI and `cmux-tui-hook` address their own terminal only through these variables. App-created tabs and splits still also get the old UUID-form `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`/`CMUX_PANEL_ID` (`terminal-placement-env-v1`); nothing in cmux-next reads them once the compat layer is gone. Covered by `every_terminal_names_itself_and_its_daemon_in_env` (cmux-tui `terminal_host_recovery`).
 - Sidebar status/progress/log is stored and queryable but not rendered by the cmux-next sidebar yet.
 - Agent hooks: `feed.push` attention events and `agent_journal_append` events that carry `attention.notification` become daemon notifications on the hook's surface (tagged `agent`, plans/cmux-next/notifications.md); journal lifecycle events set the daemon agent state (`report-agent`). `agent.hook.*` and permission replies still answer typed unsupported.
 - `select-workspace` once exceeded the 2 s deadline while the App rebuilt a workspace's content on the main thread (later switches took 80-500 ms). The watchdog (`debug.hangs`) should show whether content switching stalls the main thread.

@@ -265,6 +265,9 @@ def one_run(tag, threshold_ms, tabs, daemon="cold", startup_only=False):
         metrics["launch.to_did_finish_launching_ms"] = start
         metrics["launch.did_finish_launching_ms"] = round(end - start, 1) if start is not None and end is not None else None
         metrics["launch.to_first_window_frame_ms"] = launch.get("first_window_frame_committed")
+        # launch-snapshot-v1: the last layout drawn before the daemon answers.
+        metrics["launch.to_snapshot_applied_ms"] = launch.get("launch_snapshot_applied")
+        metrics["launch.to_snapshot_layout_ms"] = launch.get("launch_snapshot_shown")
         metrics["launch.to_first_terminal_ms"] = launch.get("first_terminal_surface_created")
         metrics["launch.to_daemon_connected_ms"] = launch.get("daemon_connected")
         metrics["launch.to_snapshot_loaded_ms"] = launch.get("daemon_snapshot_loaded")

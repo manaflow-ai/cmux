@@ -1,5 +1,5 @@
 public import Foundation
-import GhosttyKit
+import GhosttyNextKit
 
 /// The shell-integration keys of the applied Ghostty config, raw as the C
 /// API returns them. The App maps them onto the daemon's
@@ -26,13 +26,49 @@ extension GhosttyRuntime {
     /// nil when libghostty failed to load a config.
     public var shellIntegrationSettings: GhosttyShellIntegrationSettings? {
         guard let config else { return nil }
+        return Self.shellIntegrationSettings(config)
+    }
+
+    /// Shell-integration settings of the file at `path` loaded alone, with
+    /// its `config-file` includes, as libghostty loads a config file: the
+    /// oracle for the daemon's own reader (schemas/ghostty-shell-features).
+    /// Nil when libghostty cannot make a config.
+    public static func shellIntegrationSettings(configFile path: String) -> GhosttyShellIntegrationSettings? {
+        guard let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+        ghostty_config_load_file(config, path)
+        ghostty_config_load_recursive_files(config)
+        ghostty_config_finalize(config)
+        return shellIntegrationSettings(config)
+    }
+
+    private static func shellIntegrationSettings(_ config: ghostty_config_t) -> GhosttyShellIntegrationSettings {
         var mode: UnsafePointer<CChar>?
-        let modeName = Self.configGet(config, &mode, key: "shell-integration") ? mode.map { String(cString: $0) } : nil
+        let modeName = configGet(config, &mode, key: "shell-integration") ? mode.map { String(cString: $0) } : nil
         var features: UInt32 = 0
-        _ = Self.configGet(config, &features, key: "shell-integration-features")
+        _ = configGet(config, &features, key: "shell-integration-features")
+        var blink = false
+        let hasBlink = configGet(config, &blink, key: "cursor-style-blink")
+        return GhosttyShellIntegrationSettings(mode: modeName ?? "detect", features: features, cursorBlink: hasBlink ? blink : nil)
+    }
+
+    /// `cursor-style` and `cursor-style-blink` of the applied config: the
+    /// cursor a fresh surface starts with. nil when no config loaded.
+    public var cursorDefaults: (style: String, blink: Bool?)? {
+        guard let config else { return nil }
+        var style: UnsafePointer<CChar>?
+        let name = Self.configGet(config, &style, key: "cursor-style") ? style.map { String(cString: $0) } : nil
         var blink = false
         let hasBlink = Self.configGet(config, &blink, key: "cursor-style-blink")
-        return GhosttyShellIntegrationSettings(mode: modeName ?? "detect", features: features, cursorBlink: hasBlink ? blink : nil)
+        return (name ?? "block", hasBlink ? blink : nil)
+    }
+
+    /// `desktop-notifications`: whether terminal programs may post desktop
+    /// notifications (OSC 9/777/99). True when no config loaded, as in Ghostty.
+    public var desktopNotificationsEnabled: Bool {
+        guard let config else { return true }
+        var enabled = true
+        return Self.configGet(config, &enabled, key: "desktop-notifications") ? enabled : true
     }
 
     /// The Ghostty CLI helper bundled at `<Resources>/bin/ghostty`, which

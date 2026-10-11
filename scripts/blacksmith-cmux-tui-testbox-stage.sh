@@ -16,13 +16,13 @@ if [[ ! -r /proc/cmdline ]] || ! grep -Eq '(^|[[:space:]])metadata_port=[^[:spac
 fi
 
 if [[ $# -ne 3 ]]; then
-  echo "usage: CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=tbx_... $0 {first-clean|incremental-noop|changed-file} <source-sha> <ghostty-gitlink-sha>" >&2
+  echo "usage: CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=tbx_... $0 {first-clean|incremental-noop|changed-file} <source-sha> <ghostty-next-gitlink-sha>" >&2
   exit 64
 fi
 
 stage="$1"
 expected_source_sha="$2"
-expected_ghostty_sha="$3"
+expected_ghostty_next_sha="$3"
 case "$stage" in
   first-clean|incremental-noop|changed-file) ;;
   *)
@@ -31,7 +31,7 @@ case "$stage" in
     ;;
 esac
 
-for value_name in expected_source_sha expected_ghostty_sha; do
+for value_name in expected_source_sha expected_ghostty_next_sha; do
   value="${!value_name}"
   if [[ ! "$value" =~ ^[0-9a-f]{40}$ ]]; then
     echo "$value_name must be a lowercase 40-character commit SHA" >&2
@@ -58,18 +58,20 @@ fi
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-ghostty_root="$repo_root/ghostty"
-if [[ ! -f cmux-tui/Cargo.toml || ! -f ghostty/build.zig.zon ]]; then
-  echo "cmux-tui and its Ghostty source submodule must be initialized" >&2
+# cmux-tui builds libghostty-vt from the ghostty-next gitlink only; the classic
+# ghostty submodule is not an input of this build.
+ghostty_next_root="$repo_root/ghostty-next"
+if [[ ! -f cmux-tui/Cargo.toml || ! -f ghostty-next/build.zig.zon || ! -f ghostty-next/include/ghostty/vt/snapshot.h ]]; then
+  echo "cmux-tui and its ghostty-next source submodule must be initialized" >&2
   exit 65
 fi
-if [[ "$(git -C ghostty rev-parse --show-toplevel 2>/dev/null || true)" != "$ghostty_root" ]]; then
-  echo "ghostty is not an initialized submodule checkout" >&2
+if [[ "$(git -C ghostty-next rev-parse --show-toplevel 2>/dev/null || true)" != "$ghostty_next_root" ]]; then
+  echo "ghostty-next is not an initialized submodule checkout" >&2
   exit 65
 fi
-ghostty_entry="$(git ls-tree HEAD ghostty)"
-if [[ ! "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]]; then
-  echo "HEAD:ghostty is not a gitlink" >&2
+ghostty_next_entry="$(git ls-tree HEAD ghostty-next)"
+if [[ ! "$ghostty_next_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty-next$ ]]; then
+  echo "HEAD:ghostty-next is not a gitlink" >&2
   exit 65
 fi
 # Blacksmith's sync copies file contents and only opportunistically fetches the
@@ -83,7 +85,7 @@ the benchmarked commit is not checked out on this Testbox
   present:  $(git rev-parse HEAD 2>/dev/null || echo unknown)
 Push the commit, then pin this box to it before running a stage:
   git push origin <branch>
-  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule update --init --depth 1 ghostty'
+  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule foreach --quiet "echo \\\$sm_path" | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next'
 REMEDY
   exit 65
 }
@@ -111,45 +113,7 @@ fi
 # gate further down is what still refuses a candidate whose pinned Rust or Zig
 # would leave the hydrated caches cold and the timings incomparable.
 verify_setup_identity() {
-  python3 - "$setup_identity_path" "$testbox_id" "$setup_run_id" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-path, expected_testbox, expected_run_id = sys.argv[1:]
-try:
-    record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-except (OSError, json.JSONDecodeError) as error:
-    raise SystemExit(f"invalid setup identity marker: {error}")
-source = record.get("source", {})
-testbox = record.get("testbox", {})
-runner = record.get("runner", {})
-toolchain = record.get("toolchain", {})
-errors = []
-if not re.fullmatch(r"[0-9a-f]{40}", str(source.get("commit_sha", ""))):
-    errors.append("setup hydration commit is missing or malformed")
-if not re.fullmatch(r"[0-9a-f]{40}", str(source.get("tree_sha", ""))):
-    errors.append("setup hydration tree is missing or malformed")
-if not re.fullmatch(r"[0-9a-f]{40}", str(source.get("ghostty_gitlink_sha", ""))):
-    errors.append("setup hydration Ghostty gitlink is missing or malformed")
-if source.get("ghostty_head_sha") != source.get("ghostty_gitlink_sha"):
-    errors.append("setup hydration Ghostty checkout does not match its own gitlink")
-if source.get("ref") != "refs/heads/main":
-    errors.append(f"setup hydration ref {source.get('ref')!r} is not refs/heads/main")
-if testbox.get("id") != expected_testbox:
-    errors.append("setup Testbox ID mismatch")
-if str(testbox.get("setup_workflow_run_id")) != expected_run_id:
-    errors.append("setup workflow run ID mismatch")
-if runner.get("label") != "blacksmith-32vcpu-ubuntu-2404" or runner.get("arch") != "X64" or runner.get("cpu_count") != 32:
-    errors.append("setup runner identity mismatch")
-if not toolchain.get("rust_toolchain") or not toolchain.get("rustc") or not toolchain.get("cargo") or not toolchain.get("zig"):
-    errors.append("setup toolchain identity is incomplete")
-if errors:
-    for error in errors:
-        print(error, file=sys.stderr)
-    raise SystemExit(66)
-PY
+  python3 "$repo_root/scripts/blacksmith-testbox-setup-identity.py" "$setup_identity_path" "$testbox_id" "$setup_run_id"
 }
 verify_setup_identity
 setup_rust_toolchain="$(python3 - "$setup_identity_path" <<'PY'
@@ -283,21 +247,21 @@ trap 'interrupt_source HUP' HUP
 trap finish_source EXIT
 
 clean_status() {
-  local top_status ghostty_status
+  local top_status ghostty_next_status
   top_status="$(git status --porcelain=v1 --untracked-files=normal)"
   if [[ -n "$top_status" ]]; then
     printf '%s\n' "top-level source is dirty:" "$top_status" >&2
     return 1
   fi
-  ghostty_status="$(git -C ghostty status --porcelain=v1 --untracked-files=normal)"
-  if [[ -n "$ghostty_status" ]]; then
-    printf '%s\n' "Ghostty submodule is dirty:" "$ghostty_status" >&2
+  ghostty_next_status="$(git -C ghostty-next status --porcelain=v1 --untracked-files=normal)"
+  if [[ -n "$ghostty_next_status" ]]; then
+    printf '%s\n' "ghostty-next submodule is dirty:" "$ghostty_next_status" >&2
     return 1
   fi
 }
 
 capture_identity() {
-  python3 - "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$repo_root" <<'PY'
+  python3 - "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_next_sha" "$testbox_id" "$repo_root" <<'PY'
 import json
 import os
 import pathlib
@@ -305,9 +269,9 @@ import platform
 import subprocess
 import sys
 
-expected_source_sha, expected_tree_sha, expected_ghostty_sha, testbox_id, repo_root = sys.argv[1:]
+expected_source_sha, expected_tree_sha, expected_ghostty_next_sha, testbox_id, repo_root = sys.argv[1:]
 repo = pathlib.Path(repo_root)
-ghostty = repo / "ghostty"
+ghostty_next = repo / "ghostty-next"
 
 def run(command, cwd=repo):
     return subprocess.check_output(command, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
@@ -327,19 +291,19 @@ def status(cwd=repo):
 
 source_sha = run(["git", "rev-parse", "HEAD"])
 source_tree_sha = run(["git", "rev-parse", "HEAD^{tree}"])
-ghostty_gitlink_sha = run(["git", "rev-parse", "HEAD:ghostty"])
-ghostty_head_sha = run(["git", "-C", "ghostty", "rev-parse", "HEAD"])
+ghostty_next_gitlink_sha = run(["git", "rev-parse", "HEAD:ghostty-next"])
+ghostty_next_head_sha = run(["git", "-C", "ghostty-next", "rev-parse", "HEAD"])
 record = {
     "commit_sha": source_sha,
     "tree_sha": source_tree_sha,
     "expected_commit_sha": expected_source_sha,
     "expected_tree_sha": expected_tree_sha,
     "dirty_files": status(),
-    "ghostty": {
-        "gitlink_sha": ghostty_gitlink_sha,
-        "expected_gitlink_sha": expected_ghostty_sha,
-        "head_sha": ghostty_head_sha,
-        "dirty_files": status(ghostty),
+    "ghostty_next": {
+        "gitlink_sha": ghostty_next_gitlink_sha,
+        "expected_gitlink_sha": expected_ghostty_next_sha,
+        "head_sha": ghostty_next_head_sha,
+        "dirty_files": status(ghostty_next),
     },
     "testbox_id": testbox_id,
     "testbox_state": {
@@ -354,12 +318,12 @@ PY
 
 verify_identity() {
   local identity_path="$1"
-  python3 - "$identity_path" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" <<'PY'
+  python3 - "$identity_path" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_next_sha" "$testbox_id" <<'PY'
 import json
 import pathlib
 import sys
 
-path, expected_source_sha, expected_tree_sha, expected_ghostty_sha, expected_testbox_id = sys.argv[1:]
+path, expected_source_sha, expected_tree_sha, expected_ghostty_next_sha, expected_testbox_id = sys.argv[1:]
 record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 errors = []
 if record.get("commit_sha") != expected_source_sha:
@@ -372,15 +336,15 @@ if record.get("expected_tree_sha") != expected_tree_sha:
     errors.append("source tree expectation was not recorded")
 if record.get("dirty_files"):
     errors.append("top-level source is dirty")
-ghostty = record.get("ghostty", {})
-if ghostty.get("gitlink_sha") != expected_ghostty_sha:
-    errors.append(f"Ghostty gitlink {ghostty.get('gitlink_sha')} != {expected_ghostty_sha}")
-if ghostty.get("expected_gitlink_sha") != expected_ghostty_sha:
-    errors.append("Ghostty expectation was not recorded")
-if ghostty.get("head_sha") != expected_ghostty_sha:
-    errors.append(f"Ghostty checkout {ghostty.get('head_sha')} != {expected_ghostty_sha}")
-if ghostty.get("dirty_files"):
-    errors.append("Ghostty submodule is dirty")
+ghostty_next = record.get("ghostty_next", {})
+if ghostty_next.get("gitlink_sha") != expected_ghostty_next_sha:
+    errors.append(f"ghostty-next gitlink {ghostty_next.get('gitlink_sha')} != {expected_ghostty_next_sha}")
+if ghostty_next.get("expected_gitlink_sha") != expected_ghostty_next_sha:
+    errors.append("ghostty-next expectation was not recorded")
+if ghostty_next.get("head_sha") != expected_ghostty_next_sha:
+    errors.append(f"ghostty-next checkout {ghostty_next.get('head_sha')} != {expected_ghostty_next_sha}")
+if ghostty_next.get("dirty_files"):
+    errors.append("ghostty-next submodule is dirty")
 if record.get("testbox_id") != expected_testbox_id:
     errors.append("Testbox identity mismatch")
 if errors:
@@ -412,7 +376,7 @@ zig_version="$("$zig_bin" version)"
 export ZIG="$zig_bin"
 rust_toolchain_file_sha256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
 cargo_lock_sha256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"
-ghostty_zon_sha256="$(sha256sum ghostty/build.zig.zon | cut -d ' ' -f 1)"
+ghostty_next_zon_sha256="$(sha256sum ghostty-next/build.zig.zon | cut -d ' ' -f 1)"
 
 case "$stage" in
   first-clean)
@@ -495,7 +459,7 @@ else
   final_status="$build_status"
 fi
 
-python3 - "$stage" "$start_epoch" "$end_epoch" "$build_status" "$final_status" "$time_path" "$pre_identity_path" "$post_identity_path" "$changed_file" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$runner_label" "$rust_toolchain" "$rustc_version" "$cargo_version" "$zig_bin" "$zig_version" "$rust_toolchain_file_sha256" "$cargo_lock_sha256" "$ghostty_zon_sha256" "$hydrated_source_ref" "$hydrated_source_sha" "$binary_bytes" >"$json_path" <<'PY'
+python3 - "$stage" "$start_epoch" "$end_epoch" "$build_status" "$final_status" "$time_path" "$pre_identity_path" "$post_identity_path" "$changed_file" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_next_sha" "$testbox_id" "$runner_label" "$rust_toolchain" "$rustc_version" "$cargo_version" "$zig_bin" "$zig_version" "$rust_toolchain_file_sha256" "$cargo_lock_sha256" "$ghostty_next_zon_sha256" "$hydrated_source_ref" "$hydrated_source_sha" "$binary_bytes" >"$json_path" <<'PY'
 import datetime as dt
 import json
 import os
@@ -515,7 +479,7 @@ import sys
     changed_file,
     expected_source_sha,
     expected_tree_sha,
-    expected_ghostty_sha,
+    expected_ghostty_next_sha,
     testbox_id,
     runner_label,
     rust_toolchain,
@@ -525,7 +489,7 @@ import sys
     zig_version,
     rust_toolchain_file_sha256,
     cargo_lock_sha256,
-    ghostty_zon_sha256,
+    ghostty_next_zon_sha256,
     hydrated_source_ref,
     hydrated_source_sha,
     binary_bytes,
@@ -549,7 +513,7 @@ except OSError:
 pre = read_json(pre_identity_path)
 post = read_json(post_identity_path)
 record = {
-    "schema": 3,
+    "schema": 4,
     "stage": stage,
     "command": "cargo build -p cmux-tui --locked",
     # Proof the build produced something, since the box is destroyed afterwards.
@@ -571,12 +535,12 @@ record = {
         "changed_file": changed_file if stage == "changed-file" else None,
         "restored": stage != "changed-file" or not post.get("dirty_files"),
     },
-    "ghostty": {
-        "expected_gitlink_sha": expected_ghostty_sha,
-        "before_gitlink_sha": pre.get("ghostty", {}).get("gitlink_sha"),
-        "before_head_sha": pre.get("ghostty", {}).get("head_sha"),
-        "after_gitlink_sha": post.get("ghostty", {}).get("gitlink_sha"),
-        "after_head_sha": post.get("ghostty", {}).get("head_sha"),
+    "ghostty_next": {
+        "expected_gitlink_sha": expected_ghostty_next_sha,
+        "before_gitlink_sha": pre.get("ghostty_next", {}).get("gitlink_sha"),
+        "before_head_sha": pre.get("ghostty_next", {}).get("head_sha"),
+        "after_gitlink_sha": post.get("ghostty_next", {}).get("gitlink_sha"),
+        "after_head_sha": post.get("ghostty_next", {}).get("head_sha"),
     },
     "testbox": {
         "id": testbox_id,
@@ -605,7 +569,7 @@ record = {
         "cargo_lock_sha256": cargo_lock_sha256,
         "zig_path": zig_bin,
         "zig": zig_version,
-        "ghostty_build_zig_zon_sha256": ghostty_zon_sha256,
+        "ghostty_next_build_zig_zon_sha256": ghostty_next_zon_sha256,
     },
     **remote_time,
 }

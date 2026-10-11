@@ -15,7 +15,8 @@ public enum SharedRole: String, Sendable, Hashable, CaseIterable, Comparable {
     case extensions
 
     public static func < (lhs: SharedRole, rhs: SharedRole) -> Bool {
-        allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
+        // Every case is in allCases; the declaration order is the order.
+        (allCases.firstIndex(of: lhs) ?? 0) < (allCases.firstIndex(of: rhs) ?? 0)
     }
 }
 

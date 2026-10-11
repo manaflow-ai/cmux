@@ -346,7 +346,7 @@ public final class UpdateStateModel {
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
             if let blockers = install.relaunchBlockers {
-                return Self.relaunchBlockersDescription(blockers, askingUser: install.updateWhenClear != nil)
+                return Self.relaunchBlockersDescription(blockers)
             }
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
         case .notFound:
@@ -377,48 +377,23 @@ public final class UpdateStateModel {
         }
     }
 
-    /// Summarizes a held relaunch for the popover, above its list of agents. `askingUser` is
-    /// set when the user asked to install and risky agents need their say-so.
-    public nonisolated static func relaunchBlockersDescription(
-        _ blockers: UpdateRelaunchBlockers,
-        askingUser: Bool
-    ) -> String {
+    /// Explains why a ready update is waiting to relaunch: busy agents are waited out, other
+    /// running commands need the user's Install Now.
+    public static func relaunchBlockersDescription(_ blockers: UpdateRelaunchBlockers) -> String {
         var sentences: [String] = []
-        if blockers.needsConfirmation {
-            sentences.append(askingUser
-                ? String(localized: "update.relaunch.confirmRisky", defaultValue: "Relaunching now stops what these are running.")
-                : String(localized: "update.autoInstall.waitingRisky", defaultValue: "Installs after these finish and you step away."))
-        } else {
+        if blockers.busyAgentCount > 0 {
             sentences.append(String(
-                localized: "update.autoInstall.waitingQuiet",
-                defaultValue: "Installs the next time you step away for a minute. Workspaces and agents resume where they left off."
+                localized: "update.readyWaiting.agents",
+                defaultValue: "Installs and relaunches when \(blockers.busyAgentCount) agents finish. Agents resume after the relaunch."
             ))
         }
-        let careCount = blockers.careAgents.count
-        if careCount > 0 {
+        if blockers.runningCommandCount > 0 {
             sentences.append(String(
-                localized: "update.relaunch.resumesMidTask",
-                defaultValue: "\(careCount) agents will be resumed mid-task."
+                localized: "update.readyWaiting.commands",
+                defaultValue: "Relaunching will stop \(blockers.runningCommandCount) running commands. Choose Install Now when you're ready."
             ))
         }
         return sentences.joined(separator: " ")
-    }
-
-    /// The label for the running-commands row of a held relaunch.
-    public nonisolated static func runningCommandsLabel(_ count: Int) -> String {
-        String(localized: "update.relaunch.runningCommands", defaultValue: "\(count) running commands")
-    }
-
-    /// The chip text for an agent's resume safety.
-    public nonisolated static func safetyLabel(_ safety: UpdateResumeSafety) -> String {
-        switch safety {
-        case .safe:
-            return String(localized: "update.safety.safe", defaultValue: "Safe")
-        case .care:
-            return String(localized: "update.safety.care", defaultValue: "Resumes")
-        case .risky:
-            return String(localized: "update.safety.risky", defaultValue: "Risky")
-        }
     }
 
     /// The detected-background-update title, when one should be shown.

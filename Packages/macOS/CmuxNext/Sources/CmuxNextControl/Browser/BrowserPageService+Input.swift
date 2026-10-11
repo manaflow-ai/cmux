@@ -11,7 +11,7 @@ extension BrowserPageService {
         return [
             input("press", engine: engine) { call in
                 // Unknown names pass through as an opaque key, as the old app did.
-                let key = BrowserPageKey(try Self.string(call, "key"))
+                let key = BrowserPressKey(try Self.string(call, "key"))
                 return BrowserPageScripts.press(key, selector: Self.optionalString(call, "selector"))
             },
             input("hover", engine: engine) { BrowserPageScripts.hover(try Self.string($0, "selector")) },

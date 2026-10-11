@@ -6,11 +6,27 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var actionID: String
     public var target: ControlTargetRef?
     public var arguments: [String: ControlValue]
+    /// `action.run` `origin` (`user`, `cli`, `mcp`, `script`, `remote`);
+    /// absent means `cli`.
+    public var origin: String
+    /// `action.run` `focus: true`: change this client's view anyway.
+    public var focus: Bool
+    /// The router aimed this run at the column right of its agent caller's
+    /// chat (`caller.agent_session`, beside_caller in ControlCaller).
+    /// `caller.agent_session`: the agent that sent the run (ControlCaller).
+    public var callerAgentSession: String?
+    public var besideCaller = false
+    /// That column does not exist: the target is the chat itself, and the
+    /// handler moves the new tab into a new column right of it.
+    public var newColumnBeside = false
 
-    public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:]) {
+    public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:], origin: String = "cli",
+                focus: Bool = false) {
         self.actionID = actionID
         self.target = target
         self.arguments = arguments
+        self.origin = origin
+        self.focus = focus
     }
 }
 
@@ -30,6 +46,8 @@ public enum ControlActionOutcome: Sendable, Hashable {
     case refused(String)
     /// An explicit target names nothing (`not_found`), with the reason.
     case notFound(String)
+    /// An administrator turned off the action's feature (`DisabledFeatures`).
+    case featureDisabled(String)
     /// A destructive action ran without `confirm: true`; nothing happened.
     case confirmationRequired
 }

@@ -27,24 +27,66 @@
 #               *Store / Cloud files): a fire-and-forget `Task {` statement.
 #               Store the handle and cancel it with its owner, or say who
 #               owns it with `// task-owner: <reason>` (plans/cmux-next/state-audit.md).
+#   model checks (Tests/**/*ModelCheckTests.swift): every suite is declared
+#               `nonisolated`. An exhaustive exploration is seconds to minutes
+#               of CPU; in a main-actor test target it runs on the main actor
+#               and stalls every main-actor test in the `swift test` process
+#               past its time limit (feat-cmux-next CI, 2026-10-02).
+#   Synchronization: `import Synchronization` needs macOS 15; CmuxNext runs
+#               on macOS 14 and uses CmuxNextCompat's Mutex/Atomic.
+#               CHECK_CONCURRENCY_ONLY=synchronization runs only this rule
+#               (safe-push blocks on it).
+#   isolated deinit: never (cx-t7hu), nor a plain deinit in main-actor
+#               scope of a uiSwiftSettings target, which is isolated by default
+#               there. Its runtime hop
+#               (swift_task_deinitOnExecutor) traps when the object is released
+#               inline inside an action's task-local scope under CEF. Write
+#               `nonisolated deinit`, with main-actor cleanup in
+#               `guard Thread.isMainThread else { return }` plus
+#               `MainActor.assumeIsolated { ... }`.
+#   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
+#               calls block the main thread in LaunchServices (cx-050n); only
+#               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
+#               task-local and workspace-open rules; CI blocks on it.
+#   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
+#               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
+#               is current, a task local lives in the thread's fallback storage,
+#               and an isolated deinit run inline there makes the Swift 6.2
+#               runtime free() a marker its global task allocator made (cx-bpcj).
 #
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
-exec python3 - "$root" <<'PY'
+scope_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-main-actor-work.py"
+exec python3 - "$root" "$scope_helper" <<'PY'
+import importlib.util
 import os
 import re
 import sys
 
 root = sys.argv[1]
+# Lexical isolation scopes (nonisolated, @concurrent, actor, Task.detached,
+# @MainActor) come from check-main-actor-work.py, so both checks agree on
+# which lines are main-actor code.
+_spec = importlib.util.spec_from_file_location("main_actor_scope", sys.argv[2])
+main_actor_scope = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(main_actor_scope)
 sources = os.path.join(root, "Sources")
 
-# Targets built with `.defaultIsolation(MainActor.self)` (Package.swift uiSwiftSettings).
-MAIN_ACTOR_MODULES = {
-    "CmuxNextApp", "CmuxNextBridge", "CmuxNextDesign", "CmuxNextActions", "CmuxNextTerminal",
-    "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser", "CmuxNextUpdater",
-    "CmuxNextOnboarding",
-}
+# Targets built with `.defaultIsolation(MainActor.self)`: every target whose
+# swiftSettings are `uiSwiftSettings` in Package.swift. Read from the manifest,
+# so a new UI target is scanned without an edit here (a hand list missed 21).
+def main_actor_modules(package_root):
+    with open(os.path.join(package_root, "Package.swift"), encoding="utf-8") as handle:
+        manifest = handle.read()
+    found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)', manifest, re.S)
+    modules = {name for name, settings in found if settings == "uiSwiftSettings"}
+    if not modules:
+        sys.exit("check-concurrency: no uiSwiftSettings targets found in Package.swift")
+    return modules
+
+MAIN_ACTOR_MODULES = main_actor_modules(root)
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
@@ -95,6 +137,21 @@ TASK_GROUP_WINDOW = 8
 TASK_GROUP = re.compile(r"\bwith(Throwing)?(Discarding)?TaskGroup\b")
 GROUP_SLEEP = re.compile(r"\bsleep\((for|until):")
 
+# macOS 14 floor (plans/cmux-next/macos-floor.md): Synchronization (Mutex,
+# Atomic) needs macOS 15; CmuxNextCompat has the same API on macOS 14.
+SYNCHRONIZATION_IMPORT = re.compile(r"^\s*(@\w+\s+)*((public|internal|package|private|fileprivate)\s+)?import\s+Synchronization\b")
+SYNCHRONIZATION_RULE = "import Synchronization: use CmuxNextCompat (macOS 14 floor)"
+# Files under a WINDOW FREEZE held by another lane that still import it.
+# Temporary: the owner switches them to CmuxNextCompat, then drops the entry.
+SYNCHRONIZATION_PENDING_FILES: set[str] = set()
+# `--only synchronization` (safe-push's blocking check) runs only this rule.
+ONLY = os.environ.get("CHECK_CONCURRENCY_ONLY", "")
+
+# CmuxNextCompat implements the sanctioned Mutex (the Synchronization.Mutex API
+# on macOS 14, plans/cmux-next/macos-floor.md) over os_unfair_lock; everyone
+# else uses that Mutex instead of a raw lock.
+LOCK_PRIMITIVES_MODULES = {"CmuxNextCompat"}
+
 SERVICE_MODULES = {"CmuxNextDaemon", "CmuxNextCloud", "CmuxNextMobile", "CmuxNextControl"}
 SERVICE_APP_FILE = re.compile(r"^CmuxNextApp/(Cloud/.*|.*(Service|Store)(\+\w+)?\.swift)$")
 # A `Task {` that starts a statement: its handle is discarded.
@@ -109,8 +166,34 @@ MAIN_ACTOR = [
     ("synchronous GPU readback on the main actor (CoreImage/Metal wait)", r"\bcreateCGImage\(|\bwaitUntilCompleted\(|\bwaitUntilScheduled\("),
 ]
 
+ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
+# A plain deinit takes the target's default isolation: main-actor in a uiSwiftSettings target.
+PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
+TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
+TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
+# NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
+WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
+WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+
+def crash_class_hits(code, lines, index, module, main_lines, relative):
+    """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
+    hits = []
+    if ISOLATED_DEINIT.match(code):
+        hits.append("isolated deinit (its hop traps inside an action's task-local scope, cx-t7hu; "
+                    "write nonisolated deinit with MainActor.assumeIsolated on the main thread)")
+    if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
+        hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
+                    "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
+    if TASK_LOCAL_BINDING.search(code) and relative != TASK_LOCAL_HELPER and not allowed(lines, index):
+        hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
+                    "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
+    if WORKSPACE_SYNC.search(code) and relative != WORKSPACE_HELPER and not allowed(lines, index):
+        hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
+                    "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
+    return hits
+
 
 def allowed(lines, index, escape=ALLOW):
     if escape.search(lines[index]):
@@ -135,15 +218,34 @@ for dirpath, _, files in os.walk(sources):
         path = os.path.join(dirpath, filename)
         relative = os.path.relpath(path, sources)
         module = relative.split(os.sep)[0]
-        rules = rules_all + (rules_main if module in MAIN_ACTOR_MODULES else [])
         is_service = module in SERVICE_MODULES or SERVICE_APP_FILE.match(relative.replace(os.sep, "/")) is not None
         with open(path, encoding="utf-8") as handle:
             lines = handle.read().split("\n")
+        # Main-actor rules apply to main-actor code: the target default for a
+        # uiSwiftSettings target, `@MainActor` scopes anywhere, minus
+        # nonisolated / @concurrent / actor / detached scopes.
+        main_lines = main_actor_scope.main_actor_lines(lines, module in MAIN_ACTOR_MODULES)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
             code = line.split("//", 1)[0] if "//" in line and '"' not in line else line
-            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)]
+            rules = rules_all + (rules_main if main_lines[index] else [])
+            if (ONLY != "crash-class" and SYNCHRONIZATION_IMPORT.match(code) and module not in LOCK_PRIMITIVES_MODULES
+                    and relative.replace(os.sep, "/") not in SYNCHRONIZATION_PENDING_FILES):
+                print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {SYNCHRONIZATION_RULE}")
+                print(f"    {line.strip()}")
+                failures += 1
+            if ONLY == "synchronization":
+                continue
+            hits = crash_class_hits(code, lines, index, module, main_lines, relative.replace(os.sep, "/"))
+            if ONLY == "crash-class":
+                for name in hits:
+                    print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
+                    print(f"    {line.strip()}")
+                    failures += 1
+                continue
+            hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
+                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
@@ -156,6 +258,23 @@ for dirpath, _, files in os.walk(sources):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
             for name in hits:
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
+                print(f"    {line.strip()}")
+                failures += 1
+
+# Model checks run off the main actor (see the header).
+SUITE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|internal|package|fileprivate|private|final)\s+)*(struct|final class|class|enum)\s+\w+ModelCheckTests\b")
+tests = os.path.join(root, "Tests")
+for dirpath, _, files in ([] if ONLY else os.walk(tests)):
+    for filename in sorted(files):
+        if not filename.endswith("ModelCheckTests.swift"):
+            continue
+        path = os.path.join(dirpath, filename)
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().split("\n")
+        for index, line in enumerate(lines):
+            if SUITE_DECL.match(line) and not re.search(r"\bnonisolated\b", line):
+                print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: model check suite on the main actor "
+                      "(declare it `@Suite(.serialized) nonisolated struct`)")
                 print(f"    {line.strip()}")
                 failures += 1
 

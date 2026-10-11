@@ -1,11 +1,11 @@
 import Foundation
 
-/// Selection rules matched to Chrome for Mac: the focusing click, drags and
+/// Selection rules: the focusing click, drags and
 /// multi-clicks, right-click, select-all, Home, and steady-state elision.
 /// References are to chrome/browser/ui/views/omnibox/omnibox_view_views.cc
 /// unless noted; plans/cmux-next/focus.md has the rule table.
 nonisolated extension OmnibarStep {
-    /// How a selection change asks to show the full URL (Chrome
+    /// How a selection change asks to show the full URL (Chromium
     /// `UnelisionGesture`).
     enum Unelision { case home, mouseRelease, other }
 
@@ -44,7 +44,7 @@ nonisolated extension OmnibarStep {
             return
         }
         if state.phase == .focused, state.elided {
-            // A double-click unelides at its press in Chrome (`kOther`); a
+            // A double-click unelides at its press (Chromium `kOther`); a
             // single click or drag at its release (`kMouseRelease`).
             let offset = unelide(mouse.clickCount >= 2 ? .other : .mouseRelease)
             if let offset, mouse.clickCount == 1, let word = mouse.wordAtPress {
@@ -134,7 +134,7 @@ nonisolated extension OmnibarStep {
         return offset
     }
 
-    /// Chrome `OmniboxViewViews::IsSelectAll`.
+    /// Chromium `OmniboxViewViews::IsSelectAll`.
     var isAllSelected: Bool {
         let text = state.fieldText
         return !text.isEmpty && OmnibarRules.clamped(state.edit.selection, length: OmnibarRules.length(text)) == Self.all(text)

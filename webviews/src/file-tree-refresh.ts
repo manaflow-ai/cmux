@@ -29,7 +29,9 @@ export type PierreFileTreeGitStatusModel = {
 };
 
 export type PierreFileTreeSelectionModel = {
-  getItem?: (path: string) => { select: () => void } | null;
+  getItem?: (path: string) => { select: () => void; deselect?: () => void } | null;
+  getSelectedPaths?: () => readonly string[];
+  focusPath?: (path: string) => void;
   scrollToPath: (path: string, options: { focus: boolean; offset: "nearest" }) => void;
   selectOnlyPath?: (path: string) => void;
 };
@@ -45,9 +47,9 @@ export function planPierreFileTreeRefresh(
 
   const previousPathCount = previousSource.pathCount ?? previousSource.paths?.length ?? 0;
   const sourcePathCount = source.pathCount ?? paths.length;
-  const sourceFollowsPrevious = source.previousSource === previousSource || (
-    previousSource.revision != null && source.previousRevision === previousSource.revision
-  );
+  const sourceFollowsPrevious =
+    source.previousSource === previousSource ||
+    (previousSource.revision != null && source.previousRevision === previousSource.revision);
   const canAppend = sourceFollowsPrevious || isPathPrefix(previousSource, source);
 
   if (!canAppend || sourcePathCount < previousPathCount) {
@@ -87,8 +89,19 @@ export function selectPierreFileTreePath(model: PierreFileTreeSelectionModel, se
   if (typeof model.selectOnlyPath === "function") {
     model.selectOnlyPath(selectedPath);
   } else {
+    // An item handle's select() adds to the selection: drop the row the
+    // viewer followed before, so one row stays highlighted.
+    for (const path of model.getSelectedPaths?.() ?? []) {
+      if (path !== selectedPath) {
+        model.getItem?.(path)?.deselect?.();
+      }
+    }
     model.getItem?.(selectedPath)?.select();
   }
+  // The tree's focused row is model state (DOM focus stays where it is): the
+  // keyboard starts from the file in view, and the indent guide under its
+  // folder shows as in the classic list.
+  model.focusPath?.(selectedPath);
   model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
 }
 

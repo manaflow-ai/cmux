@@ -30,9 +30,14 @@ name: CI queue janitor
 # GitHub delays scheduled runs (the */10 cron fired 55 minutes apart on
 # 2026-09-25), and pull request CI trusts a snapshot for at most
 # MAX_SNAPSHOT_MINUTES, so a CI run being requested also starts a sweep. It
-# skips when the newest snapshot is under FRESH_SECONDS old, and the
-# concurrency group keeps one sweep running and one waiting, so a burst of
-# pushes costs at most one extra sweep.
+# skips when the newest snapshot is under 600 s old, one cron interval, so it
+# only stands in for a late cron. A cron sweep skips when a snapshot is under
+# 300 s old, the case where a requested CI run has just stood in for it. A
+# full sweep costs 130 to 170 API requests from the GITHUB_TOKEN budget every
+# workflow in the repository shares. With a 240 s skip for requested runs and
+# none for the cron, CI being requested hundreds of times an hour drove about
+# 12 sweeps an hour, and the budget ran out on 2026-10-06. Now there are about
+# 6. The concurrency group keeps one sweep running and one waiting.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -47,10 +52,7 @@ on:
         default: true
         type: boolean
 
-permissions:
-  actions: write
-  pull-requests: read
-  contents: read
+permissions: {}
 
 env:
   # The file behind the `CI` display name in on.workflow_run.workflows;
@@ -65,16 +67,20 @@ concurrency:
 
 jobs:
   sweep:
+    permissions:
+      actions: write
+      pull-requests: read
+      contents: read
     name: Sweep wasted macOS demand
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Skip when the pool snapshot is fresh
         id: fresh
-        if: github.event_name == 'workflow_run'
+        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          FRESH_SECONDS: "240"
+          FRESH_SECONDS: ${{ github.event_name == 'workflow_run' && '600' || '300' }}
         run: |
           set -euo pipefail
           newest="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=macos-pool-load&per_page=20" \

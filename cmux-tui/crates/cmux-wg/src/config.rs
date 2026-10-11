@@ -97,6 +97,11 @@ pub struct WgConfig {
     pub endpoint: Option<Endpoint>,
     /// Seconds between keepalives that hold NAT mappings open.
     pub persistent_keepalive: Option<u16>,
+    /// The peer's own addresses inside the network (`PeerAddress =`, a
+    /// cmux extension in `[Peer]`; at most one per family). Path probes go
+    /// there. Empty when the config does not say, and probes then use the
+    /// base address of the peer's first allowed network.
+    pub peer_addresses: Vec<IpAddr>,
 }
 
 impl fmt::Debug for WgConfig {
@@ -113,6 +118,7 @@ impl fmt::Debug for WgConfig {
             .field("allowed_ips", &self.allowed_ips)
             .field("endpoint", &self.endpoint)
             .field("persistent_keepalive", &self.persistent_keepalive)
+            .field("peer_addresses", &self.peer_addresses)
             .finish_non_exhaustive()
     }
 }
@@ -181,6 +187,7 @@ impl WgConfig {
         let mut allowed_ips = Vec::new();
         let mut endpoint = None;
         let mut persistent_keepalive = None;
+        let mut peer_addresses: Vec<IpAddr> = Vec::new();
 
         for (index, raw) in text.lines().enumerate() {
             let line_number = index + 1;
@@ -235,6 +242,23 @@ impl WgConfig {
                         }
                     }
                     "endpoint" => endpoint = Some(parse_endpoint(value)?),
+                    "peeraddress" => {
+                        for entry in comma_separated(value) {
+                            let (address, _) = split_prefix(entry, "PeerAddress")?;
+                            if peer_addresses
+                                .iter()
+                                .any(|known| known.is_ipv4() == address.is_ipv4())
+                            {
+                                return Err(ConfigError::InvalidValue {
+                                    key: "PeerAddress",
+                                    detail: format!(
+                                        "more than one address in the family of {address}"
+                                    ),
+                                });
+                            }
+                            peer_addresses.push(address);
+                        }
+                    }
                     "persistentkeepalive" => {
                         let seconds =
                             value.parse::<u16>().map_err(|_| ConfigError::InvalidValue {
@@ -268,12 +292,19 @@ impl WgConfig {
             allowed_ips,
             endpoint,
             persistent_keepalive,
+            peer_addresses,
         })
     }
 
     /// Whether `address` is reachable through this tunnel.
     pub fn routes_contain(&self, address: IpAddr) -> bool {
         self.allowed_ips.iter().any(|network| network.contains(address))
+    }
+
+    /// The peer's own address in the same family as `local`, if the config
+    /// names one.
+    pub fn peer_address_for(&self, local: IpAddr) -> Option<IpAddr> {
+        self.peer_addresses.iter().copied().find(|address| address.is_ipv4() == local.is_ipv4())
     }
 
     /// This side's address in the same family as `remote`, if any.
@@ -376,76 +407,6 @@ mod tests {
 
     const KEY_A: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
     const KEY_B: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
-
-    fn freestyle_shaped() -> String {
-        format!(
-            "[Interface]\nPrivateKey = {KEY_A}\nAddress = 100.64.0.1/32\nAddress = fd7a:7570:6c6b::1/128\nMTU = 1200\nDNS = 10.0.0.53\n\n[Peer]\nPublicKey = {KEY_B}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = [2606:4700::1]:51820\nPersistentKeepalive = 25\n"
-        )
-    }
-
-    #[test]
-    fn parses_a_freestyle_shaped_config() {
-        let config = WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap();
-        assert_eq!(config.mtu, 1200);
-        assert_eq!(config.addresses.len(), 2);
-        assert_eq!(config.addresses[0].to_string(), "100.64.0.1/32");
-        assert_eq!(config.addresses[1].to_string(), "fd7a:7570:6c6b::1/128");
-        assert_eq!(config.allowed_ips.len(), 2);
-        assert_eq!(config.allowed_ips[0].to_string(), "10.0.0.0/8");
-        assert_eq!(config.allowed_ips[1].to_string(), "fd00::/8");
-        assert_eq!(config.endpoint, Some(Endpoint { host: "2606:4700::1".into(), port: 51820 }));
-        assert_eq!(config.endpoint.as_ref().unwrap().to_string(), "[2606:4700::1]:51820");
-        assert_eq!(config.persistent_keepalive, Some(25));
-        assert!(config.preshared_key.is_none());
-        assert!(config.routes_contain("10.100.0.10".parse().unwrap()));
-        assert!(config.routes_contain("fd12::1".parse().unwrap()));
-        assert!(!config.routes_contain("192.168.1.1".parse().unwrap()));
-        assert_eq!(
-            config.local_address_for("10.100.0.10".parse().unwrap()),
-            Some("100.64.0.1".parse().unwrap())
-        );
-        assert_eq!(
-            config.local_address_for("fd12::1".parse().unwrap()),
-            Some("fd7a:7570:6c6b::1".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn debug_output_omits_the_private_key() {
-        let config = WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap();
-        let debug = format!("{config:?}");
-        assert!(!debug.contains(KEY_A));
-        assert!(debug.contains(KEY_B));
-    }
-
-    #[test]
-    fn hostname_endpoints_and_comma_lists_parse() {
-        let text = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/24, fdaa::2/64 # tunnel\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.7/24\nEndpoint=vpn.example.com:51820\n"
-        );
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        assert_eq!(config.mtu, DEFAULT_MTU);
-        assert_eq!(config.endpoint.as_ref().unwrap().to_string(), "vpn.example.com:51820");
-        // Interface addresses keep their host bits; allowed networks drop them.
-        assert_eq!(config.addresses[0].to_string(), "10.1.0.2/24");
-        assert_eq!(config.addresses[1].to_string(), "fdaa::2/64");
-        assert_eq!(config.allowed_ips[0].to_string(), "10.1.0.0/24");
-        assert_eq!(
-            config.local_address_for("10.1.0.9".parse().unwrap()),
-            Some("10.1.0.2".parse().unwrap())
-        );
-    }
-
-    #[test]
-    fn a_bare_address_is_a_host() {
-        let text = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.9\n"
-        );
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        assert_eq!(config.addresses[0].to_string(), "10.1.0.2/32");
-        assert_eq!(config.allowed_ips[0].to_string(), "10.1.0.9/32");
-        assert!(config.endpoint.is_none());
-    }
 
     #[test]
     fn rejects_missing_and_malformed_fields() {

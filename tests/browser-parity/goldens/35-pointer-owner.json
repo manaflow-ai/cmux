@@ -1,0 +1,17 @@
+{
+  "oracle": {},
+  "cmux": {
+    "held": true,
+    "bounded": true,
+    "names-holder": true,
+    "released": true
+  },
+  "lease": {
+    "values": {
+      "names-holder": false
+    },
+    "reasons": {
+      "names-holder": "automation-lease.md act rule: the holder session's earlier input took the tab's lease, so another session's input is refused at once with lease_held (\"another agent session holds this tab\") before any pointer wait; the refusal does not name a mouse holder. Intentional cmux-next difference, not a regression."
+    }
+  }
+}

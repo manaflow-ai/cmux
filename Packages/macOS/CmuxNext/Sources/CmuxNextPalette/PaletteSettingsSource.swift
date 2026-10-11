@@ -1,22 +1,16 @@
 
 
-public struct PaletteSettingToggle: Identifiable, Sendable, Hashable {
-    public let id: String
-    public var title: String
-    public var isOn: Bool
-    public var keywords: [String]
-
-    public init(id: String, title: String, isOn: Bool, keywords: [String] = []) {
-        self.id = id
-        self.title = title
-        self.isOn = isOn
-        self.keywords = keywords
-    }
-}
-
+/// Settings for the palette's Settings scope and search. The source owns
+/// the values and the write path; the palette only lists and previews.
+@MainActor
 public protocol PaletteSettingsSource: AnyObject {
-    var toggles: [PaletteSettingToggle] { get }
-    func setToggle(id: String, isOn: Bool)
+    var rows: [PaletteSettingRow] { get }
+    /// Shows `option` live without writing it; nil ends the preview.
+    func preview(row: String, option: String?)
+    /// Writes `option` ("on" or "off" for a toggle).
+    func commit(row: String, option: String)
+    /// Writes typed text (a custom input).
+    func commit(row: String, text: String)
 }
 
 public protocol PaletteRecentDirectorySource: AnyObject {

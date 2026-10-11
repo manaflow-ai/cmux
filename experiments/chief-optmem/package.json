@@ -1,0 +1,33 @@
+{
+  "name": "@cmux/chief-optmem",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "vp check",
+    "check:fix": "vp check --fix",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
+    "test": "vp test run",
+    "typecheck": "vp check --no-fmt --no-lint",
+    "conformance": "python3 conformance/generate.py",
+    "dev": "wrangler dev",
+    "deploy:staging": "wrangler deploy --env staging"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-durable": "1.0.0",
+    "agents": "0.26.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260925.1",
+    "@types/node": "26.6.2",
+    "typescript": "^5.9.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
+    "vite-plus": "1.0.0",
+    "wrangler": "4.139.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
+  }
+}
