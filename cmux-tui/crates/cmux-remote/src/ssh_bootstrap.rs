@@ -359,7 +359,13 @@ impl SshBootstrapper {
                 proxy_pac: self.config.payload_proxy_pac.as_deref(),
             },
         )? {
-            Some(crate::ssh_artifacts::Payload::Bundled(path)) => Some(path),
+            Some(
+                crate::ssh_artifacts::Payload::Bundled(path)
+                | crate::ssh_artifacts::Payload::Client(path),
+            ) => Some(path),
+            Some(crate::ssh_artifacts::Payload::ClientSlice(slice)) => {
+                Some(crate::ssh_artifacts::extract_client_slice(&slice).await?)
+            }
             Some(crate::ssh_artifacts::Payload::Published(published)) => {
                 Some(crate::ssh_artifacts::fetch_published(&published).await?)
             }

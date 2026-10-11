@@ -361,15 +361,24 @@ check_acpmux
 # A client reporting ssh-payload-download fetches the Linux builds itself from
 # the same immutable commit prefix, once per platform into a local cache, and
 # checks them against this manifest, so the app ships only their checksums
-# (about 77 MiB less). The macOS payloads stay bundled: signing changes their
-# bytes, so only the app's copies match the re-pinned manifest.
+# (about 77 MiB less). A client reporting ssh-payload-macos-from-client uploads
+# its own build, or its slice of this universal binary, to a Mac, and downloads
+# only an architecture it lacks against the manifest's published pin, so the
+# macOS payloads (about 77 MiB more) are not bundled either. Without them the
+# signing step re-pins nothing and the published pins stay.
 SSH_ARTIFACT_DIR="$DEST_DIR/cmux-tui-ssh"
 mkdir -p "$SSH_ARTIFACT_DIR"
-SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
-if ! python3 -c 'import json,sys; raise SystemExit(0 if "ssh-payload-download" in json.loads(sys.argv[1]).get("capabilities", []) else 1)' "$PROBE"; then
-  SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl "${SSH_TARGETS[@]}")
+client_reports() {
+  python3 -c 'import json,sys; raise SystemExit(0 if sys.argv[1] in json.loads(sys.argv[2]).get("capabilities", []) else 1)' "$1" "$PROBE"
+}
+SSH_TARGETS=()
+if ! client_reports ssh-payload-macos-from-client; then
+  SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 fi
-for target in "${SSH_TARGETS[@]}"; do
+if ! client_reports ssh-payload-download; then
+  SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"})
+fi
+for target in ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"}; do
   artifact="$(fetch_slice "cmux-tui-$target")"
   install -m 644 "$artifact" "$SSH_ARTIFACT_DIR/cmux-tui-$target"
 done

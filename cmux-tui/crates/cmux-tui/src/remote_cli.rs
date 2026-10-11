@@ -1960,6 +1960,8 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// `ssh-payload-download`: a remote platform's build that the app does not
 /// bundle is downloaded once, checked against the bundled manifest and cached,
 /// so the app's packager may ship only its checksum.
+/// `ssh-payload-macos-from-client`: a Mac host gets this client's own build or
+/// its slice of a universal binary, so the packager may ship no macOS payload.
 pub const PROBE_CAPABILITIES: &[&str] = &[
     "direct-ws-user-agent",
     "wireguard-hub",
@@ -1967,6 +1969,7 @@ pub const PROBE_CAPABILITIES: &[&str] = &[
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
     cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
     "ssh-payload-download",
+    "ssh-payload-macos-from-client",
 ];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
@@ -2983,6 +2986,13 @@ mod tests {
         // The app's packager bundles Linux SSH payloads only for a client
         // without this capability (scripts/install-cmux-tui-client.sh).
         assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-download"));
+    }
+
+    #[test]
+    fn probe_capabilities_include_ssh_payload_macos_from_client() {
+        // The app's packager bundles macOS SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-macos-from-client"));
     }
 
     #[test]
