@@ -602,6 +602,12 @@
       ]
     },
     {
+      "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "daemon-shutdown",
       "streams": [
         "control"

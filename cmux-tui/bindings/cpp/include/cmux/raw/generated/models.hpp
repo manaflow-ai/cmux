@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c5af6f455d6d1e2b58b25ca367c301915a6a1ea7a06a493fcfbafe2e21850065";
+inline constexpr std::string_view kProtocolIrSha256 = "58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -511,6 +511,7 @@ struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
+struct ConversationDraftEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
@@ -1800,6 +1801,13 @@ struct ConversationCreateResult {
     ConversationSummary conversation{};
     bool replayed{};
     friend bool operator==(const ConversationCreateResult&, const ConversationCreateResult&) = default;
+};
+
+struct ConversationDraftEvent {
+    std::string conversation{};
+    JsonValue item{};
+    std::string participant{};
+    friend bool operator==(const ConversationDraftEvent&, const ConversationDraftEvent&) = default;
 };
 
 struct ConversationDraftRequest {
@@ -8121,6 +8129,12 @@ template <>
 struct Codec<ConversationChangedEvent> {
     static Result<Json> encode(const ConversationChangedEvent& value);
     static Result<ConversationChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationDraftEvent> {
+    static Result<Json> encode(const ConversationDraftEvent& value);
+    static Result<ConversationDraftEvent> decode(const Json& value);
 };
 
 template <>
