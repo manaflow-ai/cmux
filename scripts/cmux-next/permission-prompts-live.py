@@ -7,10 +7,10 @@ Launches the tagged app (no activation, automation socket, empty config) and ser
 page (a new port, so a new origin, every run). For each engine:
 
   1. `getCurrentPosition` asks in the page's prompt bar (not a dialog, not a hang);
-     Never allow fails it with PERMISSION_DENIED, and after a reload a second request
+     Block fails it with PERMISSION_DENIED, and after a reload a second request
      fails at once with no prompt: the answer is remembered for the site;
-  2. WebKit: `Notification.requestPermission()` asks in the prompt bar; Allow while
-     visiting grants it, and after a reload it is granted with no prompt. Chromium has
+  2. WebKit: `Notification.requestPermission()` asks in the prompt bar; Allow
+     grants it, and after a reload it is granted with no prompt. Chromium has
      no web notifications (`disable-notifications`: DesktopNotifier owns the app's one
      macOS notification authorization), so the page sees no `Notification`.
 
@@ -161,14 +161,14 @@ def run_engine(engine):
     if not load(engine, url):
         return
 
-    # 1. Location asks in the bar; Never allow is remembered for the site.
+    # 1. Location asks in the bar; Block is remembered for the site.
     check(run(engine, "locate(); true"), f"{engine}: the page requests the location")
     shown = quiet_wait(lambda: permission_prompts("location"), 10)
     check(bool(shown), f"{engine}: a location request asks in the prompt bar ({prompts()}, geo {state('geo')})")
     if shown:
         prompts("deny")
         got = settled("geo")
-        check(got == "error 1", f"{engine}: Never allow fails the request with PERMISSION_DENIED ({got})")
+        check(got == "error 1", f"{engine}: Block fails the request with PERMISSION_DENIED ({got})")
         load(engine, url)
         run(engine, "locate(); true")
         got = settled("geo")
@@ -185,7 +185,7 @@ def run_engine(engine):
         if shown:
             prompts("allow")
             got = settled("notify")
-            check(got == "granted", f"{engine}: Allow while visiting grants notifications ({got})")
+            check(got == "granted", f"{engine}: Allow grants notifications ({got})")
             load(engine, url)
             run(engine, "askNotify(); true")
             got = settled("notify")
