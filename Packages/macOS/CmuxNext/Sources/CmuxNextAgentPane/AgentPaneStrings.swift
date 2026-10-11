@@ -31,6 +31,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
     }
 
+    /// A commit or push of the changes view failed or has no session host.
+    static var gitWriteFailedMessage: String {
+        String(localized: "agentPane.error.gitWrite", defaultValue: "The git command could not be completed.", bundle: .module)
+    }
+
     /// Shell mode's `shell.run` came without a key press or click in the pane.
     static var shellGestureMessage: String {
         String(localized: "agentPane.shell.gestureRequired", defaultValue: "Not run", bundle: .module)

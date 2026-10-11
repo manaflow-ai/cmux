@@ -408,6 +408,11 @@ final class AgentTabStore {
             guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
             return try await link.read(request)
         }
+        // Commits and pushes run on the session's machine; the model refuses a session whose folder is not local.
+        model.onGitWrite = { [weak self] request, cwd in
+            guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
+            return try await link.write(request, in: cwd)
+        }
         wireAgentFolder(model, key: provisional)
     }
 
