@@ -25,11 +25,6 @@ enum WindowHintTargets {
     /// Two letters label 14 * 14 controls; more would need three.
     static let limit = WindowHintKeys.alphabet.count * WindowHintKeys.alphabet.count
 
-    /// How many views and elements the last walk visited (`debug.window_hints`).
-    private(set) static var lastVisitedCount = 0
-    /// What the last walk saw, by "role element? sized?" (`debug.window_hints`).
-    private(set) static var lastRoleCounts: [String: Int] = [:]
-
     /// The window's controls in reading order, clipped to its content.
     static func collect(in content: NSView) -> [Target] {
         guard let window = content.window else { return [] }
@@ -38,7 +33,6 @@ enum WindowHintTargets {
         var seen = Set<[Int]>()
         var stack: [Any] = [content]
         var visited = Set<ObjectIdentifier>()
-        var roleCounts: [String: Int] = [:]
         while let next = stack.popLast(), visited.count < 5000, found.count < limit {
             guard visited.insert(ObjectIdentifier(next as AnyObject)).inserted else { continue }
             if let view = next as? NSView {
@@ -47,14 +41,6 @@ enum WindowHintTargets {
             }
             let element = next as? NSAccessibilityProtocol
             if element?.isAccessibilityHidden() == true { continue }
-            if let element {
-                let frame = element.accessibilityFrame()
-                let key = "\(element.accessibilityRole()?.rawValue ?? "nil") \(element.isAccessibilityElement() ? "el" : "-") "
-                    + (frame.width >= 4 && frame.height >= 4 ? "sized" : "empty")
-                roleCounts[key, default: 0] += 1
-            } else {
-                roleCounts["\(type(of: next)) not-ax", default: 0] += 1
-            }
             // Only controls report enabled; custom rows and tabs leave it unset.
             if let element, element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {
@@ -64,6 +50,18 @@ enum WindowHintTargets {
                     found.append(Target(rect: rect, role: role.rawValue, title: describe(element)))
                 }
             }
+            // A table's rows are private accessibility objects; label the
+            // shown rows from the table itself (the workspace sidebar).
+            if let table = next as? NSTableView {
+                let shown = table.rows(in: table.visibleRect)
+                for row in shown.lowerBound..<shown.upperBound where found.count < limit {
+                    let rect = table.convert(table.rect(ofRow: row), to: nil).intersection(bounds)
+                    let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
+                    guard rect.width >= 4, rect.height >= 4, seen.insert(key).inserted else { continue }
+                    let title = table.rowView(atRow: row, makeIfNecessary: false).map { text(in: $0) } ?? ""
+                    found.append(Target(rect: rect, role: NSAccessibility.Role.row.rawValue, title: title))
+                }
+            }
             // A view's subviews plus its accessibility-only children (SwiftUI
             // elements): a SwiftUI host does not list the AppKit views it
             // embeds. Reversed so the walk pops them in reading order.
@@ -71,9 +69,25 @@ enum WindowHintTargets {
             children += (element?.accessibilityChildren() ?? []).filter { !($0 is NSView) }
             stack.append(contentsOf: children.reversed())
         }
-        lastVisitedCount = visited.count
-        lastRoleCounts = roleCounts
         return found
+    }
+
+    /// The first text shown under `view`: a label's string or an
+    /// accessibility element's title, label or value.
+    private static func text(in view: NSView, depth: Int = 0) -> String {
+        if let field = view as? NSTextField, !field.stringValue.isEmpty { return field.stringValue }
+        let own = describe(view, depth: 3)
+        if !own.isEmpty { return own }
+        guard depth < 8 else { return "" }
+        for child in (view.accessibilityChildren() ?? []).compactMap({ $0 as? NSAccessibilityProtocol }) where !(child is NSView) {
+            let name = describe(child)
+            if !name.isEmpty { return name }
+        }
+        for subview in view.subviews {
+            let shown = text(in: subview, depth: depth + 1)
+            if !shown.isEmpty { return shown }
+        }
+        return ""
     }
 
     /// The element's name: its title, label or value, else the first text
