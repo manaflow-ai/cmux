@@ -13,9 +13,9 @@ mock Keychain and CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY=throwaway (DEBUG builds
 only), so nothing touches a real Keychain item or a real password store.
 
 The person path, with no socket shortcut:
-  1. File > Import Passwords from CSV… through Computer Use (cua-driver
-     invoke_menu, an accessibility press on the tagged app's own menu); the
-     action is person-only, so the socket cannot start it;
+  1. Cmd-Shift-P, "Import Passwords from CSV" and Return through Computer Use
+     (cua-driver: the tagged app frontmost, real key events);
+     the action is person-only, so the socket cannot start it;
   2. the source sheet and the export steps sheet (cmux dialogs, pressed with
      debug.dialog, the same path as a click);
   3. the open panel: Go to Folder (Cmd-Shift-G), the file path, Return, Return
@@ -61,7 +61,6 @@ BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMP
 # nx-remote ends what the job started only on evidence that names the job.
 BASE_ENV.update({k: os.environ[k] for k in ("NX_JOB_ID", "NX_JOB_DIR") if k in os.environ})
 CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
-MENU_PATH = ["File", "Import Passwords from CSV…"]
 failures = []
 report = {"tag": opts.tag, "checks": []}
 
@@ -247,15 +246,43 @@ def pick_in_open_panel(path, before_ids):
     return wid
 
 
+def start_import(mode, wid):
+    """The person's own input starts the import: Cmd-Shift-P (the command palette), the action's
+    title and Return through cua-driver as real key events, with the tagged app frontmost (GUI
+    host only)."""
+    code, fronted = cua("bring_to_front", {"pid": app.pid})
+    steps = {"front": {"exit": code, "reply": structured(fronted)}}
+    # Cmd-Shift-P to the main window; then the title and Return go to the palette's own panel.
+    before = {w["window_id"] for w in windows()}
+    code, sent = cua("hotkey", {"pid": app.pid, "window_id": wid, "delivery_mode": "foreground", "keys": ["cmd", "shift", "p"]})
+    panel = wait_for(lambda: next((w for w in windows() if w["window_id"] not in before), None), f"{mode}: palette panel", 10)
+    fg = {"pid": app.pid, "window_id": panel["window_id"] if panel else wid, "delivery_mode": "foreground"}
+    steps["palette"] = {"exit": code, "reply": structured(sent)}
+    time.sleep(0.5)  # the palette field takes focus (no app-side signal for it)
+    code, typed = cua("type_text", {**fg, "text": "Import Passwords from CSV"})
+    steps["type"] = {"exit": code, "reply": structured(typed)}
+    time.sleep(0.5)  # the palette filters
+    capture(f"palette-{mode}")
+    # The palette panel never becomes "focused" for cua-driver's foreground HID check (it is a
+    # non-activating panel), so Return goes as a background key to the panel, then as a typed
+    # newline if the sheet has not opened.
+    code, pressed = cua("press_key", {"pid": app.pid, "window_id": fg["window_id"], "key": "return"})
+    steps["return"] = {"exit": code, "reply": structured(pressed)}
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and not dialog("cmux.dialog.passwordCSV.source"):
+        time.sleep(0.2)  # bounded wait for the app's own dialog state
+    if not dialog("cmux.dialog.passwordCSV.source"):
+        code, typed = cua("type_text", {**fg, "text": "\n"})
+        steps["newline"] = {"exit": code, "reply": structured(typed)}
+    report[f"{mode}_start"] = steps
+
+
 def import_round(mode, path, source, expect_lines, trash):
     appearance(mode)
     main = main_window()
     if not check(main is not None, f"{mode}: the app has an on-screen window"):
         return
-    code, invoked = cua("invoke_menu", {"pid": app.pid, "window_id": main["window_id"], "path": MENU_PATH})
-    report[f"{mode}_menu"] = {"exit": code, "reply": structured(invoked)}
-    if not check(code == 0, f"{mode}: File > Import Passwords from CSV… through Computer Use (exit {code})"):
-        return
+    start_import(mode, main["window_id"])
     shown = wait_for(lambda: dialog("cmux.dialog.passwordCSV.source"), f"{mode}: source sheet")
     if not shown:
         return
@@ -294,7 +321,9 @@ def import_round(mode, path, source, expect_lines, trash):
 
 teardown = TagTeardown(APP)
 teardown.install()
-app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+# No CMUX_NEXT_NO_ACTIVATE: the import is person-only, so its keys must reach a key window, and
+# that guard gives the keyboard back to the previous app at once. GUI host only, never a laptop.
+app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation",
                                       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
                                       "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
                                       # DEBUG builds: allow the import under Chromium's mock Keychain, throwaway data only.
@@ -314,7 +343,7 @@ try:
                  ["Imported: 1. Not imported: 1 (already saved, repeated, or not a website sign-in).",
                   "Already saved with a different password: 1. cmux kept the saved password."], trash=True)
     focus = rpc("debug.focus")
-    check(not focus.get("app_active"), f"the app never became active: app_active={focus.get('app_active')}")
+    report["focus_end"] = focus
 finally:
     try:
         rpc("debug.quit", {"fixture_quit": "end-sessions"})
