@@ -31,7 +31,7 @@ import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
-import { NewTabScreen } from "./newtab/NewTabScreen";
+import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -1402,6 +1402,20 @@ function AcpmuxPane() {
   const asideAsks = useRef(0);
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
+  const handshakenRef = useRef(false);
+  /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
+  const pendingSubmits = useRef<Array<() => void>>([]);
+  const whenHandshaken = (run: () => void) => {
+    if (handshakenRef.current) run();
+    else pendingSubmits.current.push(run);
+  };
+  /// The New Tab screen's actions with its submits (a prompt, a recent session) held until the
+  /// handshake: the field types from its first render, a chat needs acpmux.
+  const withSubmitAfterHandshake = (actions: NewTabScreenActions): NewTabScreenActions => ({
+    ...actions,
+    onAsk: (...args) => whenHandshaken(() => actions.onAsk(...args)),
+    onOpenSession: (...args) => whenHandshaken(() => actions.onOpenSession(...args)),
+  });
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
@@ -2293,6 +2307,9 @@ function AcpmuxPane() {
             : undefined,
         );
         setHandshaken(true);
+        handshakenRef.current = true;
+        // Submits made on the New Tab page before acpmux answered go now, in order.
+        for (const run of pendingSubmits.current.splice(0)) run();
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
@@ -3517,9 +3534,9 @@ function AcpmuxPane() {
               home={newTab.home}
               tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-              // Typed keys stay in the host's buffer until acpmux answered: a prompt sent before the
-              // handshake would have no client to start its chat.
-              inputToken={handshaken ? newTab.inputToken : undefined}
+              // The field takes keys from its first render (the host's buffer hands them over at
+              // once); only a submit waits for acpmux (`whenHandshaken`).
+              inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
               projects={newTabProjects}
@@ -3531,19 +3548,21 @@ function AcpmuxPane() {
               }
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
-              {...newTabScreenActions({
-                callNative,
-                cwd: newTab.cwd,
-                chatCwd: startFolder,
-                requestFolder,
-                leave: () => setNewTab(undefined),
-                selectSession,
-                showAllChats,
-                runShell: (command, cwd) => {
-                  if (cwd) setProjectDraft(cwd);
-                  shellRuns.start(command, cwd ? { cwd } : {});
-                },
-              })}
+              {...withSubmitAfterHandshake(
+                newTabScreenActions({
+                  callNative,
+                  cwd: newTab.cwd,
+                  chatCwd: startFolder,
+                  requestFolder,
+                  leave: () => setNewTab(undefined),
+                  selectSession,
+                  showAllChats,
+                  runShell: (command, cwd) => {
+                    if (cwd) setProjectDraft(cwd);
+                    shellRuns.start(command, cwd ? { cwd } : {});
+                  },
+                }),
+              )}
             />
           ) : showNewTab ? (
             <NewTabPage
@@ -3557,7 +3576,7 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               chips={ComposerChips}
-              onSubmit={openFromNewTab}
+              onSubmit={(...args: Parameters<typeof openFromNewTab>) => whenHandshaken(() => openFromNewTab(...args))}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
@@ -3571,7 +3590,7 @@ function AcpmuxPane() {
               }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
-              inputToken={handshaken ? newTab.inputToken : undefined}
+              inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
