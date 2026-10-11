@@ -107,6 +107,8 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
+        case "newTab.context":
+            self = .newTabContext
         case "newTab.remember":
             // One input (R86): only the agent pick is remembered.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
