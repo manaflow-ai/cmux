@@ -152,9 +152,7 @@ export function ChatHeaderTools({
                 aria-label={t("header.preview")}
                 aria-pressed={on(HEADER_ACTIONS.preview, mode)}
                 title={
-                  previewUrl
-                    ? t("header.previewAddress", { address: previewAddress(previewUrl) })
-                    : t("header.preview")
+                  previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")
                 }
                 onClick={() => onPreview(previewUrl, mode)}
               >
