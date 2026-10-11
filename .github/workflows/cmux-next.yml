@@ -135,9 +135,6 @@ on:
       - tests/test_next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
-      - tests/test_cmux_next_classic_to_next.py
-      - tests/fixtures/classic-to-next/**
-      - scripts/cmux-next/classic-to-next.py
       - scripts/ci/cmux_next_tree_notify.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
@@ -261,9 +258,6 @@ on:
       - tests/test_next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
-      - tests/test_cmux_next_classic_to_next.py
-      - tests/fixtures/classic-to-next/**
-      - scripts/cmux-next/classic-to-next.py
       - scripts/ci/cmux_next_tree_notify.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
@@ -897,7 +891,6 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
-          python3 tests/test_cmux_next_classic_to_next.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
           bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
