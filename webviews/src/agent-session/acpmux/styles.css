@@ -29,7 +29,7 @@
 .acpmux-composer{position:relative;padding:0 max(16px,calc((100% - 760px)/2)) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge)}
 .acpmux-composer-box button{font:inherit;cursor:pointer}
-.acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--agent-text)}
+.acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 /* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
    and 10px from the box edge, so (48 - 28) / 2 is the same inset on every side. */
@@ -145,7 +145,7 @@
 .acpmux-newtab-box{border-radius:22px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 12px 32px -18px var(--agent-shadow,rgb(0 0 0/.4))}
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
-.acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--agent-text);font:inherit;font-size:15px}
+.acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:15px}
 .acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .acpmux-newtab-switch{flex:none;display:flex;gap:2px;margin:0;min-width:0;border:0;padding:3px;border-radius:15px;background:color-mix(in srgb,var(--agent-text) 6%,var(--acpmux-base))}
 .acpmux-newtab-kind{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
@@ -464,7 +464,7 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-question-row[aria-checked=true] .acpmux-question-mark[data-multi]{border-color:transparent;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent)}
 .acpmux-question-other{align-items:center;background:var(--acpmux-question-highlight)}
 .acpmux-question-other .acpmux-keycap{margin-top:0}
-.acpmux-question-other input{flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--agent-text)}
+.acpmux-question-other input{flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-question-other input::placeholder{color:var(--agent-muted)}
 .acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
 .acpmux-question-preview-label{color:var(--agent-muted);font-size:11px;line-height:16px}

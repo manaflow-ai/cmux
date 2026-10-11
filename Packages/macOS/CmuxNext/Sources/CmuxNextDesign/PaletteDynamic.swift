@@ -30,6 +30,7 @@ enum PaletteDynamic {
     static let glassTint = token(\.glassTint)
     static let shadow = token(\.shadow)
     static let textSelection = token(\.textSelection)
+    static let caret = token(\.caret)
     static let attention = token(\.attention)
     static let danger = token(\.danger)
     static let success = token(\.success)

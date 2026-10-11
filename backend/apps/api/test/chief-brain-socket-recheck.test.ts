@@ -109,4 +109,22 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     expect(sent.ok, JSON.stringify(sent)).not.toBe(true)
     expect(await chiefSaid(t.owner, t.chief.main_conversation, "teamdo-down")).toBe(false)
   })
+
+  it("a placed chief keeps its own conversation reads and its wake queue socket after the inbox refusal (cx-59n8.11, hq-84)", async () => {
+    const c = await placedChief("chief-own-ack")
+    const conversation = c.chief.main_conversation as string
+    expect((await c.ask("own-ack-1")).json.ok).toBe(true)
+    const hist = await call("/v1/read", c.token, { op: "conversation.history", params: { conversation, limit: 5 } })
+    expect(hist.status, JSON.stringify(hist.json)).toBe(200)
+    const msg = (hist.json.value.messages as Array<{ client_msg_id: string; seq: number }>).find((m) => m.client_msg_id === "own-ack-1")
+    expect(msg).toBeDefined()
+    const thread = await call("/v1/read", c.token, { op: "conversation.thread", params: { conversation, root: (msg as unknown as { id: string }).id } })
+    expect(thread.status, JSON.stringify(thread.json)).toBe(200)
+    // Its wake queue socket. (mux.ack admits only principal kind "agent", home-core mux/domain.ts:65,97: an install
+    // token with `agent` is refused before and after the inbox change alike, so ack is not asserted here.)
+    const res = await worker.fetch(`https://api.test/v1/wire/mux/${c.chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${c.token}` } })
+    expect(res.status).toBe(101)
+    res.webSocket!.accept()
+    res.webSocket!.close()
+  })
 })

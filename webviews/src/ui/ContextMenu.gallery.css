@@ -17,6 +17,13 @@
   line-height: var(--text-control--line-height);
 }
 
+.context-menu-gallery-stage--edge {
+  height: 100vh;
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 4px;
+}
+
 .context-menu-gallery-target {
   min-width: 220px;
   min-height: 46px;
