@@ -124,6 +124,13 @@ def windows():
     return len((rpc("debug.windows") or {}).get("windows") or [])
 
 
+def focused_workspace():
+    """The focused workspace's id (the sidebar's selection is its item id)."""
+    snap = rpc("snapshot.get") or {}
+    topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+    return (topology.get("focus") or {}).get("workspace")
+
+
 def focused_tab():
     panes = [p for w in (rpc("debug.surfaces").get("windows") or []) for p in w.get("panes", [])]
     return next((p.get("selected_tab") for p in panes if p.get("focused")), None)
@@ -162,7 +169,7 @@ def main():
 
     rpc("action.run", {"action": "workspace.selectFirst"})
     other = wait(lambda: not selected()[0].startswith("itm_") and focused_tab(), 15)
-    other_workspace = selected()[0]
+    other_workspace = focused_workspace()
     rpc("action.run", {"action": "newSurface"})
     wait(lambda: focused_tab() and focused_tab() != other, 15)
     tab = focused_tab()
@@ -187,18 +194,22 @@ def merges(other):
     Store, a page item, is no workspace to merge from or into."""
     home = home_workspace()
     print("merge workspaces: Home", home, "other", other, flush=True)
-    for check, source, into in [
-        ("Merge Home into another workspace", home, other),
-        ("Merge a workspace into Home", other, home),
-        ("Merge the App Store into a workspace", "itm_app_store", other),
-        ("Merge a workspace into the App Store", other, "itm_app_store"),
+    # Home's merges reach the handler (both ids resolve) and are refused there; the App Store
+    # is no workspace, so the target lookup refuses it.
+    for check, source, into, resolves in [
+        ("Merge Home into another workspace", home, other, True),
+        ("Merge a workspace into Home", other, home, True),
+        ("Merge the App Store into a workspace", "itm_app_store", other, False),
+        ("Merge a workspace into the App Store", other, "itm_app_store", False),
     ]:
         tabs, count = home_tabs(), workspaces()
         reply = merge(source, into)
         after_tabs, after = home_tabs(), workspaces()
-        row(check, "refused; Home keeps its tabs; no workspace closes",
-            f"reply={json.dumps(reply)[:200]} Home tabs {len(tabs)} -> {len(after_tabs)}; workspaces {count} -> {after}",
-            "error" in (reply or {}) and after_tabs == tabs and after == count)
+        error = (reply or {}).get("error")
+        code = error.get("code") if isinstance(error, dict) else None
+        row(check, "refused" + (" by the merge (not a missing workspace)" if resolves else "") + "; Home keeps its tabs; no workspace closes",
+            f"reply={json.dumps(reply)[:220]} Home tabs {len(tabs)} -> {len(after_tabs)}; workspaces {count} -> {after}",
+            bool(error) and (code != "not_found") == resolves and after_tabs == tabs and after == count)
 
 
 main()
