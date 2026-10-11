@@ -56,13 +56,15 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     /// A create command that has time to create a remote session before the
     /// local task is cancelled. The kill path exits immediately so the test
     /// can verify the cancellation cleanup without waiting for the delay.
-    private func makeSlowCreateStub(argvLog: String) throws -> String {
+    private func makeSlowCreateStub(argvLog: String, cleanupMarker: String) throws -> String {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-slow-create-stub-\(UUID().uuidString).sh").path
         try """
         #!/bin/sh
         echo "$@" >> "\(argvLog)"
-        case "$*" in *kill-session*) exit 0 ;; esac
+        case "$*" in
+          *kill-session*) sleep 0.1; echo cleanup-complete >> "\(cleanupMarker)"; exit 0 ;;
+        esac
         echo created-by-cancellation-test
         sleep 5
 
@@ -200,12 +202,15 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             let appDelegate = try #require(AppDelegate.shared)
             let argvLog = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-cancelled-create-argv-\(UUID().uuidString).log").path
-            let stub = try makeSlowCreateStub(argvLog: argvLog)
+            let cleanupMarker = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-cancelled-create-cleanup-\(UUID().uuidString).marker").path
+            let stub = try makeSlowCreateStub(argvLog: argvLog, cleanupMarker: cleanupMarker)
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
             defer {
                 restoreSSH()
                 try? FileManager.default.removeItem(atPath: stub)
                 try? FileManager.default.removeItem(atPath: argvLog)
+                try? FileManager.default.removeItem(atPath: cleanupMarker)
             }
             let controller = RemoteTmuxController()
             let manager = TabManager()
@@ -227,6 +232,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
             #expect(argv.contains("'new-session' '-d' '-s' 'cmux-new-"))
             #expect(argv.contains("'kill-session' '-t' '=cmux-new-"))
+            #expect((try? String(contentsOfFile: cleanupMarker, encoding: .utf8)) == "cleanup-complete\n")
         }
     }
 

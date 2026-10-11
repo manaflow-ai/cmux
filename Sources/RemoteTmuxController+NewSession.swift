@@ -30,6 +30,17 @@ struct RemoteTmuxNewSessionEnvironment {
 }
 
 extension RemoteTmuxController {
+    /// Removes a routed session even when the request task is already cancelled.
+    /// The SSH process must run in an uncancelled task; otherwise the transport's
+    /// cancellation handler terminates the cleanup command before it reaches tmux.
+    private func removeCreatedSession(host: RemoteTmuxHost, name: String) async -> Bool {
+        let cleanupTransport = transport(for: host)
+        return await Task.detached(priority: .utility) {
+            (try? await cleanupTransport
+                .runTmux(["kill-session", "-t", "=\(name)"]))?.succeeded == true
+        }.value
+    }
+
     /// A New Workspace request that goes to a mirror's host instead of creating a local
     /// workspace.
     struct NewSessionRequest {
@@ -113,8 +124,7 @@ extension RemoteTmuxController {
             // leaving an unreported remote orphan behind.
             guard managerIsLive(), requestIsCurrent() else {
                 if result.succeeded, !created.isEmpty {
-                    _ = try? await transport(for: host)
-                        .runTmux(["kill-session", "-t", "=\(created)"])
+                    _ = await removeCreatedSession(host: host, name: created)
                 }
                 return
             }
@@ -130,8 +140,9 @@ extension RemoteTmuxController {
             // The remote command may have created the session before local
             // cancellation terminated ssh. The name is known up front, so a
             // best-effort kill prevents a superseded request from stranding it.
-            _ = try? await transport(for: host)
-                .runTmux(["kill-session", "-t", "=\(requestedName)"])
+            // Run the cleanup outside this cancelled task; otherwise its SSH
+            // process would be terminated before the command reached the host.
+            _ = await removeCreatedSession(host: host, name: requestedName)
             return
         } catch {
             #if DEBUG
@@ -147,8 +158,7 @@ extension RemoteTmuxController {
         // behind with nothing showing it.
         do {
             guard requestIsCurrent() else {
-                _ = try? await transport(for: host)
-                    .runTmux(["kill-session", "-t", "=\(name)"])
+                _ = await removeCreatedSession(host: host, name: name)
                 return
             }
             // The user may have moved on to another tab while the round trip
@@ -175,8 +185,7 @@ extension RemoteTmuxController {
                 // A non-throwing miss means no mirror was admitted for the session
                 // this request just created. Treat it like an attach failure so the
                 // session cannot remain on the host with no cmux workspace showing it.
-                let removed = (try? await transport(for: host)
-                    .runTmux(["kill-session", "-t", "=\(name)"]))?.succeeded == true
+                let removed = await removeCreatedSession(host: host, name: name)
                 guard managerIsLive(), requestIsCurrent() else { return }
                 newSessionEnvironment.reportFailure(
                     host,
@@ -191,8 +200,7 @@ extension RemoteTmuxController {
             cmuxDebugLog("remote-tmux: attaching the new session \(name) failed: \(error)")
             #endif
             // Nobody has attached to it and nothing runs in it but its shell.
-            let removed = (try? await transport(for: host)
-                .runTmux(["kill-session", "-t", "=\(name)"]))?.succeeded == true
+            let removed = await removeCreatedSession(host: host, name: name)
             guard managerIsLive(), requestIsCurrent() else { return }
             newSessionEnvironment.reportFailure(
                 host,
