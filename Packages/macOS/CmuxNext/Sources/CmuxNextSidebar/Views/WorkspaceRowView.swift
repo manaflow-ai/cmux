@@ -285,7 +285,8 @@ final class WorkspaceRowView: SidebarRowView {
         // activity.
         var trailing = b.width - Metrics.space3
         let control = SidebarStyle.controlSize
-        disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder
+        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
+        disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)
         if disclosure != nil {
             disclosureButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1

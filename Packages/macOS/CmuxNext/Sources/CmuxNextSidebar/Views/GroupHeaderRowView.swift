@@ -45,7 +45,7 @@ final class GroupHeaderRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsDisplay = true } } }
-    /// The group editor is open for this group: the chip stays in its hover look.
+    /// The group editor is open for this group.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
     var onMore: (() -> Void)?
     /// Opens the group editor (name and color); VoiceOver's Edit action.
@@ -113,8 +113,10 @@ final class GroupHeaderRowView: SidebarRowView {
         needsDisplay = true
     }
 
+    /// One disclosure convention with workspace rows (cx-fo2t, Finder and
+    /// Edge): open points down, collapsed points right.
     private static func disclosureIcon(collapsed: Bool) -> IconName {
-        collapsed ? .disclosureExpanded : .navPreviousMatch
+        collapsed ? .disclosureCollapsed : .disclosureExpanded
     }
 
     override var debugFill: Bool { super.debugFill || pill.backgroundColor != nil }
@@ -150,11 +152,11 @@ final class GroupHeaderRowView: SidebarRowView {
             pin.contentTintColor = Palette.textTertiary
             chevron.contentTintColor = Palette.textSecondary
             dot.backgroundColor = (tint == .palette(.grey) ? Palette.textTertiary : tint.headerFill).cgColor
-            // Hover and drop fills like a row's, right of the line.
-            pill.backgroundColor = isDropTarget ? Palette.selectionFill.cgColor : isHovered || isEditing ? Palette.hoverFill.cgColor : nil
+            // The header is its dot and label (cx-fo2t): no hover or selection
+            // fill, so it never reads as a workspace row. A drop still shows.
+            pill.backgroundColor = isDropTarget ? Palette.selectionFill.cgColor : nil
             pill.borderWidth = 0
-            // A collapsed group that holds the selected workspace paints the selection fill around its bar.
-            paintFill(isSelected ? Palette.selectionFill : nil)
+            paintFill(nil)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.borderColor = Palette.focusRing.cgColor
@@ -184,8 +186,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let lead = SidebarStyle.groupGutter + SidebarStyle.horizontalInset + SidebarStyle.groupMemberIndent
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
-        let chevronSide = max(Metrics.smallIconSize - Metrics.space1, (barHeight * 0.46).rounded())
-        chevronFrame = CGRect(x: b.width - pad * 0.75 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t).
+        let chevronSide = SidebarStyle.controlSize
+        chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
         // The more button keeps a stable slot left of the chevron.
