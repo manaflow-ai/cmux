@@ -181,9 +181,10 @@ pub fn bind_machine(
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
     }
-    if let Err(e) = record_owner_kind(store) {
-        return BindResult::Retry(format!("vm-kind write: {e}"));
-    }
+    // Best effort: the token is spent, so a retry would be refused and lose
+    // bind.json. The agent writes the kind again (and logs a failure) once
+    // bound and at every restart (role.rs).
+    let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
     BindResult::Bound(Box::new(bound))
 }

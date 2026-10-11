@@ -540,6 +540,9 @@ impl Worker {
         match result {
             BindResult::Bound(bound) => {
                 self.bind_backoff.reset();
+                if let Err(e) = super::client::record_owner_kind(&mut self.store) {
+                    log(&format!("vm-kind write: {e}"));
+                }
                 self.start_live(*bound, key, http, daemon);
             }
             BindResult::Retry(_) => {

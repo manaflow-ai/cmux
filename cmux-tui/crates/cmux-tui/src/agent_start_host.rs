@@ -7,14 +7,16 @@
 //! (/var/lib/cmux is 0700 root), so cmux-host records the kind where any
 //! user can read it: `/etc/cmux/vm-kind` (cmux-host cloud/wire.rs
 //! `VM_KIND_FILE`), `owner` from a machine bind, `team` from a team enroll,
-//! root-owned. A record counts only when root owns it and it is not a
-//! symlink, so a user cannot plant one.
+//! root-owned. A record counts only when it and every folder above it are
+//! owned by root, not writable by group or others, and not symlinks, and the
+//! open file (O_NOFOLLOW) passes the same check, so a user cannot plant or
+//! swap one.
 //!
+//! - team VM (checked first, on any machine): kind `team`, or the baked team
+//!   files root `/srv/team` (a directory owned by root, group `cmux-ssh`).
 //! - Cloud VM: the root-owned Cloud image stamp (the `fs-v1` check,
 //!   link/cloud_fs.rs), the root-owned bake instance id, or `CMUX_VM_ID` in
 //!   the environment.
-//! - team VM: kind `team`, or the baked team files root `/srv/team` (a
-//!   directory owned by root, group `cmux-ssh`).
 //! - owner VM: a Cloud VM with kind `owner` and no team marker.
 //! - Any other Cloud VM (no record, an unreadable one, another value) is of
 //!   unknown kind and refused (fail closed). Anything that is not a Cloud VM
@@ -57,34 +59,61 @@ pub(crate) fn source() -> AgentStartHostSource {
 }
 
 fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
-    let root_owned = |path: &str, dir: bool| {
-        std::fs::symlink_metadata(Path::new(path)).is_ok_and(|meta| {
-            let kind_ok = if dir { meta.is_dir() } else { meta.file_type().is_file() };
-            kind_ok && meta.uid() == 0
-        })
-    };
-    let cloud = crate::link::cloud_fs::trusted_cloud_stamp()
-        || root_owned(BAKE_INSTANCE_FILE, false)
-        || vm_id;
-    if !cloud {
-        return AgentStartHost::Allowed;
-    }
+    // Team markers first: a team VM is refused whatever else this machine
+    // shows (also with no Cloud marker at all).
     let team_files = team_gid.is_some_and(|gid| {
-        root_owned(TEAM_FILES_ROOT, true)
-            && std::fs::symlink_metadata(TEAM_FILES_ROOT).is_ok_and(|meta| meta.gid() == gid)
+        trusted(TEAM_FILES_ROOT, true).is_some_and(|meta| meta.gid() == gid)
     });
-    let kind = root_owned(VM_KIND_FILE, false).then(read_kind).flatten();
-    match kind.as_deref() {
-        _ if team_files => AgentStartHost::TeamVm,
-        Some("team") => AgentStartHost::TeamVm,
-        Some("owner") => AgentStartHost::Allowed,
-        _ => AgentStartHost::UnknownCloud,
+    let kind = read_kind();
+    if team_files || kind.as_deref() == Some("team") {
+        return AgentStartHost::TeamVm;
+    }
+    let cloud = crate::link::cloud_fs::trusted_cloud_stamp()
+        || trusted(BAKE_INSTANCE_FILE, false).is_some()
+        || vm_id;
+    match (cloud, kind.as_deref()) {
+        (false, _) => AgentStartHost::Allowed,
+        (true, Some("owner")) => AgentStartHost::Allowed,
+        (true, _) => AgentStartHost::UnknownCloud,
     }
 }
 
-/// The recorded kind, trimmed; at most 64 bytes read.
+/// The metadata of `path` when it and every folder above it are owned by
+/// root, not writable by group or others, and not symlinks (a user cannot
+/// plant or swap it); `dir` says which kind `path` must be.
+fn trusted(path: &str, dir: bool) -> Option<std::fs::Metadata> {
+    let path = Path::new(path);
+    let mut current = Some(path);
+    let mut leaf = None;
+    while let Some(at) = current {
+        let meta = std::fs::symlink_metadata(at).ok()?;
+        let kind_ok = if at == path && !dir { meta.file_type().is_file() } else { meta.is_dir() };
+        if !kind_ok || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+            return None;
+        }
+        if leaf.is_none() {
+            leaf = Some(meta);
+        }
+        current = at.parent();
+    }
+    leaf
+}
+
+/// The recorded kind, trimmed (at most 64 bytes), when the record is
+/// trusted. Opened without following a symlink and checked again on the
+/// open file, so a swap between the checks is refused.
 fn read_kind() -> Option<String> {
-    let file = std::fs::File::open(VM_KIND_FILE).ok()?;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    trusted(VM_KIND_FILE, false)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(VM_KIND_FILE)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.file_type().is_file() || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        return None;
+    }
     let mut text = String::new();
     file.take(64).read_to_string(&mut text).ok()?;
     Some(text.trim().to_owned())

@@ -259,9 +259,14 @@ fn start_and_bind(
     params: &StartParams,
 ) -> Result<Value, Refusal> {
     let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
-    if let Some(harness) = &params.harness
-        && refused_family(&table, harness)
-    {
+    // The family the start resolves to, from acpmux's own catalog, before
+    // any agent process exists: a Codex alias or a default harness of a
+    // refused family never starts.
+    let catalog = link
+        .call("_acpmux/harnesses", json!({"cwd": params.cwd}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
+    let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    if refused_family(&table, &family) {
         return Err(Refusal::NotAsking);
     }
     // The folder must be trusted before an agent starts there (an agent can
@@ -322,6 +327,27 @@ fn folder_trusted(trust: &Value, family: Option<&str>) -> bool {
         }
     };
     level == Some("trusted")
+}
+
+/// The family `harness` (else the default harness) resolves to in acpmux's
+/// catalog (`_acpmux/harnesses`): a family name is its own family, a
+/// harness its profile's family. None for a name the catalog does not know
+/// (a folder profile, which a remote start never uses, or a typo).
+fn catalog_family(catalog: &Value, harness: Option<&str>) -> Option<String> {
+    let head = match harness {
+        Some(harness) => harness.to_owned(),
+        None => catalog.get("defaultHarness").and_then(Value::as_str)?.to_owned(),
+    };
+    if catalog.get("families").and_then(Value::as_object).is_some_and(|f| f.contains_key(&head)) {
+        return Some(head);
+    }
+    catalog
+        .get("harnesses")
+        .and_then(|harnesses| harnesses.get(&head))
+        .and_then(|profile| profile.get("family"))
+        .and_then(Value::as_str)
+        .filter(|family| !family.is_empty())
+        .map(str::to_owned)
 }
 
 fn refused_family(table: &Value, family: &str) -> bool {
