@@ -731,7 +731,7 @@ jobs:
           retention-days: 1
 
   checks:
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ inputs.dev_daily != true && (!((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')))) }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -1100,7 +1100,7 @@ jobs:
   # restore them by the same key instead of running bun and Vite+ themselves; a push to
   # feat-cmux-next fills the cache every pull request can read.
   web-bundles:
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ inputs.dev_daily != true && (!((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')))) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -2142,6 +2142,18 @@ jobs:
       # published tree when its own is not ready (path routing's probe).
       CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
     steps:
+      # A dev_daily run (direct or same-tree) builds only the SHA the
+      # dispatcher asked for. A merge that moved feat-cmux-next first must
+      # fail here: an empty success would read as that tip being published.
+      - name: Require the requested DEV daily commit
+        if: inputs.dev_daily == true
+        env:
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+        run: |
+          [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+            echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+            exit 1
+          }
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2375,7 +2387,7 @@ jobs:
     needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
-    if: ${{ failure() && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next push attribution
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 10
