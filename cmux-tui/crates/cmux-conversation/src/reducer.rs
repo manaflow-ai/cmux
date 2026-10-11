@@ -319,9 +319,8 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             // not keeps its cursor, so a message it never read (an agent's
             // unhandled turn) stays unread. The change stays `message`;
             // clients read the cursor from the head (corpus notes, cx-59n8.4).
-            let cursor = next.read_cursors.entry(request.actor.to_string()).or_insert(0);
-            if *cursor >= head.last_seq {
-                *cursor = next.last_seq;
+            if head.read_cursors.get(request.actor).copied().unwrap_or(0) >= head.last_seq {
+                next.read_cursors.insert(request.actor.to_string(), next.last_seq);
             }
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
