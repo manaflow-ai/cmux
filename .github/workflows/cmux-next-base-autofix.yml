@@ -129,6 +129,8 @@ jobs:
       contents: read
     outputs:
       exports: ${{ steps.regenerate.outputs.exports }}
+      # The exports on this tree are current: regenerated, or already fresh.
+      verified: ${{ steps.regenerate.outcome == 'success' }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -333,6 +335,8 @@ jobs:
           SDK: ${{ steps.areas.outputs.sdk }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
+          ACTIONS: ${{ steps.areas.outputs.actions }}
+          EXPORTS_VERIFIED: ${{ needs.action-exports.outputs.verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           FMT: ${{ steps.areas.outputs.fmt }}
@@ -349,6 +353,9 @@ jobs:
           [[ "$SDK" == true ]] && args+=(--sdk)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
           [[ "$APPHOST" == true ]] && args+=(--app-host)
+          # Dependency order: the shortcuts and app-host files follow the action
+          # exports, so they wait while the exports' inputs changed unverified.
+          [[ "$ACTIONS" == true && "$EXPORTS_VERIFIED" != true ]] && args+=(--unverified-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           patch="$RUNNER_TEMP/webviews-fmt/webviews-fmt.patch"
