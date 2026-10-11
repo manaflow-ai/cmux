@@ -1,0 +1,140 @@
+# Terminal shortcuts: shipping cmux, Ghostty and cmux-next
+
+Status: audit and fixes 2026-10-11 (bd cx-442, K1). Rule: cmux-next matches the shipping cmux
+(manaflow-ai/cmux `main`, `Sources/`) where it has the shortcut, else Ghostty's macOS default.
+The user's Ghostty config wins over both (docs/ghostty-keybindings.md "Precedence and focus").
+A cmux feature that a Ghostty `keybind` line already gives is not added.
+
+Sources read: shipping cmux `main` 46c8146e (`KeyboardShortcutSettings.swift`,
+`AppDelegate.swift`, `GhosttyTerminalView.swift`, `GhosttyApp+KeybindOverrides.swift`);
+Ghostty `src/config/Config.zig` `Keybinds.init` at the submodule commit 7e880f6 (the older
+ghostty-next and ghostty-sync checkouts have the same macOS defaults); cmux-next
+`feat-cmux-next` b6e4b1d4d66a (the action catalogs, `KeyBindingDefaults`, `KeyRouter`,
+`TerminalKeyEquivalent`, `GhosttyRuntime+Keybinds`, `TerminalHostActionRoute`).
+
+How a key reaches a cmux-next terminal: the key router decides Cmd and Ctrl chords against
+the binding table (user cmux.json > user Ghostty keybinds > cmux defaults > Ghostty
+defaults); a key it does not run goes to the terminal view, where Ghostty's own keybinds
+(with `performable:` and `unconsumed:`) act and every other key is encoded for the program.
+Keys without Cmd or Ctrl (Option-arrows, Shift-arrows, Shift-Return) never reach the table.
+
+Legend: "Ghostty" = the key reaches the terminal and Ghostty's keybind acts. "program" = the
+terminal program gets the encoded key. FIXED = changed by this audit.
+
+## Clipboard and selection
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| Copy | Cmd-C (Edit > Copy, the user's Ghostty copy action; no selection on the alternate screen: Cmd-C goes to the program) | Cmd-C `performable:copy_to_clipboard` | Cmd-C `terminalCopy`. Before: with nothing selected it refused and ate the key | FIXED: with nothing selected Copy is disabled, so Cmd-C reaches the terminal and Ghostty's performable copy passes it to the program (TUIs copy their own selection) |
+| Paste | Cmd-V | Cmd-V `performable:paste_from_clipboard` | Cmd-V `terminalPaste` | match |
+| Paste selection | Cmd-Shift-V (Ghostty) | Cmd-Shift-V `paste_from_selection` | Ghostty | match |
+| Select all | Cmd-A (Ghostty) | Cmd-A `select_all` | Edit > Select All -> Ghostty `select_all` | match |
+| Extend selection | Shift-arrows, Shift-PageUp/Down/Home/End (Ghostty) | `adjust_selection` | Ghostty | match |
+| Copy mode | Cmd-Shift-M | none | Cmd-Shift-M `toggleTerminalCopyMode` | match |
+
+## Clear and font size
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| Clear screen and scrollback | Cmd-K (Ghostty `clear_screen`) | Cmd-K `performable:clear_screen` | Cmd-K `terminal.clear` (daemon clear-history, 8251d62d6a8e, 4b5d8e0886f5) | match |
+| Clear screen, keep scrollback | Cmd-Shift-K | none | Cmd-Shift-K `clearScreenKeepScrollback` | match |
+| Font size, this terminal | Cmd-= / Cmd-+ / Cmd-- / Cmd-0 (Ghostty) | `increase_font_size:1`, `decrease_font_size:1`, `reset_font_size` | `terminal.increaseFontSize` etc. run the same Ghostty actions; the workspace-wide actions on the same keys yield in a terminal | match |
+| Font size, whole workspace | Ctrl-Cmd-= / Ctrl-Cmd-- / Ctrl-Cmd-0 | none | Cmd-= / Cmd-- / Cmd-0 outside a terminal; Ctrl-Cmd-=/-/0 is UI scale | differs by an earlier cmux-next decision (UI scale); see Decisions |
+
+## Splits and panes
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| Split right / down | Cmd-D / Cmd-Shift-D | `new_split:right` / `new_split:down` | Cmd-D `splitRight` / Cmd-Shift-D `splitDown` | match |
+| Focus pane in a direction | Cmd-Opt-arrows | Cmd-Opt-arrows `goto_split` | Cmd-Opt-arrows `focusLeft` etc. (also Ctrl-Cmd-H/J/K/L) | match |
+| Focus previous / next pane | none (Cmd-[ / Cmd-] are focus history) | Cmd-[ / Cmd-] `goto_split:previous/next` | Cmd-[ / Cmd-] Ghostty (in a browser: Back / Forward); focus history is Ctrl-- / Ctrl-Shift-- | differs by an earlier cmux-next decision; see Decisions |
+| Focus pane N | Ctrl-Cmd-1...9 | none | Ctrl-Cmd-1...9 `focusPaneByNumber` | match |
+| Resize pane | Ctrl-Shift-H/J/K/L; Ctrl-Cmd-arrows (Ghostty) | Ctrl-Cmd-arrows `resize_split` | both, `resizePane*` | match |
+| Zoom pane | Cmd-Shift-Return | Cmd-Shift-Return `toggle_split_zoom` | Cmd-Shift-Return `toggleSplitZoom` | match |
+| Equalize | Ctrl-Shift-Cmd-= | Ctrl-Cmd-= `equalize_splits` | Ctrl-Shift-Cmd-= `equalizeSplits` | match |
+| New pane, auto layout | Ctrl-Cmd-N | none | Ctrl-Cmd-N `newPaneAutoLayout` | match |
+
+## Tabs, workspaces and windows
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| New tab | Cmd-T | Cmd-T `new_tab` | Cmd-T `newTab.default` | match |
+| Close tab | Cmd-W | Cmd-W `close_surface` | Cmd-W `closeTab` | match |
+| Close other tabs in pane | Cmd-Opt-T | none | Cmd-Opt-T `closeOtherTabsInPane` | match |
+| Cmd-Opt-W | nothing (Ghostty `close_tab:this` unbound) | `close_tab:this` | Before: Ghostty `close_tab:this` closed the tab | FIXED: unbound in cmux's Ghostty defaults; the key goes to the program |
+| Cmd-Opt-Shift-W | nothing (Ghostty `close_all_windows` unbound) | `close_all_windows` | Before: Ghostty closed every window | FIXED: unbound in cmux's Ghostty defaults |
+| Next / previous tab | Cmd-Shift-] / [; Ctrl-Tab / Ctrl-Shift-Tab | Cmd-Shift-] / [, Ctrl-Tab / Ctrl-Shift-Tab `next_tab` / `previous_tab` | Cmd-Shift-] / [ `navigate.next` / `previous`; Ctrl-Tab in a terminal is Ghostty `next_tab`, routed to `navigate.next` (K-T1) | match |
+| Tab N | Ctrl-1...9 (9 = last) | none | Ctrl-1...9 `selectSurfaceByNumber` | match |
+| Workspace N | Cmd-1...9 | Cmd-1...8 `goto_tab`, Cmd-9 `last_tab` | Cmd-1...9 `selectWorkspaceByNumber` | match |
+| Move tab | Cmd-Opt-Shift-[ / ]; Cmd-Opt-Shift-arrows; Ctrl-Shift-Cmd-[ / ] | none on macOS | the same keys, `moveSurface*` | match |
+| Next / previous workspace | Ctrl-Cmd-] / [ | none | Ctrl-Cmd-] / [ `nextSidebarTab` / `prevSidebarTab` | match |
+| New workspace / window | Cmd-N / Cmd-Shift-N | Cmd-N `new_window` | Cmd-N `newTab` / Cmd-Shift-N `newWindow` | match |
+| Close workspace | Cmd-Shift-W | Cmd-Shift-W `close_window` | Cmd-Shift-W `closeWorkspace` | match |
+| Rename tab / workspace | Cmd-R / Cmd-Shift-R | none | Cmd-R `renameTab` / Cmd-Shift-R `renameWorkspace` | match |
+| Reopen closed | Cmd-Shift-T | Cmd-Shift-T `undo` | Cmd-Shift-T `reopenClosedBrowserPanel` | match |
+| Full screen | Ctrl-Cmd-F (Ghostty Cmd-Return unbound) | Cmd-Return and Ctrl-Cmd-F `toggle_fullscreen` | Ctrl-Cmd-F `toggleFullScreen`. Before: Cmd-Return in a terminal toggled full screen (Ghostty) and the checklist default had Cmd-Return everywhere | FIXED: Ghostty `super+enter` unbound in cmux's defaults and `toggleChecklistItemComplete` yields in a terminal, so Cmd-Return reaches the program |
+| Command palette | Cmd-Shift-P | Cmd-Shift-P `toggle_command_palette` | Cmd-Shift-P `commandPalette` | match |
+| Settings / reload config | Cmd-, / Cmd-Shift-, | `open_config` / `reload_config` | Cmd-, `openSettings` / Cmd-Shift-, `reloadConfiguration` | match |
+| Quit | Cmd-Q | Cmd-Q `quit` | Cmd-Q `quit` | match |
+
+## Scrollback, prompts and line editing
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| Previous / next prompt | Cmd-Up / Cmd-Down (Ghostty) | Cmd-Up / Cmd-Down and Cmd-Shift-Up / Down `jump_to_prompt` | Ghostty | match |
+| Previous / next agent turn | Cmd-Shift-Up / Down when the agent-turn rail shows | none | Ghostty `jump_to_prompt` (cmux-next has no terminal agent-turn rail) | match while there is no rail |
+| Scroll to top / bottom | Cmd-Home / Cmd-End (Ghostty) | `scroll_to_top` / `scroll_to_bottom` | Ghostty | match |
+| Page up / down | Cmd-PageUp / Cmd-PageDown (Ghostty) | `scroll_page_up` / `scroll_page_down` | Ghostty | match |
+| Scroll to selection | none (Cmd-J is Click by Hint) | Cmd-J `scroll_to_selection` | Cmd-J J `terminal.scrollToSelection` (Cmd-J is the leader; `super+j` unbound) | differs by an earlier cmux-next decision (leader key) |
+| Line start / end | Cmd-Left / Cmd-Right (Ghostty) | `text:\x01` / `text:\x05` | Ghostty | match |
+| Delete to line start | Cmd-Backspace (Ghostty) | `text:\x15` | Ghostty | match |
+| Word left / right | Opt-Left / Opt-Right (Ghostty) | `esc:b` / `esc:f` | Ghostty | match |
+| Text editing gestures (Cmd-Delete, Opt-Backspace, Ctrl-arrows) | opt-in setting `terminal.textEditingGestures`, off by default | none | none | not ported: a Ghostty `keybind` line (`super+delete=text:\x0b`, `alt+backspace=text:\x17`) gives each one |
+| Option as Meta | Ghostty `macos-option-as-alt` (unset: Alt on U.S. layouts, dead keys elsewhere) | same | Ghostty `macos-option-as-alt` through `ghostty_surface_key_translation_mods` | match; no cmux setting (Ghostty config provides it) |
+| Ctrl-/ and Ctrl-Return | Ctrl-/ sent as Ctrl-_; Ctrl-Return to the terminal | none | the same (`TerminalKeyEquivalent`) | match |
+| Undo / redo | Cmd-Z / Cmd-Shift-Z go to the program (Ghostty undo unsupported) | Cmd-Z `performable:undo`, Cmd-Shift-Z `performable:redo` | Ghostty `undo` routes to `history.reopen` (reopens the last closed item when there is one); redo unrouted | differs by an earlier cmux-next decision; see Decisions |
+
+## Find
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| Find | Cmd-F (cmux find bar over Ghostty search) | Cmd-F `start_search` | Cmd-F `find` | match |
+| Find next | Cmd-G | Cmd-G `navigate_search:next` | Cmd-G `findNext` | match |
+| Find previous | Cmd-Opt-G (Cmd-Shift-G was Group Workspaces) | Cmd-Shift-G `navigate_search:previous` | Cmd-Opt-G `findPrevious`; Cmd-Shift-G in a terminal is Ghostty's (decision K1 follow-up) | match |
+| Use selection for find | Cmd-E | Cmd-E `search_selection` | Cmd-E `useSelectionForFind` | match |
+| Hide find | Cmd-Opt-Shift-F; Escape | Escape `end_search` | Cmd-Opt-Shift-F `hideFind`; Escape in the find bar | match |
+| Find in directory | Cmd-Shift-F | Cmd-Shift-F `end_search` | Cmd-Shift-F `findInDirectory` | match |
+
+## Inspector and screen file
+
+| Action | Shipping cmux | Ghostty default | cmux-next | State |
+| --- | --- | --- | --- | --- |
+| Terminal inspector | Cmd-Opt-I passes to Ghostty, which does nothing (unsupported) | Cmd-Opt-I `inspector:toggle` | Ghostty `inspector` unrouted (does nothing); Cmd-Opt-I is DevTools in a browser | match |
+| Write screen to file | Ghostty | Cmd-Shift-J, Ctrl-Shift-Cmd-J, Cmd-Opt-Shift-J `write_screen_file` | Ghostty | match |
+
+## Fixes in this landing
+
+1. `GhosttyRuntime.cmuxDefaultKeybindLines` unbinds `super+enter`, `super+alt+w` and
+   `super+alt+shift+w` before the user's files load, as the shipping cmux does
+   (`GhosttyApp+KeybindOverrides.swift`). A user's own `keybind` line for one of those keys
+   still wins. The keys are no longer Ghostty fallback entries in the binding table either.
+2. `toggleChecklistItemComplete` (Cmd-Return) is in `KeyBindingDefaults.yieldsToTerminal`.
+3. `terminalCopy` is disabled while the focused terminal has no selection
+   (`TerminalHandlers.focusedTerminalHasSelection`), so Cmd-C goes to the terminal and
+   Ghostty's `performable:` copy keybind passes it to the program. Limit: a CLI `terminal copy`
+   that targets another tab is refused while the focused terminal has no selection.
+
+Proof: `scripts/cmux-next/terminal-keys-e2e.py` on a tagged app on cmux-lawrence-2
+(`debug.key` through the key router, the window, the menu and the terminal view). It checks
+the fixed keys (Cmd-Return, Cmd-Opt-W, Cmd-Opt-Shift-W, Cmd-C with and without a selection)
+and prints an OWNER line for every other terminal key above.
+
+## Decisions (earlier cmux-next choices that differ from the shipping cmux; not changed here)
+
+- Cmd-[ / Cmd-]: the shipping cmux runs focus history in a terminal; cmux-next gives them to
+  Ghostty's `goto_split:previous/next` and moved focus history to Ctrl-- / Ctrl-Shift--.
+- Workspace-wide terminal font size: the shipping cmux uses Ctrl-Cmd-=/-/0; cmux-next uses
+  Cmd-=/-/0 outside a terminal and gives Ctrl-Cmd-=/-/0 to UI scale.
+- Cmd-Z in a terminal: the shipping cmux sends it to the program; cmux-next routes Ghostty's
+  `performable:undo` to Reopen Last Closed Item.
+- Cmd-J: Click by Hint in the shipping cmux; the leader key in cmux-next.
