@@ -1,13 +1,15 @@
 // The chat branch's pull request in the header (cx-tcwj, Codex desktop's PR chip): its number, a
 // dot for its checks, and a name that says both. A click opens its status (cx-ncc.77.1): the title,
 // linking the pull request, its state and review, and each check, failing first, linking its run.
-// The App pushes it with the header state, again while checks run and when a turn ends.
+// The App pushes it with the header state, again while checks run and when a turn ends. A green
+// one offers Merge (PullRequestMerge.tsx, cx-ncc.77.4).
 import { useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
+import { PullRequestMerge, type MergeResult, type Merging } from "./PullRequestMerge";
 
 const STATES: Record<string, StringKey> = {
   open: "header.prState.open",
@@ -27,9 +29,19 @@ const REVIEWS: Record<string, StringKey> = {
   review_required: "header.prReview.required",
 };
 
-export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullRequest }) {
+export function PullRequestChip({
+  pullRequest,
+  onMerge,
+}: {
+  pullRequest: HeaderPullRequest;
+  /// Merge (PullRequestMerge.tsx); absent where the chat can't merge from here.
+  onMerge?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Where Merge stands for this pull request, kept here: the popover's content unmounts on close.
+  const [merge, setMerge] = useState<{ url: string; merging: Merging }>();
+  const merging = merge?.url === pullRequest.url ? merge.merging : { step: "idle" as const };
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
@@ -100,6 +112,14 @@ export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullReques
               </li>
             ))}
           </ul>
+        )}
+        {onMerge && (
+          <PullRequestMerge
+            pullRequest={pullRequest}
+            merging={merging}
+            setMerging={(next) => setMerge({ url: pullRequest.url, merging: next })}
+            merge={onMerge}
+          />
         )}
       </Popover>
     </>
