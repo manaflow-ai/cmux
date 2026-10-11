@@ -43,6 +43,7 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
   const ANCHORED = "position:absolute;left:0px;top:-260px;right:auto;bottom:auto;visibility:visible";
   const row = (label: string) =>
     `<div class="acpmux-menu-item"><span class="acpmux-menu-text"><span class="acpmux-menu-label">${label}</span></span></div>`;
+  const modelRow = (label: string) => `<button class="acpmux-mp-row">${label}</button>`;
   const PAGE = `<!doctype html><html><head><style>
 :root{--agent-text:rgb(205,214,244);--agent-accent-text:rgb(30,30,46);--agent-page-bg:rgb(30,30,46);--agent-muted:rgb(166,173,200)}
 ${css}
@@ -50,8 +51,18 @@ ${css}
 <div class="acpmux-shell"><div class="acpmux-composer" style="margin-top:320px">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
-    <div class="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-cascade" style="${ANCHORED}">
-      <div class="acpmux-menu-search">Type to search models</div>${row("Codex")}${row("GPT-5.6-Sol")}${row("GPT-6-Astra")}
+    <div class="ui-popup ui-picker-popup acpmux-mp" style="${ANCHORED}">
+      <div class="acpmux-mp-rail">
+        <div class="acpmux-mp-rail-list">
+          <button class="acpmux-mp-rail-item">Claude Code</button>
+          <button class="acpmux-mp-rail-item">Codex</button>
+          <button class="acpmux-mp-rail-item">Folder</button>
+        </div>
+      </div>
+      <div class="acpmux-mp-content">
+        <div class="acpmux-mp-search">Type to search models</div>
+        <div class="acpmux-mp-models">${modelRow("GPT-5.6-Sol")}${modelRow("GPT-6-Astra")}</div>
+      </div>
     </div>
   </span>
 </div></div>
@@ -91,7 +102,28 @@ ${css}
 
       test("in a 200px pane the Model menu still fits inside the pane's margins", async () => {
         const page = await open(200);
-        expect((await box(page, ".acpmux-model .acpmux-mp")).width).toBeLessThanOrEqual(200 - 16);
+        const menu = await box(page, ".acpmux-model .acpmux-mp");
+        expect(menu.width).toBeLessThanOrEqual(200 - 16);
+        const geometry = await page.$eval(".acpmux-model .acpmux-mp", (node) => {
+          const menu = node as HTMLElement;
+          const rail = menu.querySelector<HTMLElement>(".acpmux-mp-rail")!;
+          const railList = menu.querySelector<HTMLElement>(".acpmux-mp-rail-list")!;
+          const content = menu.querySelector<HTMLElement>(".acpmux-mp-content")!;
+          return {
+            menuScrollWidth: menu.scrollWidth,
+            menuClientWidth: menu.clientWidth,
+            railWidth: rail.getBoundingClientRect().width,
+            contentWidth: content.getBoundingClientRect().width,
+            railDirection: getComputedStyle(railList).flexDirection,
+            railScrollWidth: railList.scrollWidth,
+            railClientWidth: railList.clientWidth,
+          };
+        });
+        expect(geometry.menuScrollWidth).toBeLessThanOrEqual(geometry.menuClientWidth);
+        expect(geometry.railDirection).toBe("row");
+        expect(geometry.railWidth).toBeLessThanOrEqual(menu.width);
+        expect(geometry.contentWidth).toBeGreaterThan(0);
+        expect(geometry.railScrollWidth).toBeGreaterThanOrEqual(geometry.railClientWidth);
         await page.close();
       });
 

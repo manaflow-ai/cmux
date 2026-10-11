@@ -570,8 +570,11 @@ export function ModelPicker(props: ModelPickerProps) {
           style={menuStyle}
         >
           {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
-          <ScrollArea className="w-11 flex-none border-r-[0.5px] border-edge">
-            <PickerOptionList className="flex flex-col items-center gap-1 py-1.5" aria-label={harnessText}>
+          <ScrollArea className="acpmux-mp-rail w-11 flex-none border-r-[0.5px] border-edge" horizontal>
+            <PickerOptionList
+              className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
+              aria-label={harnessText}
+            >
               <PickerOption
                 type="button"
                 className={railTab}
@@ -661,7 +664,7 @@ export function ModelPicker(props: ModelPickerProps) {
               )}
             </PickerOptionList>
           </ScrollArea>
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput
