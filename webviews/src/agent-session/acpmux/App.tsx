@@ -276,12 +276,12 @@ export async function saveLogNatively(text: string, suggestedName: string): Prom
   }
 }
 
-/** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, reads as cancelled. */
+/** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
   try {
     return (await callNative<boolean>("pane.saveFile", { text, suggestedName, kind })) === true ? "saved" : "cancelled";
   } catch {
-    return "cancelled";
+    return "unavailable";
   }
 };
 

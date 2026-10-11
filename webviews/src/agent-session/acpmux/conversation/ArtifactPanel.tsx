@@ -14,9 +14,14 @@ import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./Rende
 
 export { OpenPreview } from "./OpenPreview";
 
-/// Saves a document through the host's save panel (`pane.saveFile`): "saved", or "cancelled" when the
-/// user dismissed the panel or the host could not save.
-export type SaveDocument = (text: string, suggestedName: string, kind: ArtifactKind) => Promise<"saved" | "cancelled">;
+/// Saves a document through the host's save panel (`pane.saveFile`): "saved", "cancelled" when the user
+/// dismissed the panel (or one is already up), "unavailable" when no host could write it; the panel
+/// then copies the document instead, as the inspector's Export does.
+export type SaveDocument = (
+  text: string,
+  suggestedName: string,
+  kind: ArtifactKind,
+) => Promise<"saved" | "cancelled" | "unavailable">;
 
 export function ArtifactPanel({
   artifact,
@@ -87,9 +92,10 @@ export function ArtifactPanel({
               aria-label={saved ? t("artifact.saved") : t("artifact.save")}
               title={saved ? t("artifact.saved") : t("artifact.save")}
               onClick={() =>
-                void onSave(artifact.code, documentName(artifact), artifact.kind).then((outcome) =>
-                  setSaved(outcome === "saved"),
-                )
+                void onSave(artifact.code, documentName(artifact), artifact.kind).then((outcome) => {
+                  setSaved(outcome === "saved");
+                  if (outcome === "unavailable") void copyText(artifact.code).then(() => setCopied(true));
+                })
               }
             >
               {saved ? <Check size={14} /> : <SaveTray size={14} />}

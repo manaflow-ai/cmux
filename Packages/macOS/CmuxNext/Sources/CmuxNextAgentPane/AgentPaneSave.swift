@@ -44,8 +44,9 @@ public nonisolated struct AgentPaneSave: Equatable, Sendable {
         let suffix = "." + kind.fileExtension
         var base = cleaned.lowercased().hasSuffix(suffix) ? String(cleaned.dropLast(suffix.count)) : cleaned
         base = String(base.prefix(120 - suffix.count))
-        while base.hasPrefix(".") { base.removeFirst() }
-        base = base.trimmingCharacters(in: .whitespaces)
+        // Dots and spaces together, so ". .profile" never comes back as a hidden ".profile".
+        while let first = base.first, first == "." || first.isWhitespace { base.removeFirst() }
+        while base.last?.isWhitespace == true { base.removeLast() }
         return (base.isEmpty ? (kind == .log ? "acp" : "document") : base) + suffix
     }
 }

@@ -37,7 +37,8 @@ struct AgentPaneSaveFileTests {
         // A name with a path and the extension already on it stays one plain file name.
         _ = await Self.ask(model, "pane.saveFile", ["text": "<svg/>", "suggestedName": "../../chart.SVG", "kind": "svg"])
         _ = await Self.ask(model, "pane.saveFile", ["text": "# Plan", "kind": "markdown"])
-        #expect(saved.map(\.suggestedName).suffix(2) == ["chart.svg", "document.md"])
+        _ = await Self.ask(model, "pane.saveFile", ["text": "<p/>", "suggestedName": ". .profile", "kind": "html"])
+        #expect(saved.map(\.suggestedName).suffix(3) == ["chart.svg", "document.md", "profile.html"])
 
         answer = false
         let cancelled = await Self.ask(model, "pane.saveFile", ["text": "# Plan", "suggestedName": "Plan", "kind": "markdown"])

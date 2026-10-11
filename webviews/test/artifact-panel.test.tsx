@@ -163,6 +163,36 @@ test("Save hands the document to the host's save panel under its title, and says
   await act(async () => button("Save")!.click());
   expect(asked.at(-1)).toEqual(["<svg/>", "", "svg"]);
 
+  // A `#` line in a code fence is not the title; a heading keeps a real trailing `#`; a title's
+  // entities read as text.
+  draw({ kind: "markdown", lang: "md", code: "```sh\n# install deps\n```\n\n## Learn C#\n" });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)?.[1]).toBe("Learn C#");
+  draw({ kind: "html", lang: "html", code: "<title>Tom &amp; Jerry</title>" });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)?.[1]).toBe("Tom & Jerry");
+
+  // A host that cannot write it: the document is copied instead.
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ArtifactPanel
+        artifact={{ kind: "svg", lang: "svg", code: "<svg/>" }}
+        onClose={() => {}}
+        onSave={async () => "unavailable"}
+      />,
+    ),
+  );
+  await act(async () => button("Save")!.click());
+  expect(copied).toEqual(["<svg/>"]);
+  expect(button("Copied")).toBeDefined();
+
   // Without a host save panel there is no Save.
   act(() => root?.unmount());
   root = createRoot(host);
