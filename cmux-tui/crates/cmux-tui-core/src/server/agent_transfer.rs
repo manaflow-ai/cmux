@@ -67,7 +67,8 @@ use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::remote_relay::gate::COMMAND_PARAMS;
-use super::{MessageWriter, Response, SurfaceId, send_response};
+use super::responses::send_response_with_details;
+use super::{MessageWriter, Response, SurfaceId};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 
@@ -419,6 +420,7 @@ fn ends_receive(outcome: &Result<Value, Failure>) -> bool {
             !matches!(refusal, Refusal::Timeout | Refusal::Unavailable | Refusal::Limit)
         }
         Err(Failure::Acpmux(message)) => !message.starts_with("transfer.incomplete"),
+        Err(Failure::Moving(..)) => true,
     }
 }
 
@@ -427,6 +429,10 @@ fn ends_receive(outcome: &Result<Value, Failure>) -> bool {
 enum Failure {
     Refusal(Refusal),
     Acpmux(String),
+    /// A begin of a chat already in a move: acpmux's `transfer.moving`, with
+    /// that move's id (`error_details.transfer_id`), so a pump that lost its
+    /// begin answer can resolve the move it began.
+    Moving(String, String),
 }
 
 impl From<Refusal> for Failure {
@@ -441,7 +447,15 @@ impl From<LinkError> for Failure {
             LinkError::Closed => Self::Refusal(Refusal::Unavailable),
             LinkError::Timeout => Self::Refusal(Refusal::Timeout),
             LinkError::Busy => Self::Refusal(Refusal::Limit),
-            LinkError::Rpc(message) => Self::Acpmux(message),
+            LinkError::Rpc(message, data) => {
+                let moving = data["transferId"].as_str().filter(|id| is_plain_id(id));
+                match moving {
+                    Some(id) if message.starts_with("transfer.moving") => {
+                        Self::Moving(message, id.to_owned())
+                    }
+                    _ => Self::Acpmux(message),
+                }
+            }
         }
     }
 }
@@ -878,6 +892,7 @@ fn page_of(bytes: &[u8], offset: u64, limit: u64) -> Value {
 }
 
 fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failure>) -> bool {
+    let mut details = None;
     let (data, error, code) = match result {
         Ok(data) => (Some(data), None, None),
         Err(Failure::Refusal(refusal)) => {
@@ -888,8 +903,16 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
             Some(format!("{}: {message}", Refusal::Refused.message())),
             Some(Refusal::Refused.code()),
         ),
+        Err(Failure::Moving(message, transfer_id)) => {
+            details = Some(json!({"transfer_id": transfer_id}));
+            (
+                None,
+                Some(format!("{}: {message}", Refusal::Refused.message())),
+                Some(Refusal::Refused.code()),
+            )
+        }
     };
-    send_response(
+    send_response_with_details(
         writer,
         Response {
             id,
@@ -899,6 +922,9 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
             error_code: code.map(str::to_owned),
             error_delivery: None,
         },
+        None,
+        None,
+        details,
     )
 }
 

@@ -20,8 +20,9 @@ pub(super) const FINISH_TIMEOUT: Duration = Duration::from_secs(90);
 /// Why a call has no answer to use.
 #[derive(Debug)]
 pub(super) enum CallError {
-    /// The daemon answered `ok: false`.
-    Refused { code: String, message: String },
+    /// The daemon answered `ok: false` (with its `error_details`, `Null`
+    /// without).
+    Refused { code: String, message: String, details: Value },
     /// No answer: the socket could not be reached, it closed, or the
     /// answer did not come in time. What the daemon did is unknown.
     Lost(String),
@@ -91,6 +92,7 @@ impl Daemon {
             return Err(CallError::Refused {
                 code: answer["error_code"].as_str().unwrap_or("agent_transfer.unknown").to_owned(),
                 message: answer["error"].as_str().unwrap_or_default().to_owned(),
+                details: answer["error_details"].clone(),
             });
         }
     }

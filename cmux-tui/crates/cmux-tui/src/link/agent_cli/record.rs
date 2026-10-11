@@ -1,7 +1,8 @@
 //! The record of a move this Mac began and has not ended, one file per chat
 //! (source socket and surface), so a rerun can resolve a move a lost answer
 //! left frozen. A Mac source names no target acpmux could ask itself, so
-//! without this record nothing would end such a move.
+//! without this record nothing would end such a move. A run holds the
+//! record's lock throughout, so two pumps never move one chat at once.
 
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
@@ -14,6 +15,8 @@ use sha2::{Digest as _, Sha256};
 /// One unended move.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct Record {
+    /// Empty while the begin is unanswered: the chat may be frozen in a
+    /// move whose id and manifest nobody has seen.
     pub transfer_id: String,
     /// The target daemon's socket, as this Mac reaches it.
     pub to_socket: PathBuf,
@@ -31,10 +34,23 @@ pub(super) struct Record {
     pub landed: Option<bool>,
 }
 
-/// Where the record of one chat's move is kept.
+/// Where the record of one chat's move is kept, locked for this run.
 pub(super) struct Records {
     path: PathBuf,
+    _lock: std::fs::File,
 }
+
+/// Another run holds the record's lock.
+#[derive(Debug)]
+pub(super) struct Busy;
+
+impl std::fmt::Display for Busy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("another move of this chat is running")
+    }
+}
+
+impl std::error::Error for Busy {}
 
 impl Records {
     /// The record place for `surface` of the daemon at `from` under `dir`
@@ -51,7 +67,22 @@ impl Records {
         let from = std::fs::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
         let digest = Sha256::digest(from.as_os_str().as_encoded_bytes());
         let key: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
-        Ok(Self { path: dir.join(format!("{surface}-{key}.json")) })
+        let path = dir.join(format!("{surface}-{key}.json"));
+        let lock = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path.with_extension("lock"))
+            .context("cannot open the move lock")?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => return Err(Busy.into()),
+            Err(std::fs::TryLockError::Error(error)) => {
+                return Err(error).context("cannot take the move lock");
+            }
+        }
+        Ok(Self { path, _lock: lock })
     }
 
     pub(super) fn load(&self) -> anyhow::Result<Option<Record>> {

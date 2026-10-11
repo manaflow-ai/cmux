@@ -2,9 +2,16 @@
 //! --cwd FOLDER [--interrupt]`: moves the agent chat of tab `ID` of the
 //! daemon at `LOCAL` to the machine daemon at `MACHINE` (Move to Cloud,
 //! cmuxterm-hq#1874 slice 1c), over `agent-transfer-v1` (spec/commands.md,
-//! "Agent chat transfer"). `MACHINE` is the machine daemon's socket as this
-//! Mac reaches it; `FOLDER` is where the chat runs there. Neither daemon
-//! reaches the other: this pump copies the bundle between them.
+//! "Agent chat transfer"). `FOLDER` is where the chat runs there. Neither
+//! daemon reaches the other: this pump copies the bundle between them.
+//!
+//! `MACHINE` is the `local_socket` that `cmux-tui remote connect --headless
+//! --json` names in its first `connection-snapshot` event (the app's Cloud
+//! link runs it). cmux-remote's mux-control service carries that socket to
+//! the VM daemon's own Unix socket, where the pump is a trusted local client
+//! (`agent-transfer-*` ride its bulk lane). It is NOT the machine link's
+//! socket that `cmux link sync push` uses: the link's remote entry admits
+//! only the `fs-v1` ops.
 //!
 //! 1. begin on the source (the chat freezes there);
 //! 2. receive on the target with the begin manifest;
@@ -26,6 +33,13 @@
 //! same command again resolves a recorded move first (asks the target, then
 //! commits or aborts), and after an abort moves the chat anew.
 //!
+//! The record is written before the begin too. When a begin's answer was
+//! lost, the rerun's begin is refused as `transfer.moving` with that move's
+//! id (`error_details.transfer_id`): the pump aborts it and moves again. No
+//! target can have that chat: the begin answer is the only place its id and
+//! manifest are served, and nobody read it. A chat frozen in a move this
+//! command has no record of is left alone (`move_unresolved`).
+//!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
 //! `{"ok":false,"error":...,"error_code":...,"transfer_id"?:...}` (exit 1);
@@ -44,8 +58,10 @@ use daemon::{BEGIN_TIMEOUT, CALL_TIMEOUT, CallError, Daemon, FINISH_TIMEOUT, cal
 use record::{Record, Records};
 
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
---surface SURFACE_ID --to-socket MACHINE_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
-[--state-dir DIR]";
+--surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
+[--state-dir DIR]
+  --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
+machine (its connection-snapshot event), not the machine link socket of `cmux link sync`";
 /// Bytes asked for per page (the daemon serves at most 4 MiB).
 const PAGE_BYTES: u64 = 1 << 20;
 
@@ -74,7 +90,7 @@ impl Failed {
     /// `<side>_unreachable` when no answer came.
     fn call(side: &str, error: &CallError) -> Self {
         match error {
-            CallError::Refused { code, message } => Self::new(code.clone(), message.clone()),
+            CallError::Refused { code, message, .. } => Self::new(code.clone(), message.clone()),
             CallError::Lost(message) => Self::new(format!("{side}_unreachable"), message.clone()),
         }
     }
@@ -156,14 +172,23 @@ fn parse(args: &[String]) -> Option<Args> {
 }
 
 fn move_chat(args: &Args) -> Result<Moved, Failed> {
-    let records = Records::open(args.state_dir.clone(), &args.from, args.surface)
-        .map_err(|e| Failed::state(&e))?;
-    if let Some(record) = records.load().map_err(|e| Failed::state(&e))?
-        && let Some(moved) = resolve(args, &records, record)?
-    {
-        return Ok(moved);
-    }
-    fresh(args, &records)
+    let records = Records::open(args.state_dir.clone(), &args.from, args.surface).map_err(|e| {
+        match e.downcast_ref::<record::Busy>() {
+            Some(busy) => Failed::new("move_in_progress", busy.to_string()),
+            None => Failed::state(&e),
+        }
+    })?;
+    let begin_unanswered = match records.load().map_err(|e| Failed::state(&e))? {
+        Some(record) if record.transfer_id.is_empty() => true,
+        Some(record) => {
+            if let Some(moved) = resolve(args, &records, record)? {
+                return Ok(moved);
+            }
+            false
+        }
+        None => false,
+    };
+    fresh(args, &records, begin_unanswered)
 }
 
 /// Ends the move an earlier run left: the chat landed there (the source
@@ -192,22 +217,45 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
 }
 
 /// A new move: begin, receive, copy, finish, then commit or abort.
-fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
+/// `begin_unanswered`: an earlier run's begin got no answer.
+fn fresh(args: &Args, records: &Records, begin_unanswered: bool) -> Result<Moved, Failed> {
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
+    let mut record =
+        Record { to_socket: args.to.clone(), cwd: args.cwd.clone(), ..Record::default() };
+    records.save(&record).map_err(|e| Failed::state(&e))?;
     let params = json!({"surface": args.surface, "interrupt": args.interrupt});
-    let begun = source
-        .call("agent-transfer-begin", params, BEGIN_TIMEOUT)
-        .map_err(|e| Failed::call("source", &e))?;
+    let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
+        Ok(begun) => begun,
+        Err(CallError::Refused { code, message, details }) => {
+            let moving = details["transfer_id"].as_str().filter(|id| !id.is_empty());
+            let Some(moving) = moving else {
+                records.clear();
+                return Err(Failed::new(code, message));
+            };
+            if !begin_unanswered {
+                records.clear();
+                let error = "the chat is frozen in a move this command has no record of";
+                return Err(Failed::new("move_unresolved", error).with_transfer(moving));
+            }
+            // The move an earlier begin froze. Its answer, the only place
+            // its id and manifest are served, reached nobody: no target can
+            // have the chat.
+            record.transfer_id = moving.to_owned();
+            give_back(args, records, &mut record)?;
+            return fresh(args, records, false);
+        }
+        Err(lost) => {
+            // The record stays: the chat may be frozen in that move.
+            let error =
+                format!("the begin was not answered ({}); run this again", lost.message());
+            return Err(Failed::new("move_unresolved", error));
+        }
+    };
     let transfer_id = begun["transfer_id"]
         .as_str()
         .filter(|id| !id.is_empty())
         .ok_or_else(|| Failed::bad_answer("the source's begin named no move"))?;
-    let mut record = Record {
-        transfer_id: transfer_id.to_owned(),
-        to_socket: args.to.clone(),
-        cwd: args.cwd.clone(),
-        ..Record::default()
-    };
+    record.transfer_id = transfer_id.to_owned();
     let (mut target, bytes) =
         match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"]) {
             Ok(copied) => copied,
@@ -359,7 +407,7 @@ fn give_back(args: &Args, records: &Records, record: &mut Record) -> Result<(), 
     match call_once(&args.from, "agent-transfer-abort", params, CALL_TIMEOUT) {
         Ok(_) => {}
         // Ended already (the source's own lease aborts an unread move).
-        Err(CallError::Refused { code, message })
+        Err(CallError::Refused { code, message, .. })
             if code == "agent_transfer.refused" && message.contains("transfer.unknown") => {}
         Err(error) => {
             let error = format!("the chat could not be given back here: {}", error.message());

@@ -8148,6 +8148,11 @@ compare case-insensitively, and the manifest lists the scrubbed sizes. The
 event logs still carry the source machine's paths; the guarded finish never
 runs them.
 
+A begin of a chat that is already in a move is `agent_transfer.refused`
+(acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
+that move, so a pump that lost its begin answer can commit or abort the move
+it began. Only that refusal carries details.
+
 ### agent-transfer-read
 
 `{id, cmd:"agent-transfer-read", transfer_id, path, offset, limit?}` pages a
