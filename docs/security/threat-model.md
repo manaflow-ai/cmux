@@ -158,6 +158,9 @@ Accepted residuals:
   time. The key then counts only for that one daemon run on that one machine.
   This is accepted because without it a Cloud machine's chat cannot allow
   from the Mac at all.
+- The single-owner rule is checked when the key is bound only. If the owner
+  later adds a member to the machine's one-member team, the binding stays
+  until the next restart of that daemon.
 
 ## Maintenance and disclosure
 

@@ -67,7 +67,9 @@ function setup(): string {
  * acp.rs daemon_acpmux_starter: the session daemon's environment without the
  * terminal identity), and runs it in a transient systemd scope of its own,
  * not in the provider exec agent's service (whose restart would end the
- * daemon and its agents).
+ * daemon and its agents). The scope gets a fixed description: without one,
+ * systemd names it by its whole command line, which holds every kept
+ * NAME=VALUE, and writes that to the machine's journal.
  *
  * The session daemon's environ is memory of a process the work user owns, so
  * it is only data here: read NUL-separated into an array, each entry kept
@@ -83,7 +85,7 @@ const KEYED_START_SCRIPT = [
   `drop=(env)`,
   `if [ "$user" != root ]; then drop=(setpriv "--reuid=$user" "--regid=$user" --init-groups env); fi`,
   `scope=()`,
-  `if command -v systemd-run >/dev/null 2>&1; then scope=(systemd-run --scope --quiet --collect "--unit=cmux-acpmux-keyed-$$-$(date +%s </dev/null)"); fi`,
+  `if command -v systemd-run >/dev/null 2>&1; then scope=(systemd-run --scope --quiet --collect "--description=cmux acpmux keyed start" "--unit=cmux-acpmux-keyed-$$-$(date +%s </dev/null)"); fi`,
   `vars=()`,
   `pid=$(pgrep -o -u "$user" -f '[c]mux-tui server start' </dev/null || true)`,
   `if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then`,

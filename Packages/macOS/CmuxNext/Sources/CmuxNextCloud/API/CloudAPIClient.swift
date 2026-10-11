@@ -127,10 +127,13 @@ public struct CloudAPIClient: Sendable {
 
     /// `POST /api/vm/{id}/acpmux/keyed-start`: restarts the machine's acpmux with this app's
     /// person key. `writeKey` writes the key line (``keyLineLength`` bytes) into the request
-    /// body from the caller's own zeroed buffer: the body is a stream, so no `Data` or `String`
-    /// copy of the key exists here, and URLSession cannot send it a second time (a stream body
-    /// is never resent). No Idempotency-Key and no retry: a request that did not answer is the
-    /// person's to send again, with a new key. Answers the new daemon run (`personInstance`).
+    /// body from the caller's own zeroed buffer: the body is a stream, so this code makes no
+    /// `Data` or `String` copy of the key, and URLSession cannot send it a second time (a stream
+    /// body is never resent). Copies that nobody zeroes still exist in the bound stream pair's
+    /// buffer and in URLSession's and TLS's buffers; they stay on this Mac, inside the trusted
+    /// delivery boundary (#13742 D16 update 4). No Idempotency-Key and no retry: a request that
+    /// did not answer is the person's to send again, with a new key. Answers the new daemon run
+    /// (`personInstance`).
     public func acpmuxKeyedStart(_ id: String, keyLineLength: Int, writeKey: (OutputStream) -> Bool) async throws -> String {
         var input: InputStream?
         var output: OutputStream?

@@ -14,11 +14,14 @@ import { vmTeamDirectory } from "../../../../../../services/vms/teamDirectory";
 // the machine's acpmux with the person key the cmux app made, so the app can
 // allow that daemon's agent prompts from the Mac (#13742 D16).
 //
-// The body is the key line only: application/octet-stream, exactly 64
-// lowercase hex characters and a newline. It is NON-LOGGABLE: it is read
-// into one byte array that is zeroed after the provider call, it goes to the
-// machine only as the stdin of the keyed start, and it is never logged,
-// traced, put in an error, stored or retried. No Idempotency-Key: a request
+// The body is the key line only: application/octet-stream, a declared
+// Content-Length of 65, exactly 64 lowercase hex characters and a newline.
+// It is NON-LOGGABLE: it goes to the machine only as the stdin of the keyed
+// start, and it is never logged, traced, put in an error, stored or retried.
+// The byte array this route reads is zeroed after the provider call. Other
+// copies that nobody zeroes exist for the life of the request: undici's
+// buffers and the JS base64 and JSON strings of the provider call. They stay
+// inside the trusted delivery boundary (#13742 D16 update 4). No Idempotency-Key: a request
 // that did not answer is sent again by the person, with a new key.
 //
 // Single-owner machines only; see services/vms/acpmuxPersonKey.ts.
@@ -35,10 +38,21 @@ export async function POST(
     { "cmux.vm.operation": "acpmux_keyed_start" },
     "/api/vm/[id]/acpmux/keyed-start POST failed",
     async ({ user, span }) => {
-      const declared = Number(request.headers.get("content-length") ?? "65");
+      // A body of unknown length (chunked) is never read: only a declared 65 bytes.
+      const declared = request.headers.get("content-length");
+      if (declared === null) {
+        return vmErrorResponse({
+          error: "vm_acpmux_length_required",
+          status: 411,
+          message: "The request did not say its length.",
+          action: "Use \"Restart with approvals\" in the cmux app.",
+          phase: "exec",
+          retryable: false,
+        });
+      }
       const type = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
       let keyLine: Uint8Array | null = null;
-      if (type === "application/octet-stream" && declared === 65) {
+      if (type === "application/octet-stream" && declared.trim() === "65") {
         try {
           keyLine = new Uint8Array(await request.arrayBuffer());
         } catch {

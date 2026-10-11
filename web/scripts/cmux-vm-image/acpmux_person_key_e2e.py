@@ -318,7 +318,8 @@ def main():
 
         # hq-84 rule: the session daemon's environ is data. A value with quotes, $(...), backticks,
         # a ";" and a newline must reach the restarted acpmux unchanged and run nothing.
-        probe_value = "a'b\"c $(touch /tmp/psxg-pwned-1) `touch /tmp/psxg-pwned-2` ;touch /tmp/psxg-pwned-3\nline2"
+        journal_canary = secrets.token_hex(12)
+        probe_value = f"a'b\"c $(touch /tmp/psxg-pwned-1) `touch /tmp/psxg-pwned-2` ;touch /tmp/psxg-pwned-3 {journal_canary}\nline2"
 
         def hostile_env_setup():
             unit_value = probe_value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
@@ -412,6 +413,22 @@ def main():
             ok = got == probe_value.encode() and count.strip() == "0"
             return ok, f"daemon value unchanged: {got == probe_value.encode()}; files the value would have made: {count.strip()}", ok
         run.step("hostile env value reaches the daemon unchanged and runs nothing", hostile_env_check)
+
+        def journal_check():
+            # hq-84 review P2: systemd names a scope by its whole command line unless it has a
+            # description, and PID 1 writes that name to the journal. The kept environ values must not
+            # reach the journal: the canary inside the hostile value is in no journal line, and the
+            # scope's own line is there under its fixed description.
+            if not hostile_ready:
+                return False, "setup failed", None
+            half = len(journal_canary) // 2
+            r = api.exec_root(vm, f"journalctl -b --no-pager -o cat | grep -cF {journal_canary[:half]}''{journal_canary[half:]}; "
+                                  "journalctl -b --no-pager -o cat | grep -c 'cmux acpmux keyed start'")
+            lines = r["stdout"].split()
+            canary_hits, described = (lines + ["?", "?"])[:2]
+            ok = canary_hits == "0" and described.isdigit() and int(described) >= 1
+            return ok, f"journal lines with the canary: {canary_hits}; lines with the scope description: {described}", ok
+        run.step("journal: the scope line holds no environ value", journal_check)
 
         if env.get("CMUX_AGENT2_STACK_EMAIL"):
             other = run.step("signin second agent account", lambda: (True, "agent2", sign_in(env["CMUX_AGENT2_STACK_EMAIL"], env["CMUX_AGENT2_STACK_PASSWORD"])))
