@@ -361,6 +361,39 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "thought-row": {
+      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(
+                "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.",
+              ),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const row = () =>
+          Array.from(ctx.document.querySelectorAll<HTMLButtonElement>("button.cv-thought")).find((button) =>
+            button.textContent?.includes("Check how the helper parses errors first."),
+          ) ?? null;
+        await ctx.waitFor(row);
+        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
+        if (ctx.document.body.textContent?.includes("jittered backoff"))
+          throw new Error("a closed thought shows only its first line");
+        await ctx.click({ selector: "button.cv-thought" });
+        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+      },
+    },
     "working-tools": {
       note: "Tool calls running in a live turn.",
       snapshot: chat(
