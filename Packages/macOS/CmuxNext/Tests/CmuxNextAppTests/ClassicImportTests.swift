@@ -32,6 +32,26 @@ struct ClassicImportTests {
     /// The person runs Import Workspaces from Classic cmux: classic's split
     /// workspace opens with the same panes, tabs, tab names and directions.
     @Test func importKeepsTheClassicSplitWorkspace() async throws {
+        let shapes = try await importedShapes { $0 }
+        // Left: api and logs as tabs of one pane; right: web over db.
+        #expect(shapes.contains("right(api,logs|down(web|db))"), "\(shapes)")
+    }
+
+    /// A browser panel does not come over (cmux-next has no classic browser
+    /// state to open), and is not a stray terminal either: a pane that held
+    /// only a browser closes up.
+    @Test func aBrowserOnlyPaneClosesUp() async throws {
+        let db = "\"title\":\"db\",\"ttyName\":\"ttys023\",\"type\":\"terminal\""
+        let shapes = try await importedShapes { session in
+            #expect(session.contains(db), "the fixture's db panel changed")
+            return session.replacingOccurrences(of: db, with: "\"title\":\"db\",\"type\":\"browser\"")
+        }
+        #expect(shapes.contains("right(api,logs|web)"), "\(shapes)")
+    }
+
+    /// Runs the action on the fixture (after `edit`) and returns the pane
+    /// trees of the workspace holding classic's web tab.
+    private func importedShapes(_ edit: (String) -> String) async throws -> [String] {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-classic-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -40,7 +60,8 @@ struct ClassicImportTests {
         for folder in ["api/logs", "web", "db"] {
             try FileManager.default.createDirectory(at: proj.appendingPathComponent(folder), withIntermediateDirectories: true)
         }
-        let session = try String(contentsOf: Self.fixture, encoding: .utf8)
+        // Classic writes `\/` in paths; plain `/` reads the same.
+        let session = try edit(String(contentsOf: Self.fixture, encoding: .utf8).replacingOccurrences(of: "\\/", with: "/"))
             .replacingOccurrences(of: "/Users/cmux/p4rt-classic/proj", with: proj.path)
             .replacingOccurrences(of: "/Users/cmux", with: root.path)
         let file = root.appendingPathComponent("session-com.cmuxterm.app.json")
@@ -81,12 +102,10 @@ struct ClassicImportTests {
             workspace.screens.contains { $0.panes.contains { $0.tabs.contains { ($0.name ?? $0.title) == "web" } } }
         }?.screens.first, "no imported workspace holds classic's web tab")
         let trees = [screen.layout] + screen.columns.flatMap { [$0.layout] + $0.rows.map(\.layout) }
-        let shapes = trees.map { Self.shape($0, screen.panes) }
-        // Left: api and logs as tabs of one pane; right: web over db.
-        #expect(shapes.contains("right(api,logs|down(web|db))"), "\(shapes)")
         if let connection = services.daemon.connection, let identity = services.daemon.identity {
             _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
                                               timeout: .seconds(10))
         }
+        return trees.map { Self.shape($0, screen.panes) }
     }
 }
