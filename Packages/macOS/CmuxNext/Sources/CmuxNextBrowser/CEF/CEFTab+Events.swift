@@ -15,8 +15,7 @@ extension CEFTab {
             nativeHistory = (back, forward)
             restored.applyAvailability()
             restored.dropForwardIfLeftFirstEntry()
-            defer { chromiumLoading = loading }
-            if loading, !chromiumLoading, !state.isLoading {
+            if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
                 capturesTitleBeforeCommit = true
