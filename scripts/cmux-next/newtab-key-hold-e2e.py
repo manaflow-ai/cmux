@@ -127,11 +127,14 @@ def checks():
     # 2. The page left before it could report ready: the keys go on to the terminal shown.
     fresh_workspace()
     left = rpc("debug.new_tab", {"action": "open_and_leave", "text": "echo hold2left"})
-    ended = wait(lambda: holds() == [], 5)
+    # Well inside the 2 s hold limit: the left page ends the hold, not the limit.
+    started = time.time()
+    ended = wait(lambda: holds() == [], 1.0, step=0.05)
+    ended_ms = round((time.time() - started) * 1000)
     reached = wait(lambda: (lambda t: t if t and "hold2left" in t else None)(terminal_text()), 10)
     row("A New Tab page left before it was ready gives its keys to the terminal shown",
-        "no window holds keys; the terminal shows hold2left",
-        f"leave {left}; holds {holds()}; terminal has it {reached is not None}",
+        "no window holds keys within 1 s (before the 2 s limit); the terminal shows hold2left",
+        f"leave {left}; hold ended after {ended_ms} ms: {ended is not None}; terminal has it {reached is not None}",
         ended is not None and reached is not None)
     # Cmd-T works again (a held window opened nothing).
     print("Cmd-T:", key("t", "command"), flush=True)

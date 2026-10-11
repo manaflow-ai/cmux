@@ -5,7 +5,13 @@ import groupsDark from "../../gallery/fixtures/whats-new/workspace-groups-dark.j
 import groupsLight from "../../gallery/fixtures/whats-new/workspace-groups-light.jpg?inline";
 import type { ReleaseNotes, WhatsNewEntry } from "./types";
 
-const entry = (id: string, category: WhatsNewEntry["category"], title: string, summary: string, extra: Partial<WhatsNewEntry> = {}): WhatsNewEntry => ({
+const entry = (
+  id: string,
+  category: WhatsNewEntry["category"],
+  title: string,
+  summary: string,
+  extra: Partial<WhatsNewEntry> = {},
+): WhatsNewEntry => ({
   id,
   category,
   title: { en: title, ja: title },
@@ -19,7 +25,11 @@ export const journalNotes: ReleaseNotes[] = [
     shortVersion: "1.0.0-nightly.413",
     date: "2026-10-11",
     highlights: [],
-    changes: ["sidebar: group labels keep their band color", "groups: pin keeps an empty group", "toast: undo closed tabs"],
+    changes: [
+      "sidebar: group labels keep their band color",
+      "groups: pin keeps an empty group",
+      "toast: undo closed tabs",
+    ],
     whatsNew: {
       version: "1.0.0-nightly.413",
       channel: "nightly",
@@ -32,20 +42,57 @@ export const journalNotes: ReleaseNotes[] = [
           "Workspace groups you can see at a glance",
           "Each group now has a colored label, and its workspaces sit on one band of its color. Give a group an icon, and pin it so it stays when its last workspace closes.",
           {
-            media: { kind: "image", light: groupsLight, dark: groupsDark, alt: { en: "The sidebar with three workspace groups" } },
+            media: {
+              kind: "image",
+              light: groupsLight,
+              dark: groupsDark,
+              alt: { en: "The sidebar with three workspace groups" },
+            },
             tryIt: { action: "space.new" },
             docs: "https://cmux.com/docs/sidebar",
           },
         ),
-        entry("undo-tab-close", "new", "Undo a tab close from a toast", "One click or ⌘Z brings back the tabs you closed, in their places."),
-        entry("agents-browser", "new", "Agents can use the cmux browser and computer use", "Sessions that cmux starts get both tools; computer use still runs only when you ask."),
-        entry("restart-instant", "improved", "Restart to Update reacts at once", "Terminals and agents keep running across the restart.", {
-          tryIt: { action: "palette.checkForUpdates" },
-        }),
-        entry("fast-tabs", "improved", "Faster browser tab switches", "The tab you leave stays in place, hidden, and shows again at once."),
-        entry("app-store-window", "fixed", "The App Store always opens in your window", "It never opens a window of its own.", { tryIt: { action: "appStore.show" } }),
+        entry(
+          "undo-tab-close",
+          "new",
+          "Undo a tab close from a toast",
+          "One click or ⌘Z brings back the tabs you closed, in their places.",
+        ),
+        entry(
+          "agents-browser",
+          "new",
+          "Agents can use the cmux browser and computer use",
+          "Sessions that cmux starts get both tools; computer use still runs only when you ask.",
+        ),
+        entry(
+          "restart-instant",
+          "improved",
+          "Restart to Update reacts at once",
+          "Terminals and agents keep running across the restart.",
+          {
+            tryIt: { action: "palette.checkForUpdates" },
+          },
+        ),
+        entry(
+          "fast-tabs",
+          "improved",
+          "Faster browser tab switches",
+          "The tab you leave stays in place, hidden, and shows again at once.",
+        ),
+        entry(
+          "app-store-window",
+          "fixed",
+          "The App Store always opens in your window",
+          "It never opens a window of its own.",
+          { tryIt: { action: "appStore.show" } },
+        ),
         entry("settings-every-window", "fixed", "Settings opens with your values in every window", ""),
-        entry("terminal-env", "security", "Terminal secrets no longer stay on disk", "A reopened tab no longer restores its environment from disk."),
+        entry(
+          "terminal-env",
+          "security",
+          "Terminal secrets no longer stay on disk",
+          "A reopened tab no longer restores its environment from disk.",
+        ),
       ],
     },
   },
@@ -72,7 +119,11 @@ export const journalNotes: ReleaseNotes[] = [
     shortVersion: "1.0.0-nightly.411",
     date: "2026-10-09",
     highlights: [],
-    changes: ["browser: popups belong to their session", "remote: datalist popups past the page edge", "labels keep their text width"],
+    changes: [
+      "browser: popups belong to their session",
+      "remote: datalist popups past the page edge",
+      "labels keep their text width",
+    ],
   },
   {
     build: "3720357960410",

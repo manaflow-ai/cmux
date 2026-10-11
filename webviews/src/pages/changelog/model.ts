@@ -63,7 +63,12 @@ function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
     summary: localized(entry.summary, language),
     media:
       entry.media && (light || dark)
-        ? { light: light ?? dark!, dark: dark ?? light!, alt: localized(entry.media.alt, language), video: entry.media.kind === "video" }
+        ? {
+            light: light ?? dark!,
+            dark: dark ?? light!,
+            alt: localized(entry.media.alt, language),
+            video: entry.media.kind === "video",
+          }
         : undefined,
     action: entry.tryIt?.action ? { id: entry.tryIt.action } : undefined,
     docs: entry.docs,
@@ -92,7 +97,12 @@ function summaryCategory(group: string): WhatsNewCategory {
 
 /** The lead change: the first New with media, else any item with media, else the first New, else the first item. */
 function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
-  return items.find((i) => i.category === "new" && i.media) ?? items.find((i) => i.media) ?? items.find((i) => i.category === "new") ?? items[0];
+  return (
+    items.find((i) => i.category === "new" && i.media) ??
+    items.find((i) => i.media) ??
+    items.find((i) => i.category === "new") ??
+    items[0]
+  );
 }
 
 export function releaseView(notes: ReleaseNotes, language: string): ReleaseView {
@@ -110,9 +120,10 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
-  const groups = CATEGORY_ORDER.map((category) => ({ category, items: rest.filter((i) => i.category === category) })).filter(
-    (g) => g.items.length > 0,
-  );
+  const groups = CATEGORY_ORDER.map((category) => ({
+    category,
+    items: rest.filter((i) => i.category === category),
+  })).filter((g) => g.items.length > 0);
   return { hero, groups, changes: notes.changes, count: items.length };
 }
 

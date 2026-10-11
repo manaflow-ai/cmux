@@ -2,7 +2,14 @@
 // projection of the provider; the page keeps no copy beyond a per-build cache. React reads it
 // through `useSyncExternalStore` (no effects).
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { ACTION_RUN, ChangelogOps, type ChangelogDesign, type IndexEntry, type ListResult, type ReleaseNotes } from "./types";
+import {
+  ACTION_RUN,
+  ChangelogOps,
+  type ChangelogDesign,
+  type IndexEntry,
+  type ListResult,
+  type ReleaseNotes,
+} from "./types";
 
 export interface ChangelogSnapshot {
   builds: IndexEntry[];
@@ -140,7 +147,8 @@ export class ChangelogStore {
     this.set({ selected: build, notes: cached, missing: false });
     if (cached) return;
     const notes = await this.ensure(build);
-    if (generation === this.generation) this.set(notes ? { notes, missing: false } : { notes: undefined, missing: true });
+    if (generation === this.generation)
+      this.set(notes ? { notes, missing: false } : { notes: undefined, missing: true });
   }
 
   /** Loads one build's notes once (the journal asks as a release scrolls near); undefined when unavailable. */

@@ -25,7 +25,17 @@ export function DigestPage({ store, strings, s }: { store: ChangelogStore; strin
   );
 }
 
-function DigestRelease({ entry, s, store, ctx }: { entry: IndexEntry; s: ChangelogSnapshot; store: ChangelogStore; ctx: PartsContext }) {
+function DigestRelease({
+  entry,
+  s,
+  store,
+  ctx,
+}: {
+  entry: IndexEntry;
+  s: ChangelogSnapshot;
+  store: ChangelogStore;
+  ctx: PartsContext;
+}) {
   const notes = s.loaded[entry.build];
   const near = (el: HTMLElement | null) => {
     if (!el || notes || s.unavailable[entry.build]) return;
@@ -47,10 +57,14 @@ function DigestRelease({ entry, s, store, ctx }: { entry: IndexEntry; s: Changel
     <section className="cld-release" ref={near} aria-label={entry.shortVersion}>
       <header className="cld-head">
         <h2>{formatReleaseDate(entry.date, ctx.strings.language)}</h2>
-        {s.inSpan.includes(entry.build) && <span className="cld-span">{ctx.strings.t("changelog.page.sinceLastUpdate")}</span>}
+        {s.inSpan.includes(entry.build) && (
+          <span className="cld-span">{ctx.strings.t("changelog.page.sinceLastUpdate")}</span>
+        )}
         <span className="cld-version">{entry.shortVersion}</span>
       </header>
-      {!notes && s.unavailable[entry.build] && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
+      {!notes && s.unavailable[entry.build] && (
+        <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>
+      )}
       {items.map((item) => (
         <div key={item.id} className="cld-item">
           <span className="cld-cat">{categoryLabel(ctx.strings, item.category)}</span>
