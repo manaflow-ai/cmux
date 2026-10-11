@@ -79,7 +79,7 @@ jobs:
     name: publish the merge tree
     if: github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository
     # pull_request_target with a write token: a GitHub-hosted runner only.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token
     timeout-minutes: 5
     permissions:
       actions: write
