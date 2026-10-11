@@ -7,9 +7,10 @@ overlay plane into the overlay panel), makes 20 splits, columns and rows
 (LAYOUT_STRESS_SPLITS), toggles the sidebar (moves the layout root without
 a layout of the root), drives the command palette over the many-pane
 window (typing, scrolling, Actions menu, scope chips, close and reopen,
-parent resizes under it, the palette shown again on app activation) and
-steps the window size 50 times. After every step it reads `debug.layers` and
-fails when:
+parent resizes under it, the palette shown again on app activation),
+steps the window size 50 times and walks the interface scale across its
+range (every scale step lays the palette out again, hidden or not;
+cx-wcej). After every step it reads `debug.layers` and fails when:
 
 - one view was laid out more than its window's LayoutPassGuard limit
   (16, lower in a window of few views) in one window layout (`layout_passes.max_in_one_turn`), or the guard caught a loop;
@@ -40,6 +41,9 @@ SPLITS = int(os.environ.get("LAYOUT_STRESS_SPLITS", "20"))
 # Palette steps typed into the open palette (the nightly crash,
 # CMUXTERM-MACOS-40Q3, was a layout loop in the palette panel).
 PALETTE_QUERY = "google.c"
+# Down past the floor, up past the ceiling, back down, then reset.
+SCALE_WALK = (("appearance.uiScale.decrease", 4), ("appearance.uiScale.increase", 14),
+              ("appearance.uiScale.decrease", 14), ("appearance.uiScale.reset", 1))
 os.makedirs(OUT, exist_ok=True)
 LAST_PASSES = {}
 
@@ -285,6 +289,15 @@ try:
             if i == 25:
                 rpc("action.run", {"id": "toggleSidebar"})
                 failures += check("toggleSidebar mid-resize", app, results)
+        for action, count in SCALE_WALK:
+            for i in range(count):
+                if app.poll() is not None:
+                    break
+                reply = rpc("action.run", {"id": action})
+                error = reply.get("error") if isinstance(reply, dict) else None
+                if error and not (isinstance(error, dict) and error.get("code") == "unavailable"):
+                    failures.append("action %s failed: %s" % (action, json.dumps(reply)[:200]))
+                failures += check("%s %d" % (action, i + 1), app, results)
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "after-stress.png")}, timeout=60)
 finally:
     print("quit:", json.dumps(quit_end_sessions())[:200], flush=True)

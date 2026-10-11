@@ -30,6 +30,7 @@ use tokio::sync::broadcast;
 
 pub use activity::{ChatActivity, activity_change, changes_activity};
 pub use brand::brand_for;
+pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::ChatQuery;
 pub use settings::{ChatSettings, SettingsRefusal, probe};

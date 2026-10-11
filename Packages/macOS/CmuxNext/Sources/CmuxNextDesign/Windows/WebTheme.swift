@@ -23,6 +23,28 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `data-scrollers` on `<html>`, so pages with their own scrollers (Monaco, the diff and file
     /// tree libraries) show them at rest only for "Always".
     public let scrollers: String
+    /// The terminal theme as hex (`type`, `background`, `foreground`, `palette` 0...15): pages
+    /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do.
+    public let terminal: Terminal
+
+    /// The terminal colors a page highlights code with: the scope's opaque background and
+    /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
+    /// slot only as far as it needs to read).
+    public nonisolated struct Terminal: Equatable, Sendable {
+        public let type: String
+        public let background: String
+        public let foreground: String
+        public let palette: [String: String]
+
+        init(_ tokens: ThemeTokens) {
+            type = tokens.isDark ? "dark" : "light"
+            background = WebTheme.hex(tokens.surfaceBackground)
+            foreground = WebTheme.hex(tokens.textPrimary)
+            palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
+        }
+
+        var json: [String: Any] { ["type": type, "background": background, "foreground": foreground, "palette": palette] }
+    }
 
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
@@ -60,11 +82,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         self.scrollers = scrollers ?? SystemScrollers.pageValue
+        terminal = Terminal(tokens)
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers}`.
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`.
     public var payloadJSON: String {
-        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers]
+        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
+                                     "terminal": terminal.json]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -102,6 +126,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       ensureStyle();
     })();
     """
+
+    /// `#rrggbb`, opaque (the alpha is dropped).
+    static func hex(_ color: ThemeRGB) -> String {
+        func channel(_ value: Double) -> Int { min(max(Int((value * 255).rounded()), 0), 255) }
+        return String(format: "#%02x%02x%02x", channel(color.red), channel(color.green), channel(color.blue))
+    }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
     public static func css(_ color: ThemeRGB) -> String {

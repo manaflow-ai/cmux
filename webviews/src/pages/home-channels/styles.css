@@ -1008,6 +1008,23 @@ body,
   padding: 0 12px 0 var(--hc-gutter);
   border-bottom: 1px solid var(--page-separator);
 }
+/* The next page of a long thread's replies (the owner's thread read). */
+.hc-thread-more {
+  flex: none;
+  margin: 4px var(--hc-gutter);
+  padding: 4px 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.hc-thread-more:hover:not(:disabled),
+.hc-thread-more:focus-visible {
+  background: var(--cmux-surface-token, Canvas);
+  color: var(--page-text);
+}
 .hc-thread-heading {
   display: flex;
   align-items: baseline;

@@ -155,6 +155,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     view?.setLook(viewLook(store, screenReader()));
   };
   store.subscribe(applyLook);
+  // Monaco's code colors are literal: a terminal theme change rebuilds them (view.ts `setLook`).
+  window.addEventListener("cmux-theme", () => view?.setLook(viewLook(store, screenReader())));
   const emptyStrings = viewerEmptyStrings();
   const emptyState = client
     ? () => (

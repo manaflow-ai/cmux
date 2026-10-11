@@ -136,6 +136,9 @@ struct Lease {
     expiring_sent: bool,
     /// A socket announced `expired` for this generation.
     expired_sent: bool,
+    /// The verified cmux app set the current lease (`cloud-lease-app-only-v1`):
+    /// no other connection may replace or clear it.
+    app_held: bool,
 }
 
 struct Subscription {
@@ -201,6 +204,20 @@ pub struct CloudConversations {
     inner: Arc<Inner>,
 }
 
+/// The refusal text of a lease change from a connection that is not the app.
+const APP_ONLY_LEASE: &str = "the cloud session lease belongs to the verified cmux app connection; only it may set or clear it";
+
+fn check_lease_holder(lease: &Lease, by_app: bool) -> Result<(), CloudError> {
+    if by_app || !lease.app_held || lease.session.is_none() {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: APP_ONLY_LEASE.into(),
+        retryable: false,
+    })
+}
+
 impl CloudConversations {
     pub fn new(backend: Arc<dyn CloudBackend>) -> Self {
         Self::with_options(backend, ServiceOptions::default())
@@ -230,8 +247,16 @@ impl CloudConversations {
     /// `cloud-session-set`: replaces the lease. Open sockets reconnect with
     /// the new token and resume.
     pub fn set_session(&self, params: SessionParams) -> Result<Value, CloudError> {
+        self.set_session_by(params, true)
+    }
+
+    /// `cloud-session-set` from a connection that is (`by_app`) or is not the
+    /// verified cmux app. A lease the app set is the human's: any other
+    /// connection is refused until the app clears it.
+    pub fn set_session_by(&self, params: SessionParams, by_app: bool) -> Result<Value, CloudError> {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            check_lease_holder(&lease, by_app)?;
             let session = CloudSession::new(params, lease.generation + 1)?;
             lease.generation = session.generation;
             lease.expiring_sent = false;
@@ -242,6 +267,7 @@ impl CloudConversations {
                 "expires_at": session.expires_at,
             });
             lease.session = Some(session);
+            lease.app_held = by_app;
             reply
         };
         self.inner.notify();
@@ -250,13 +276,28 @@ impl CloudConversations {
 
     /// `cloud-session-clear`.
     pub fn clear_session(&self) -> Value {
+        self.clear_session_by(true).unwrap_or_else(|_| json!({"state": "signed_out"}))
+    }
+
+    /// `cloud-session-clear` from a connection that is (`by_app`) or is not
+    /// the verified cmux app; refused like `set_session_by`.
+    pub fn clear_session_by(&self, by_app: bool) -> Result<Value, CloudError> {
         {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            check_lease_holder(&lease, by_app)?;
             lease.session = None;
+            lease.app_held = false;
             lease.generation += 1;
         }
         self.inner.notify();
-        json!({"state": "signed_out"})
+        Ok(json!({"state": "signed_out"}))
+    }
+
+    /// Whether the verified cmux app set the current lease
+    /// (`cloud-lease-app-only-v1`): then only the app may use it.
+    pub fn app_holds_lease(&self) -> bool {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        lease.app_held && lease.session.is_some()
     }
 
     /// `cloud-session-status`. Never returns the token.
@@ -536,6 +577,15 @@ impl CloudConversations {
             }
         }
         self.inner.notify();
+    }
+
+    /// Whether a connection (`is_app`: the verified cmux app) receives cloud
+    /// events. While the app holds the lease, its events are the human's:
+    /// only the app gets them. Without an app lease (a headless brain's own
+    /// daemon, which reads events on a second connection) every trusted
+    /// local stream does, as before.
+    pub fn delivers_to(&self, is_app: bool) -> bool {
+        is_app || !self.app_holds_lease()
     }
 
     /// Whether `target` still has an upstream driver (tests and diagnostics).

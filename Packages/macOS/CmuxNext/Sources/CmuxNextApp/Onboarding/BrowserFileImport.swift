@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
 import UniformTypeIdentifiers
@@ -21,7 +22,7 @@ struct BrowserFileImport {
         services.registry.track(Task { @MainActor in
             guard let source = await Self.chooseBrowser(), await Self.showSteps(source),
                   let urls = await services.viewers.picker.open(.init(choose: .files, allowsMultiple: true,
-                                                                      types: [.commaSeparatedText, .html],
+                                                                      types: [.commaSeparatedText, .html, .zip, .json],
                                                                       title: BrowserFileImportStrings.pickerTitle))
             else { return nil }
             var failures: [String] = []
@@ -32,33 +33,46 @@ struct BrowserFileImport {
                     if let failure = await PasswordCSVFiles(services: services).importFile(url, profile: profile) {
                         failures.append(failure.message)
                     }
+                case .archive?: failures += await importArchive(url, profile: profile)
+                case .history?: failures += await importHistoryFile(url, profile: profile)
                 case nil: failures.append(BrowserFileImportStrings.notAnExport(url.lastPathComponent))
                 }
             }
             guard !failures.isEmpty else { return nil }
             let message = failures.joined(separator: " ")
             // A palette or menu run waits for nothing: the person sees the failure here.
-            if let window = services.windows.active?.window ?? NSApp.mainWindow {
-                _ = CmuxToastCenter.shared.show(CmuxToast(id: "browser-file-import-failed", message: message, duration: .seconds(12)),
-                                            in: window)
-            }
+            Self.toast(services, id: "browser-file-import-failed", message)
             return ActionWorkFailure(message)
         })
+    }
+
+    /// A toast on the app window (after the picker the key window is the palette's panel).
+    static func toast(_ services: AppServices, id: String, _ message: String) {
+        guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
+        _ = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, duration: .seconds(12)), in: window)
     }
 
     nonisolated enum FileKind: Sendable {
         case passwords
         case bookmarks
+        /// A zip: Safari's Export Browsing Data, or Google Takeout.
+        case archive
+        /// Safari's History.json or Takeout's Chrome history.
+        case history
     }
 
-    /// By content, not name: a Netscape bookmarks file is HTML with a `<DL>`
-    /// list; any other text with commas goes to the CSV import, which names
-    /// a file without website and password columns.
+    /// By content, not name: a zip archive; JSON with a history list; a
+    /// Netscape bookmarks file is HTML with a `<DL>` list; any other text
+    /// with commas goes to the CSV import, which names a file without
+    /// website and password columns.
     nonisolated static func kind(of url: URL) -> FileKind? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        let head = String(decoding: (try? handle.read(upToCount: 4096)) ?? Data(), as: UTF8.self)
+        let bytes = (try? handle.read(upToCount: 4096)) ?? Data()
+        if ExportArchive.isArchive(bytes) { return .archive }
+        let head = String(decoding: bytes, as: UTF8.self)
         let text = head.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })
+        if ExportedHistory.looksLikeHistory(String(text)) { return .history }
         if text.first == "<" {
             let upper = text.uppercased()
             return upper.contains("NETSCAPE-BOOKMARK-FILE") || upper.contains("<DL") ? .bookmarks : nil

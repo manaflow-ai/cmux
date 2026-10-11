@@ -134,9 +134,12 @@ input[type="submit"] {
 /* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a
    selected or checked row still changes when it takes focus, and the accent bar when it is on. A
    row that marks its highlight itself (`data-highlighted`, the menus' and pickers' keyboard row)
-   draws that instead. */
-:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
+   draws that instead, and never the engine's own ring (macOS WebKit draws it in the system blue;
+   a page without ui.css, the agent pane, has nothing else removing it). */
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible {
   outline: none;
+}
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
   background-image: linear-gradient(var(--cmux-row-focus), var(--cmux-row-focus));
   box-shadow: inset var(--cmux-row-focus-bar) 0 0 var(--cmux-accent, currentColor);
 }
