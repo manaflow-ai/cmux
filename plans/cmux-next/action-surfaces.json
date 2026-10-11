@@ -3520,33 +3520,6 @@
       "title_table" : "Localizable"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "workspace-group show-in-finder",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "workspaceGroup"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "workspaceGroup.revealInFinder",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.workspace",
-        "order" : 101,
-        "title" : "Workspace",
-        "title_key" : "category.workspace",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Show Group in Finder",
-      "title_key" : "action.workspaceGroup.revealInFinder",
-      "title_table" : "Localizable"
-    },
-    {
       "cli" : "offered",
       "cli_name" : "workspace-group add-to-section",
       "context_menu" : "offered",
@@ -32766,7 +32739,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "workspaceGroup.copyID",
+          "id" : "workspaceGroup.editConfig",
           "kind" : "action",
           "order" : 12,
           "visible_when" : {
@@ -32778,40 +32751,17 @@
           }
         },
         {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.editConfig",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.revealInFinder",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "tools",
-          "kind" : "folder",
+          "enabled_when" : "can_perform",
+          "id" : "workspaceGroup.copyID",
+          "kind" : "action",
           "order" : 13,
-          "title" : "Tools",
-          "title_key" : "menu.folder.tools",
-          "title_table" : "Localizable"
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         },
         {
           "kind" : "separator",
