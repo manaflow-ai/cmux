@@ -119,6 +119,7 @@ impl Mux {
         ) {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
+        self.capture_shutdown_checkpoint();
         self.config_reload_changed.notify_all();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
