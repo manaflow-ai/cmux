@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Live check: location and notification permission prompts in both engines (cx-d0d.25).
+"""Live check: location and notification permission prompts in both engines (cx-d0d.25), and
+WebKit web notifications as cmux banners (cx-d0d.63).
 
   scripts/cmux-next/permission-prompts-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit]
 
@@ -10,7 +11,10 @@ page (a new port, so a new origin, every run). For each engine:
      Block fails it with PERMISSION_DENIED, and after a reload a second request
      fails at once with no prompt: the answer is remembered for the site;
   2. WebKit: `Notification.requestPermission()` asks in the prompt bar; Allow
-     grants it, and after a reload it is granted with no prompt. Chromium has
+     grants it, and after a reload it is granted with no prompt. A notification the page
+     makes before that shows no banner; after it, `new Notification(...)` shows a cmux
+     banner on the page's tab (title, the site, the body), and a click on the banner runs
+     the page's `onclick`. Chromium has
      no web notifications (`disable-notifications`: DesktopNotifier owns the app's one
      macOS notification authorization), so the page sees no `Notification`.
 
@@ -18,7 +22,7 @@ Location is only ever denied: allowing it would raise the macOS location prompt 
 host. GUI host only (a capture mini). The app is quit and the tag's daemons stopped at
 the end. Exits 1 when a check fails.
 """
-import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
+import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -40,10 +44,26 @@ function locate() {
     (e) => { window.geo = "error " + e.code; }, {timeout: 60000});
 }
 window.notify = "idle";
+window.clicked = 0;
+function notifyNow(title) {
+  const n = new Notification(title, {body: "from the page"});
+  n.onclick = () => { window.clicked += 1; };
+  return true;
+}
 function askNotify() {
   window.notify = "pending";
   Notification.requestPermission().then((p) => { window.notify = p; }, (e) => { window.notify = "error " + e; });
 }
+// ?notify=<title> makes a notification once loaded; ?embed=<url> loads <url> in an iframe.
+const query = new URLSearchParams(location.search);
+addEventListener("load", () => {
+  if (query.get("notify")) notifyNow(query.get("notify"));
+  if (query.get("embed")) {
+    const frame = document.createElement("iframe");
+    frame.src = query.get("embed");
+    document.body.appendChild(frame);
+  }
+});
 </script>
 """
 failures = []
@@ -154,6 +174,14 @@ def load(engine, url):
     return ok
 
 
+def banners():
+    return rpc("debug.notifications").get("banners") or []
+
+
+def banner(title):
+    return next((b for b in banners() if b.get("title") == title), None)
+
+
 def run_engine(engine):
     global TAB
     print(f"== {engine}", flush=True)
@@ -179,6 +207,9 @@ def run_engine(engine):
     if engine == "chromium":
         check(page("typeof Notification") == "undefined", f"{engine}: the page has no web notifications (by design)")
     else:
+        check(run(engine, "notifyNow('cmux early')"), f"{engine}: the page makes a notification before asking")
+        time.sleep(2)
+        check(banner("cmux early") is None, f"{engine}: a notification without permission shows no banner ({banners()})")
         check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications")
         shown = quiet_wait(lambda: permission_prompts("notifications"), 10)
         check(bool(shown), f"{engine}: a notification request asks in the prompt bar ({prompts()}, notify {state('notify')})")
@@ -187,10 +218,36 @@ def run_engine(engine):
             got = settled("notify")
             check(got == "granted", f"{engine}: Allow grants notifications ({got})")
             load(engine, url)
+            got = page("Notification.permission")
+            check(got == "granted", f"{engine}: after a reload the page reads its permission as granted without asking ({got})")
             run(engine, "askNotify(); true")
             got = settled("notify")
             check(got == "granted" and not permission_prompts("notifications"),
                   f"{engine}: after a reload notifications are granted with no prompt ({got}, {prompts()})")
+            check(run(engine, "notifyNow('cmux web notification')"), f"{engine}: the page makes a notification")
+            shown = quiet_wait(lambda: banner("cmux web notification"), 10)
+            check(bool(shown) and "127.0.0.1" in shown.get("body", "") and "from the page" in shown.get("body", ""),
+                  f"{engine}: a granted page's notification shows a cmux banner with its site ({shown}, {banners()})")
+            if shown:
+                rpc("debug.notifications", {"action": "click", "id": shown["id"], "surface": shown.get("surface")})
+                check(bool(quiet_wait(lambda: state("clicked") == 1, 10)),
+                      f"{engine}: clicking the banner runs the page's onclick ({state('clicked')})")
+                # The next document numbers its notifications afresh: an old banner must not reach them.
+                load(engine, url)
+                check(run(engine, "notifyNow('cmux second'); true"), f"{engine}: the reloaded page makes a notification")
+                second = quiet_wait(lambda: banner("cmux second"), 10)
+                check(bool(second), f"{engine}: the reloaded page's notification shows a banner ({banners()})")
+                rpc("debug.notifications", {"action": "click", "id": shown["id"], "surface": shown.get("surface")})
+                time.sleep(2)
+                check(state("clicked") == 0, f"{engine}: the earlier page's banner runs nothing in the reloaded page ({state('clicked')})")
+            # A frame of the allowed site inside another site's page: no banner (Chrome refuses
+            # notifications from cross-origin frames).
+            other = url.replace("127.0.0.1", "localhost") + "?embed=" + urllib.parse.quote(url + "?notify=cmux%20framed")
+            page(f"location.href = {json.dumps(other)}; true")
+            wait_for(lambda: page("location.hostname === 'localhost' && document.readyState === 'complete'"),
+                     f"{engine}: the embedding page loads", 30)
+            time.sleep(3)
+            check(banner("cmux framed") is None, f"{engine}: an allowed site framed in another site shows no banner ({banners()})")
 
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None
