@@ -22,11 +22,18 @@ struct DaemonHandoffAttachTests {
 
         // The previous build's daemon, with a running terminal.
         let old = try await launcher.ensure()
-        let seed = DaemonConnection(endpointProvider: launcher.endpointProvider)
-        _ = try await seed.start()
-        let workspace = try await seed.createWorkspace(name: "kept")
-        let terminal = try await seed.createTerminal(in: workspace.key, cwd: root.path, size: CellSize(cols: 80, rows: 24))
-        await seed.close()
+        let seed = DaemonConnection(endpoint: DaemonEndpoint(socketPath: old.socket))
+        let terminal: CreateTerminalResult
+        do {
+            _ = try await seed.start()
+            let workspace = try await seed.createWorkspace(name: "kept")
+            terminal = try await seed.createTerminal(in: workspace.key, cwd: root.path, size: CellSize(cols: 80, rows: 24))
+            await seed.close()
+        } catch {
+            await seed.close()
+            await Self.shutDown(launcher)
+            throw error
+        }
 
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -55,15 +62,23 @@ struct DaemonHandoffAttachTests {
         let kept = store.workspaces.first { $0.name == "kept" }
         let terminals = kept?.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.terminalID) ?? []
 
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
-        }
         services.daemon.shutdownConnection()
         for controller in services.windows.controllers { controller.window?.close() }
+        await Self.shutDown(launcher)
 
         #expect(attachedPid != nil && attachedPid != old.pid, "the app stayed on the old daemon")
         #expect(epoch == 1, "the app attached to the old daemon, then reconnected (epoch \(epoch))")
         #expect(terminals.contains(terminal.terminalID), "the terminal did not survive the handoff")
+    }
+
+    /// Ends the session's daemon and its terminals, whichever build runs.
+    private static func shutDown(_ launcher: DaemonLauncher) async {
+        guard let running = try? await launcher.ensure() else { return }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: running.socket))
+        if (try? await connection.start()) != nil {
+            _ = try? await connection.request(ShutdownDaemonRequest(pid: running.pid, generation: running.generation, endTerminals: true),
+                                              timeout: .seconds(10))
+        }
+        await connection.close()
     }
 }

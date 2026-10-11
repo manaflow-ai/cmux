@@ -178,6 +178,9 @@ final class DaemonService {
                 // The new connection's endpoint waits for the old daemon to
                 // exit and starts the bundled build, which adopts the terminals.
                 await exiting.close()
+                // The first connect was in time; the deadline now covers
+                // the successor's start.
+                self?.armStartupDeadline()
                 connected = nil
                 if !Task.isCancelled {
                     connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection,
