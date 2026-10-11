@@ -30,7 +30,7 @@ extension TabStripView {
             if let chip = groups.chips[group] {
                 dying.remove(id)
                 chip.update(group: item, memberCount: count)
-                groups.bands[group]?.color = item.colorToken
+                groups.bands[group]?.color = item.tint
                 continue
             }
             let chip = TabGroupChipCell(group: item, memberCount: count)
@@ -40,7 +40,7 @@ extension TabStripView {
             chip.scale = window?.backingScaleFactor ?? 2
             chip.accessibility.setAccessibilityParent(self)
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
-            let band = TabGroupBandCell(color: item.colorToken)
+            let band = TabGroupBandCell(color: item.tint)
             band.themeScope = themeScope
             if let clip = tabsClip.layer {
                 band.addTo(clip)

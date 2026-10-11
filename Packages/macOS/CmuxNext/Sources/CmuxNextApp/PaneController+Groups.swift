@@ -53,6 +53,7 @@ extension PaneController {
         case .createGroup(let item, let tabs):
             let models = tabs.compactMap { tab($0) }
             let surfaces = models.map(\.surface), resources = models.compactMap(\.resourceID)
+            // Writes stay on the token path until the daemon takes `#RRGGBB` for tab groups (cx-wqn5).
             let name = item.name, color = item.colorToken.rawValue
             groupCommand("create-tab-group") { connection, transaction in
                 if v2, resources.count == surfaces.count, !resources.isEmpty {
