@@ -14,7 +14,7 @@
 //! `transfer_finish` are held to it whatever they are sent. A guarded receive takes only the
 //! bundle's own files and at most `native::MAX_GUARDED_FILES` agent store files ([`bundle_path_kind`]),
 //! never a terminal agent, and for `web` never a family the Web does not drive. A guarded finish
-//! ([`Hub::guard_session`]) refuses, never downgrades, a chat that would run without asking here,
+//! ([`Hub::guard_session`]) refuses, never downgrades, a `web` chat that would run without asking,
 //! and the queue it brings runs under the guard's control ([`guarded_record`]).
 
 use super::*;
@@ -252,8 +252,8 @@ impl Hub {
 
     /// Rewrites a guarded receive's `session.json` to the chat it may be here, before the import,
     /// or refuses it: its folder (`cwd`, else its own) under a root, spelled canonically; its
-    /// family from this daemon's profile; its policy (none is `ask`), rules, mode and options
-    /// asking; no preset, session env, store roots, argv or tags, and a remote origin (no
+    /// family from this daemon's profile; no policy is `ask`, and under `web` its policy,
+    /// rules, mode and options asking; no preset, session env, store roots, argv or tags, and a remote origin (no
     /// preset args, no cmux MCP servers); a model only when the profile declares it; a Claude
     /// profile only when configured; and its agent store files exactly its session's.
     pub(super) async fn guard_session(
@@ -294,16 +294,24 @@ impl Hub {
                 meta.claude_profile.take().filter(|p| cfg.harnesses.contains_key(p));
         }
         let policy = meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
-        if !person::asking_policy_value(Some(&json!(policy))) {
-            return Err(guard_error(
-                "policy",
-                format!("policy {policy} does not ask before it acts"),
-            ));
+        // Under the Web's control everything must ask. A peer guard moves the person's chat
+        // between their own machines, and a peer's prompts have no mode rule at dispatch, so it
+        // keeps its policy, rules and mode (`hub/web_control.rs`).
+        if guard.control == Control::Web {
+            if !person::asking_policy_value(Some(&json!(policy))) {
+                return Err(guard_error(
+                    "policy",
+                    format!("policy {policy} does not ask before it acts"),
+                ));
+            }
+            if !person::rules_cannot_auto_approve(meta.permission_rules.as_ref()) {
+                return Err(guard_error(
+                    "policy",
+                    "its permission rules could approve without asking",
+                ));
+            }
+            self.web_guard_modes(&meta)?;
         }
-        if !person::rules_cannot_auto_approve(meta.permission_rules.as_ref()) {
-            return Err(guard_error("policy", "its permission rules could approve without asking"));
-        }
-        self.guard_modes(&meta, guard.control)?;
         meta.preset = None;
         meta.session_env.clear();
         meta.harness_roots.clear();
@@ -326,15 +334,15 @@ impl Hub {
         Ok(meta)
     }
 
-    /// A guarded chat's mode, and every option that is not a model or effort choice, must be
-    /// one this daemon's table lists as asking for its family; for `web`, never a family the
-    /// Web does not drive.
-    fn guard_modes(&self, meta: &SessionMeta, control: Control) -> Result<(), RpcError> {
+    /// A web-guarded chat's mode, and every option that is not a model or effort choice, must be
+    /// one this daemon's table lists as asking for its family, never of a family the Web does not
+    /// drive.
+    fn web_guard_modes(&self, meta: &SessionMeta) -> Result<(), RpcError> {
         let table = self.web_modes();
         let family = crate::web_modes::family_of(meta);
         let listed = |mode: &str| table.modes(&family).iter().any(|m| m == mode);
         let mode = crate::web_modes::mode_of(meta);
-        let refused = control == Control::Web && table.refused().contains(&family);
+        let refused = table.refused().contains(&family);
         if refused || mode.as_deref().is_some_and(|m| !listed(m)) {
             let shown = mode.as_deref().unwrap_or("(none)");
             return Err(guard_error(
