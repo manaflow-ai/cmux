@@ -7498,7 +7498,7 @@
         {
           "id": "agentPane.permission.allowOnce",
           "title": {
-            "en": "Allow once",
+            "en": "Allow Once",
             "ar": "السماح مرة واحدة",
             "bs": "Dozvoli jednom",
             "da": "Tillad én gang",
@@ -7533,7 +7533,7 @@
         {
           "id": "agentPane.permission.allowChat",
           "title": {
-            "en": "Allow for this chat",
+            "en": "Allow for This Chat",
             "ar": "السماح في هذه المحادثة",
             "bs": "Dozvoli u ovom razgovoru",
             "da": "Tillad i denne chat",
@@ -7603,7 +7603,7 @@
         {
           "id": "agentPane.permission.expand",
           "title": {
-            "en": "Expand permission details",
+            "en": "Expand Permission Details",
             "ar": "توسيع تفاصيل الأذونات",
             "bs": "Proširi detalje dozvole",
             "da": "Udvid tilladelsesoplysninger",
