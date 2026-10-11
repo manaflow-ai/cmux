@@ -215,15 +215,22 @@ fn a_host_that_died_without_a_daemon_is_respawned_at_the_next_start() {
 
 /// b2. A reboot with no checkpoint made by a client: the daemon gets
 /// `SIGTERM`, then its host dies. The next daemon respawns the terminal with
-/// the screen it had when the daemon stopped.
+/// the screen it had when the daemon stopped, also while another terminal
+/// keeps writing (a build log, an agent's spinner).
 #[test]
 fn a_terminated_daemon_keeps_the_screen_for_a_respawn_after_a_reboot() {
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("respawn-reboot-screen");
+    let (_, _, busy) = start_default_shell(&harness, "busy");
+    send_line(&harness.socket, busy, "while :; do echo busy; sleep 0.005; done");
     let (terminal_id, incarnation, surface) = start_default_shell(&harness, "reboot");
-    send_line(&harness.socket, surface, "echo shutdown-marker");
+    // The output, not the echoed command line, carries the marker.
+    send_line(&harness.socket, surface, "printf 'shutdown-%s\\n' marker");
     wait_for_screen(&harness.socket, surface, "shutdown-marker\n");
-    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let (_, record) = wait_for_host_records(&harness.host_root(), 2)
+        .into_iter()
+        .find(|(_, record)| record.terminal_id == terminal_id)
+        .expect("the terminal has no host record");
     harness.terminate();
     // SAFETY: the record PID is the harness-owned terminal host.
     assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
