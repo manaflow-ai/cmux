@@ -240,7 +240,14 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
     next.rev = head.rev + 1;
     let now = request.now;
     let (message, change) = match request.op {
-        Op::MessageSend { client_msg_id, parts, reply_to, answers, answers_pending, thread_root } => {
+        Op::MessageSend {
+            client_msg_id,
+            parts,
+            reply_to,
+            answers,
+            answers_pending,
+            thread_root,
+        } => {
             if client_msg_id != request.idempotency_key || !valid_token(client_msg_id) {
                 return Err(Reject::InvalidClientMsgId);
             }
