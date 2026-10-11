@@ -111,7 +111,7 @@ function GalleryPathPicker({
             list={list}
             locations={async () => ({
               locations:
-                mode === "anyFile"
+                mode === "anyFile" || stableFilter
                   ? []
                   : [
                       { kind: "workspace" as const, path: PROJECTS },
@@ -122,7 +122,7 @@ function GalleryPathPicker({
             })}
             strings={strings}
             recents={
-              mode === "anyFile"
+              mode === "anyFile" || stableFilter
                 ? []
                 : mode === "folder"
                   ? [CMUX]
@@ -353,7 +353,7 @@ export default componentEntry<Props>({
     locations: { props: {}, play: locations },
     filter: { props: { start: PROJECTS, stableFilter: true }, play: filter },
     hidden: { props: {}, play: hidden },
-    "path-completion": { props: { start: PROJECTS }, play: pathCompletion },
+    "path-completion": { props: { start: PROJECTS, stableFilter: true }, play: pathCompletion },
     "recent-folders": { props: {}, play: recentFolders },
     "recent-file": { props: { mode: "file", start: PROJECTS }, play: recentFile },
     "markdown-file": { props: { mode: "file", start: PROJECTS }, play: chooseFile },
