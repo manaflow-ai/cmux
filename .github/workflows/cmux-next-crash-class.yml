@@ -13,6 +13,8 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
       - ".github/workflows/cmux-next-crash-class.yml"
   push:
     branches:
@@ -22,6 +24,8 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
       - ".github/workflows/cmux-next-crash-class.yml"
   workflow_dispatch:
 
@@ -45,9 +49,9 @@ jobs:
             Packages/macOS/CmuxNext/Sources
             Packages/macOS/CmuxNext/Package.swift
             scripts/cmux-next
+            scripts/ci/crash-class-gate.sh
+            scripts/ci/pr_owned_findings.py
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
-        env:
-          CHECK_CONCURRENCY_ONLY: crash-class
-        run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        run: scripts/ci/crash-class-gate.sh
