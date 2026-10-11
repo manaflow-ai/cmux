@@ -47,7 +47,8 @@ export function virtualAnchor(anchor: UiAnchor) {
 
 export interface PopoverProps {
   open: boolean;
-  onOpenChange(open: boolean): void;
+  /** `escape`: closed by Escape, which a dialog may read as "revert". */
+  onOpenChange(open: boolean, details?: { escape: boolean }): void;
   /** Where it opens; it opens below. */
   anchor: UiAnchor;
   /** The accessible name of the popover (role dialog). */
@@ -75,7 +76,11 @@ export function Popover({
 }: PopoverProps) {
   const container = usePortalContainer();
   return (
-    <BasePopover.Root open={open} onOpenChange={(next) => onOpenChange(next)} modal={false}>
+    <BasePopover.Root
+      open={open}
+      onOpenChange={(next, details) => onOpenChange(next, { escape: details.reason === "escape-key" })}
+      modal={false}
+    >
       <BasePopover.Portal container={container}>
         <BasePopover.Positioner
           className="ui-positioner"

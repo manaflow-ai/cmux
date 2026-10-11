@@ -15,7 +15,10 @@ import os
 /// The guard counts `-[NSView layout]` calls per view in one run-loop turn
 /// (an override that calls `super.layout()` counts; one that does not is
 /// invisible). A normal turn lays out a view one to three times. When one
-/// view passes ``bound`` in one turn, the guard records a ``Report`` with
+/// view passes ``bound`` in one turn (or, in a small window, half the
+/// window's view count: AppKit's own limit is that count, so a fixed bound
+/// would never fire before a small panel throws), the guard records a
+/// ``Report`` with
 /// the view's class, its superview chain and its window class, logs a fault
 /// and calls ``onLoop`` (the app sends it to Sentry as a non-fatal event).
 /// One report per view class per launch. Reading: ``reports``,
@@ -44,12 +47,21 @@ public final class LayoutPassGuard {
     public private(set) var reports: [Report] = []
     /// The most layout calls one view had in one turn since launch.
     public private(set) var maxPassesInOneTurn = 0
+    /// The view class and window class that had ``maxPassesInOneTurn``
+    /// (a busy view below the bound, named before it becomes a loop).
+    public private(set) var maxPassesClass: String?
+    public private(set) var maxPassesWindowClass: String?
+    /// Passes in one turn from which the guard counts the window's views
+    /// (once per window per turn) to lower the bound for a small window.
+    static let smallWindowCheck = 4
     public private(set) var isInstalled = false
 
     /// Per view this turn; the weak reference tells a reused address apart.
     private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int)] = [:]
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
+    /// Bound per window this turn (``bound``, or lower for a small window).
+    private var windowBounds: [ObjectIdentifier: Int] = [:]
     private var observer: CFRunLoopObserver?
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "layout-pass-guard")
 
@@ -65,6 +77,8 @@ public final class LayoutPassGuard {
     public func reset() {
         classCounts.removeAll()
         maxPassesInOneTurn = 0
+        maxPassesClass = nil
+        maxPassesWindowClass = nil
         reports.removeAll()
         reportedClasses.removeAll()
     }
@@ -87,6 +101,25 @@ public final class LayoutPassGuard {
 
     private func endTurn() {
         if !turnCounts.isEmpty { turnCounts.removeAll(keepingCapacity: true) }
+        if !windowBounds.isEmpty { windowBounds.removeAll(keepingCapacity: true) }
+    }
+
+    /// The bound for `window` this turn: ``bound``, or half its view count
+    /// (at least ``smallWindowCheck``) when that is lower. Counted once per
+    /// window per turn, only after a view passed ``smallWindowCheck``.
+    private func bound(for window: NSWindow?) -> Int {
+        guard let window, let frame = window.contentView?.superview ?? window.contentView else { return Self.bound }
+        let id = ObjectIdentifier(window)
+        if let known = windowBounds[id] { return known }
+        var views = 0
+        var stack: [NSView] = [frame]
+        while let view = stack.popLast(), views < 2 * Self.bound {
+            views += 1
+            stack.append(contentsOf: view.subviews)
+        }
+        let value = min(Self.bound, max(Self.smallWindowCheck, views / 2))
+        windowBounds[id] = value
+        return value
     }
 
     fileprivate func record(_ view: NSView) {
@@ -101,8 +134,13 @@ public final class LayoutPassGuard {
         var count = 1
         if let entry = turnCounts[id], entry.view.object === view { count = entry.count + 1 }
         turnCounts[id] = (Weak(view), count)
-        if count > maxPassesInOneTurn { maxPassesInOneTurn = count }
-        guard count == Self.bound + 1, reportedClasses.insert(typeID).inserted else { return }
+        if count > maxPassesInOneTurn {
+            maxPassesInOneTurn = count
+            maxPassesClass = String(describing: type)
+            maxPassesWindowClass = view.window.map { String(describing: Swift.type(of: $0)) }
+        }
+        guard count > Self.smallWindowCheck, count == bound(for: view.window) + 1,
+              reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
         var next = view.superview
         while let ancestor = next, ancestry.count < 8 {
