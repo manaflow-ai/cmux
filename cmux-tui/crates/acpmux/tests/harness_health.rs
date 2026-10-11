@@ -454,24 +454,42 @@ async fn health_reads_node_formulas_wrappers_and_signin_evidence() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Auto-update (off by default, per harness): a check that finds an opted-in harness outdated runs
-/// its own updater (never one that needs sudo), then checks again. The choice is kept in acpmux's
-/// home; a remote WebSocket connection cannot change it.
+/// Waits for harness `id`'s row to pass `done` (an auto-update runs in the background).
+async fn wait_row(app: &mut Client, id: &str, done: impl Fn(&Value) -> bool) -> Value {
+    for _ in 0..300 {
+        let all = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+        if done(row(&all, id)) {
+            return row(&all, id).clone();
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("{id} never got there");
+}
+
+/// Auto-update (off by default, per harness): turning it on, or a check that finds an opted-in
+/// harness outdated, runs its own updater (never one that needs sudo), then checks again. A failed
+/// update is not retried for the same version until auto-update is turned on again. The choice is
+/// kept in acpmux's home; a remote WebSocket connection cannot change it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again() {
     let root = scratch("auto");
     let home = root.join("home");
     let user = root.join("config").join("harnesses");
 
-    // Claude's native installer: `claude update` installs 2.0.9.
+    // Claude's native installer: `claude update` installs 2.0.9, or fails while `fail` exists.
+    // Each run is logged to `runs`.
     let claude_file = home.join(".local/share/claude/versions/current");
     let claude = home.join(".local/bin/claude");
+    let runs = root.join("claude-update-runs");
+    let fail = root.join("claude-update-fails");
     std::fs::create_dir_all(claude_file.parent().unwrap()).unwrap();
     std::fs::write(
         &claude_file,
         format!(
-            "#!/bin/sh\nif [ \"$1\" = update ]; then printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
-            claude_file.display()
+            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; if [ -e '{2}' ]; then echo 'network is down'; exit 1; fi; printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
+            claude_file.display(),
+            runs.display(),
+            fail.display()
         ),
     )
     .unwrap();
@@ -523,11 +541,17 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     let first = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
     assert_eq!(row(&first, "claude")["autoUpdate"], false, "off by default: {first}");
 
+    std::fs::write(&fail, "").unwrap();
     let on = app
         .call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "claude", "on": true}}))
         .await
         .expect("auto-update on");
     assert_eq!(row(&on, "claude")["autoUpdate"], true, "{on}");
+    // Turning it on runs the updater now, not at the next periodic check. This run fails.
+    let r = wait_row(&mut app, "claude", |r| r["lastAutoUpdate"]["ok"] == false).await;
+    assert_eq!(r["lastAutoUpdate"]["detail"], "network is down", "{r}");
+    // Same installed and newest version: the periodic step does not run it again.
+    assert_eq!(hub.auto_update_harnesses().await, Vec::<String>::new());
     // SAFETY: geteuid has no preconditions. Root writes any folder, so the sudo case is not one.
     let rooted = unsafe { libc::geteuid() } == 0;
     if !rooted {
@@ -542,16 +566,16 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     let saved = std::fs::read_to_string(&chosen).expect("choice saved");
     assert!(saved.contains("claude") && !saved.contains("codex"), "{saved}");
 
-    // The daemon's periodic step: only claude runs its updater, then everything is checked again.
-    assert_eq!(hub.auto_update_harnesses().await, vec!["claude".to_owned()]);
-    let after = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
-    let r = row(&after, "claude");
-    assert_eq!(
-        (r["version"].as_str(), r["outdated"].as_bool()),
-        (Some("2.0.9"), Some(false)),
-        "{r}"
-    );
+    // Turning it on again tries again; only claude runs its updater, then everything is checked again.
+    std::fs::remove_file(&fail).unwrap();
+    app.call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "claude", "on": true}}))
+        .await
+        .expect("auto-update on again");
+    let r = wait_row(&mut app, "claude", |r| r["version"] == "2.0.9").await;
+    assert_eq!(r["outdated"], false, "{r}");
     assert_eq!(r["lastAutoUpdate"]["ok"], true, "{r}");
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 2, "one run per try");
+    let after = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
     let r = row(&after, "opencode");
     assert_eq!(
         (r["version"].as_str(), r["outdated"].as_bool()),
