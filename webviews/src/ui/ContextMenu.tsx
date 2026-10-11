@@ -94,6 +94,7 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
                 ref={(node) => node?.focus()}
                 className="ui-popup ui-context-menu"
                 role="menu"
+                data-focus-ring="rows"
                 tabIndex={-1}
                 style={{
                   position: "fixed",
