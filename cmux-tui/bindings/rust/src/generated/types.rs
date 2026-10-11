@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703.
+// cmux-tui mux protocol 12, IR 683d4d37c3f6d707c7c5123eb83b391038a98ab5e6fd05f05fb8a2e39993c7d4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -516,6 +516,9 @@ pub struct ConversationTabRecord {
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 #[rustfmt::skip]

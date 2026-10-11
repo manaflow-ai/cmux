@@ -37,6 +37,7 @@
     "notification-ack-v1",
     "notification-mark-unread-v1",
     "notification-source-v1",
+    "page-tab-route-v1",
     "page-tabs-v1",
     "palette-usage-v1",
     "personal-mixed-order-v1",
