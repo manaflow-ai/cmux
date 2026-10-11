@@ -16,17 +16,22 @@ public struct AgentPaneQuickHooks {
     public var setOnTop: (Bool) -> Void
     /// `quick.setCollapsed {collapsed}`: the floating chat folds to its compact bar or opens again.
     public var setCollapsed: (Bool) -> Void
+    /// `quick.floatingState`: what the floating chat draws now, for a page that loads after the
+    /// last push (a tab moved to the panel, a reload).
+    public var floatingState: () -> AgentPaneFloatingState
 
     public init(dismiss: @escaping () -> Void,
                 openInWindow: @escaping (String?) -> Void,
                 startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Void,
                 setOnTop: @escaping (Bool) -> Void = { _ in },
-                setCollapsed: @escaping (Bool) -> Void = { _ in }) {
+                setCollapsed: @escaping (Bool) -> Void = { _ in },
+                floatingState: @escaping () -> AgentPaneFloatingState = { AgentPaneFloatingState() }) {
         self.dismiss = dismiss
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
         self.setOnTop = setOnTop
         self.setCollapsed = setCollapsed
+        self.floatingState = floatingState
     }
 }
 
@@ -37,6 +42,7 @@ extension AgentPaneQuickHooks {
         case .quickDismiss: dismiss()
         case .quickSetOnTop(let onTop): setOnTop(onTop)
         case .quickSetCollapsed(let collapsed): setCollapsed(collapsed)
+        case .quickFloatingState: return AgentPaneReply.success(floatingState().reply)
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
         return AgentPaneReply.success()

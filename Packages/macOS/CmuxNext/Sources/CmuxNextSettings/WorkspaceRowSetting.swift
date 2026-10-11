@@ -41,7 +41,7 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
     }
 
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowPreferences {
-        var shown = WorkspaceRowElements.minimal.shown
+        var shown = WorkspaceRowElements.standard.shown
         for element in WorkspaceRowElement.allCases {
             var path = Self.path(element)
             if root.value(at: path) == nil, let legacy = Self.legacyPaths[element], root.value(at: legacy) != nil { path = legacy }
@@ -98,6 +98,7 @@ extension WorkspaceRowSetting {
         case .pullRequest: SettingsText.keyed("settings.workspaceRow.pullRequest", "Pull Request")
         case .progress: SettingsText.keyed("settings.workspaceRow.progress", "Progress")
         case .working: SettingsText.keyed("settings.workspaceRow.working", "Agent Working")
+        case .log: SettingsText.keyed("settings.workspaceRow.log", "Log")
         }
     }
 
@@ -105,11 +106,12 @@ extension WorkspaceRowSetting {
         switch element {
         case .icon: SettingsText.keyed("settings.workspaceRow.icon.help", "The icon or emoji you chose for a workspace.")
         case .process: SettingsText.keyed("settings.workspaceRow.process.help", "The terminal's title, which the shell or program sets.")
-        case .agentStatus: SettingsText.keyed("settings.workspaceRow.agentStatus.help", "The status line agents and hooks report.")
+        case .agentStatus: SettingsText.keyed("settings.workspaceRow.agentStatus.help", "The status agents and hooks report, one line each.")
         case .ports: SettingsText.keyed("settings.workspaceRow.ports.help", "Set by a hook: cmux workspace status set ports <text>.")
         case .pullRequest: SettingsText.keyed("settings.workspaceRow.pullRequest.help", "Set by a hook: cmux workspace status set pr <text>.")
         case .progress: SettingsText.keyed("settings.workspaceRow.progress.help", "A progress bar under the row and the busy mark of running work.")
         case .working: SettingsText.keyed("settings.workspaceRow.working.help", "A mark while an agent works in the workspace.")
+        case .log: SettingsText.keyed("settings.workspaceRow.log.help", "The newest line agents and scripts log: cmux workspace log append <text>.")
         case .directory, .branch, .tabCount, .lastActivity: nil
         }
     }
@@ -135,7 +137,7 @@ extension WorkspaceRowSetting {
     /// (44 rows would bury the page), so they stay off the page and palette.
     static func descriptors() -> [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.workspaceRows", "Workspace Rows")
-        let defaults = WorkspaceRowElements.minimal
+        let defaults = WorkspaceRowElements.standard
         var rows = WorkspaceRowElement.allCases.map { element in
             SettingDescriptor(path(element), section: .appearance, group: group, title: title(element), help: help(element),
                               kind: .toggle, default: .bool(defaults.shows(element)),

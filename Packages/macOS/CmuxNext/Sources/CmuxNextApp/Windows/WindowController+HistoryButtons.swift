@@ -19,6 +19,9 @@ extension WindowController {
                 _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
             }
         }
+        // The sidebar toggle's right-click (cx-2lm4): the menu of the sidebar's empty space.
+        band.sidebarToggle.longPressOpensMenu = false
+        band.sidebarToggle.menuProvider = { [weak sidebar] in sidebar?.contextMenu(for: .background) }
         band.describeHistory(back: registry.descriptor(for: "focusHistoryBack")?.title ?? "",
                              forward: registry.descriptor(for: "focusHistoryForward")?.title ?? "")
         // Each window listens for itself; windowWillClose removes it.

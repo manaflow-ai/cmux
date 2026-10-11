@@ -57,6 +57,8 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_in;
+mod transfer_out;
 mod turns;
 mod warm;
 mod xai;
@@ -532,6 +534,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
@@ -769,6 +772,9 @@ impl Hub {
                 "composer draft exceeds {} characters",
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
+        }
+        if session.moving().is_some() {
+            return Err(queue::moving_error().message);
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
