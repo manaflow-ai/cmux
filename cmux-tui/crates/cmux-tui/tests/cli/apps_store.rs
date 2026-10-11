@@ -6,7 +6,7 @@
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -527,12 +527,20 @@ fn log_with(apps: &Apps, app: &str, needle: &str) -> Vec<String> {
 /// refuses.
 #[test]
 fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
-    // The leaf the old layout uses on Linux (the test state dir is short).
     for case in ["symlink", "open"] {
         let apps = Apps::new(&format!("sd{case}"));
-        let parent = apps.dir.join("state").join("apps-tmp");
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&parent).unwrap();
-        let leaf = parent.join("cmux.linked");
+        write_linked_app(&apps);
+        // A first daemon run names the folder this daemon's app uses.
+        apps.start();
+        ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+        let first = apps.lines("link.jsonl", 1).swap_remove(0);
+        let leaf = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
+        let _ = apps.command("stop").arg("--end-terminals").output();
+        std::fs::remove_file(apps.dir.join("link.jsonl")).unwrap();
+        // Then another process of the user puts a folder of its own there.
+        if std::fs::symlink_metadata(&leaf).is_ok() {
+            std::fs::remove_dir_all(&leaf).unwrap();
+        }
         let elsewhere = apps.dir.join("elsewhere");
         std::fs::create_dir_all(&elsewhere).unwrap();
         std::fs::write(elsewhere.join("keep"), "x").unwrap();
@@ -543,7 +551,6 @@ fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
             std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o755)).unwrap();
             std::fs::write(leaf.join("keep"), "x").unwrap();
         }
-        write_linked_app(&apps);
         apps.start();
         ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
         let lines = log_with(&apps, "cmux/linked", "app socket folder");
@@ -561,7 +568,11 @@ fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
     apps.start();
     ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
     let first = apps.lines("link.jsonl", 1).swap_remove(0);
-    assert_eq!((first["t"].clone(), first["id"].clone()), (json!("host.result"), json!(7)), "{first}");
+    assert_eq!(
+        (first["t"].clone(), first["id"].clone()),
+        (json!("host.result"), json!(7)),
+        "{first}"
+    );
     let socket_dir = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
     assert!(socket_dir.as_os_str().len() <= 104 - 1 - 27, "{}", socket_dir.display());
     let meta = std::fs::symlink_metadata(&socket_dir).unwrap();

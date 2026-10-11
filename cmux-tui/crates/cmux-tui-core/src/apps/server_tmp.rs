@@ -38,9 +38,13 @@ pub(super) const MAX_SOCKET_DIR: usize = 104 - 1 - 27;
 #[cfg(target_os = "macos")]
 const DARWIN_TEMP_LEN: usize = 13 + 2 + 1 + 28 + 3;
 /// `cmux-apps/` and 12 hex.
+#[cfg(target_os = "macos")]
 const SHORT_LEAF_LEN: usize = "cmux-apps/".len() + 12;
 #[cfg(target_os = "macos")]
-const _: () = assert!(DARWIN_TEMP_LEN + SHORT_LEAF_LEN <= MAX_SOCKET_DIR, "the macOS app socket folder must fit the link socket");
+const _: () = assert!(
+    DARWIN_TEMP_LEN + SHORT_LEAF_LEN <= MAX_SOCKET_DIR,
+    "the macOS app socket folder must fit the link socket"
+);
 
 fn short_name(base: &Path, namespace: &str) -> String {
     let seed = format!("{}\0{namespace}", base.display());
@@ -50,7 +54,10 @@ fn short_name(base: &Path, namespace: &str) -> String {
 fn fits(path: &Path) -> Result<(), String> {
     let len = path.as_os_str().len();
     if len > MAX_SOCKET_DIR {
-        return Err(format!("the app socket folder {} is {len} bytes; at most {MAX_SOCKET_DIR} fit a socket path", path.display()));
+        return Err(format!(
+            "the app socket folder {} is {len} bytes; at most {MAX_SOCKET_DIR} fit a socket path",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -61,11 +68,14 @@ fn fits(path: &Path) -> Result<(), String> {
 fn darwin_user_temp() -> Result<PathBuf, String> {
     let mut buf = [0u8; 1024];
     // SAFETY: confstr writes at most buf.len() bytes, NUL included, into our buffer.
-    let n = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr().cast(), buf.len()) };
+    let n = unsafe {
+        libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr().cast(), buf.len())
+    };
     if n == 0 || n > buf.len() {
         return Err("the per-user temp dir is not available (confstr)".into());
     }
-    let text = std::str::from_utf8(&buf[..n - 1]).map_err(|_| "the per-user temp dir is not UTF-8".to_string())?;
+    let text = std::str::from_utf8(&buf[..n - 1])
+        .map_err(|_| "the per-user temp dir is not UTF-8".to_string())?;
     let parts: Vec<&str> = text.split('/').collect();
     let id_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-';
     let shaped = text.len() == DARWIN_TEMP_LEN
@@ -79,7 +89,9 @@ fn darwin_user_temp() -> Result<PathBuf, String> {
         && parts[6].is_empty()
         && parts[3].chars().chain(parts[4].chars()).all(id_char);
     if !shaped {
-        return Err(format!("the per-user temp dir {text:?} does not have the system's shape; no app socket folder"));
+        return Err(format!(
+            "the per-user temp dir {text:?} does not have the system's shape; no app socket folder"
+        ));
     }
     Ok(PathBuf::from(text.trim_end_matches('/')))
 }
@@ -101,7 +113,8 @@ pub(super) fn server_tmp_dir(base: &Path, namespace: &str) -> Result<PathBuf, St
         if fits(&old).is_ok() {
             return Ok(old);
         }
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|p| p.is_absolute());
+        let runtime =
+            std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|p| p.is_absolute());
         let Some(runtime) = runtime else {
             return fits(&old).map(|()| old);
         };
@@ -115,7 +128,8 @@ pub(super) fn server_tmp_dir(base: &Path, namespace: &str) -> Result<PathBuf, St
 /// `path` is a real directory (lstat: not a symlink) owned by this uid, with
 /// no group or other access.
 pub(super) fn private_dir(path: &Path, what: &str) -> Result<(), String> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| format!("{what} {}: {e}", path.display()))?;
+    let meta =
+        std::fs::symlink_metadata(path).map_err(|e| format!("{what} {}: {e}", path.display()))?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(format!("{what} {} is not a real directory", path.display()));
     }
@@ -125,14 +139,20 @@ pub(super) fn private_dir(path: &Path, what: &str) -> Result<(), String> {
         return Err(format!("{what} {} belongs to another user", path.display()));
     }
     if meta.mode() & 0o077 != 0 {
-        return Err(format!("{what} {} is open to other users (mode {:o})", path.display(), meta.mode() & 0o777));
+        return Err(format!(
+            "{what} {} is open to other users (mode {:o})",
+            path.display(),
+            meta.mode() & 0o777
+        ));
     }
     Ok(())
 }
 
 /// Checks an existing folder and its parent (`cmux.host.link.get`).
 pub(super) fn check_server_tmp(dir: &Path) -> Result<(), String> {
-    let parent = dir.parent().ok_or_else(|| format!("the app socket folder {} has no parent", dir.display()))?;
+    let parent = dir
+        .parent()
+        .ok_or_else(|| format!("the app socket folder {} has no parent", dir.display()))?;
     private_dir(parent, "the app socket folders' parent")?;
     private_dir(dir, "the app socket folder")
 }
@@ -140,11 +160,17 @@ pub(super) fn check_server_tmp(dir: &Path) -> Result<(), String> {
 /// At server start: the parent made (0700) or checked, an existing folder
 /// checked before it is emptied, then a fresh 0700 folder, checked again.
 pub(super) fn fresh_server_tmp(dir: &Path) -> Result<(), String> {
-    let parent = dir.parent().ok_or_else(|| format!("the app socket folder {} has no parent", dir.display()))?;
+    let parent = dir
+        .parent()
+        .ok_or_else(|| format!("the app socket folder {} has no parent", dir.display()))?;
     match std::fs::symlink_metadata(parent) {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(|e| format!("app socket folders' parent {}: {e}", parent.display()))?;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(parent)
+                .map_err(|e| format!("app socket folders' parent {}: {e}", parent.display()))?;
         }
         Err(e) => return Err(format!("app socket folders' parent {}: {e}", parent.display())),
     }
@@ -153,12 +179,16 @@ pub(super) fn fresh_server_tmp(dir: &Path) -> Result<(), String> {
         Ok(_) => {
             // Never empty a folder another user or a symlink put there.
             private_dir(dir, "the app socket folder")?;
-            std::fs::remove_dir_all(dir).map_err(|e| format!("app socket folder {}: {e}", dir.display()))?;
+            std::fs::remove_dir_all(dir)
+                .map_err(|e| format!("app socket folder {}: {e}", dir.display()))?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(format!("app socket folder {}: {e}", dir.display())),
     }
-    std::fs::DirBuilder::new().mode(0o700).create(dir).map_err(|e| format!("app socket folder {}: {e}", dir.display()))?;
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(dir)
+        .map_err(|e| format!("app socket folder {}: {e}", dir.display()))?;
     private_dir(dir, "the app socket folder")
 }
 

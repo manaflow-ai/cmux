@@ -103,12 +103,13 @@ impl Supervisor {
         let inner = self.inner.lock().unwrap();
         for (app, server) in &inner.servers {
             // A folder that fails its check gets no event; the next link.get answers the refusal.
-            if !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get") {
-                if let Ok(data) = self.host_link(app) {
-                    server.process.send(line(&json!({
-                        "t": "host.event", "op": "cmux.host.link.changed", "data": data,
-                    })));
-                }
+            if !server.stopping
+                && Self::host_op_allowed(&inner, app, "cmux.host.link.get")
+                && let Ok(data) = self.host_link(app)
+            {
+                server.process.send(line(&json!({
+                    "t": "host.event", "op": "cmux.host.link.changed", "data": data,
+                })));
             }
         }
     }

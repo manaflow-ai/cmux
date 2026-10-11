@@ -831,7 +831,10 @@ impl Supervisor {
         let base =
             self.config.state_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("cmux-apps"));
         let namespace = cmux_app_manifest::app_namespace(app);
-        (base.join("apps-data").join(&namespace), super::server_tmp::server_tmp_dir(&base, &namespace))
+        (
+            base.join("apps-data").join(&namespace),
+            super::server_tmp::server_tmp_dir(&base, &namespace),
+        )
     }
 
     /// Creates the server's directories and returns its environment (the
@@ -876,7 +879,8 @@ impl Supervisor {
             }
         }
         // The socket folder is a trust boundary: checked before it is emptied and after it is made.
-        let tmp = tmp.map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
+        let tmp = tmp
+            .map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
         super::server_tmp::fresh_server_tmp(&tmp)
             .map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
         let mut env = vec![
