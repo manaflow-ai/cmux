@@ -419,14 +419,14 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* ui/titleTooltips.ts: the pane's one tooltip, placed inside the window. */
 .ui-title-tooltip{position:fixed;z-index:1000;max-width:min(320px,calc(100vw - 12px));padding:4px 8px;box-sizing:border-box;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,Canvas));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 18%,transparent),0 4px 14px var(--agent-shadow,rgb(0 0 0/.3));color:var(--agent-text);font-family:system-ui,-apple-system,sans-serif;font-size:var(--text-caption);line-height:var(--text-caption--line-height);white-space:pre-line;overflow-wrap:anywhere;pointer-events:none}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:pointer}
-.acpmux-side-question{margin:0 max(18px,calc((100% - 760px)/2)) 8px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font-size:13px;line-height:18px}
+.acpmux-side-question{margin:0 max(18px,calc((100% - 760px)/2)) 8px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font-size:var(--text-body);line-height:var(--text-body--line-height)}
 .acpmux-side-question-asked{margin:0 0 4px}
-.acpmux-side-question-label{color:var(--agent-muted);font-size:12px}
+.acpmux-side-question-label{color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-side-question-status{margin:0;color:var(--agent-muted)}
 .acpmux-side-question-error{margin:0;color:var(--agent-danger)}
 .acpmux-side-question-answer{max-height:240px;overflow:auto}
 .acpmux-side-question-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:6px}
-.acpmux-side-question-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;font-size:12px;cursor:pointer}
+.acpmux-side-question-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;font-size:var(--text-detail);cursor:pointer}
 /* Agent question card (question/QuestionCard.tsx): the app's gray language, no accent. The card is a quiet tray; the highlighted row is a soft fill, a chosen row a firmer one with a check; Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 9%,transparent);--acpmux-question-chosen:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 :root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}
