@@ -4,9 +4,10 @@ import CmuxNextIcons
 import QuartzCore
 
 /// Group header (Lawrence 2026-10-11, cx-qno.22: the solid color bar is
-/// back, over cx-25az's dot-only header): a bar in the group's color right of
-/// its line, which runs from the dot to the last member (Edge style); the
-/// name lines up with the members' titles. Every glyph on the bar (name,
+/// back, over cx-25az's dot-only header and cx-fo2t's no-hover header): the
+/// cx-rcby colored pill chip, one full-width rounded bar in the group's
+/// color (Lawrence 2026-10-08), with the members' line starting under it;
+/// the name lines up with the members' titles. Every glyph on the bar (name,
 /// icon, pin, chevron, + and more) takes one ink from the bar's color
 /// (`Palette.glyphInk(on:)`, 4.5:1 also on hover and pressed). The + and the
 /// more button show only on hover, keyboard focus or while the editor is
@@ -171,7 +172,8 @@ final class GroupHeaderRowView: SidebarRowView {
             chevron.contentTintColor = ink
             moreButton.tintOverride = ink
             addButton.tintOverride = ink
-            dot.backgroundColor = (tint == .palette(.grey) ? Palette.textTertiary : tint.headerFill).cgColor
+            // The bar carries the group's color: no dot over it (cx-rcby).
+            dot.isHidden = true
             ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
             pill.borderWidth = 0
             paintFill(nil)
@@ -252,10 +254,9 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.isHidden = !pinned
         pin.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         pill.isHidden = renaming
-        // The bar runs from the line's gutter to the edge, a little inset top and bottom.
-        pill.frame = NSRect(x: SidebarStyle.groupGutter, y: (b.height - barHeight) / 2,
-                            width: max(0, b.width - SidebarStyle.groupGutter), height: barHeight)
-        pill.cornerRadius = SidebarStyle.rowCornerRadius
+        // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
+        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        pill.cornerRadius = (barHeight * 0.23).rounded()
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
@@ -271,7 +272,7 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// A new group's dot arrives once: it fades and scales up (Reduce
+    /// A new group's chip arrives once: it fades and scales up (Reduce
     /// Motion: no scale, the row's fade only).
     func playAppear() {
         guard Motion.animatesMovement else { return }
@@ -280,6 +281,6 @@ final class GroupHeaderRowView: SidebarRowView {
         scale.toValue = 1
         scale.duration = Motion.duration(MotionSpring.appear)
         scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        dot.add(scale, forKey: "cmux.groupAppear")
+        pill.add(scale, forKey: "cmux.groupAppear")
     }
 }
