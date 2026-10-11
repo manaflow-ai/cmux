@@ -473,6 +473,7 @@ body {
   border-bottom: 0.5px solid var(--agent-border);
 }
 .proto-tab {
+  position: relative;
   display: flex;
   align-items: center;
   max-width: 260px;
@@ -504,12 +505,14 @@ body {
   color: var(--agent-text) !important;
 }
 .proto-tab-close {
+  position: absolute;
+  inset-inline-end: 3px;
+  top: 2px;
   display: grid;
   place-items: center;
   flex: none;
   width: 24px;
   height: 24px;
-  margin-right: 3px;
   padding: 0;
   border: 0;
   border-radius: 5px;
