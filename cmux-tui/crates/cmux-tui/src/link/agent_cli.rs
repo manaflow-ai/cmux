@@ -246,8 +246,7 @@ fn fresh(args: &Args, records: &Records, begin_unanswered: bool) -> Result<Moved
         }
         Err(lost) => {
             // The record stays: the chat may be frozen in that move.
-            let error =
-                format!("the begin was not answered ({}); run this again", lost.message());
+            let error = format!("the begin was not answered ({}); run this again", lost.message());
             return Err(Failed::new("move_unresolved", error));
         }
     };
