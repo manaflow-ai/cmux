@@ -445,6 +445,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.thread": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.typing": {
       "scope": "conversation:write",
       "class": "mutation"

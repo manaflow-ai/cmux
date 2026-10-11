@@ -148,7 +148,7 @@ declare namespace Cmux {
   type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
   type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; preview_attachments?: { kind: "photo" | "video" | "audio" | "file"; count: number }; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
   type HomeInvite = { id: Cmux.InviteId; address: Cmux.AddressId; channel: "email" | "sms"; display_name: string; invited_by: Cmux.ParticipantId; created_at: Cmux.Timestamp; expires_at: Cmux.Timestamp; status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"; accepted_by?: string; accepted_at?: Cmux.Timestamp; requested_by?: string; requested_name?: string; requested_at?: Cmux.Timestamp; delivery: { state: Cmux.HomeDeliveryState; provider_id?: string; at: Cmux.Timestamp }; copy_variant: string; locale: string }
-  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
+  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
   type HomePart = unknown
   type HomeParticipant = { id: Cmux.ParticipantId; kind: "human" | "agent" | "address"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; owner_user?: string; role?: "owner" | "member"; joined_seq?: number; added_by?: string; left_at?: Cmux.Timestamp }
   type HomeParticipantInput = { id: Cmux.ParticipantId; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; owner_user?: string }
@@ -157,6 +157,7 @@ declare namespace Cmux {
   type HomeReactionKind = unknown
   type HomeSha256 = string
   type HomeTextRun = { start: number; length: number; mention?: Cmux.ParticipantId; link?: string }
+  type HomeThreadSummary = { root: Cmux.MessageId; reply_count: number; last_reply_seq: number | null; last_reply_at: Cmux.Timestamp | null; authors: Array<Cmux.ParticipantId> }
   type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string>; orphaned?: { at: number; former_owner: Cmux.UserId } }
   type HostId = string
   type HostKind = "device" | "server"
@@ -697,7 +698,9 @@ interface CmuxGlobal {
       set: CmuxOp<{ conversation: Cmux.ConversationId; wake_policy?: "auto" | "mentions" | "all"; agent_budget?: { turns: number; gap_ms: number }; history_visible?: "all" | "since_join"; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     }
     /** `conversation.snapshot` (read, scope `conversation:read`): Read the conversation and its newest messages (history_visible since_join hides earlier ones). */
-    snapshot: CmuxOp<{ conversation: Cmux.ConversationId; tail?: number }, { conversation: Cmux.HomeConversationSummary; messages: Array<Cmux.HomeMessage>; revision: string }>
+    snapshot: CmuxOp<{ conversation: Cmux.ConversationId; tail?: number }, { conversation: Cmux.HomeConversationSummary; messages: Array<Cmux.HomeMessage>; threads?: Array<Cmux.HomeThreadSummary>; revision: string }>
+    /** `conversation.thread` (read, scope `conversation:read`): Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message. */
+    thread: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; after_seq?: number; limit?: number }, { root: Cmux.HomeMessage; replies: Array<Cmux.HomeMessage>; has_more: boolean; thread: Cmux.HomeThreadSummary }>
     /** `conversation.typing` (mutation, scope `conversation:write`) */
     typing: CmuxOp<{ machine?: string; session?: string; conversation: string; on: boolean }, Cmux.MutationResult<Cmux.ConversationPublishResult>>
   }
@@ -909,8 +912,8 @@ interface CmuxGlobal {
     edit: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; parts: Array<Cmux.HomePart>; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     /** `message.retract` (mutation, scope `message:write`): Retract one of your messages: its parts and reactions are cleared and it leaves search. */
     retract: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
-    /** `message.send` (mutation, scope `message:write`): Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
-    send: CmuxOp<{ conversation: Cmux.ConversationId; client_msg_id: Cmux.ClientToken; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `message.send` (mutation, scope `message:write`): Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it. */
+    send: CmuxOp<{ conversation: Cmux.ConversationId; client_msg_id: Cmux.ClientToken; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   mux: {
     /** `mux.ack` (mutation, scope `mux:write`): The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor). */
