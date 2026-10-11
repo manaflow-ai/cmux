@@ -153,7 +153,9 @@ extension RemoteTmuxController {
                 // orphan, so leave the existing mirror and complete the action.
                 if let existingMirror = sessionMirror(host: host, sessionName: name),
                    let existingWorkspace = existingMirror.mirroredWorkspace,
-                   manager.tabs.contains(where: { $0.id == existingWorkspace.id }) {
+                   AppDelegate.shared?.mainWindowContexts.values.contains(where: { context in
+                       context.tabManager.tabs.contains(where: { $0.id == existingWorkspace.id })
+                   }) == true {
                     onCreated?()
                     return
                 }
