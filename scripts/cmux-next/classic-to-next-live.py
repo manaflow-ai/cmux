@@ -220,9 +220,10 @@ try:
           "the workspace opens in its folder")
     for session, name in ((CLAUDE_LIVE, "claude chat"), (CODEX, "codex chat")):
         check(any(n == name for n, _ in new), f"agent chat {name} opens as its own workspace")
-        # agent_session in the topology is the acpmux session, not the harness id.
-        agents_open = [tab.get("agent") for n, tab in new if n == name and tab.get("agent")]
-        check(bool(agents_open), f"{name} opens an agent chat tab for {session} (agents: {agents_open})")
+        # An adopted chat is a conversation tab; its topology agent_session is the
+        # acpmux session, not the harness id, and `agent` fills in once acpmux attaches.
+        kinds = [tab.get("kind") for n, tab in new if n == name]
+        check("conversation" in kinds, f"{name} opens an agent chat tab for {session} (tab kinds: {kinds})")
     check(sorted(os.listdir(CLASSIC)) == seeded, "classic's files are unchanged (read only)")
     if opts.capture:
         capture("after-apply")
@@ -231,12 +232,27 @@ try:
     if opts.classic_app:
         CLASSIC_APP = os.path.realpath(opts.classic_app)
         info = plist(CLASSIC_APP)
-        CLASSIC_SOCKET = socket_path(info["CFBundleIdentifier"])
+        bundle = info["CFBundleIdentifier"]
         classic_app = subprocess.Popen([os.path.join(CLASSIC_APP, "Contents/MacOS", info["CFBundleExecutable"])],
                                        env={**BASE_ENV, "CMUX_SOCKET_ENABLE": "1", "CMUX_SOCKET_MODE": "automation"},
                                        stdout=open(os.path.join(opts.out, "classic.log"), "w"), stderr=subprocess.STDOUT)
+        def classic_socket():
+            # The channel path, or the legacy /tmp/cmux.sock some classic builds still use.
+            for path in (socket_path(bundle), "/tmp/cmux.sock", os.path.expanduser("~/.local/state/cmux/cmux.sock")):
+                identity = call(path, "system.identify", timeout=5).get("result") or {}
+                ours = identity.get("bundle_identifier") == bundle or \
+                    os.path.realpath(identity.get("app_bundle_path") or "/nonexistent") == CLASSIC_APP or \
+                    (path == "/tmp/cmux.sock" and identity and "pid" not in identity and not identity.get("bundle_identifier"))
+                if os.path.exists(path) and ours:
+                    print(f"     classic identify keys: {sorted(identity)} app={identity.get('app')} build={identity.get('build')}")
+                    return path
+            return None
+        CLASSIC_SOCKET = wait_for(classic_socket, f"classic {bundle} socket", 120)
+        if not CLASSIC_SOCKET:
+            for path in (socket_path(bundle), "/tmp/cmux.sock"):
+                print(f"     {path}: exists={os.path.exists(path)} identify={json.dumps(call(path, 'system.identify', timeout=5))[:400]}")
+            CLASSIC_SOCKET = socket_path(bundle)
         print(f"classic pid {classic_app.pid} socket {CLASSIC_SOCKET}", flush=True)
-        wait_for(lambda: "result" in call(CLASSIC_SOCKET, "system.identify", timeout=5), "classic socket", 120)
         created = call(CLASSIC_SOCKET, "workspace.create", {"cwd": LIVE, "focus": False})
         workspace = (created.get("result") or {}).get("workspace_id")
         check(bool(workspace), f"classic creates a workspace in {LIVE}: {created}")

@@ -135,10 +135,11 @@ final class SessionTransferService {
             } catch {
                 continue
             }
-            // Classic answers without `pid` and `tag`; its bundle id carries the tag.
-            guard let fields = identify.objectValue,
-                  let app = fields["app"]?.stringValue,
-                  let build = fields["build"]?.stringValue else { continue }
+            // Classic answers without `pid` and `tag` (its bundle id carries the tag);
+            // shipped classic nightlies answer only `socket_path`, `focused` and `caller`.
+            guard let fields = identify.objectValue else { continue }
+            let app = fields["app"]?.stringValue ?? "cmux"
+            let build = fields["build"]?.stringValue ?? fields["version"]?.stringValue ?? ""
             let tag = fields["tag"]?.stringValue ?? ControlSocketPath.shared.bundleTag(fields["bundle_identifier"]?.stringValue)
             let items: [SessionTransferItem]
             if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list"),
