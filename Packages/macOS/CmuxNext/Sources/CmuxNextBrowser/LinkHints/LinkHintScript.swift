@@ -16,7 +16,7 @@ public nonisolated extension LinkHintSession {
     public static let collectScript = """
     (() => {
       const selector = 'a[href],area[href],button,input:not([type=hidden]),select,textarea,summary,label[for],' +
-        '[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],' +
+        '[role=button],[role=link],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=menuitem],[role=option],' +
         '[onclick],[contenteditable=""],[contenteditable=true],[tabindex]:not([tabindex="-1"])';
       const width = innerWidth, height = innerHeight, out = [];
       for (const element of document.querySelectorAll(selector)) {
@@ -31,8 +31,10 @@ public nonisolated extension LinkHintSession {
         const hit = document.elementFromPoint(x, y);
         if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue;
         const href = typeof element.href === 'string' ? element.href : null;
-        const text = (element.getAttribute('aria-label') || element.title || element.innerText || element.value || '')
-          .toString().trim().slice(0, 80);
+        const named = (element.getAttribute('aria-labelledby') || '').split(/\\s+/)
+          .map((id) => document.getElementById(id)?.innerText || '').join(' ').trim();
+        const text = (element.getAttribute('aria-label') || named || element.labels?.[0]?.innerText || element.title ||
+          element.innerText || element.value || '').toString().trim().slice(0, 80);
         out.push({ x: Math.round(x), y: Math.round(y), left: Math.round(left), top: Math.round(top), href, text });
         if (out.length >= 1000) break;
       }
