@@ -130,8 +130,6 @@ extension SettingsSchema {
         "browser.hibernation",
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",
-        // Where a terminal link the person clicks opens: cmux or their default browser.
-        "browser.openTerminalLinksInCmuxBrowser", "browser.hostsToOpenInEmbeddedBrowser", "browser.urlsToAlwaysOpenExternally",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
@@ -177,6 +175,10 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        "browser.hostsToOpenInEmbeddedBrowser": .privacy,
+        "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).

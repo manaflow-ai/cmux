@@ -35,12 +35,12 @@ public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
     /// click that picked a cmux browser profile), an external rule matches,
     /// the host is unusable, or the host list is set and misses the host.
     public func opensInCmux(_ url: URL, explicit: Bool = false) -> Bool {
-        guard opensInCmuxBrowser else { return false }
+        guard opensInCmuxBrowser || explicit else { return false }
         if !externalRules.isEmpty, BrowserExternalURLPatternMatcher(patterns: externalRules).matches(url.absoluteString) {
             return false
         }
-        guard !embeddedHosts.isEmpty else { return true }
         guard let host = Self.normalizedHost(url.host ?? "") else { return false }
+        guard !embeddedHosts.isEmpty else { return true }
         return embeddedHosts.contains { raw in
             let pattern = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if pattern.hasPrefix("*.") {
@@ -92,7 +92,7 @@ public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
         for (path, field) in [(hostsPath, \TerminalLinkRouting.embeddedHosts), (rulesPath, \.externalRules)] {
             guard let value = browser[path[1]] else { continue }
             // An array, as the Settings rows accept; classic's line text is only in its preferences.
-            if let lines = lines(value) {
+            if case .array = value, let lines = lines(value) {
                 setting[keyPath: field] = lines
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected an array of strings"))

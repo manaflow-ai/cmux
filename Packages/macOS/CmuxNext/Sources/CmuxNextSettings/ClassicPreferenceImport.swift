@@ -59,7 +59,7 @@ extension SettingsController {
             let id = entry.next.joined(separator: ".")
             guard !done.contains(id) else { continue }
             done.insert(id)
-            guard let value = entry.read(marker), try await file.value(at: entry.next) == nil,
+            guard let value = sources.lazy.compactMap(entry.read).first, try await file.value(at: entry.next) == nil,
                   let descriptor = SettingsSchema.all.first(where: { $0.path == entry.next }),
                   descriptor.accepts(value), value != descriptor.defaultValue else { continue }
             edits.append((entry.next, value))
