@@ -1,0 +1,294 @@
+name: cmux-next PR autofix
+
+# Runs the base autofix's mechanical repairs (scripts/cmux-next/base-autofix.sh)
+# on a feat-cmux-next pull request's head, so a pull request lands with its
+# generated files, formatting and pins already right instead of leaving them
+# to the base bot after the merge (cmux-next-base-autofix.yml stays the
+# backstop for merges that cross). Repairs that need a person stay with the
+# pull request.
+#
+# Two jobs, so the pull request's own code never runs next to a write token:
+#   repair: runs the repairs the pull request's changed paths need
+#     (scripts/cmux-next/autofix-areas.sh), plus cargo clippy --fix
+#     (machine-applicable lints only) on the cmux-tui crates it changes
+#     (scripts/cmux-next/autofix-clippy.sh), with a read-only token, and uploads
+#     the result as a patch (artifact pr-autofix-patch, also the fix for a fork
+#     pull request: its summary says how to apply it).
+#   push: same-repo pull requests only. Mints a token from the PR autofix App
+#     (CMUX_PR_AUTOFIX_APP_ID/KEY: contents write only; an App token's push
+#     starts the pull request's checks again, GITHUB_TOKEN's does not). The
+#     FFI release App is not usable here: its credentials live in the
+#     ffi-release environment, for feat-cmux-next only
+#     (tests/test_ci_signing_secrets_need_release_environment.py). Until the
+#     App's secrets exist the job leaves the repairs in the artifact. It
+#     applies the patch with the base commit's scripts/cmux-next/pr-autofix-apply.sh
+#     (only repair outputs; never a workflow, manifest or lockfile) and pushes
+#     one commit to the pull request's branch.
+# No loop: a head that is already an autofix commit (its Autofix-Run trailer)
+# is not repaired again, and a repaired head has nothing left to repair.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-pr-autofix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    name: autofix repairs
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # clippy compiles the changed crates (cached below).
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      patch: ${{ steps.patch.outputs.patch }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      # The autofix's own scripts come from the base commit, so a branch cut
+      # before they existed is repaired too; the generators they run are the
+      # pull request's own.
+      - name: Autofix scripts from the base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          mkdir -p "$RUNNER_TEMP/autofix"
+          git archive "$BASE_SHA" scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
+          echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
+
+      - name: Changed areas
+        id: areas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if git log -1 --format=%B | grep -q '^Autofix-Run: '; then
+            echo "The head is an autofix commit; nothing to repair." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > "$RUNNER_TEMP/changed.txt"
+          "$AUTOFIX/autofix-areas.sh" < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
+
+      # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
+      # cmux-next-base-autofix.yml.
+      - name: Dump the CmuxNext package manifest
+        if: steps.areas.outputs.graph == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" -w "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" \
+            docker.io/library/swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
+            swift package dump-package > "$RUNNER_TEMP/package-dump.json"
+
+      - name: Setup Node
+        if: steps.areas.outputs.strings == 'true' || steps.areas.outputs.webviews == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Setup Bun
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Set up pinned cmux-tui Rust
+        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.clippy == 'true'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: steps.areas.outputs.clippy == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-pr-autofix-clippy
+
+      # Before the other repairs, so their cargo fmt sees clippy's edits.
+      - name: cargo clippy --fix
+        if: steps.areas.outputs.clippy == 'true'
+        run: |
+          set -euo pipefail
+          "$AUTOFIX/autofix-clippy.sh" "$GITHUB_WORKSPACE" < "$RUNNER_TEMP/changed.txt" | tee "$RUNNER_TEMP/clippy.txt"
+
+      # Packages installed without lifecycle scripts; this job has no write token.
+      - name: vp fmt
+        if: steps.areas.outputs.webviews == 'true'
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          node_modules/.bin/vp fmt
+          git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
+          git checkout --quiet -- .
+
+      - name: Repair
+        if: steps.areas.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GRAPH: ${{ steps.areas.outputs.graph }}
+          STRINGS: ${{ steps.areas.outputs.strings }}
+          SDK: ${{ steps.areas.outputs.sdk }}
+          SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
+          RATCHETS: ${{ steps.areas.outputs.ratchets }}
+          CLOUD: ${{ steps.areas.outputs.cloud }}
+          GHOSTTY: ${{ steps.areas.outputs.ghostty }}
+          FMT: ${{ steps.areas.outputs.fmt }}
+        run: |
+          set -euo pipefail
+          args=()
+          [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
+          [[ "$STRINGS" == true ]] && args+=(--strings)
+          [[ "$SDK" == true ]] && args+=(--sdk)
+          [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
+          [[ "$RATCHETS" == true ]] && args+=(--ratchets)
+          [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
+          [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
+          [[ "$FMT" == true ]] || args+=(--no-fmt)
+          cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
+          "$AUTOFIX/base-autofix.sh" ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt"
+          # The GhosttyKit checksum, when the release for the pull request's
+          # ghostty commit is already published (exit 3: not yet; the base
+          # bot pins it after the merge). Any other failure (a branch whose
+          # download script predates --print-release) is left to the base bot.
+          if [[ "$GHOSTTY" == true ]]; then
+            status=0
+            "$AUTOFIX/ghosttykit-checksum.sh" "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt" || status=$?
+            if (( status != 0 && status != 3 )); then
+              echo "left: GhosttyKit checksum lookup failed (exit $status); the base bot pins it after the merge" | tee -a "$RUNNER_TEMP/autofix.txt"
+            fi
+          fi
+          { echo "### PR autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Patch
+        id: patch
+        if: steps.areas.outputs.skip == 'false'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --binary > "$RUNNER_TEMP/pr-autofix.patch"
+          cp "$RUNNER_TEMP/autofix.txt" "$RUNNER_TEMP/pr-autofix.txt"
+          if [[ ! -s "$RUNNER_TEMP/pr-autofix.patch" ]]; then
+            echo "Nothing to repair." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "patch=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "patch=true" >> "$GITHUB_OUTPUT"
+          {
+            echo
+            echo "Repairs: artifact \`pr-autofix-patch\`. A same-repo branch gets them as a commit from the push job; on a fork, download the artifact and run:"
+            echo
+            echo "    git apply pr-autofix.patch && git commit -am 'chore(next): PR autofix' && git push   # on $HEAD_REF"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.patch.outputs.patch == 'true'
+        with:
+          name: pr-autofix-patch
+          path: |
+            ${{ runner.temp }}/pr-autofix.patch
+            ${{ runner.temp }}/pr-autofix.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  push:
+    name: push the repairs
+    needs: repair
+    if: needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # The apply script comes from the base commit: the patch was made by the
+      # pull request's code, and the script decides what of it may be pushed.
+      - name: Check out the base's apply script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pr-autofix-patch
+          path: ${{ runner.temp }}/pr-autofix
+
+      - name: Apply and commit
+        id: commit
+        env:
+          HAS_APP: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID != '' && secrets.CMUX_PR_AUTOFIX_APP_KEY != '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          apply=base/scripts/cmux-next/pr-autofix-apply.sh
+          if [[ "$HAS_APP" != true ]]; then
+            echo "::notice::No PR autofix App secrets (CMUX_PR_AUTOFIX_APP_ID/KEY) yet; the repairs stay in the artifact pr-autofix-patch."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! -x "$apply" ]]; then
+            echo "::notice::The base has no pr-autofix-apply.sh yet; the repairs stay in the artifact."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head | tee -a "$GITHUB_STEP_SUMMARY"
+          cd head
+          git config user.name "cmux-autofix[bot]"
+          git config user.email "cmux-autofix[bot]@users.noreply.github.com"
+          git add -A
+          git commit --quiet -m "chore(next): PR autofix at ${HEAD_SHA:0:12}" \
+            -m "$(grep '^fixed: ' "$RUNNER_TEMP/pr-autofix/pr-autofix.txt" | sed 's/^fixed: /- /')" \
+            -m "Autofix-Run: $RUN_URL"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mint the PR autofix App token
+        id: app-token
+        if: steps.commit.outputs.pushed == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Push to the pull request branch
+        if: steps.commit.outputs.pushed == 'true'
+        working-directory: head
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          # A plain push: a newer push to the branch wins, and its run repairs it.
+          if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push --quiet \
+              "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"; then
+            echo "::notice::$HEAD_REF moved during the repair; the newer push's run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Pushed $(git rev-parse --short HEAD) to $HEAD_REF." | tee -a "$GITHUB_STEP_SUMMARY"

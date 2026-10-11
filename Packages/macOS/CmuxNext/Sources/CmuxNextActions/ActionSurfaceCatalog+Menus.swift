@@ -129,6 +129,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.moveToSpace": [p(.workspaceRow, .move, 209, folder: .move)],
         "workspace.duplicateToSpace": [p(.workspaceRow, .move, 210, folder: .move)],
         "workspaceGroup.moveToSpace": [p(.workspaceGroup, .move, 304, folder: .move)],
+        "workspaceGroup.addToSection": [p(.workspaceGroup, .move, 305, folder: .move)],
         "space.setTheme": [p(.profile, .identity, 200, .choices, in: "space.setColor")],
         "space.clearTheme": [p(.profile, .identity, 201, in: "space.setColor")],
         "workspace.setTheme": [p(.workspaceRow, .identity, 108, .choices, folder: .appearance)],
