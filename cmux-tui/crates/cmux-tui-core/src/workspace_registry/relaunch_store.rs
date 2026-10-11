@@ -148,8 +148,8 @@ impl RelaunchRecord {
 /// secret ([`names_secret`]: `--token`, `--password`, `--client-secret`,
 /// `--api-key`, ...) and the value after it, without a `name=value` argument
 /// whose name names one (`api_key=...`, `--token=...`), and without a value
-/// that looks like a token ([`looks_like_credential`]). None when nothing
-/// usable is left or the result is over [`ARGV_CAP`].
+/// that looks like a token ([`looks_like_credential`]). The program itself
+/// is kept. None for an empty argv or a result over [`ARGV_CAP`].
 pub(crate) fn stored_argv(argv: &[String]) -> Option<Vec<String>> {
     let (program, arguments) = argv.split_first()?;
     let mut kept = vec![program.clone()];
