@@ -2821,7 +2821,16 @@ fn start_detached_owner_session(
         chief_tools_socket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
-    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
+    // A restore can take minutes on a loaded machine: say so once instead of
+    // a silent terminal (cx-n3bs).
+    let told = std::cell::Cell::new(false);
+    let report = |_: &local_owner::Restoring| {
+        if !told.replace(true) {
+            eprintln!("{}", messages.owner_restoring);
+        }
+    };
+    let progress = local_owner::RestoreProgress::new(&report);
+    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         match error {
             local_owner::EnsureError::Spawn(_error) => {
                 anyhow::bail!("{}", messages.owner_spawn_failed())
