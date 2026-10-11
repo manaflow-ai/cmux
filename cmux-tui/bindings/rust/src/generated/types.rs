@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703.
+// cmux-tui mux protocol 12, IR 5c72f96c138593bac34336745c47ef75439438b6684844c1017403ae1263882d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -516,6 +516,9 @@ pub struct ConversationTabRecord {
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -1854,6 +1857,9 @@ pub struct Tab {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
+    /// Why a terminal will end with something other than its shell although terminal hosts are on: \`breakaway_denied\` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or \`host_start_failed\` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_host_fallback: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

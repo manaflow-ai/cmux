@@ -27,27 +27,6 @@ fn non_app_scopes_are_left_to_the_resource_grammar() {
 }
 
 #[test]
-fn history_and_bookmark_reads_call_the_app_and_other_words_run_actions() {
-    let (method, params) = call(
-        parse(&args(&["history", "search", "cmux", "--kind", "page", "--limit", "5"]))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(method, "history.list");
-    assert_eq!(params, json!({ "text": "cmux", "kind": "page", "limit": 5 }));
-    let (method, params) =
-        call(parse(&args(&["bookmark", "list", "--folder", "Work"])).unwrap().unwrap());
-    assert_eq!(method, "bookmark.list");
-    assert_eq!(params, json!({ "folder": "Work" }));
-    assert!(parse(&args(&["history", "search"])).is_err());
-    assert!(parse(&args(&["bookmark", "list", "--limit", "0"])).is_err());
-    assert_eq!(call(parse(&args(&["accounts", "list"])).unwrap().unwrap()).0, "accounts.list");
-    let (method, params) = call(parse(&args(&["history", "reopen"])).unwrap().unwrap());
-    assert_eq!(method, "action.run");
-    assert_eq!(params["action"], "history reopen");
-}
-
-#[test]
 fn focus_asks_the_app_to_move_the_view() {
     let (_, params) = call(
         parse(&args(&["tab", "move-to-new-workspace", "--target", "tab_1", "--focus"]))
@@ -273,6 +252,78 @@ fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
     assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
 }
 
+// `cmux browser <tab|page> press|hover|check|uncheck|select|scroll|
+// scroll-into-view` reach the app as the browser.page input methods, in the
+// old CLI's positional and flag forms; `select` with words is the input verb,
+// not the tab verb.
+#[test]
+fn browser_input_verbs_reach_the_app_in_the_old_cli_forms() {
+    let done = json!({ "id": 1, "ok": true, "result": { "tab": "tab_01ab" } });
+    for (words, method, params) in [
+        (&["press", "Enter"][..], "browser.page.press", json!({ "key": "Enter" })),
+        (
+            &["press", "--selector", "#q", "--key", "Enter"],
+            "browser.page.press",
+            json!({ "key": "Enter", "selector": "#q" }),
+        ),
+        (&["key", "Tab"], "browser.page.press", json!({ "key": "Tab" })),
+        (&["hover", "#menu"], "browser.page.hover", json!({ "selector": "#menu" })),
+        (&["check", "#a"], "browser.page.check", json!({ "selector": "#a" })),
+        (&["uncheck", "#a"], "browser.page.uncheck", json!({ "selector": "#a" })),
+        (
+            &["select", "#size", "m"],
+            "browser.page.select",
+            json!({ "selector": "#size", "value": "m" }),
+        ),
+        (
+            &["select", "--selector", "#size", "--value", "m"],
+            "browser.page.select",
+            json!({ "selector": "#size", "value": "m" }),
+        ),
+        (&["scroll", "400"], "browser.page.scroll", json!({ "dy": 400.0 })),
+        (
+            &["scroll", "#list", "--dx=-50"],
+            "browser.page.scroll",
+            json!({ "selector": "#list", "dx": -50.0 }),
+        ),
+        (
+            &["scrollintoview", "--selector", "#f"],
+            "browser.page.scroll_into_view",
+            json!({ "selector": "#f" }),
+        ),
+    ] {
+        let (socket, app) = fake_app(vec![done.clone()]);
+        let mut all = vec!["browser", "tab_01ab"];
+        all.extend_from_slice(words);
+        let command = parse(&args(&all)).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 0, "{words:?}");
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], method, "{words:?}");
+        let mut sent = request["params"].clone();
+        sent.as_object_mut().unwrap().remove("after");
+        let mut expected = params;
+        expected["tab"] = json!("tab_01ab");
+        assert_eq!(sent, expected, "{words:?}");
+    }
+    for bad in [
+        &["press"][..],
+        &["press", "a", "b"],
+        &["press", "a", "--dy", "1"],
+        &["scroll"],
+        &["scroll", "--dy", "inf"],
+        &["scroll", "--dy", "far"],
+        &["scroll", "#a", "--selector", "#b", "--dy", "1"],
+        &["select", "#size"],
+        &["check"],
+        &["hover", "#a", "--force"],
+    ] {
+        let mut all = vec!["browser", "tab_01ab"];
+        all.extend_from_slice(bad);
+        assert!(parse(&args(&all)).is_err(), "{bad:?}");
+    }
+}
+
 // `cmux browser <tab|page> wait` sends one condition with its timeout, and
 // the CLI outwaits the app's own deadline; a second positional is refused.
 #[test]
@@ -375,6 +426,102 @@ fn a_screenshot_is_written_to_out_and_bad_image_data_fails() {
         parse(&args(&["browser", "page", "screenshot", "--selector", "#a", "--full-page"]))
             .is_err()
     );
+}
+
+// `cmux browser <tab|page> cookies|storage` reach the app as the
+// browser.page cookie and storage methods, in the old CLI's forms.
+#[test]
+fn browser_cookies_and_storage_reach_the_app_in_the_old_cli_forms() {
+    let done = json!({ "id": 1, "ok": true, "result": { "tab": "tab_01ab" } });
+    for (words, method, params) in [
+        (&["cookies"][..], "browser.page.cookies.get", json!({})),
+        (
+            &["cookies", "get", "--name", "sid", "--domain=example"],
+            "browser.page.cookies.get",
+            json!({ "name": "sid", "domain": "example" }),
+        ),
+        (
+            &[
+                "cookies",
+                "set",
+                "sid",
+                "1",
+                "--url",
+                "https://cmux.com/",
+                "--expires",
+                "1900000000",
+                "--secure",
+                "--http-only",
+            ],
+            "browser.page.cookies.set",
+            json!({ "name": "sid", "value": "1", "url": "https://cmux.com/",
+                    "expires": 1_900_000_000, "secure": true, "http_only": true }),
+        ),
+        (
+            &["cookies", "set", "--name", "a", "--value", "b"],
+            "browser.page.cookies.set",
+            json!({ "name": "a", "value": "b" }),
+        ),
+        (
+            &["cookies", "get", "--url", "https://cmux.com/", "--http-only"],
+            "browser.page.cookies.get",
+            json!({ "url": "https://cmux.com/", "http_only": true }),
+        ),
+        (
+            &[
+                "cookies",
+                "clear",
+                "--name",
+                "sid",
+                "--value=1",
+                "--expires",
+                "1900000000",
+                "--secure",
+            ],
+            "browser.page.cookies.clear",
+            json!({ "name": "sid", "value": "1", "expires": 1_900_000_000, "secure": true }),
+        ),
+        (&["cookies", "clear", "--all"], "browser.page.cookies.clear", json!({ "all": true })),
+        (&["storage"], "browser.page.storage.get", json!({})),
+        (
+            &["storage", "session", "get", "theme"],
+            "browser.page.storage.get",
+            json!({ "type": "session", "key": "theme" }),
+        ),
+        (
+            &["storage", "set", "theme", "dark"],
+            "browser.page.storage.set",
+            json!({ "key": "theme", "value": "dark" }),
+        ),
+        (&["storage", "local", "clear"], "browser.page.storage.clear", json!({ "type": "local" })),
+    ] {
+        let (socket, app) = fake_app(vec![done.clone()]);
+        let mut all = vec!["browser", "tab_01ab"];
+        all.extend_from_slice(words);
+        let command = parse(&args(&all)).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 0, "{words:?}");
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], method, "{words:?}");
+        let mut sent = request["params"].clone();
+        sent.as_object_mut().unwrap().remove("after");
+        let mut expected = params;
+        expected["tab"] = json!("tab_01ab");
+        assert_eq!(sent, expected, "{words:?}");
+    }
+    for bad in [
+        &["cookies", "set", "sid"][..],
+        &["cookies", "set", "a", "b", "--expires", "soon"],
+        &["cookies", "get", "--all"],
+        &["cookies", "get", "extra"],
+        &["cookies", "eat"],
+        &["storage", "local", "set", "k"],
+        &["storage", "cookies"],
+    ] {
+        let mut all = vec!["browser", "tab_01ab"];
+        all.extend_from_slice(bad);
+        assert!(parse(&args(&all)).is_err(), "{bad:?}");
+    }
 }
 
 // `cmux browser <tab|page> tabs|new-tab|select|close` reach the app as the

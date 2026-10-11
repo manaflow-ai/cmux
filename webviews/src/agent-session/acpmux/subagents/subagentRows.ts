@@ -1,8 +1,45 @@
 import type { AcpmuxRow } from "../model";
-import { SUBAGENTS } from "./subagentFold";
+import { SUBAGENTS, type Subagent } from "./subagentFold";
 
 /// A subagent's line in an open group (SubagentListRow in SubagentGroup.tsx).
 export const SUBAGENT_ROW = "subagent";
+/// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
+export const SUBAGENT_OF = "subagentOf";
+
+/// Every subagent the rows list, nested views' included.
+export function subagentsIn(
+  rows: readonly AcpmuxRow[],
+  views: Record<string, AcpmuxRow[]> = {},
+): Map<string, Subagent> {
+  const found = new Map<string, Subagent>();
+  for (const row of [...rows, ...Object.values(views).flat()])
+    if (row.kind === SUBAGENTS) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
+  return found;
+}
+
+/// Subagent `id`'s own view: the "Subagent of" pill naming its parent (a subagent, or the chat,
+/// `chat`), then its rows with its open groups listed. Undefined when the subagent is unknown.
+export function childView(
+  id: string,
+  rows: readonly AcpmuxRow[],
+  views: Record<string, AcpmuxRow[]> | undefined,
+  expanded: ReadonlySet<string>,
+  chat: string,
+): AcpmuxRow[] | undefined {
+  const agents = subagentsIn(rows, views);
+  const agent = agents.get(id);
+  if (!agent) return undefined;
+  const parent = agent.parent === null ? chat : (agents.get(agent.parent)?.name ?? chat);
+  const pill: AcpmuxRow = {
+    id: `${id}:of`,
+    version: 1,
+    at: agent.startedAt,
+    kind: SUBAGENT_OF,
+    subagents: [agent],
+    text: parent,
+  };
+  return [pill, ...withSubagentRows(views?.[id] ?? [], expanded)];
+}
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
 

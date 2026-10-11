@@ -43,7 +43,7 @@ extension BrowserPageService {
                 }
                 let shot = try await Self.run(engine, .screenshot(capture), tab)
                 var result = Self.base(tab)
-                for key in ["path", "png_base64", "width", "height"] { result[key] = shot[key] ?? .null }
+                for key in ["path", "png_base64", "width", "height"] { result.updateValue(shot[key] ?? .null, forKey: key) }
                 if let selector { result["selector"] = .string(selector) }
                 return .object(result)
             }.withDeadline(.fixed(Self.screenshotDeadline)),
@@ -88,7 +88,8 @@ extension BrowserPageService {
         while ContinuousClock.now < deadline {
             // A disconnected client cancels the handler; the chunk deadline does not see it.
             try Task.checkCancellation()
-            let remaining = Int(((deadline - .now).inSeconds * 1000).rounded(.up))
+            // A whole, finite number of milliseconds; anything else (no case today) waits one full chunk.
+            let remaining = Int(exactly: ((deadline - .now).inSeconds * 1000).rounded(.up)) ?? pageWaitChunkMilliseconds
             let chunk = min(remaining, pageWaitChunkMilliseconds)
             let started = ContinuousClock.now
             do {

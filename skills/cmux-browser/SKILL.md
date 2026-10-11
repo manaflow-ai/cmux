@@ -140,9 +140,8 @@ command prints its path; `--out -` writes the PNG to stdout.
 
 ## What the per-tab CLI does not cover
 
-The per-tab commands have no cookies, storage, saved state, console
-capture, dialogs, downloads, recording, hover, scroll
-or proxies. The REPL has all of them (see "Pick the surface"). Network
+The per-tab commands have no saved state, console
+capture, dialogs, downloads, recording or proxies. The REPL has all of them (see "Pick the surface"). Network
 routing, geolocation, offline and viewport emulation, `identify` and profiles
 have no agent surface yet.
 

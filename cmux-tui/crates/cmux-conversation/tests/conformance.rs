@@ -42,6 +42,7 @@ struct Request {
     new_message_id: String,
     target: Option<Message>,
     reply_target: Option<Message>,
+    thread_target: Option<Message>,
     last_message: Option<Message>,
 }
 
@@ -67,7 +68,7 @@ fn run_op(head: &ConversationHead, request: &Request) -> Value {
         new_message_id: &request.new_message_id,
         target: request.target.as_ref(),
         reply_target: request.reply_target.as_ref(),
-        thread_target: None,
+        thread_target: request.thread_target.as_ref(),
         last_message: request.last_message.as_ref(),
     };
     let commit = match apply(head, &op_request) {

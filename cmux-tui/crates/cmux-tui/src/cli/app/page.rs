@@ -164,9 +164,36 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
                 _ => "browser.page.select_tab",
             }
         }
+        // After the tab verbs: `select` with words is `select SELECTOR VALUE`.
+        (
+            "hover" | "scroll-into-view" | "scrollintoview" | "scrollinto" | "check" | "uncheck"
+            | "select" | "press" | "key" | "scroll",
+            _,
+        ) => input_verb(verb, rest, &mut params).ok_or_else(usage)??,
+        ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
+        ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
     };
-    let flagged = ["snapshot", "wait", "tabs", "new-tab", "select", "switch", "close"];
+    let flagged = [
+        "snapshot",
+        "wait",
+        "tabs",
+        "new-tab",
+        "select",
+        "switch",
+        "close",
+        "hover",
+        "scroll-into-view",
+        "scrollintoview",
+        "scrollinto",
+        "check",
+        "uncheck",
+        "press",
+        "key",
+        "scroll",
+        "cookies",
+        "storage",
+    ];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
     }
@@ -178,8 +205,103 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
     })
 }
 
+/// Positional words and `--flags` in any order; a valued flag takes the next word.
+fn words_and_options(
+    args: &[String],
+    valued: &[&str],
+    flags: &[&str],
+) -> Result<(Vec<String>, Options), UsageError> {
+    let (mut words, mut options) = (Vec::new(), Vec::new());
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.strip_prefix("--") {
+            Some(name) => {
+                options.push(arg.clone());
+                if valued.contains(&name) && index + 1 < args.len() {
+                    options.push(args[index + 1].clone());
+                    index += 1;
+                }
+            }
+            None => words.push(arg.clone()),
+        }
+        index += 1;
+    }
+    Ok((words, Options::parse(&options, valued, flags)?))
+}
+
+/// `hover|check|uncheck|scroll-into-view SELECTOR`, `select SELECTOR VALUE`,
+/// `press KEY`, `scroll [SELECTOR|DY] [--dx N] [--dy N]`. Each positional
+/// also takes the old CLI's flag (`--selector`, `--value`, `--key`). None is
+/// a usage error.
+fn input_verb(
+    verb: &str,
+    args: &[String],
+    params: &mut Map<String, Value>,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, options) =
+        match words_and_options(args, &["selector", "value", "key", "dx", "dy"], &[]) {
+            Ok(parsed) => parsed,
+            Err(error) => return Some(Err(error)),
+        };
+    let mut words = words.into_iter();
+    let mut take = |flag: &str| options.value(flag).map(str::to_owned).or_else(|| words.next());
+    let (method, needs): (&'static str, &[&str]) = match verb {
+        "hover" => ("browser.page.hover", &["selector"]),
+        "check" => ("browser.page.check", &["selector"]),
+        "uncheck" => ("browser.page.uncheck", &["selector"]),
+        "select" => ("browser.page.select", &["selector", "value"]),
+        "press" | "key" => ("browser.page.press", &["key"]),
+        "scroll" => ("browser.page.scroll", &[]),
+        _ => ("browser.page.scroll_into_view", &["selector"]),
+    };
+    for key in needs {
+        params.insert((*key).into(), json!(take(key)?));
+    }
+    if method == "browser.page.press"
+        && let Some(selector) = options.value("selector")
+    {
+        params.insert("selector".into(), json!(selector));
+    }
+    if method == "browser.page.scroll" {
+        // The old `scroll N` scrolled by N down; any other word is a selector.
+        let mut dy = options.value("dy").map(str::to_owned);
+        let mut selector = options.value("selector").map(str::to_owned);
+        if let Some(word) = words.next() {
+            match word.parse::<f64>() {
+                Ok(_) if dy.is_none() => dy = Some(word),
+                _ if selector.is_none() => selector = Some(word),
+                _ => return None,
+            }
+        }
+        if let Some(selector) = selector {
+            params.insert("selector".into(), json!(selector));
+        }
+        for (key, offset) in [("dx", options.value("dx").map(str::to_owned)), ("dy", dy)] {
+            let Some(offset) = offset else { continue };
+            let offset: f64 = offset.parse().ok().filter(|offset: &f64| offset.is_finite())?;
+            params.insert(key.into(), json!(offset));
+        }
+        if !params.contains_key("dx") && !params.contains_key("dy") {
+            return None;
+        }
+    } else if options.value("dx").or(options.value("dy")).is_some() {
+        return None;
+    }
+    if words.next().is_some() {
+        return None;
+    }
+    Some(Ok(method))
+}
+
 fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
     matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
+}
+
+/// Where a screenshot's PNG bytes are: inline in the result, or in the file the app saved.
+enum ScreenshotSource {
+    Inline(Vec<u8>),
+    Saved(PathBuf),
 }
 
 /// Puts a `browser.page.screenshot` PNG where `out` says and prints where it
@@ -202,9 +324,14 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
         }
         None => None,
     };
-    if inline.is_none() && saved.is_none() {
-        return failure("app.invalid_response", messages.invalid_response, output, 3);
-    }
+    // The PNG comes inline or as the app's saved file; a result with neither is invalid.
+    let source = match (inline, saved.clone()) {
+        (Some(png), _) => ScreenshotSource::Inline(png),
+        (None, Some(saved)) => ScreenshotSource::Saved(saved),
+        (None, None) => {
+            return failure("app.invalid_response", messages.invalid_response, output, 3);
+        }
+    };
     let write_failed = |path: &std::path::Path, error: std::io::Error| {
         let message = messages
             .screenshot_write_failed
@@ -213,13 +340,12 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
         failure("io.write_failed", &message, output, 1)
     };
     if out == Some("-") {
-        let png = match (inline, &saved) {
-            (Some(png), _) => png,
-            (None, Some(saved)) => match std::fs::read(saved) {
+        let png = match source {
+            ScreenshotSource::Inline(png) => png,
+            ScreenshotSource::Saved(saved) => match std::fs::read(&saved) {
                 Ok(png) => png,
                 Err(error) => return write_failed(saved.as_path(), error),
             },
-            (None, None) => unreachable!("checked above"),
         };
         let mut stdout = std::io::stdout().lock();
         return match stdout.write_all(&png).and_then(|()| stdout.flush()) {
@@ -227,9 +353,9 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
             Err(_) => 3,
         };
     }
-    let path = match (out, &saved, inline) {
-        (None, Some(saved), _) => saved.clone(),
-        (target, _, inline) => {
+    let path = match (out, &saved) {
+        (None, Some(saved)) => saved.clone(),
+        (target, _) => {
             let path = match target {
                 Some(path) => PathBuf::from(path),
                 None => {
@@ -244,12 +370,11 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
                 .parent()
                 .filter(|parent| !parent.as_os_str().is_empty())
                 .map_or(Ok(()), std::fs::create_dir_all);
-            let written = created.and_then(|()| match (inline, &saved) {
-                (Some(png), _) => std::fs::write(&path, png),
+            let written = created.and_then(|()| match &source {
+                ScreenshotSource::Inline(png) => std::fs::write(&path, png),
                 // Copying a file onto itself truncates it first.
-                (None, Some(saved)) if same_file(saved, &path) => Ok(()),
-                (None, Some(saved)) => std::fs::copy(saved, &path).map(|_| ()),
-                (None, None) => unreachable!("checked above"),
+                ScreenshotSource::Saved(saved) if same_file(saved, &path) => Ok(()),
+                ScreenshotSource::Saved(saved) => std::fs::copy(saved, &path).map(|_| ()),
             });
             if let Err(error) = written {
                 return write_failed(path.as_path(), error);
@@ -264,5 +389,86 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
             result["path"] = json!(path);
             super::super::wire::print_local_success(&result, output)
         }
+    }
+}
+
+/// Leading words, then `--flags`.
+fn split_words(args: &[String]) -> (&[String], &[String]) {
+    args.split_at(args.iter().position(|arg| arg.starts_with("--")).unwrap_or(args.len()))
+}
+
+/// `cookies [get|clear] [--name N] [--value V] [--url U] [--domain D] [--path P]
+/// [--expires UNIX] [--secure] [--http-only]` (the old filters; the app refuses
+/// `clear --all`), `cookies set NAME VALUE [--url U | --domain D] [--path P]
+/// [--expires UNIX] [--secure] [--http-only]`. None is a usage error.
+fn cookies(
+    args: &[String],
+    params: &mut Map<String, Value>,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, flags) = split_words(args);
+    let (action, words) = match words.split_first() {
+        Some((action, words)) => (action.as_str(), words),
+        None => ("get", words),
+    };
+    let valued: &[&str] = &["name", "value", "url", "domain", "path", "expires"];
+    let switches: &[&str] = match action {
+        "get" | "set" => &["secure", "http-only"],
+        "clear" => &["secure", "http-only", "all"],
+        _ => return None,
+    };
+    let options = match Options::parse(flags, valued, switches) {
+        Ok(options) => options,
+        Err(error) => return Some(Err(error)),
+    };
+    match (action, words) {
+        ("set", [name, value]) => {
+            params.insert("name".into(), json!(name));
+            params.insert("value".into(), json!(value));
+        }
+        ("set", []) if options.value("name").is_some() && options.value("value").is_some() => {}
+        (_, []) if action != "set" => {}
+        _ => return None,
+    }
+    for key in valued {
+        let Some(value) = options.value(key) else { continue };
+        let value =
+            if *key == "expires" { json!(value.parse::<i64>().ok()?) } else { json!(value) };
+        params.insert((*key).into(), value);
+    }
+    for key in switches {
+        if options.flag(key) {
+            params.insert(key.replace('-', "_"), json!(true));
+        }
+    }
+    Some(Ok(match action {
+        "get" => "browser.page.cookies.get",
+        "set" => "browser.page.cookies.set",
+        _ => "browser.page.cookies.clear",
+    }))
+}
+
+/// `storage [local|session] [get [KEY] | set KEY VALUE | clear]`.
+fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static str> {
+    let mut words = args;
+    if let Some((area, rest)) = words.split_first()
+        && matches!(area.as_str(), "local" | "session")
+    {
+        params.insert("type".into(), json!(area));
+        words = rest;
+    }
+    match words {
+        [] => Some("browser.page.storage.get"),
+        [get] if get == "get" => Some("browser.page.storage.get"),
+        [get, key] if get == "get" => {
+            params.insert("key".into(), json!(key));
+            Some("browser.page.storage.get")
+        }
+        [set, key, value] if set == "set" => {
+            params.insert("key".into(), json!(key));
+            params.insert("value".into(), json!(value));
+            Some("browser.page.storage.set")
+        }
+        [clear] if clear == "clear" => Some("browser.page.storage.clear"),
+        _ => None,
     }
 }

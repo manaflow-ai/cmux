@@ -74,6 +74,16 @@ final class HomeChannelsPageProvider: PageProvider {
             guard let message = try Self.optionalMessage(params["message"]) else { throw PageError.invalidParams("message") }
             let op = HomeOp.retractMessage(message: message, conversation: try Self.conversation(params))
             return try await HomeChannelsWire.submit(source, HomeIntent(key: try Self.key(params, context), op: op))
+        case "cmux.home.createGroup":
+            try Self.requireGesture(context)
+            guard let title = params["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty, title.count <= 80 else { throw PageError.invalidParams("title") }
+            let ids = params["participants"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            guard !ids.isEmpty, ids.count <= 50, ids.allSatisfy({ !$0.isEmpty && $0.count <= 256 }) else {
+                throw PageError.invalidParams("participants")
+            }
+            let op = HomeOp.createGroup(title: title, participants: ids.map { ParticipantID($0) })
+            return try await HomeChannelsWire.submit(source, HomeIntent(key: try Self.key(params, context), op: op))
         default:
             throw PageError.unknownOp(op)
         }
