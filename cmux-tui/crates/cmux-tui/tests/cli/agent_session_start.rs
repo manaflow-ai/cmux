@@ -117,7 +117,8 @@ impl Daemon {
         let stream = UnixStream::connect(self.dir.join("acpmux/acpmux.sock")).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
         let mut reader = BufReader::new(stream);
-        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/sessions", "params": {}});
+        let request =
+            json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/sessions", "params": {}});
         writeln!(reader.get_mut(), "{request}").unwrap();
         loop {
             let mut line = String::new();

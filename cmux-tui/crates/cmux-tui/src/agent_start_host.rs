@@ -61,9 +61,8 @@ pub(crate) fn source() -> AgentStartHostSource {
 fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
     // Team markers first: a team VM is refused whatever else this machine
     // shows (also with no Cloud marker at all).
-    let team_files = team_gid.is_some_and(|gid| {
-        trusted(TEAM_FILES_ROOT, true).is_some_and(|meta| meta.gid() == gid)
-    });
+    let team_files = team_gid
+        .is_some_and(|gid| trusted(TEAM_FILES_ROOT, true).is_some_and(|meta| meta.gid() == gid));
     let kind = read_kind();
     if team_files || kind.as_deref() == Some("team") {
         return AgentStartHost::TeamVm;
