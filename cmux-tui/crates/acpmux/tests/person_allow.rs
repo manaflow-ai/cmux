@@ -854,3 +854,33 @@ fn a_keyed_daemon_is_not_dumpable() {
     let meta = std::fs::metadata(format!("/proc/{}/environ", d.child.id())).unwrap();
     assert_eq!(meta.uid(), 0, "a dumpable daemon's /proc files belong to its user");
 }
+
+/// cx-0q7o: the nonce is spent only by an answer that counts. An allow that
+/// the daemon refuses after the proof checks (here: the session policy is
+/// deny-all for a moment) leaves the prompt answerable with the same proof,
+/// and two answers with that proof racing on two connections count once.
+#[tokio::test]
+async fn a_refused_relayed_allow_keeps_its_nonce_and_racing_answers_count_once() {
+    let d = Daemon::start("race", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
+
+    relay.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})).await;
+    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    assert_eq!(reason(&r), "policy_changed", "{r}");
+    relay.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+
+    let mut other = Rpc::connect(&d.socket).await;
+    let a = relay.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let b = other.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let (ra, rb) = (relay.reply(a).await, other.reply(b).await);
+    let counted = [&ra, &rb].iter().filter(|r| r.get("error").is_none()).count();
+    assert_eq!(counted, 1, "{ra} {rb}");
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
+}
