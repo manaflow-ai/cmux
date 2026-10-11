@@ -18,7 +18,8 @@
 //! restarts mid-move keeps the chat frozen (`queue.rs` `restore_queue`) until it commits or
 //! aborts: each queued prompt runs once, on one daemon. While it is frozen its queue and draft
 //! do not change either. A client aborts only a move the target does not have: one whose
-//! `transfer_finish` answer was lost is committed once the target shows the chat.
+//! `transfer_finish` answer was lost is committed when the target's log has the move's
+//! `transferred_in {transferId}` (a chat with the same id there may be another copy).
 //!
 //! Only the local socket moves a chat: a bundle holds the whole chat, and its queue runs on the
 //! target under the rules it was sent with. A remote daemon takes one through its own guarded
@@ -78,8 +79,10 @@ pub(super) fn sweep_transfers(moving: &[String]) {
     let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let old = entry
-            .metadata()
+        // A receive's last page touched its `alive` file (`transfer_in.rs`).
+        let alive = entry.path().join("alive");
+        let stamp = std::fs::metadata(&alive).or_else(|_| entry.metadata());
+        let old = stamp
             .and_then(|m| m.modified())
             .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE));
         if old && !moving.contains(&name) {
@@ -162,6 +165,11 @@ impl Hub {
         let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
             return Err(unfreeze(transfer_error("busy", "the running turn did not stop")));
         };
+        // A turn recovered from an agent host runs before its task takes the lock (`hosts.rs`).
+        if session.turn().is_some() {
+            drop(guard);
+            return Err(unfreeze(transfer_error("busy", "a recovered turn is running")));
+        }
         self.append(session, "mux", "transfer_out", json!({"transferId": transfer_id}));
         let dir = transfers_dir().join(&transfer_id);
         let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
@@ -219,7 +227,7 @@ impl Hub {
     /// The bundle directory of a move this daemon began.
     fn transfer_bundle(&self, transfer_id: &str) -> Result<PathBuf, RpcError> {
         // A receive (`in-…`) is not a move out.
-        if transfer_id.starts_with("in-") {
+        if transfer_id.to_ascii_lowercase().starts_with("in-") {
             return Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}")));
         }
         let dir = inside(&transfers_dir(), transfer_id)?;
@@ -260,9 +268,28 @@ impl Hub {
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 
+    /// `_acpmux/set_policy`: a chat being moved keeps the rules it moves with.
+    pub async fn set_policy_unless_moving(
+        &self,
+        session: &Arc<Session>,
+        policy: crate::config::PermissionPolicy,
+    ) -> Result<(), RpcError> {
+        if session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
+        self.set_policy(session, policy).await;
+        Ok(())
+    }
+
     /// The move did not happen: the chat takes prompts and runs its queue again.
     fn transfer_abort(&self, session: &Arc<Session>, transfer_id: &str) -> Result<Value, RpcError> {
         Self::moving_as(session, transfer_id)?;
+        if session.status() == SessionStatus::Closed {
+            return Err(transfer_error(
+                "closed",
+                "the move committed; the chat lives on the target",
+            ));
+        }
         *session.moving.lock().unwrap() = None;
         self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
         session.queue_moved.notify_waiters();

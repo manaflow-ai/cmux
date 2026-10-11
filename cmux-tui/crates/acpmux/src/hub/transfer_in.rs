@@ -19,11 +19,6 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
-/// A chat that moved from here to another daemon: closed, its move committed.
-fn moved_away(session: &Session) -> bool {
-    session.status() == SessionStatus::Closed && session.moving().is_some()
-}
-
 /// A receive's directory: its manifest, and the bundle as it arrives.
 fn receive_dir(receive_id: &str) -> Result<PathBuf, RpcError> {
     let dir = inside(&transfers_dir(), &format!("in-{receive_id}"))?;
@@ -51,6 +46,20 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
 }
 
 impl Hub {
+    /// A chat that moved from here to another daemon: closed, its move committed (also before a
+    /// restart, which does not rebuild a closed chat's state).
+    fn moved_away(&self, session: &Session) -> bool {
+        if session.status() != SessionStatus::Closed {
+            return false;
+        }
+        let mut moved = session.moving().is_some();
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            moved |= e.kind == "transferred";
+            !moved
+        });
+        moved
+    }
+
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         if manifest["schema"] != TRANSFER_SCHEMA {
@@ -61,7 +70,8 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
-        if self.sessions.lock().unwrap().get(id).is_some_and(|s| !moved_away(s)) {
+        let here = self.sessions.lock().unwrap().get(id).cloned();
+        if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
         let harness = manifest["session"]["harness"].as_str().unwrap_or("");
@@ -113,6 +123,8 @@ impl Hub {
             std::fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&data)
         });
         wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        // Kept from the sweep while pages come (`transfer_out.rs` `sweep_transfers`).
+        let _ = std::fs::write(dir.join("alive"), offset.to_string());
         Ok(json!({"next": have + data.len() as u64}))
     }
 
@@ -144,7 +156,16 @@ impl Hub {
         // Back where it once moved from: its closed copy gives way.
         let id = manifest["sessionId"].as_str().unwrap_or("");
         let old = self.sessions.lock().unwrap().get(id).cloned();
-        if let Some(old) = old.filter(|s| moved_away(s)) {
+        if let Some(old) = old.filter(|s| self.moved_away(s)) {
+            // Only once the chat can live here: a failed import keeps the closed copy's log.
+            let cwd = text("cwd").map(PathBuf::from).or_else(|| {
+                let raw = std::fs::read(bundle.join("session.json")).ok()?;
+                let meta: Value = serde_json::from_slice(&raw).ok()?;
+                meta["cwd"].as_str().map(PathBuf::from)
+            });
+            if !cwd.is_some_and(|c| c.is_dir()) {
+                return Err(transfer_error("cwd", "the chat's folder is not here; pass cwd"));
+            }
             self.kill(&old, true).await?;
         }
         let session = self.import_into(&bundle, text("name").map(str::to_owned), true).await?;

@@ -258,7 +258,8 @@ impl Hub {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .iter()
                 .any(|q| q.turn_id == turn_id && q.steer);
-            if steer {
+            // A chat being moved sends nothing into its turn; an abort lets it steer again.
+            if steer && session.moving().is_none() {
                 return Wait::Steer;
             }
             let guard = tokio::select! {

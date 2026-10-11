@@ -1020,7 +1020,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
-            hub.set_policy(&s, policy).await;
+            hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {

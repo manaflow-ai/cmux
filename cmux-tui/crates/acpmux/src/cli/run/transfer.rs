@@ -25,37 +25,36 @@ pub(super) async fn run(
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": interrupt}))
         .await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
-    let moved = copy(&src, &dst, &begin, cwd, name).await;
-    let moved = match moved {
-        Ok(moved) => moved,
-        Err(e) => {
-            // A finish whose answer was lost may have landed, and the target runs the queue
-            // then: the source commits. Only a target that lacks the chat lets it come back.
-            let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await;
-            let lacks = match &there {
-                Ok(there) => there["status"] == "closed",
-                Err(lookup) => {
-                    let m = lookup.to_string().to_lowercase();
-                    m.contains("no session") || m.contains("not found")
-                }
-            };
-            match there {
-                Ok(there) if !lacks => there,
-                _ if lacks => {
-                    let abort = json!({"sessionId": id, "transferId": transfer_id});
-                    if let Err(e2) = src.request("_acpmux/transfer_abort", abort).await {
-                        eprintln!("acpmux: the move failed and the chat stays frozen here: {e2}");
-                    }
-                    return Err(e);
-                }
-                _ => {
-                    eprintln!(
-                        "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the move is retried or aborted"
-                    );
-                    return Err(e);
-                }
-            }
+    let abort = async || {
+        let abort = json!({"sessionId": id, "transferId": transfer_id});
+        if let Err(e) = src.request("_acpmux/transfer_abort", abort).await {
+            eprintln!("acpmux: the move failed and the chat stays frozen here: {e}");
         }
+    };
+    let receive = match dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await {
+        Ok(receive) => receive,
+        Err(e) => {
+            abort().await;
+            return Err(e);
+        }
+    };
+    let moved = match copy(&src, &dst, &begin, &receive["receiveId"], cwd, name).await {
+        Ok(moved) => moved,
+        // A finish whose answer was lost may have landed, and the target runs the queue then:
+        // the source commits. Only a target that shows no such move lets the chat come back.
+        Err(e) => match landed(&dst, &id, &transfer_id).await {
+            Some(true) => dst.request(method::MUX_INFO, json!({"sessionId": id})).await?,
+            Some(false) => {
+                abort().await;
+                return Err(e);
+            }
+            None => {
+                eprintln!(
+                    "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the move is retried or aborted"
+                );
+                return Err(e);
+            }
+        },
     };
     let to_meta = json!({"sessionId": moved["sessionId"], "socket": to});
     src.request(
@@ -71,16 +70,34 @@ pub(super) async fn run(
     Ok(())
 }
 
-/// Pages every bundle file from `src` into a receive on `dst`, and finishes it there.
+/// Whether the target took this move (its log has the `transferred_in` of `transfer_id`); `None`
+/// when it cannot say.
+async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
+    let kinds = json!({"sessionId": id, "afterSeq": 0, "kinds": ["transferred_in"]});
+    match dst.request(method::MUX_EVENTS, kinds).await {
+        Ok(page) => Some(
+            page["events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|e| e["msg"]["transferId"] == transfer_id),
+        ),
+        Err(e) => {
+            let m = e.to_string().to_lowercase();
+            (m.contains("no session") || m.contains("not found")).then_some(false)
+        }
+    }
+}
+
+/// Pages every bundle file from `src` into the receive on `dst`, and finishes it there.
 async fn copy(
     src: &Client,
     dst: &Client,
     begin: &Value,
+    receive_id: &Value,
     cwd: Option<String>,
     name: Option<String>,
 ) -> Result<Value> {
-    let receive = dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await?;
-    let receive_id = receive["receiveId"].clone();
     for file in begin["files"].as_array().into_iter().flatten() {
         let path = &file["path"];
         let mut offset = 0u64;
