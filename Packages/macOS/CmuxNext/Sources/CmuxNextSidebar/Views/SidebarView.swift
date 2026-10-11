@@ -192,7 +192,7 @@ public final class SidebarView: NSView {
     // MARK: Hierarchy
 
     private func buildHierarchy() {
-        newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
+        newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }; newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
         newButton.alphaValue = 0
         addSubview(newButton)
 
