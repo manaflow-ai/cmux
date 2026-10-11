@@ -16,7 +16,8 @@ async function unlaunchableEngines(): Promise<string[]> {
   const missing: string[] = [];
   for (const engine of CI_ENGINES) {
     try {
-      await (await playwright[engine].launch({ headless: true })).close();
+      // Playwright's own launch timeout is three minutes; a broken engine fails sooner.
+      await (await playwright[engine].launch({ headless: true, timeout: 30_000 })).close();
     } catch {
       missing.push(engine);
     }
