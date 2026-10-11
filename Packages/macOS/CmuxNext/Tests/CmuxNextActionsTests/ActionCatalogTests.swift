@@ -83,7 +83,10 @@ import Testing
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func countsByDomainMatchInventory() throws {
         let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
