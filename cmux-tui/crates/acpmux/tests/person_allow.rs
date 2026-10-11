@@ -1051,3 +1051,35 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// cx-0q7o slice 2b review: a relayed allow for a prompt of THIS daemon,
+/// from a connection that is not the person, counts only with the person's
+/// proof for that prompt's own nonce. Proof fields with another nonce, or
+/// the right nonce with a proof that is not the person's, are refused, and
+/// the prompt stays pending (the person rule under the prompt's lock).
+#[tokio::test]
+async fn a_local_allow_with_a_wrong_nonce_or_a_wrong_proof_is_refused_and_stays_pending() {
+    let d = Daemon::start("lock", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+
+    // (a) A nonce that is not this prompt's, with a proof that matches it.
+    let other_nonce = "0".repeat(64);
+    let for_other = decision_proof(KEY, &instance, &id, &pid, "yes", &other_nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &other_nonce, &for_other))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+    // (b) This prompt's nonce, with a proof that is not the person's.
+    let forged = "ab".repeat(32);
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &forged)).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid]);
+}
