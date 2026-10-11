@@ -41,7 +41,6 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
-        thumbnail.layer?.actions = ["contents": Motion.crossfadeAction]
 
         for view in [titleLabel, subtitleLabel, resources, thumbnail] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -138,12 +137,16 @@ final class TabHoverCardView: NSView {
     /// The thumbnail the card shows.
     private(set) var thumbnailImage: CGImage?
 
+    /// Only a thumbnail landing in an empty frame fades in; one tab's image
+    /// replacing another's swaps at once (two tabs never blend).
     func setThumbnail(_ image: CGImage?) {
+        let landing = thumbnailImage == nil && image != nil
         thumbnailImage = image
         guard let layer = thumbnail.layer else { return }
         performWithTheme {
             layer.backgroundColor = Palette.hoverFill.cgColor
         }
-        Motion.transaction(.crossfade) { layer.contents = image }
+        layer.actions = landing ? ["contents": Motion.crossfadeAction] : nil
+        Motion.transaction(landing ? .crossfade : nil) { layer.contents = image }
     }
 }

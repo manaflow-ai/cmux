@@ -16,7 +16,8 @@ import {
   PartRef,
   Parts,
   ReactionKind,
-  Seq
+  Seq,
+  ThreadSummary
 } from "./ops-home-schemas.ts"
 
 /**
@@ -80,10 +81,10 @@ export const MessageSend = def({
   risk: "mutate-shared",
   target: "message",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, client_msg_id: ClientToken, parts: Parts, reply_to: Schema.optionalKey(PartRef) }),
+  params: Schema.Struct({ ...conv, client_msg_id: ClientToken, parts: Parts, reply_to: Schema.optionalKey(PartRef), thread_root: Schema.optionalKey(MessageId) }),
   result: commit,
-  errors: [...conversationErrors, "invalid_parts", "invalid_client_msg_id", "idempotency_conflict", "agent_budget", "agent_rate", "address_cannot_act"],
-  docs: "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message.",
+  errors: [...conversationErrors, "invalid_parts", "invalid_client_msg_id", "idempotency_conflict", "agent_budget", "agent_rate", "address_cannot_act", "invalid_thread_root"],
+  docs: "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.",
   cli: cli("send"),
   mcp: { expose: "default", group: "home" }
 })
@@ -310,7 +311,7 @@ export const ConversationSnapshot = def({
   target: "conversation",
   principals: ["session", "install"],
   params: Schema.Struct({ ...conv, tail: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(200))) }),
-  result: Schema.Struct({ conversation: ConversationSummary, messages: Schema.Array(Message), revision: Schema.String }),
+  result: Schema.Struct({ conversation: ConversationSummary, messages: Schema.Array(Message), threads: Schema.optionalKey(Schema.Array(ThreadSummary)), revision: Schema.String }),
   errors: [...conversationErrors],
   docs: "Read the conversation and its newest messages (history_visible since_join hides earlier ones).",
   cli: cli("show"),
@@ -329,10 +330,30 @@ export const ConversationHistory = def({
     before_seq: Schema.optionalKey(Seq),
     limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)))
   }),
-  result: Schema.Struct({ messages: Schema.Array(Message), next_before_seq: Schema.NullOr(Seq), revision: Schema.String }),
+  result: Schema.Struct({ messages: Schema.Array(Message), threads: Schema.optionalKey(Schema.Array(ThreadSummary)), next_before_seq: Schema.NullOr(Seq), revision: Schema.String }),
   errors: [...conversationErrors],
   docs: "Page older messages before before_seq (newest first within the page).",
   cli: cli("history"),
+  mcp: { expose: "default", group: "home" }
+})
+
+export const ConversationThread = def({
+  name: "conversation.thread",
+  owner: "cloud:ConversationDO",
+  class: "read",
+  risk: "read",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    root: MessageId,
+    after_seq: Schema.optionalKey(Seq),
+    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)))
+  }),
+  result: Schema.Struct({ root: Message, replies: Schema.Array(Message), has_more: Schema.Boolean, thread: ThreadSummary }),
+  errors: [...conversationErrors, "unknown_message"],
+  docs: "Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.",
+  cli: cli("thread"),
   mcp: { expose: "default", group: "home" }
 })
 
@@ -395,5 +416,6 @@ export const homeConversationOps = [
   InviteApproveJoin,
   ConversationSettingsSet,
   ConversationSnapshot,
-  ConversationHistory
+  ConversationHistory,
+  ConversationThread
 ] as const

@@ -186,6 +186,10 @@ const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts =>
   return { unread, mentions }
 }
 
+/** The lowest message seq `user` may see: with history_visible since_join, its join (ConversationDO.floor). */
+const historyFloor = (head: ConversationHead, user: string): number =>
+  head.settings?.history_visible === "since_join" ? (currentParticipant(head, user)?.joined_seq ?? 0) : 0
+
 /**
  * Counts per human before this commit, for fanOut: the stored row, or a recount from the read
  * cursor when there is none (a conversation older than the table). A cursor moved back recounts.
@@ -195,10 +199,7 @@ const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts =>
  * below the user's join (the same floor reads, search and snapshots use).
  */
 export const unreadFloor = (head: ConversationHead, user: string): number => {
-  const cursor = head.read_cursors[user] ?? 0
-  if (head.settings?.history_visible !== "since_join") return cursor
-  const joined = head.participants.find((p) => p.id === user && p.left_at === undefined)?.joined_seq ?? 0
-  return Math.max(cursor, joined)
+  return Math.max(head.read_cursors[user] ?? 0, historyFloor(head, user))
 }
 
 const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op, rows: RowReader): Record<string, UnreadCounts> => {
@@ -210,7 +211,8 @@ const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op,
     const stored = wasMember(user) ? rows.get<UnreadCounts>(TABLE_UNREAD, user)?.row : undefined
     counts[user] = stored ?? recount(rows, user, unreadFloor(wasMember(user) ? before : after, user))
   }
-  if (op.kind === "read_cursor.set") for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, unreadFloor(after, user))
+  // A moved cursor recounts: read_cursor.set, and a send, which moves the sender's cursor.
+  for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, unreadFloor(after, user))
   return counts
 }
 
@@ -235,6 +237,10 @@ const reduceConversation = (
   const head: ConversationHead = loaded ? { ...state, invites: [...(state.invites ?? []), loaded] } : state
   const messageId = targetMessageId(coreOp)
   const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
+  const threadId = coreOp.kind === "message.send" && typeof coreOp.thread_root === "string" ? coreOp.thread_root : undefined
+  const floor = historyFloor(head, actor)
+  const visible = (row: Message | null): Message | null => (row && row.seq > floor ? row : null)
+  const threadRow = threadId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, threadId)?.row ?? null)
   const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
   const request: OpRequest = {
     actor,
@@ -244,7 +250,10 @@ const reduceConversation = (
     now: formatRfc3339Millis(ctx.now),
     new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
     target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
-    reply_target: replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null),
+    // A reply target or thread root below the actor's history floor (since_join) is not visible
+    // to it: refused like a missing one, so a send never probes hidden history.
+    reply_target: visible(replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null)),
+    thread_target: visible(threadRow),
     // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
     last_message: rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
     actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,

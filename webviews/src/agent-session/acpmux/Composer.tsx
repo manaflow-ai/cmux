@@ -63,6 +63,9 @@ import type { SendBlock } from "./useFolderTrustAsk";
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
+/// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
+const UNSENT_DRAFT_SETTLE_MS = 300;
+
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
 export const COMPOSER_LABELS = {
@@ -142,6 +145,9 @@ type Props = {
   onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it.
   onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
+  /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
+  /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
+  onUnsentDraft?(text: string): void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -199,6 +205,7 @@ export function Composer({
   prompt,
   onEdit,
   onCmuxCommand,
+  onUnsentDraft,
   onImportFile,
   searchFiles,
   onProject,
@@ -382,6 +389,12 @@ export function Composer({
     if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
+  useEffect(() => {
+    // Once the typing settles, so the host writes its file once per pause, not per keystroke.
+    if (sessionId || !onUnsentDraft) return;
+    const settled = setTimeout(() => onUnsentDraft(text), UNSENT_DRAFT_SETTLE_MS);
+    return () => clearTimeout(settled);
+  }, [sessionId, text, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
