@@ -318,7 +318,7 @@ public final class DaemonStore: StateResourceQueries {
     func notePrompt(from old: AgentStatus?, to new: AgentStatus) {
         guard Self.startsPromptedTurn(from: old, to: new) else { return }
         let at = new.updatedAtMs > 0 ? new.updatedAtMs : UInt64(Date().timeIntervalSince1970 * 1000)
-        lastPromptBySurface[new.surface] = at
+        lastPromptBySurface[new.surface] = max(lastPromptBySurface[new.surface] ?? 0, at)
     }
 
     /// A hook-reported agent works only after a submitted prompt (`agent.turn.started`:
