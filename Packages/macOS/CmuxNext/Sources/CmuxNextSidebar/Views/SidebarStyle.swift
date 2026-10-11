@@ -85,9 +85,9 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// A user color in the theme's palette, shared with tab groups (`GroupColor.headerFill`).
+    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
-        color.headerFill
+        color.markColor
     }
 
 }

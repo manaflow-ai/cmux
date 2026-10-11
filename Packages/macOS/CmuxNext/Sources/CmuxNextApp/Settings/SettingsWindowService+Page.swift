@@ -21,7 +21,9 @@ extension SettingsWindowService {
                 ]
             }),
             "profile_colors": .array(GroupColor.allCases.map { color in
-                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.headerFill)), "fill": .string(Self.hex(color.themedChipFill))]
+                // Opaque colors only (hex drops alpha): grey keeps its own swatch and fill.
+                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.markColor)),
+                 "fill": .string(Self.hex(color == .grey ? color.fill : color.themedChipFill))]
             }),
             // R82 commit 4: theme levels of the active window, terminal facts, the settings file
             // and the wallpaper choices (thumbnails at cmux-page://cmux.settings/backdrop/<id>).

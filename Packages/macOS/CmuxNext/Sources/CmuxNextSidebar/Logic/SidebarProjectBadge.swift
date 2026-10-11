@@ -6,7 +6,7 @@ public import CmuxNextDesign
 /// for the same folder name.
 public nonisolated struct SidebarProjectBadge: Hashable, Sendable {
     /// The badge tints, picked by a stable hash of the folder name: group colors, so each is
-    /// the theme's own palette color (`GroupColor.headerFill`).
+    /// the theme's own palette color (`GroupColor.markColor`).
     public static let palette: [GroupColor] = [.yellow, .blue, .green, .purple, .orange, .pink, .cyan, .red]
 
     public var path: String
@@ -35,7 +35,7 @@ public nonisolated struct SidebarProjectBadge: Hashable, Sendable {
     /// color on a faint fill of it.
     @MainActor public func image(height: CGFloat = 16) -> NSImage {
         let font = NSFont.monospacedSystemFont(ofSize: (height * 0.56).rounded(), weight: .bold)
-        let color = Self.palette[colorIndex].headerFill
+        let color = Self.palette[colorIndex].markColor
         let text = NSAttributedString(string: letters, attributes: [.font: font, .foregroundColor: color])
         let size = NSSize(width: max(height, (text.size().width + height * 0.4).rounded(.up)), height: height)
         return NSImage(size: size, flipped: false) { rect in

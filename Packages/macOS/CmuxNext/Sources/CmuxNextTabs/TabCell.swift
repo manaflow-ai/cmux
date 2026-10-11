@@ -236,7 +236,7 @@ final class TabCell {
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
             separatorLayer.backgroundColor = Palette.separator.cgColor
-            iconLayer.contents = iconImage(tint: item.tint?.headerFill ?? text)
+            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
         }
         applyCloseColors()
         applyBadgeColor()
