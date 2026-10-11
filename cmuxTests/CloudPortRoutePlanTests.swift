@@ -168,6 +168,7 @@ struct CloudPortRoutePlanTests {
         model.retry()
         #expect(await wait { navigations.count == 2 })
         let replayed = try #require(navigations.last)
+        #expect(state.isRetiredListener(forwarded.url!), "A forward restart must retain the previous listener identity")
         #expect(replayed.url?.port == 46_904)
         #expect(replayed.httpMethod == "POST")
         #expect(replayed.httpBody == Data("name=cmux".utf8))

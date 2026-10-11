@@ -417,6 +417,7 @@ final class CloudBrowserAccessState {
 
     func nextRequest() -> URLRequest? {
         guard let remoteURL, let url = model?.url(for: remoteURL) else {
+            rememberRetiredListener(navigationURL)
             hasCommittedNavigation = false
             desktopConnected = false
             navigationURL = nil
