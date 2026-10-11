@@ -39,7 +39,10 @@ struct PaletteArgumentFlow {
                 PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle"),
             ], collected: collected))
         case .enumeration(let cases):
-            let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
+            let options = cases.map {
+                PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol,
+                                    swatches: PaletteGroupColor.swatches(argument: argument.name, value: $0.value))
+            }
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
