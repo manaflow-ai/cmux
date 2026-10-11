@@ -107,6 +107,9 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// API origins beyond the built-in cmux Cloud ones that a lease from a
+    /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
+    pub api_origins: Vec<String>,
 }
 
 impl Default for ServiceOptions {
@@ -118,6 +121,13 @@ impl Default for ServiceOptions {
             poll: Duration::from_secs(1),
             max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
+            api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .collect(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -257,6 +267,12 @@ impl CloudConversations {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             check_lease_holder(&lease, by_app)?;
+            if !by_app {
+                super::session::check_known_origin(
+                    &params.api_base_url,
+                    &self.inner.options.api_origins,
+                )?;
+            }
             let session = CloudSession::new(params, lease.generation + 1)?;
             lease.generation = session.generation;
             lease.expiring_sent = false;
@@ -428,6 +444,8 @@ impl CloudConversations {
     /// `cloud-mux-ack`: the brain handled the wakes of `conversation` up to
     /// `seq`. `mux.ack` for the lease's own chief; the idempotency key names
     /// the wake row (`<conversation>:<seq>`), so a repeated ack is a replay.
+    /// No `origin`: the Worker's origin schema has no agent value, and the
+    /// chief is the token's `agt` claim (cx-59n8.17).
     pub fn mux_ack(&self, conversation: &str, seq: u64) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         let agent = self.lease_agent()?;
@@ -435,7 +453,6 @@ impl CloudConversations {
             "op": "mux.ack",
             "params": {"agent": agent, "conversation": conversation, "seq": seq},
             "idempotency_key": format!("mux-ack:{conversation}:{seq}"),
-            "origin": "agent",
         });
         mutation_data(self.post("/v1/ops", &body)?)
     }

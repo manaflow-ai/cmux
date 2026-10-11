@@ -135,6 +135,10 @@ Object.assign(variants, {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
   }),
+  "agents-harnesses-checking": variant("agents", {
+    note: "Harnesses while the first look has found nothing yet: it says it is checking.",
+    harnesses: { loading: true, problem: null, harnesses: [] },
+  }),
   backdrops: variant("experimental", {
     options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
     host: {

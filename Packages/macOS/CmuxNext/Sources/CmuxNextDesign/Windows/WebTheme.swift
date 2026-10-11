@@ -73,6 +73,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
+            // Selected text and the caret in the Ghostty config's colors (`selection-background`,
+            // `cursor-color`); without a selection color, the accent tint pages always used.
+            "--cmux-text-selection": tokens.terminalSelection.map(Self.css)
+                ?? "color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)",
+            "--cmux-caret": Self.css(tokens.caret),
             // The accent and the glyphs on it (`ThemeTokens.accent`: the text color, or the
             // theme's own hue with appearance.accent).
             "--cmux-accent": Self.css(tokens.accent),

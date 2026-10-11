@@ -7,15 +7,30 @@ can follow it end to end. Nothing here modifies classic's files.
 
 The quick way is **Import Workspaces from Classic cmux** in cmux-next's command
 palette, or `cmux workspace import-classic`. It opens every workspace from
-classic's last saved session, with the same panes, splits, tabs and tab names,
-each terminal in its folder. It never runs on its own. It shows a toast when it
-finishes, and running it again opens the workspaces again. A chat's terminal
-opens as a plain terminal in its folder, not a resumed chat. Launch and SSH
-commands, scrollback and browser tabs are left out; a pane that held only
-browser tabs closes up, and its neighbour takes its space. SSH and Cloud VM
-workspaces stay in classic.
+classic's last saved session, with the same panes, splits, tabs and tab names.
+It never runs on its own. It shows a toast when it finishes, and running it
+again opens the workspaces again.
 
-To choose what comes over, or to bring chats and commands too, use
+- Terminals open in their folders. Launch commands and scrollback are left out.
+- Browser tabs open on their pages, in the same pane and order. A tab keeps a
+  name you gave it; otherwise it shows the page's title.
+- A terminal that ran a Claude Code or Codex session opens as a chat that
+  resumes that session (acpmux adopt), in the same pane and place, under the
+  chat's own title. It stays a terminal in its folder when a tab already
+  resumes that session, or when acpmux can't resume it as a chat.
+- SSH workspaces open on their host, as if you had run SSH… with
+  `user@host:port`. Classic's identity file and SSH options don't come over, so
+  the host must work from `~/.ssh/config` and your SSH agent, and it needs
+  cmux-tui. A host that doesn't connect within 20 seconds stays in classic, and
+  the toast says so; the import doesn't try it again for its other workspaces,
+  and a machine it added for that host is removed again. An agent session in an
+  SSH workspace opens as a terminal, because adopted chats run on this Mac.
+- Cloud VM workspaces stay in classic, and the toast says so: cmux-next
+  can't attach a classic VM yet.
+- Markdown viewers and file previews are left out. A pane that held only those
+  closes up, and its neighbour takes its space.
+
+To choose what comes over, or to bring launch commands too, use
 [`scripts/cmux-next/classic-to-next.py`](../../scripts/cmux-next/classic-to-next.py)
 and cmux-next's control socket, as below.
 

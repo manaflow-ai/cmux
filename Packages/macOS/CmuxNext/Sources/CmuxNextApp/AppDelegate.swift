@@ -296,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
                 DebugNowPlaying.register(on: control.service?.router, services: services)
+                DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
