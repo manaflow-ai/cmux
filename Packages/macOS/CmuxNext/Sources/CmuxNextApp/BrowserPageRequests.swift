@@ -22,6 +22,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
             nowPlaying.follow(services)
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
+            // The Downloads list a relaunch shows keeps ended downloads (cx-d0d.72).
+            if services != nil, downloads.history == nil {
+                downloads.history = BrowserDownloadHistory.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+                // task-owner: one read at startup; the list holds nothing it could race with but this run's rows
+                Task { [downloads] in await downloads.restore() }
+            }
             // A tab an agent-driven page opens is agent-driven from birth,
             // marked before its page exists (no rebuild on the agent's first
             // touch, no saved password filled), as its adopted pages are.
@@ -134,7 +140,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
-            downloads.add(item, tab: key) { [weak services] notice in
+            downloads.add(item, tab: key, keep: !services.cache.browserTabs.isIncognitoTab(key)) { [weak services] notice in
                 guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
                 // A blocked download offers the blocking site's Site
                 // settings, where its automatic-downloads choice changes
