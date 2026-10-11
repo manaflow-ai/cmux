@@ -55,10 +55,12 @@ BOOKMARKS_HTML = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
     </DL><p>
 </DL><p>
 """
-# Synthetic sign-ins on example.test; never a real password.
+# Synthetic sign-ins on example.test, new each run (a profile kept from an earlier run would
+# count them as already saved); never a real password.
+RUN = os.urandom(4).hex()
 PASSWORDS_CSV = "Title,URL,Username,Password,Notes,OTPAuth\n" \
-                "one.example.test,https://one.example.test/,cmux-one,not-a-real-password-1,,\n" \
-                "two.example.test,https://two.example.test/,cmux-two,not-a-real-password-2,,\n"
+                f"one.example.test,https://one-{RUN}.example.test/,cmux-one-{RUN},not-a-real-password-1,,\n" \
+                f"two.example.test,https://two-{RUN}.example.test/,cmux-two-{RUN},not-a-real-password-2,,\n"
 
 
 def check(ok, what):
@@ -173,10 +175,9 @@ try:
     result = import_through("safari", "passwords.csv")
     if isinstance(result, tuple):
         check("Safari" in result[1].get("title", ""), f"Safari's steps name Safari ({result[1].get('title')})")
-    imported = wait_for(lambda: next((t for t in toasts() if "Imported: 2" in t), None), "the passwords toast", 90)
-    if not imported:
-        print("note: csv still in place:", os.path.exists(os.path.join(EXPORTS, "passwords.csv")), "toasts:", toasts(), flush=True)
-    check(imported is not None, f"the picked passwords CSV is imported ({toasts()})")
+    summary = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None), "the passwords toast", 60)
+    check(summary is not None and "Imported: 2" in summary, f"the picked passwords CSV is imported ({summary})")
+    check(not os.path.exists(os.path.join(EXPORTS, "passwords.csv")), "the imported CSV goes to the Trash")
     check("not-a-real-password" not in json.dumps(rpc("debug.toast")), "no password shows in a toast")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
