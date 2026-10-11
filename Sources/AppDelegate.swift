@@ -12756,13 +12756,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         tooltip: actionTitle
                     )
                 }
+                let globalConfigPath = cmuxConfigStore.globalConfigPath
                 workspace.applySurfaceTabBarButtons(
                     buttons,
                     sourcePath: nil,
-                    globalConfigPath: cmuxConfigStore.globalConfigPath,
+                    globalConfigPath: globalConfigPath,
                     terminalCommandSourcePaths: [:],
                     workspaceCommands: [:]
                 )
+                // Creating the extra surfaces above publishes tab-manager changes
+                // that reapply the normal config on the next main-actor turn. Keep
+                // the fixture's action lane installed after that startup refresh;
+                // otherwise the UI test can never exercise the narrow overflow
+                // layout it is meant to cover.
+                DispatchQueue.main.async {
+                    workspace.applySurfaceTabBarButtons(
+                        buttons,
+                        sourcePath: nil,
+                        globalConfigPath: globalConfigPath,
+                        terminalCommandSourcePaths: [:],
+                        workspaceCommands: [:]
+                    )
+                }
             }
             if startWithHiddenSidebar {
                 context.sidebarState.setVisible(false)
