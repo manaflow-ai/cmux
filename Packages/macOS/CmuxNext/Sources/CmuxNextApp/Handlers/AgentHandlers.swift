@@ -156,6 +156,15 @@ enum AgentHandlers {
             }
             view.showModelPicker()
         })
+        // Search Files… (Cmd-P, cx-ncc.69) opens the composer's file search, keyboard in its field.
+        registry.bind("agentPane.searchFiles", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.pickerNeedsFocus) }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.searchFilesNeedsAgentChat)
+            }
+            view.showFileSearch()
+        })
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
