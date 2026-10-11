@@ -27,7 +27,9 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
-            try create(context, invocation, anchorFree: nil) { id, bridge in
+            // Listed once, at the bottom where its group ends up, then grouped in place: at the
+            // daemon's slot it drew its group's header there, which then slid over the rows (cx-f6i7).
+            try create(context, invocation, anchorFree: .bottom(anchor: nil)) { id, bridge in
                 bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser)
             }
         })
@@ -100,7 +102,8 @@ enum WorkspaceVerbHandlers {
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
-        // `then` places it itself (New Workspace in New Group): no second write.
+        // `then` finishes placing it (New Workspace in New Group groups it at its slot): no
+        // `workspaces.newPlacement` write on top.
         spawn.placesBySetting = then == nil
         spawn.opensNewTabPage = newTabPage
         spawn.firstChat = firstChat
