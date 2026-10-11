@@ -3660,6 +3660,9 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/conversation_threads.rs"]
+mod conversation_threads;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
