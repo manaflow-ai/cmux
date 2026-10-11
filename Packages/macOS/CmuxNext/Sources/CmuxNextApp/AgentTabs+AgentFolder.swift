@@ -9,14 +9,10 @@ extension AgentTabStore {
     /// Tab `key`'s roots, agent-home and Choose Folder… on its page's model. Each resolves the
     /// tab's current id when it runs.
     func wireAgentFolder(_ model: AgentPaneModel, key provisional: String) {
-        model.workspaceRoots = { [weak self] in
-            guard let self else { return [] }
-            return workspaceRoots(of: resolve(provisional))
-        }
-        model.workspaceAgentHome = { [weak self] in
-            guard let self else { return nil }
-            return agentHome(of: resolve(provisional))
-        }
+        model.workspaceRoots = { [weak self] in self.map { $0.workspaceRoots(of: $0.resolve(provisional)) } ?? [] }
+        model.workspaceAgentHome = { [weak self] in self.flatMap { $0.agentHome(of: $0.resolve(provisional)) } }
+        // Stage and Commit (cx-tcwj) run git on this Mac: never in a Cloud or SSH chat's same-named folder here.
+        model.gitWritesHere = { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }
         model.startFolders.resolve = { [weak self] proposed in
             guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
             guard var answer = await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource) else { return nil }
