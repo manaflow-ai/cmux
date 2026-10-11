@@ -48,7 +48,7 @@ enum AgentPaneTheme {
             "palette": tokens.ansi.prefix(16).map { color in
                 css(ThemeTokens.readable(color, over: tokens.elevatedBackground, minimum: ThemeTokens.minimumTextContrast))
             },
-            // The page's hover fills, focus rings and menu fades (`--agent-motion-*`), in
+            // The page's hover fills, focus rings, menu fades and moves (`--agent-motion-*`), in
             // seconds after ui.animationSpeed and Reduce Motion, so they pace with the chrome.
             "motion": [
                 "hover": motion.duration(MotionFade.hover),
@@ -56,6 +56,7 @@ enum AgentPaneTheme {
                 "focus": motion.duration(MotionFade.focus),
                 "fadeIn": motion.duration(MotionFade.fadeIn),
                 "fadeOut": motion.duration(MotionFade.fadeOut),
+                "move": motion.duration(MotionSpring.move),
             ],
         ]
     }
