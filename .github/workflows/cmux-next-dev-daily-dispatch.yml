@@ -4,7 +4,8 @@ name: cmux NEXT DEV daily dispatcher
 # the next merge. This schedule snapshots the current branch tip and asks the
 # source workflow for one Release cmux NEXT DEV artifact at most every 30
 # minutes. The offset avoids the owner lane's `*/30` nightly-next tick while
-# #18927 is open. The source run is pinned to that SHA and never cancels another run.
+# #18927 is open. The source run builds only that SHA (cmux-next.yml checks
+# github.sha) and never cancels another run.
 on:
   schedule:
     - cron: "15,45 * * * *"
@@ -22,7 +23,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
-      contents: write
+      contents: read
     timeout-minutes: 5
     steps:
       - name: Dispatch the current feat-cmux-next tip when needed
@@ -38,47 +39,17 @@ jobs:
               ref: `heads/${source}`,
             });
             const sha = ref.object.sha;
-            // A workflow_dispatch on feat-cmux-next resolves github.sha when the
-            // run starts, so a merge that lands while the run is queued can make
-            // the requested SHA and checked-out SHA diverge. Pin each snapshot
-            // to its own immutable branch so the tree marker, source artifact,
-            // and workflow_run.head_sha stay on the same commit.
-            const snapshotRef = `cmux-next-dev-${sha}`;
-            let pinned;
-            try {
-              ({ data: pinned } = await github.rest.git.getRef({
-                owner,
-                repo,
-                ref: `heads/${snapshotRef}`,
-              }));
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              try {
-                ({ data: pinned } = await github.rest.git.createRef({
-                  owner,
-                  repo,
-                  ref: `refs/heads/${snapshotRef}`,
-                  sha,
-                }));
-              } catch (createError) {
-                if (createError.status !== 422) throw createError;
-                ({ data: pinned } = await github.rest.git.getRef({
-                  owner,
-                  repo,
-                  ref: `heads/${snapshotRef}`,
-                }));
-              }
-            }
-            if (pinned.object.sha !== sha) {
-              core.setFailed(`snapshot ref ${snapshotRef} points at ${pinned.object.sha}, expected ${sha}`);
-              return;
-            }
+            // No snapshot ref: creating one at a feat-cmux-next commit needs
+            // the workflows permission, which GITHUB_TOKEN cannot have (HTTP
+            // 403). The run goes on feat-cmux-next with the SHA it must build;
+            // cmux-next.yml fails it without building when a merge moved the
+            // tip before it started, and the next tick asks for the new tip.
             const { data } = await github.rest.actions.listWorkflowRuns({
               owner,
               repo,
               workflow_id: workflow,
               event: 'workflow_dispatch',
-              branch: snapshotRef,
+              branch: source,
               per_page: 100,
             });
             const isDevRun = (run) =>
@@ -90,14 +61,14 @@ jobs:
                (run.status === 'completed' && run.conclusion === 'success'))
             );
             if (activeOrSucceeded) {
-              core.notice(`Dev-daily source run already covers feat-cmux-next ${sha} on ${snapshotRef}`);
+              core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
               return;
             }
             await github.rest.actions.createWorkflowDispatch({
               owner,
               repo,
               workflow_id: workflow,
-              ref: snapshotRef,
+              ref: source,
               inputs: { dev_daily: 'true', dev_daily_sha: sha },
             });
-            core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha} on ${snapshotRef}`);
+            core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha}`);
