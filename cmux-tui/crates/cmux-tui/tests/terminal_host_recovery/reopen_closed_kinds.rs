@@ -17,14 +17,28 @@ struct AppConnection {
 
 impl AppConnection {
     fn open(harness: &RecoveryHarness) -> Self {
-        let stream = transport::connect(&harness.socket).unwrap();
-        let writer = stream.try_clone_box().unwrap();
-        let mut connection = Self { writer, reader: BufReader::new(stream), next: 1 };
-        connection.send(serde_json::json!({
-            "cmd":"set-client-info","name":"reopen-kinds","kind":"test",
-            "capabilities":["conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1"],
-        }));
-        connection
+        // A just-started owner answers `server.restoring` until its terminals
+        // are restored (cx-n3bs); the app retries on a new connection.
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+        loop {
+            let stream = transport::connect(&harness.socket).unwrap();
+            let mut writer = stream.try_clone_box().unwrap();
+            let mut reader = BufReader::new(stream);
+            let hello = serde_json::json!({
+                "id":1,"cmd":"set-client-info","name":"reopen-kinds","kind":"test",
+                "capabilities":["conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1"],
+            });
+            writeln!(writer, "{hello}").unwrap();
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if reply["ok"] == true {
+                return Self { writer, reader, next: 2 };
+            }
+            assert_eq!(reply["error_code"], "server.restoring", "set-client-info failed: {reply}");
+            assert!(Instant::now() < deadline, "the owner is still restoring: {reply}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     fn send(&mut self, mut value: serde_json::Value) -> serde_json::Value {
