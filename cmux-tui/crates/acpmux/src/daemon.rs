@@ -897,8 +897,8 @@ async fn notify_loop(hub: Arc<Hub>) {
         let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
         let Ok(session) = hub.resolve(&ev.session_id) else { continue };
         let summary = hub.session_summary(&session);
-        let attached = summary.get("attached").and_then(Value::as_u64).unwrap_or(0);
-        if kind == "turn_result" && attached > 0 {
+        // A chat some client shows needs no notification (`hub/seen.rs`).
+        if kind == "turn_result" && summary["shown"] == true {
             continue;
         }
         let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();

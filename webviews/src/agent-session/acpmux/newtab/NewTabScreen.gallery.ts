@@ -337,6 +337,15 @@ export default agentPaneEntry({
       ready: newTab({ template: "classic", templateSwitcher: true }),
       snapshot: noChat(manySessions(4)),
     },
+    projects: {
+      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Projects" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
+      },
+    },
     "switcher-off": {
       note: "With Debug Settings newTab.templateSwitcher off (it is on by default, cx-l1jv): no dots.",
       ready: newTab(),

@@ -226,7 +226,7 @@
   margin-top: 3px;
   padding: 1px 7px 1px 5px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 11px;
 }
 
@@ -285,6 +285,28 @@
   background: var(--input-bg);
   border-radius: 6px;
   padding: 2px 10px;
+}
+
+/* The button already rests on --input-bg, so its hover steps up to the accent's soft fill. */
+.button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* An action row keeps its control and the empty Reset slot on one line: a long path shrinks to an
+   ellipsis instead of pushing the slot onto a line of its own. */
+.action-row-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.action-row-control > .row-help {
+  min-width: 0;
+}
+
+/* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
+.group > .row-help {
+  margin-bottom: 8px;
+  white-space: normal;
 }
 
 .link-button {
@@ -593,6 +615,11 @@
 
 .theme-option-check {
   color: var(--accent-text);
+}
+
+.theme-empty {
+  padding: 6px;
+  font-size: var(--text-detail);
 }
 
 .theme-count {

@@ -255,6 +255,10 @@
 .nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:240px}
 .nt-all .nt-chats-head{height:30px;padding:0 0 0 10px}
 .nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500}
+/* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
+.nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit;cursor:default}
+.nt-all button.nt-chats-tab:hover,.nt-all .nt-chats-tab.is-selected{color:var(--agent-text)}
+.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}
 .nt-all-search{margin-left:auto;display:flex;align-items:center;gap:6px;width:min(200px,45%);height:26px;padding:0 10px;box-sizing:border-box;border-radius:8px;color:var(--acpmux-composer-dim)}
 .nt-all-search:hover,.nt-all-search:focus-within{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .nt-all-search svg{flex:none}
@@ -278,4 +282,12 @@
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:12px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state{color:var(--agent-danger)}
+/* A project's header in Projects: its folder and count; a click folds its chats. */
+.nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;cursor:default;white-space:nowrap}
+.nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
+.nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform .12s ease}
+.nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
+.nt-all-group-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
+@media (prefers-reduced-motion:reduce){.nt-all-group-chevron{transition:none}}
 .nt-closed .nt-open-tab:disabled{opacity:.45;cursor:default}
