@@ -33,6 +33,26 @@ struct HermesAgentHookConfigTests {
         #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
     }
 
+    @Test("Keeps a user hook whose applicability field mentions cmux")
+    func keepsUserHookWithCmuxApplicabilityField() {
+        let existing = """
+        hooks:
+          pre_tool_call:
+            # cmux hooks hermes-agent begin
+            - command: "echo user"
+              requires_env: ["CMUX_SURFACE_ID"]
+            # cmux hooks hermes-agent end
+        """
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "cmux hooks feed --source hermes-agent --event pre_tool_call", timeout: 120),
+        ]
+
+        let installed = HermesAgentHookConfig.installing(events: events, in: existing)
+        #expect(installed.contains("- command: \"echo user\""))
+        #expect(installed.contains("requires_env: [\"CMUX_SURFACE_ID\"]"))
+        #expect(installed.contains("cmux hooks feed --source hermes-agent --event pre_tool_call"))
+    }
+
     @Test("Coalesces multiple cmux hooks for the same missing Hermes event")
     func coalescesMultipleHooksForSameMissingEvent() {
         let events = [
@@ -49,8 +69,10 @@ struct HermesAgentHookConfigTests {
               pre_approval_request:
                 - command: "sh -c 'cmux hooks hermes-agent notification'"
                   timeout: 5
+                  requires_env: ["CMUX_SURFACE_ID"]
                 - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_approval_request'"
                   timeout: 120
+                  requires_env: ["CMUX_SURFACE_ID"]
             """)
         )
         #expect(installed.contains("  post_llm_call:"))
@@ -80,8 +102,10 @@ struct HermesAgentHookConfigTests {
                 # cmux hooks hermes-agent begin
                 - command: "sh -c 'cmux hooks hermes-agent notification'"
                   timeout: 5
+                  requires_env: ["CMUX_SURFACE_ID"]
                 - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_approval_request'"
                   timeout: 120
+                  requires_env: ["CMUX_SURFACE_ID"]
                 # cmux hooks hermes-agent end
                 - command: "echo user"
                   timeout: 10
@@ -405,6 +429,7 @@ struct HermesAgentHookConfigTests {
           # cmux hooks hermes-agent begin
           - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"
             timeout: 120
+            requires_env: ["CMUX_SURFACE_ID"]
           # cmux hooks hermes-agent end
           - command: my_tool pre
             timeout: 3
