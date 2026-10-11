@@ -112,6 +112,16 @@ struct AgentNotificationReconcilerTests {
         #expect(recovered.disposition != .accepted || recovered.identity != replacement.identity)
     }
 
+    @Test(arguments: ["antigravity", "grok"])
+    func multiSessionAdapterStartKeepsSiblingSessionsLive(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .sessionStarted, source: source, session: "first", notify: false))
+        let sibling = reconciler.apply(event(2, .sessionStarted, source: source, session: "second", notify: false))
+        #expect(sibling.invalidatedCorrelationKeys.isEmpty)
+        #expect(reconciler.apply(event(3, .errorReported, source: source, session: "first")).disposition == .accepted)
+        #expect(reconciler.apply(event(4, .errorReported, source: source, session: "second")).disposition == .accepted)
+    }
+
     @Test func lateOlderSessionStartCannotSupersedeTheNewerOwner() {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))

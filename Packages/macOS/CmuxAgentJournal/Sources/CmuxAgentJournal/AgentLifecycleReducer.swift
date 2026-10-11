@@ -100,7 +100,7 @@ public struct AgentLifecycleReducer: Sendable {
             // the app cannot strand a session behind a skewed timestamp.
             return false
         }
-        if event.draft.kind == .sessionStarted {
+        if event.draft.kind == .sessionStarted, event.draft.sessionStartOwnsSurface {
             // A new authoritative session owns the pane. Retire every older
             // session there so a StopFailure cannot outlive a restart.
             for existingSessionKey in state.sessionKeys(surfaceId: surfaceId, agentKey: agentKey)
@@ -181,5 +181,18 @@ public struct AgentLifecycleReducer: Sendable {
         case .childSpawned, .childCompleted, .childFailed, .messagePublished:
             return nil
         }
+    }
+}
+
+extension AgentJournalEventDraft {
+    /// Whether a SessionStart from this adapter makes its session the sole
+    /// owner of the pane for its agent key, retiring sibling sessions there.
+    ///
+    /// Claude Code runs one root session per pane, so a new SessionStart is a
+    /// recovery boundary. Other adapters (Antigravity, Grok, …) can keep
+    /// several live sessions on one pane, so their starts must not retire or
+    /// stale-gate the siblings.
+    var sessionStartOwnsSurface: Bool {
+        source == "claude"
     }
 }

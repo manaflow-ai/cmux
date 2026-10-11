@@ -96,7 +96,7 @@ public struct AgentNotificationReconciler: Sendable {
             return .init(.stale)
         }
         var boundaryInvalidations: [String] = []
-        if draft.kind == .sessionStarted {
+        if draft.kind == .sessionStarted, draft.sessionStartOwnsSurface {
             // A new session boundary supersedes every older session that was
             // attached to this pane. Release their delivered notifications
             // through the same correlation-key path as attention resolution.
@@ -415,10 +415,12 @@ public struct AgentNotificationReconciler: Sendable {
             if session.ended { session.phase = .unknown; session.nativeTurn = nil }
             session.ended = false
             session.superseded = false
-            sessionBoundaries[boundaryKey] = SessionBoundary(
-                sessionKey: sessionKey,
-                sequence: event.sequence
-            )
+            if draft.sessionStartOwnsSurface {
+                sessionBoundaries[boundaryKey] = SessionBoundary(
+                    sessionKey: sessionKey,
+                    sequence: event.sequence
+                )
+            }
         case .turnStarted:
             session.rootStopped = false
             if let key = context?.eventIdentity { session.starts.insert(key) }
