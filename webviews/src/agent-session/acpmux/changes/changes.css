@@ -146,3 +146,17 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-git-form-note{color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-git-new-files{display:flex;flex-direction:column;gap:4px}
 .acpmux-git-new-files ul{max-height:120px;overflow:auto;margin:0;padding:0 0 0 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-detail);color:var(--agent-text)}
+/* Pull request review threads (cx-ncc.77.2): under their line in the diff, or above it when the line is gone. */
+.acpmux-review-unplaced{display:flex;flex-direction:column;gap:6px;padding:6px 12px}
+.acpmux-review-thread{margin:6px 12px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated);color:var(--agent-text);font-family:system-ui,-apple-system,sans-serif;font-size:var(--text-body)}
+.acpmux-review-unplaced .acpmux-review-thread{margin:0}
+.acpmux-review-thread[data-resolved]{color:var(--agent-muted)}
+.acpmux-review-thread summary{cursor:default;font-size:var(--text-detail)}
+.acpmux-review-outdated{margin-bottom:4px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-review-comments{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.acpmux-review-thread details .acpmux-review-comments{margin-top:6px}
+.acpmux-review-author{font-weight:600;font-size:var(--text-detail)}
+.acpmux-review-author a{color:inherit;text-decoration:none}
+.acpmux-review-author a:hover{text-decoration:underline}
+.acpmux-review-body{margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail)}
