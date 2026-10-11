@@ -86,6 +86,17 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    // A cold dev server compiles the whole pane on its first load, which can outlast a step's
+    // wait on a busy CI runner; load it once here so the tests time only the replay.
+    const warm = await browser.newPage();
+    const { port } = vite.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon.port}/`;
+    await warm.goto(
+      `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`,
+    );
+    await warm.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 90_000 });
+    await warm.close();
+    eventRequests.length = 0;
   });
   afterAll(async () => {
     await browser?.close();
@@ -156,8 +167,7 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       const answer = replay.getByText("All 12 tests in api/client.test.ts pass.");
       const clock = async () => (await replay.locator(".acpmux-replay-clock").textContent())?.split(" / ")[0];
       await replay.getByRole("button", { name: "Pause", exact: true }).click();
-      // Keys act on the replay, not on the button that has focus.
-      await replay.focus();
+      // The keys act on the replay while the Pause button keeps focus.
 
       // Tool calls start at 0:02 (read), 0:04 (tests), 0:11 (edit) and 0:13 (tests again).
       const jumps: (string | undefined)[] = [];

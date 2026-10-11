@@ -1,4 +1,5 @@
-import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { KeyboardScope } from "../../../ui/KeyboardScope";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -106,8 +107,11 @@ export function ReplayScreen({
   const onKeyDown = (event: KeyboardEvent) => {
     if (!ready || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement;
-    // A focused control keeps its own keys: Space presses a button, arrows move the scrubber.
-    if (target.closest("button, input")) return;
+    // A focused control keeps its own keys: Space and Enter press a button, arrows move the
+    // scrubber, and a text field keeps every key.
+    if (target.closest("textarea, select, [contenteditable]")) return;
+    if (target.closest("button") && (event.key === " " || event.key === "Enter")) return;
+    if (target.closest("input") && event.key.startsWith("Arrow")) return;
     const action: Record<string, () => void> = {
       " ": togglePlaying,
       ArrowLeft: () => seek(time.current - ARROW_STEP_MS),
@@ -120,19 +124,14 @@ export function ReplayScreen({
     event.preventDefault();
     run();
   };
-  // The keys act anywhere in the replay; each also has a button. Focus starts in the replay.
-  const root = useRef<HTMLDivElement>(null);
+  // The keys act anywhere in the replay; each also has a button. Focus starts on Play.
+  const play = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const node = root.current;
-    node?.addEventListener("keydown", onKeyDown);
-    return () => node?.removeEventListener("keydown", onKeyDown);
-  });
-  useEffect(() => {
-    if (ready) root.current?.focus();
+    if (ready) play.current?.focus();
   }, [ready]);
 
   return (
-    <div ref={root} className="acpmux-replay" tabIndex={-1}>
+    <KeyboardScope className="acpmux-replay" handleKeyDown={onKeyDown}>
       <header className="acpmux-replay-bar">
         <button type="button" className="acpmux-replay-button" aria-label={t("replay.back")} onClick={onClose}>
           <Icon name="nav.back" />
@@ -167,6 +166,7 @@ export function ReplayScreen({
               <Icon name="media.previous" />
             </button>
             <button
+              ref={play}
               type="button"
               className="acpmux-replay-button"
               aria-label={playing ? t("replay.pause") : t("replay.play")}
@@ -218,6 +218,6 @@ export function ReplayScreen({
           </div>
         </>
       )}
-    </div>
+    </KeyboardScope>
   );
 }
