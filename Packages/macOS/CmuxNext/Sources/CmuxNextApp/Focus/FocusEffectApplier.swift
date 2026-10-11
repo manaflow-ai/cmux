@@ -100,7 +100,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .addressBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
-            if !responder(of: window, isInside: entry.chrome.addressBar) { entry.chrome.addressBar.focus() }
+            // Not a bar leaving the window (its pane mid-move): an edit begun there ends at once (cx-p0fz).
+            let bar = entry.chrome.addressBar
+            if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) { bar.focus() }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()

@@ -152,6 +152,8 @@ pub enum ResourceOperation {
     ConversationEvents,
     #[serde(rename = "git.diff")]
     GitDiff,
+    #[serde(rename = "git.files.list")]
+    GitFilesList,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.status")]

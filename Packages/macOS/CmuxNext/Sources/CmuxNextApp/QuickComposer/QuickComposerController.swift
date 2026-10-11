@@ -8,7 +8,9 @@ import os
 /// is made on first show and kept while the panel is hidden, so its draft
 /// survives Esc and a click away. Return starts it in the background (it
 /// goes to the sidebar), ⌘Return starts it and opens it in the main window;
-/// either way the next show is a fresh chat.
+/// either way the next show is a fresh chat. With the floating chat on
+/// (cx-b9qi) Return keeps the started chat running in the panel instead,
+/// until ⌘Return or the header moves it to a tab.
 final class QuickComposerController {
     /// A new quick chat's page, nil when this build has no agent page.
     private let makeChat: () -> AgentPaneView?
@@ -20,21 +22,28 @@ final class QuickComposerController {
     /// false when there was nowhere to put it (daemon offline, workspace
     /// creation failed).
     private let startInBackground: @MainActor (AgentPaneQuickStart) async -> Bool
+    /// The floating chat (cx-b9qi): a started chat stays in the panel.
+    private let floating: () -> Bool
     private var window: (any QuickComposerWindow)?
     /// The hosted chat, kept while the panel is hidden.
     private(set) var chat: AgentPaneView?
+    /// The floating chat holds a started chat: it stays in the panel, which
+    /// no longer hides on a click elsewhere.
+    private(set) var holdsChat = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
         makeChat: @escaping () -> AgentPaneView?,
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
-        startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool
+        startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
+        floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value }
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
+        self.floating = floating
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -77,6 +86,11 @@ final class QuickComposerController {
     /// could not be placed the panel comes back with the chat, so the
     /// session is never left with nowhere to show it.
     func startChatInBackground(_ start: AgentPaneQuickStart) async {
+        // The floating chat keeps it running in the panel (each later prompt sends this again).
+        if holdsChat || floating() {
+            holdChat()
+            return
+        }
         hide()
         guard await startInBackground(start) else {
             logger.error("start agent: the started chat could not be placed; it stays in the panel")
@@ -86,8 +100,18 @@ final class QuickComposerController {
         releaseChat()
     }
 
+    private func holdChat() {
+        guard !holdsChat else { return }
+        holdsChat = true
+        window?.holdChat(true)
+    }
+
     /// Lets go of the handed-off chat; the next show makes a new one.
     private func releaseChat() {
+        if holdsChat {
+            holdsChat = false
+            window?.holdChat(false)
+        }
         guard let used = chat else { return }
         chat = nil
         // The page's request is still being answered; close it after.
@@ -106,8 +130,12 @@ final class QuickComposerController {
 
     private func makeWindowOnce() -> any QuickComposerWindow {
         let window = makeWindow()
-        // Like ChatGPT's and Claude's quick entry: a click anywhere else puts it away.
-        window.onResignKey = { [weak self] in self?.hide() }
+        // Like ChatGPT's and Claude's quick entry: a click anywhere else puts it away,
+        // unless the floating chat holds a running chat.
+        window.onResignKey = { [weak self] in
+            guard let self, !self.holdsChat else { return }
+            self.hide()
+        }
         window.onCancel = { [weak self] in self?.hide() }
         self.window = window
         return window

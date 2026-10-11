@@ -61,6 +61,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
                 | Self::GitDiff
+                | Self::GitFilesList
                 | Self::GitFilesSearch
                 | Self::GitStatus
                 | Self::HistoryEntriesList

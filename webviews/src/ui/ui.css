@@ -9,6 +9,9 @@
   --ui-line: var(--cmux-separator, color-mix(in srgb, var(--ui-fg) 11%, transparent));
   --ui-hover: var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 6%, transparent));
   --ui-selected: var(--cmux-selection, color-mix(in srgb, var(--ui-fg) 10%, transparent));
+  /* A highlighted menu, combobox or list row (desktop.css): hover's family, a touch stronger. */
+  --ui-row: var(--cmux-row-focus, color-mix(in srgb, var(--ui-fg) 10%, transparent));
+  --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
   --ui-surface: var(--cmux-elevated-background, Canvas);
   --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -27,7 +30,7 @@
   outline: none;
 }
 
-:where(.ui-button, .ui-menu-item, .ui-listbox, .ui-crumb):focus-visible {
+:where(.ui-button, .ui-crumb):focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring);
   outline-offset: 1px;
 }
@@ -88,7 +91,8 @@
 }
 
 .ui-menu-item[data-highlighted] {
-  background: var(--ui-selected);
+  background: var(--ui-row);
+  box-shadow: var(--ui-row-bar);
 }
 
 .ui-menu-item[data-disabled] {
@@ -292,7 +296,8 @@
 }
 
 .ui-combobox-item[data-highlighted] {
-  background: var(--ui-selected);
+  background: var(--ui-row);
+  box-shadow: var(--ui-row-bar);
 }
 
 .ui-virtual {

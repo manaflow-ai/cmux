@@ -142,6 +142,13 @@ public final class MessagesLabHomeView: NSView {
         set { projection.initialsOverride = newValue }
     }
 
+    /// The header avatar's picture, drawn over `avatarText` and the
+    /// initials; nil shows those.
+    public var avatarPicture: NSImage? {
+        get { projection.pictureOverride }
+        set { projection.pictureOverride = newValue }
+    }
+
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)

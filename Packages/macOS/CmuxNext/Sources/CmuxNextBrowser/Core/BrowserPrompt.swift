@@ -32,7 +32,7 @@ public final class BrowserPrompt: Identifiable {
         case .permission(.automaticDownloads): .cancel
         case .permission: .deny
         case .alert: .accept
-        case .confirm, .textInput, .credentials: .cancel
+        case .confirm, .textInput, .credentials, .openExternalApp: .cancel
         }
     }
 }

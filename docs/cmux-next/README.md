@@ -1,0 +1,68 @@
+# Getting cmux-next
+
+cmux-next is the rewrite of cmux on the `feat-cmux-next` branch: a Swift shell, the Rust core in
+`cmux-tui`, and the React webviews. There are two channels you can run today.
+
+| Channel | Who it's for | App | Bundle id | Updates |
+|---|---|---|---|---|
+| **cmux NEXT DEV** | Daily dogfood, runs beside classic | `cmux NEXT DEV.app` | `com.cmuxterm.app.debug.next` | Rebuilt after each green `feat-cmux-next` push; update with one command |
+| **nightly-next** | The future nightly; *replaces* classic cmux NIGHTLY | `cmux NIGHTLY.app` | `com.cmuxterm.app.nightly` (same as classic nightly) | Sparkle, about every 30-60 min, Apple Silicon only |
+
+Pick DEV if you also want to keep classic NIGHTLY. Pick nightly-next only if you're ready for it
+to take classic NIGHTLY's place, because both use the same bundle id and socket.
+
+## cmux NEXT DEV
+
+From a cmux checkout:
+
+```sh
+bash scripts/cmux-next/update-dev-daily.sh            # installs or updates ~/Applications/cmux NEXT DEV.app
+```
+
+The script downloads `cmux-NEXT-DEV.zip` from the `cmux-next-dev` prerelease, checks its SHA-256
+and bundle id, asks the running app to quit normally, and swaps the app in place. Run it again
+whenever you want the latest build. It's signed but not notarized, so the script downloads it
+outside the browser's quarantine. Details are in [dev-daily.md](dev-daily.md).
+
+To see how fresh it is, look at the asset's upload time, not the release date (the release
+entry keeps its creation date):
+
+```sh
+gh api repos/manaflow-ai/cmux/releases/tags/cmux-next-dev -q '.assets[] | "\(.name) \(.updated_at)"'
+```
+
+## nightly-next
+
+- **Download (Apple Silicon):** the newest DMG is on the `nightly-next` GitHub prerelease:
+  `gh release download nightly-next -R manaflow-ai/cmux -p '*macos-arm64*.dmg'`
+- **Update feed:** `https://files-next.cmux.com/nightly-next/appcast-arm64.xml`. Installed apps
+  move to this feed on their own. The older `appcast.xml` and `appcast-universal.xml` stopped
+  changing on 2026-10-07, when nightly-next went Apple Silicon only, so don't judge freshness
+  by them.
+- **Notarization:** nightly-next is notarized. If Apple's notary service stalls, the nightly
+  workflow fails and recovers by itself (`recover-nightly-next-notarization`), and the feed just
+  stays on the last good build. Use DEV meanwhile.
+
+## Your sessions survive updates
+
+The terminal daemon outlives the app. An update (Sparkle or the DEV script) quits the app,
+swaps it, and relaunches it. The new build takes over the running terminals, so shells,
+scrollback and running agent turns keep going. Screens also come back after a reboot.
+
+To go back one build: palette **Roll Back to Previous Version**, or `cmux update rollback`.
+It's refused, with a message, when the newer build has already changed stored data that the
+older one can't read.
+
+## Coming from classic
+
+There's no migration UI. Point an agent at [classic-to-next.md](classic-to-next.md). It reads
+classic's state without changing it and reopens your workspaces and Claude Code or Codex chats in
+cmux-next by session id. Split layouts currently come over as tabs in one pane.
+
+## Moving between two cmux-next builds
+
+Builds with different bundle ids (for example DEV and nightly-next, or a tagged dev build) keep
+separate state. To move live terminals from one to the other, an agent runs this on the
+destination's socket: `session.transfer.peers`, then `session.transfer.pull {source}`. The
+playbook in [classic-to-next.md](classic-to-next.md) has examples. Agent chats resume by
+session id; terminals are recreated at the destination.

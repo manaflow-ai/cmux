@@ -94,6 +94,7 @@ const fn access(operation: Op) -> Access {
         Op::TerminalRendererGrantCreate => Access::Denied(Denied::Renderer),
         Op::GitStatus
         | Op::GitDiff
+        | Op::GitFilesList
         | Op::GitFilesSearch
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff

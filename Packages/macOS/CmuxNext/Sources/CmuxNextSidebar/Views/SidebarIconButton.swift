@@ -60,6 +60,14 @@ final class SidebarIconButton: NSButton {
 
     @objc private func pressed() { onPress?() }
 
+    /// The button's right-click menu (cx-2lm4; the sidebar's New button shows
+    /// the list's empty-space menu); nil keeps AppKit's.
+    var menuProvider: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuProvider?() ?? super.menu(for: event)
+    }
+
     private func renderIcon() {
         let size = pointSize()
         guard size != renderedSize else { return }
