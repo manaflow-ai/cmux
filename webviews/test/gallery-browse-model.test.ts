@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { GalleryEntry } from "../src/gallery/format";
-import { browseItems, filterBrowseItems, nextBrowseVariant, resolveBrowseVariant } from "../src/gallery/shell/browseModel";
+import {
+  browseItems,
+  filterBrowseItems,
+  nextBrowseVariant,
+  resolveBrowseVariant,
+} from "../src/gallery/shell/browseModel";
 
 const entries = [
   {
