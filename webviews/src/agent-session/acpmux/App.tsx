@@ -260,6 +260,13 @@ export async function saveLogNatively(text: string, suggestedName: string): Prom
   }
 }
 
+/// The machine a refused handshake names (`details.machineName`), for the composer's chip.
+function refusedMachine(error: unknown): string | undefined {
+  const details = (error as { details?: unknown } | null)?.details;
+  const name = details && typeof details === "object" ? (details as { machineName?: unknown }).machineName : undefined;
+  return typeof name === "string" && name ? name : undefined;
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -2635,6 +2642,7 @@ function AcpmuxPane() {
             return sessionId;
           },
           leave: () => client.leave(),
+          startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {
@@ -2697,6 +2705,8 @@ function AcpmuxPane() {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           setHostError(errorMessage(error) || String(error));
+          // A refused chat of another machine still names that machine on its chip (cx-k21v).
+          setMachineName((current) => refusedMachine(error) ?? current);
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
@@ -2979,6 +2989,9 @@ function AcpmuxPane() {
     setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
+        // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
+        // waits for the first send.
+        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
         if (folder) await callNative("chat.new", { cwd: folder });
         if (text) await callNative("chat.send", { text });
       })().catch(() => undefined);
@@ -3056,6 +3069,8 @@ function AcpmuxPane() {
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
+        // A chat on another machine starts only with a send (cx-k21v); it has no agent-home folder here.
+        if (directClient.current?.startsOnSend) return setProjectDraft(undefined);
         void callNative("chat.new", { noProject: true })
           .then(() => setProjectDraft(undefined))
           .catch(() => undefined);

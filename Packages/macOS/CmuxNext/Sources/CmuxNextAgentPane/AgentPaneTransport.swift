@@ -63,6 +63,15 @@ import CmuxNextCompat
     public let decisions = AcpmuxDecisionContexts()
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
+    /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
+    /// its own folder trust, cx-k21v).
+    private(set) var remoteWire = false
+    /// A remote wire's `session/new` took the person's send gesture (connection, uptime): the
+    /// first `session/prompt` on that connection goes with it, however long the start took.
+    var remoteStartCredit: (connection: Int, at: TimeInterval)?
+    /// How long a remote start's gesture waits for its first prompt (the start may take 75 s).
+    static let remoteStartCreditLifetime: TimeInterval = 120
     /// Told when an allow went to another daemon run without the person's proof: that daemon
     /// holds no key of this app for that run, so it refuses the allow.
     public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
@@ -151,6 +160,8 @@ import CmuxNextCompat
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
+        remoteWire = connection.remote != nil
+        remoteStartCredit = nil
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()

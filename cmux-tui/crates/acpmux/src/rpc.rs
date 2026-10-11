@@ -233,6 +233,7 @@ pub mod method {
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_ASK: &str = "_acpmux/ask";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
@@ -256,6 +257,9 @@ pub mod method {
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
+    /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
+    /// and the local app.
+    pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
     // Routes: how a harness reaches its model provider (ROUTES R1-R3;
     // server/routes.rs). add, edit, remove, restore: the unix socket only;
     // the rest also the local app. Never Web or peer.

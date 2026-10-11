@@ -5,6 +5,7 @@
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
   width: min(310px, calc(100vw - 24px));
+  min-width: 0;
   box-sizing: border-box;
 }
 .acpmux-mp-rail-scroll {
@@ -92,6 +93,9 @@
    a usable text width. The rail remains horizontally scrollable when a pane has many harnesses. */
 @media (max-width: 407px) {
   .acpmux-mp {
+    /* useUiAnchor resolves these coordinates in viewport space. Fixed positioning keeps a
+       narrow picker from enlarging the composer's scrollable row while it is open. */
+    position: fixed !important;
     width: calc(100vw - 16px) !important;
     max-width: calc(100vw - 16px);
     flex-direction: column !important;
