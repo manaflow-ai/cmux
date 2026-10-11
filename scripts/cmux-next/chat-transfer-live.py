@@ -2,12 +2,12 @@
 """Live check: session.transfer.pull moves a cmux-next agent chat between two builds.
 
   scripts/cmux-next/chat-transfer-live.py --a SOCKET --a-tag TAG --b SOCKET --b-tag TAG \
-      --fake-agent PATH [--home DIR ...] [--out DIR]
+      --fake-agent PATH [--home DIR] [--home DIR] [--out DIR]
 
 Run on the GUI host where both builds already run, for example one fleet build launched in two
 capture slots of one host. Each build has its own control socket (`--a`, `--b`) and build tag,
-so its own acpmux home `<home>/.acpmux/tags/<tag slug>`, found by text in its tag (`--a-tag`,
-`--b-tag`) under the `--home` dirs (the user's home by default). Never `/tmp/acpmux-<uid>` as
+so its own acpmux home `<home>/.acpmux/tags/<tag slug>`: exactly one per tag (`--a-tag`,
+`--b-tag`, each a build's whole tag) under the `--home` dirs (the user's home by default). Never `/tmp/acpmux-<uid>` as
 such: other apps' daemons listen there too. No real agent and no credentials: each acpmux runs
 the test agent (cmux-tui/crates/acpmux/tests/fake_agent.py, `--fake-agent`) as harness `fake`.
 
@@ -21,10 +21,11 @@ the test agent (cmux-tui/crates/acpmux/tests/fake_agent.py, `--fake-agent`) as h
    two queued prompts once each, in order, and holds the draft; A's tab is gone and A's acpmux
    has the chat closed, having run none of the queue. Then a second pull finds nothing to move.
 
-Exit 0 when every check passes; each check prints ok/FAIL and the last line is RESULT. Quits
-nothing: the caller ends both builds.
+Exit 0 when every check passes; each check prints ok/FAIL and the last line is RESULT. Each
+acpmux home's config.json gets harness `fake` for the run and is put back as it was after.
+Quits nothing: the caller ends both builds.
 """
-import argparse, glob, json, os, socket, threading, time
+import argparse, json, os, re, socket, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--a", required=True, help="build A's control socket (the source)")
@@ -142,16 +143,42 @@ def socket_of(home):
     return f"/tmp/acpmux-{os.getuid()}/{h:016x}.sock"
 
 
+def tag_slug(tag):
+    """AcpmuxEnvironment.tagSlug: lowercase, runs of anything outside [a-z0-9] become one `-`."""
+    return re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-")
+
+
 def acpmux_homes(tag):
-    """The tagged acpmux homes whose daemon listens and whose tag holds `tag`, socket by home. Never
+    """The acpmux homes of build tag `tag` whose socket is there, socket by home. Never
     /tmp/acpmux-<uid> as such: it is shared with every other app of this user."""
     found = {}
     for user_home in opts.home:
-        for home in glob.glob(os.path.join(user_home, ".acpmux", "tags", "*")):
-            sock = socket_of(home)
-            if tag.lower() in os.path.basename(home) and os.path.exists(sock):
-                found[home] = sock
+        home = os.path.join(user_home, ".acpmux", "tags", tag_slug(tag))
+        if os.path.exists(socket_of(home)):
+            found[home] = socket_of(home)
     return found
+
+
+RESTORE = []  # (config path, its text before the run or None, daemon socket)
+
+
+def write_config(path, text):
+    temp = path + ".chat-transfer-live"
+    with open(temp, "w") as f:
+        f.write(text)
+    os.replace(temp, path)
+
+
+def restore_configs():
+    for path, original, sock in RESTORE:
+        try:
+            if original is None:
+                os.remove(path)
+            else:
+                write_config(path, original)
+            Acpmux(sock).request("_acpmux/reload_config", {}, timeout=10)
+        except OSError as error:
+            say("could not restore", path, error)
 
 
 def configure_fake(home, sock):
@@ -159,12 +186,13 @@ def configure_fake(home, sock):
     path = os.path.join(home, "config.json")
     try:
         with open(path) as f:
-            config = json.load(f)
-    except (OSError, ValueError):
-        config = {}
+            original = f.read()
+    except FileNotFoundError:
+        original = None
+    config = json.loads(original) if original is not None else {}  # a bad file stops the run
     config.setdefault("harnesses", {})["fake"] = {"argv": ["python3", opts.fake_agent]}
-    with open(path, "w") as f:
-        json.dump(config, f, indent=2)
+    write_config(path, json.dumps(config, indent=2))
+    RESTORE.append((path, original, sock))
     client = Acpmux(sock)
     reloaded = client.request("_acpmux/reload_config", {})
     say("reload", home, json.dumps(reloaded)[:200])
@@ -175,21 +203,23 @@ def open_chat(sock, tag):
     """Opens an agent chat on build `sock` and returns its acpmux (home, socket)."""
     say("open chat", json.dumps(rpc(sock, "action.run", {"action": "palette.newAgentChat", "focus": True}))[:300])
     new = wait(lambda: acpmux_homes(tag) or None, 60, 0.5)
-    if not new:
+    if not new or len(new) > 1:
+        say("acpmux homes for", tag, new)
         return None, None
-    home, path = next(iter(new.items()))
-    return home, path
+    return next(iter(new.items()))
 
 
 def chat_tabs(sock):
     """Agent chat tabs of a build: (tab id, acpmux session, surface) per tab, wherever the
     snapshot nests them."""
     snap = rpc(sock, "snapshot.get")
+    if not isinstance(snap, dict) or "error" in snap:
+        return None
     tabs = []
 
     def walk(node):
         if isinstance(node, dict):
-            if node.get("agent_session") or node.get("kind") == "conversation":
+            if node.get("kind") == "conversation" and "surface" in node:
                 tabs.append((node.get("id"), node.get("agent_session"), node.get("surface")))
             for value in node.values():
                 walk(value)
@@ -242,7 +272,7 @@ def main():
     a.request("session/prompt", prompt("p-hi", "hi"), timeout=60)
 
     b_home, b_sock = open_chat(opts.b, opts.b_tag)
-    if not check(bool(b_sock), "B's acpmux runs after B opens a chat"):
+    if not check(bool(b_sock) and b_sock != a_sock, "B's own acpmux runs after B opens a chat"):
         return
     b = configure_fake(b_home, b_sock)
 
@@ -263,7 +293,7 @@ def main():
         if record:
             break
     say("A tabs", chat_tabs(opts.a))
-    if not check(bool(record), "A's tab shows the chat and B lists it as a chat record"):
+    if not check(bool(record), "B lists A's chat tab as a chat record"):
         return
     check(record[1].get("acpmux_socket") == a_sock, "the record names A's acpmux socket")
 
@@ -284,9 +314,12 @@ def main():
     check(isinstance(pulled, dict) and len(pulled.get("moved") or []) == 1 and not pulled.get("failed"), "the pull moved the chat")
 
     # 3. Where it is now.
-    check(bool(wait(lambda: any(t[1] == sid for t in chat_tabs(opts.b)), 20)), "B shows the chat in a tab bound to its session")
-    check(bool(wait(lambda: not any(t[1] == sid for t in chat_tabs(opts.a)), 20)), "A's tab for the chat closed")
-    ran = wait(lambda: (lambda t: t if "queued b" in t else None)(texts(b, sid)), 60)
+    has = lambda tabs: tabs is not None and any(t[1] == sid for t in tabs)
+    check(bool(wait(lambda: has(chat_tabs(opts.b)), 20)), "B shows the chat in a tab bound to its session")
+    check(bool(wait(lambda: (lambda t: t is not None and not has(t))(chat_tabs(opts.a)), 20)), "A's tab for the chat closed")
+    wait(lambda: "queued b" in texts(b, sid), 60)
+    time.sleep(5)  # a prompt run twice would show by now
+    ran = texts(b, sid)
     say("B user messages", ran)
     check(ran == ["hi", "until-cancel", "queued a", "queued b"], "B has the history and ran the queue once, in order")
     draft = (b.request("_acpmux/draft_get", {"sessionId": sid}).get("result") or {}).get("draft")
@@ -296,14 +329,18 @@ def main():
     check(texts(a, sid) == ["hi", "until-cancel"], f"A ran none of the queue ({texts(a, sid)})")
     again = rpc(opts.b, "session.transfer.pull", {"source": record[0], "ids": [record[1]["surface"]]}, timeout=120)
     say("second pull", json.dumps(again)[:500])
-    check(not (isinstance(again, dict) and again.get("moved")), "a second pull moves nothing")
+    nothing = isinstance(again, dict) and (
+        (not again.get("moved") and "error" not in again)
+        or "No sessions are available" in str((again.get("error") or {}).get("message", "")))
+    check(nothing, "a second pull moves nothing")
 
 
 try:
     main()
-except Exception as error:
+except BaseException as error:
     failures.append(f"the check stopped: {error!r}")
     raise
 finally:
+    restore_configs()
     say("RESULT", "PASS" if not failures else f"FAIL ({len(failures)}): " + "; ".join(failures))
 raise SystemExit(1 if failures else 0)
