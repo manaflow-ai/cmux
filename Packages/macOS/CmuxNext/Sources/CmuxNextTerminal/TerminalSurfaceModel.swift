@@ -53,6 +53,10 @@ public protocol TerminalSessionDelegate: AnyObject {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool
     /// A link was activated (cmd-click or `open_url`). Return true when handled.
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool
+    /// A link was activated with Ghostty's text for it: a URL, or a path as printed (trailing
+    /// punctuation, `:line:col`, relative to the shell's directory). The default makes a URL of it
+    /// (``terminalSession(_:open:)``).
+    func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool
     /// BEL with the `system` bell feature enabled.
     func terminalSessionDidRingBell(_ session: TerminalSession)
     /// Ghostty asked to close the surface (for example `close_surface`).
@@ -68,6 +72,10 @@ public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
         return true
+    }
+    func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
+        guard let url = TerminalSurfaceView.url(from: text) else { return false }
+        return terminalSession(session, open: url)
     }
     /// Ghostty's `bell-features` decide (no system beep by default).
     func terminalSessionDidRingBell(_ session: TerminalSession) {
