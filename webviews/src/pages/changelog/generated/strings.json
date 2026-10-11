@@ -401,7 +401,7 @@
     "updates.card.seeWhatsNew": "Что нового",
     "updates.card.share": "Поделиться cmux",
     "updates.card.updatedTo": "Обновлено до %@",
-    "updates.popover.ready": "%@ готово",
+    "updates.popover.ready": "Версия %@ готова",
     "updates.popover.seeAll": "Все изменения"
   },
   "th": {
@@ -482,7 +482,7 @@
     "updates.card.seeWhatsNew": "Що нового",
     "updates.card.share": "Поділитися cmux",
     "updates.card.updatedTo": "Оновлено до %@",
-    "updates.popover.ready": "%@ готово",
+    "updates.popover.ready": "Версія %@ готова",
     "updates.popover.seeAll": "Усі зміни"
   },
   "vi": {

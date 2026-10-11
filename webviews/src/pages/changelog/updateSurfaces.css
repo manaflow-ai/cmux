@@ -73,7 +73,7 @@
 .wn-pop-item { display: block; font-weight: 600; }
 .wn-pop-line { display: block; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--page-separator); }
-.wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); }
+.wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .wn-pop-all {
   margin-left: auto;
   border: 0;

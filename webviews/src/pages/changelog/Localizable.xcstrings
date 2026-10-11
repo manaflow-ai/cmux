@@ -3120,7 +3120,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ готово"
+            "value": "Версия %@ готова"
           }
         },
         "th": {
@@ -3138,7 +3138,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ готово"
+            "value": "Версія %@ готова"
           }
         },
         "vi": {

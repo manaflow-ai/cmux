@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (public-safe release notes from release-notes/next/highlights), not shipped UI.
 // The Updated card and the update-ready highlights (cx-urd.61) on the app theme, at sidebar width.
+import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
@@ -26,7 +27,7 @@ const base: UpdateHighlights = {
 type Props = { surface: "card" | "popover"; data: UpdateHighlights; share?: boolean };
 
 function UpdateSurfacesGallery({ surface, data, share = true }: Props) {
-  const strings = createStrings(table);
+  const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
   return (
     <div className="wn-gallery-stage" style={{ width: surface === "card" ? 260 : 320, padding: 10 }}>

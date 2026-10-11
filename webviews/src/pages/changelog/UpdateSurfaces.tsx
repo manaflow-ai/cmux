@@ -6,6 +6,7 @@
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): the top three changes
 //    numbered, each a title and one line, and "See all changes".
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
+import { useId } from "react";
 import type { Strings } from "../shared/i18n";
 import { formatReleaseDate } from "./model";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
@@ -13,9 +14,10 @@ import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights"
 export function UpdatedCard({ data, strings, actions }: { data: UpdateHighlights; strings: Strings; actions: UpdateSurfaceActions }) {
   const [lead] = data.items;
   const more = data.items.length - 1 + data.moreCount;
+  const titleId = useId();
   return (
-    <section className="wn-card" aria-label={strings.format("updates.card.updatedTo", data.version)}>
-      <div className="wn-card-eyebrow">{strings.format("updates.card.updatedTo", data.version)}</div>
+    <section className="wn-card" aria-labelledby={titleId}>
+      <div className="wn-card-eyebrow" id={titleId}>{strings.format("updates.card.updatedTo", data.version)}</div>
       {actions.dismiss && (
         <button type="button" className="wn-card-close" aria-label={strings.t("updates.card.dismiss")} title={strings.t("updates.card.dismiss")} onClick={actions.dismiss}>
           <svg viewBox="0 0 10 10" aria-hidden="true">
@@ -40,9 +42,10 @@ export function UpdatedCard({ data, strings, actions }: { data: UpdateHighlights
 }
 
 export function UpdateReadyHighlights({ data, strings, actions }: { data: UpdateHighlights; strings: Strings; actions: UpdateSurfaceActions }) {
+  const titleId = useId();
   return (
-    <section className="wn-pop" aria-label={strings.format("updates.popover.ready", data.version)}>
-      <div className="wn-pop-title">{strings.format("updates.popover.ready", data.version)}</div>
+    <section className="wn-pop" aria-labelledby={titleId}>
+      <div className="wn-pop-title" id={titleId}>{strings.format("updates.popover.ready", data.version)}</div>
       {data.date && <div className="wn-pop-sub">{formatReleaseDate(data.date, strings.language)}</div>}
       {data.items.length > 0 && (
         <ol className="wn-pop-list">
