@@ -1,3 +1,4 @@
+import CmuxNextHome
 import Foundation
 
 /// What the sidebar shows, read from this Chief's files.
@@ -68,6 +69,17 @@ nonisolated struct HomeChiefFiles: Sendable {
         guard Self.namesPicture(avatar) else { return (avatar, nil) }
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         return (nil, try? Data(contentsOf: profileFile.deletingLastPathComponent().appendingPathComponent(avatar)))
+    }
+
+    /// The Chief tile's avatar from one profile read: the picture's file
+    /// (beside profile.json), else the text; nil when it sets none or its
+    /// picture cannot be read, which the tile shows as the bundled cat.
+    func tileAvatar() -> HomeChiefAvatar? {
+        guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return nil }
+        guard Self.namesPicture(avatar) else { return .text(avatar) }
+        let file = profileFile.deletingLastPathComponent().appendingPathComponent(avatar)
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        return FileManager.default.isReadableFile(atPath: file.path) ? .picture(file) : nil
     }
 
     func writeAvatar(_ text: String) {
