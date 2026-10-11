@@ -251,6 +251,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 // The page's and the terminal's link rows (cx-k9go); left out while cmux is the default browser.
                 surfacePlan: ActionSurfacePlan(contextMenus: [ActionSurfaceCatalog.p(.browserLink, .navigate, 5)])
             ),
+            // No shortcut: Cmd-P stays Go to Workspace (plans/cmux-next/browser-parity.md, D4).
+            ActionDescriptor(
+                id: "browserPrint",
+                title: String(localized: "action.browserPrint", defaultValue: "Print…", bundle: .module),
+                keywords: ["browser", "print", "page", "pdf"], category: .browser, symbol: "printer",
+                surfaces: [.palette, .menu, .contextMenu], requires: [.browserFocused], targets: [.pane], mainMenu: .file
+            ),
             ActionDescriptor(
                 id: "browserScreenshotPage",
                 title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),

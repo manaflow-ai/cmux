@@ -153,7 +153,7 @@ nonisolated extension ActionSurfaceCatalog {
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
             "palette.openWorkspacePullRequests", "palette.findWork", "toggleSplitZoom", "canvasOverview",
             "palette.toggleFullWidthTab", "tab.showResources", "workspace.showResources",
-            "toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement",
+            "toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browserPrint",
             "toggleBrowserFocusMode", "toggleBrowserDesignMode", "toggleReactGrab", "palette.browserToggleOmnibar",
             "importFromBrowser", "password.importCSV", "browser.allowAgentWithExtensions", "openLinkInDefaultBrowser", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
