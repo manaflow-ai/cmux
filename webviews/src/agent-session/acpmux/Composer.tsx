@@ -9,7 +9,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   dragHasFiles,
   filesFrom,
@@ -114,12 +114,15 @@ type Props = {
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
-  onSend(text: string, attachments?: ComposerAttachment[]): boolean | void | Promise<unknown>;
+  /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
+  onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
-  /// Withdraws a queued prompt and puts its text back in the prompt.
-  onQueueEdit?(entry: AcpmuxSnapshot["queue"][number]): Promise<boolean>;
+  /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
+  onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
+  /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
+  onQueueLost?(text: string): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -188,7 +191,8 @@ export function Composer({
   onSend,
   onStop,
   onQueueRemove,
-  onQueueEdit,
+  onQueueChange,
+  onQueueLost,
   draft,
   leading,
   accessory,
@@ -459,7 +463,7 @@ export function Composer({
     event.preventDefault();
     return send(false);
   };
-  const send = (force: boolean): boolean => {
+  const send = (force: boolean, steer = false): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -495,7 +499,7 @@ export function Composer({
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
-    const taken = onSend(prompt, sent);
+    const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -619,6 +623,38 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
+    // Quick Composer keeps its own ⌘Return and Esc, below.)
+    const quick = Boolean(onOpenInWindow);
+    if (
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      steerable &&
+      !quick
+    ) {
+      event.preventDefault();
+      send(false, true);
+      return;
+    }
+    // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
+    if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
+      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      const last = rows?.[rows.length - 1];
+      if (last) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+    }
+    // Esc on an empty prompt stops the turn, as Stop does.
+    if (event.key === "Escape" && plain && !open && stop && !quick) {
+      event.preventDefault();
+      stopTurn();
+      return;
+    }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
     if (
       onOpenInWindow &&
@@ -671,6 +707,9 @@ export function Composer({
   };
 
   const stop = !shell && snapshot.isWorking && !text.trim();
+  // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
+  const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
+  const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -799,7 +838,14 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue queue={snapshot.queue} t={t} onRemove={onQueueRemove} onEdit={onQueueEdit} />
+        <ComposerQueue
+          queue={snapshot.queue}
+          t={t}
+          onRemove={onQueueRemove}
+          onChange={onQueueChange}
+          onLost={onQueueLost}
+          onLeave={() => field.current?.focus()}
+        />
         {contextFirst && context}
         <input
           ref={importInput}
@@ -971,17 +1017,40 @@ export function Composer({
                 <StopIcon />
               </button>
             ) : remote.canSend ? (
-              <button
-                key="send"
-                ref={sendButton}
-                type="submit"
-                disabled={Boolean(blocked) && !shell}
-                className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
-              >
-                <ArrowUpIcon />
-              </button>
+              <>
+                {steerable && (
+                  <button
+                    key="steer"
+                    type="button"
+                    className="acpmux-steer"
+                    aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                    title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                    onClick={() => {
+                      send(false, true);
+                      field.current?.focus();
+                    }}
+                  >
+                    {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                  </button>
+                )}
+                <button
+                  key="send"
+                  ref={sendButton}
+                  type="submit"
+                  disabled={Boolean(blocked) && !shell}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                  title={
+                    shell
+                      ? t("composer.shellRun")
+                      : blocked?.reason
+                        ? t(blocked.reason)
+                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                  }
+                >
+                  <ArrowUpIcon />
+                </button>
+              </>
             ) : null}
           </span>
         </div>

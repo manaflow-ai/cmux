@@ -110,6 +110,10 @@ export type AcpmuxCatalogModel = {
   contextWindow?: number;
 };
 
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
+/// send it now.
+export type QueueEdit = { op: "update"; text: string } | { op: "move"; index: number } | { op: "send_now" };
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
@@ -139,6 +143,8 @@ export type AcpmuxSnapshot = {
     confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
+    /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
+    steering?: boolean;
     status?: string;
     enforcement?: Enforcement;
     modes?: {

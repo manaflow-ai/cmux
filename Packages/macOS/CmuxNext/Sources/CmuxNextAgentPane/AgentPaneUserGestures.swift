@@ -194,6 +194,12 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
         return keys
     }
 
+    /// True only when the pane saw `permissionId` offer `optionId` and no kind seen for it denies:
+    /// an allow the person can pick (cx-0q7o: a permission ticket is reserved only for one).
+    public func isKnownAllow(permissionId: String, optionId: String) -> Bool {
+        denies.withLock { $0[permissionId]?[optionId] == false }
+    }
+
     /// True only when `optionId` is a known deny of `permissionId`; an unknown option counts as allow.
     public func isDeny(permissionId: String, optionId: String) -> Bool {
         denies.withLock { $0[permissionId]?[optionId] == true }

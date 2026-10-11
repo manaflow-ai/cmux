@@ -52,8 +52,15 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-cancel", [:])
     }
 
-    public func permission(id: String, option: String) async throws {
-        _ = try await call("agent-session-permission", ["permission_id": id, "option_id": option])
+    /// `agent-session-permission`, with the person's decision proof of a relayed allow when there
+    /// is one (cx-0q7o): the daemon passes it to acpmux unchanged, and acpmux decides.
+    public func permission(id: String, option: String, decisionNonce: String? = nil, personDecision: String? = nil) async throws {
+        var params: [String: any Sendable] = ["permission_id": id, "option_id": option]
+        if let decisionNonce, let personDecision {
+            params["decision_nonce"] = decisionNonce
+            params["person_decision"] = personDecision
+        }
+        _ = try await call("agent-session-permission", params)
     }
 
     public func detach() async {
