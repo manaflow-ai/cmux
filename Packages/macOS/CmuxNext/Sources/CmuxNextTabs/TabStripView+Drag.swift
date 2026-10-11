@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 // In-strip drag reorder and the hand-off to the App drag session.
 extension TabStripView {
@@ -261,8 +262,7 @@ extension TabStripView {
         }
         if inOrder, grouped { return discardPendingReorder() }
         let pending = (order: orderOverride, groups: groups.membershipOverride)
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.reorderSettleTimeout)
+        reorderSettle.schedule(after: Self.reorderSettleTimeout) { @MainActor [weak self] in
             // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
             guard let self else { return }
             var changed = false

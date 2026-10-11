@@ -235,6 +235,13 @@ CefRefPtr<CefDownloadHandler> DownloadHandler();
 // Releases every waiting and running download callback (before CefShutdown).
 void ForgetDownloads();
 
+// Permission prompts (shim_permissions.mm, UI thread). The page clients'
+// permission handler: location requests wait for the host's answer
+// (PERMISSION_PROMPT, cmux_shim_permission_continue).
+CefRefPtr<CefPermissionHandler> PermissionHandler();
+// Releases every waiting prompt callback (before CefShutdown).
+void ForgetPermissionPrompts();
+
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);
 CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token);

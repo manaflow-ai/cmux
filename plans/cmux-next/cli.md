@@ -159,6 +159,16 @@ On the merges of `feat-cmux-next` (2026-10-02, owner after feat-cmux-next-99):
   before `:` is not a session (the `name:` escape hung the hosted tests); tab-less
   terminals carry `lifecycle` on every published record.
 
+On `feat-cmux-next-browser-tabs` (browser group 2):
+
+- `browser.page.tabs` (snapshot lane: the app browser tabs of the named tab's workspace,
+  the focused one, or `all`) and `browser.page.new_tab|select_tab|close`, which check that the tab
+  is an app browser tab and then run `openBrowser`, `tab.focus` or `closeTab` through
+  `action.run` (same work queue, wait, idempotency key, `sequence` and `created` ids as
+  the keyboard and `cmux tab …`). CLI: `cmux browser <tab_…|page> tabs [--all] | new-tab
+  [URL] | select | close [--no-wait]`, the old `cmux browser tab list|new|switch|close`
+  (by tab id; the old index form is gone).
+
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 
 - `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the

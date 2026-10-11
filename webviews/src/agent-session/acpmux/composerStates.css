@@ -13,6 +13,8 @@
   --agent-motion-focus: 100ms;
   --agent-motion-in: 120ms;
   --agent-motion-out: 80ms;
+  /* The native move spring's timed equivalent (MotionSpring.move). */
+  --agent-motion-move: 190ms;
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
 }
@@ -29,10 +31,10 @@
   background: var(--acpmux-composer-press);
 }
 .acpmux-plan[aria-pressed="true"]:hover {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 22%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
 }
 .acpmux-plan[aria-pressed="true"]:active {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
 }
 
 /* Steer (or Interrupt) beside Send while a turn runs: a quiet pill, as Plan is; Send queues. */
