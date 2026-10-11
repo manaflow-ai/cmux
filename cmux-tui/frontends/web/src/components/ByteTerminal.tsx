@@ -10,13 +10,7 @@ interface ByteTerminalProps {
   onError(error: Error): void;
 }
 
-export function ByteTerminal({
-  client,
-  surface,
-  error,
-  focusOnMount = false,
-  onError,
-}: ByteTerminalProps) {
+export function ByteTerminal({ client, surface, error, focusOnMount = false, onError }: ByteTerminalProps) {
   const { terminalRef, focused } = useAttachedTerminal({
     client,
     surface,

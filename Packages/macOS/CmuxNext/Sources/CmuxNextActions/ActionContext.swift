@@ -32,6 +32,25 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let signedIn = ActionContext(rawValue: 1 << 11)
     public static let signedOut = ActionContext(rawValue: 1 << 12)
     public static let cloudWorkspace = ActionContext(rawValue: 1 << 13)
+    /// An agent chat (the acpmux web pane) has the keyboard.
+    public static let agentPaneFocused = ActionContext(rawValue: 1 << 14)
+    /// The focused agent page can capture through its session-host Git connection.
+    public static let checkpointCaptureAvailable = ActionContext(rawValue: 1 << 15)
+    /// A shortcut recorder (Settings or the palette's Cmd-K editor) is open;
+    /// system-wide hot keys stand down so it can record their chords.
+    public static let recordingShortcut = ActionContext(rawValue: 1 << 16)
+    /// A browser tab's address bar has the keyboard. Its Return chords
+    /// (Cmd-Return: open in a new tab) need it, so they beat the actions
+    /// that share those chords elsewhere (Toggle Pane Zoom).
+    public static let omnibarFocused = ActionContext(rawValue: 1 << 17)
+    /// The code editor page (Monaco, `cmux.editor`) has the keyboard: its
+    /// editing chords win over the app chords that share them (R127).
+    public static let codeEditorFocused = ActionContext(rawValue: 1 << 18)
+
+    /// Contexts whose page owns bare keys (no Command, Control or Option):
+    /// only while one holds, and no text field has the keyboard, may a
+    /// binding of a bare key run (the diff viewer's j, k, G, /).
+    public static let bareKeyOwners: ActionContext = [.diffViewerFocused]
 }
 
 extension ActionContext {

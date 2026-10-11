@@ -6,6 +6,8 @@ public import CmuxNextDesign
 enum NotificationConfigParser {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> NotificationPreferences {
         var prefs = NotificationPreferences()
+        // `feed.*` sits outside `notifications`, so it is read before the early return below.
+        prefs.feedMirror = feedMirror(root, diagnostics: &diagnostics)
         guard var reader = ConfigFieldReader(root, at: ["notifications"], diagnostics: &diagnostics) else { return prefs }
         if let value = reader.choice("dismissal", NotificationDismissal.self) { prefs.dismissal = value }
         if let value = reader.number("timeoutSeconds", range: NotificationPreferences.timeoutRange) { prefs.timeoutSeconds = value }
@@ -31,6 +33,20 @@ enum NotificationConfigParser {
         return prefs
     }
 
+    /// `feed.mirrorNotifications.{agents, terminal}` and `feed.agentPermissionPrompts`.
+    static func feedMirror(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> FeedMirrorPreferences {
+        var mirror = FeedMirrorPreferences()
+        if var feed = ConfigFieldReader(root, at: ["feed"], diagnostics: &diagnostics) {
+            if let value = feed.bool("agentPermissionPrompts") { mirror.agentPermissionPrompts = value }
+            diagnostics += feed.diagnostics
+        }
+        guard var reader = ConfigFieldReader(root, at: ["feed", "mirrorNotifications"], diagnostics: &diagnostics) else { return mirror }
+        if let value = reader.bool("agents") { mirror.agents = value }
+        if let value = reader.choice("terminal", FeedTerminalMirror.self) { mirror.terminal = value }
+        diagnostics += reader.diagnostics
+        return mirror
+    }
+
     private static func quietHours(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> QuietHours? {
         guard let value = root.value(at: ["notifications", "quietHours"]) else { return nil }
         if case .null = value { return nil }
@@ -50,6 +66,12 @@ enum NotificationConfigParser {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.mutedWorkspaces", message: "expected an array of workspace ids"))
             return []
         }
-        return Set(items.compactMap(\.stringValue))
+        // A bad item is dropped with a diagnostic; the valid ids still apply.
+        let ids = items.compactMap { $0.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
+        if ids.count != items.count {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.mutedWorkspaces",
+                                                  message: "expected workspace ids (non-empty strings)"))
+        }
+        return Set(ids)
     }
 }

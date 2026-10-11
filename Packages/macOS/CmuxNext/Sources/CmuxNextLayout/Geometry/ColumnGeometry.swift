@@ -1,9 +1,9 @@
 public import CoreGraphics
 
-/// Pure math for niri-style scrolling columns. Offsets are the content-space
+/// Pure math for scrolling columns. Offsets are the content-space
 /// x of the viewport's leading edge.
 public nonisolated enum ColumnStripGeometry {
-    /// Pixel width of a column with width fraction `fraction`. Matches niri:
+    /// Pixel width of a column with width fraction `fraction`. Gaps included:
     /// `(viewport - gap) * fraction - gap`, so two half columns and three gaps
     /// exactly fill the viewport.
     public static func pixelWidth(fraction: Double, viewportWidth: CGFloat, gap: CGFloat) -> CGFloat {

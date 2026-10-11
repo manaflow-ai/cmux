@@ -85,7 +85,7 @@ cmux.json:
 ```jsonc
 "browser": {
   "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
-  "hibernationExclusions": ["mail.google.com", "*.figma.com"],
+  "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false
 }
 ```

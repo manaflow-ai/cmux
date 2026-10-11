@@ -6,10 +6,7 @@ on:
       - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  attestations: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: stable-appcast-publication
@@ -43,6 +40,10 @@ jobs:
       upload: false
 
   build-ghostty-cli-helper:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     steps:
@@ -90,6 +91,13 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: build-ghostty-cli-helper
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
@@ -226,6 +234,16 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
+      - name: Build in-tree acpmux for the app bundle
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+        run: |
+          set -euo pipefail
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -263,14 +281,30 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      # The Embed CEF phase fetches the pinned Chromium engine from the private
-      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). The
-      # artifact is arm64 only: x86_64 Macs run without the engine. With no
-      # readable token the app ships the browser as unavailable (warned below).
-      - name: Build universal app (Release)
+      # The Embed CEF phase embeds the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
+      # step fills the cache from the private R2 bucket with the read-only key
+      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
+      # this step gets the key. x86_64 Macs get the engine only when the
+      # manifest has an x86_64 artifact. With no readable source the app ships the browser
+      # as unavailable (warned below).
+      - name: Fetch the Chromium engine
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
+        # The x86_64 engine (a manifest "x86_64" object) lets a universal
+        # build embed both slices (embed-cef.sh); without it this prints
+        # nothing and the universal app keeps the arm64 engine.
+        run: |
+          scripts/cmux-next/ensure-cef.sh --optional
+          scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+
+      - name: Build universal app (Release)
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
@@ -287,8 +321,10 @@ jobs:
           framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
+            # Chromium's license notices must ship with the engine (not CEF's sample page).
+            ./scripts/cmux-next/check-cef-credits.sh "$app"
           else
-            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secret CMUX_CEF_READ_TOKEN); this release ships the browser as unavailable."
+            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this release ships the browser as unavailable."
           fi
 
       - name: Build and embed verified SSH daemon assets
@@ -365,6 +401,9 @@ jobs:
             --require-acpmux
           ./scripts/cmux-next/write-cmux-tui-version.sh \
             build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit"
+          # The pinned daemon must serve every capability the app relies on.
+          ./scripts/cmux-next/check-daemon-capabilities.sh \
+            --binary build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -501,25 +540,27 @@ jobs:
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
-            echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
-            exit 1
-          fi
+          # notarytool authenticates with the team App Store Connect API key.
+          # The decoded key stays in a private temp dir removed on exit.
+          NOTARY_TMP="$(mktemp -d "$RUNNER_TEMP/cmux-notary.XXXXXX")"
+          trap 'rm -rf "$NOTARY_TMP"' EXIT
+          source ./scripts/ci/lib/notary-auth.sh
+          notary_auth_init "$NOTARY_TMP"
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
-          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
           APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
           if [ "$APP_STATUS" != "Accepted" ]; then
             echo "App notarization failed with status: $APP_STATUS" >&2
-            xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            xcrun notarytool log "$APP_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
             exit 1
           fi
           xcrun stapler staple "$APP_PATH"
@@ -540,12 +581,12 @@ jobs:
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$DMG_RELEASE"
           /usr/bin/codesign --verify --verbose=2 "$DMG_RELEASE"
-          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
           if [ "$DMG_STATUS" != "Accepted" ]; then
             echo "DMG notarization failed with status: $DMG_STATUS" >&2
-            xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            xcrun notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
             exit 1
           fi
           xcrun stapler staple "$DMG_RELEASE"
@@ -607,8 +648,16 @@ jobs:
             cmux-macos.dmg
             appcast.xml
             remote-daemon-assets/cmuxd-remote-*
+            docs/mdm/com.manaflow.cmux.*
+            docs/mdm/cmux-example.mobileconfig
+            docs/mdm/ddm-legacy-profile-declaration.json
+            docs/mdm/managed-preferences.md
           if-no-files-found: error
 
+      # The MDM schema for this release (enterprise P17-5): administrators fetch
+      # https://github.com/manaflow-ai/cmux/releases/download/<tag>/com.manaflow.cmux.plist
+      # (Jamf JSON, Intune plist, example profile, DDM declaration, key table) for the
+      # exact version they deploy. ManagedPreferencesManifestTests keeps docs/mdm current.
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
@@ -618,7 +667,26 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
             --immutable cmux-macos.dmg \
             --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --immutable 'docs/mdm/com.manaflow.cmux.*' \
+            --immutable docs/mdm/cmux-example.mobileconfig \
+            --immutable docs/mdm/ddm-legacy-profile-declaration.json \
+            --immutable docs/mdm/managed-preferences.md \
             --feed appcast.xml
+
+      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
+      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
+      # symbol unless this release carries gettext-0.24.tar.gz and COPYING.LIB.
+      - name: Verify shipped libintl has its source
+        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(build-universal/Build/Products/Release/cmux.app)
+          if [ "${{ github.event_name }}" = "push" ] && [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$GITHUB_REF_NAME")
+          fi
+          python3 scripts/verify_app_libintl.py "${args[@]}"
 
       # Keep a new stable release hidden until its entire asset set is verified.
       - name: Publish verified release

@@ -28,6 +28,9 @@ cmux-tui-core.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
+# `cmux server …`, the machine server verbs (plans/cmux-next/server.md).
+cmux-server.workspace = true
+cmux-server-core.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 crossbeam-channel.workspace = true
@@ -53,6 +56,8 @@ uuid.workspace = true
 wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+# `cmux host …`, the machine supervisor and process roles (server.md 5.1).
+cmux-host.workspace = true
 # `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md).
 acpmux = { path = "../acpmux" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
@@ -60,6 +65,9 @@ plist = "1.10"
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
+cmux-link.workspace = true
+cmux-unix-socket.workspace = true
+x25519-dalek.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
@@ -67,6 +75,10 @@ reqwest.workspace = true
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
+# The cloud conversations proxy (`cloud-conversations-v1`): cmux.wire/1
+# sockets to the cmux Cloud API. Both are already in the graph via acpmux.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
@@ -74,5 +86,6 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 cmux-pty.workspace = true
+cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 rusqlite.workspace = true

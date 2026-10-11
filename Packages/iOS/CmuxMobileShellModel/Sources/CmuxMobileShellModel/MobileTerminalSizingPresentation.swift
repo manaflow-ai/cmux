@@ -112,6 +112,25 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         return row.counts ? .counted : .notCounted
     }
 
+    /// Whether this phone may disconnect a participant: any other row,
+    /// including a Mac. Disconnecting a Mac detaches that Mac's view only
+    /// (the host Mac's pane, or the Mac relaying this phone); the terminal
+    /// and every other viewer, this phone included, keep their sessions.
+    /// - Parameter row: A participant row from this presentation.
+    public func canDisconnect(_ row: TerminalSizingParticipantState) -> Bool {
+        row.id != selfParticipant?.id
+    }
+
+    /// The Mac to name in the confirmation before disconnecting `row`, or
+    /// `nil` when the row is not a Mac and needs no confirmation.
+    /// - Parameter row: A participant row from this presentation.
+    public func disconnectConfirmation(
+        for row: TerminalSizingParticipantState
+    ) -> MobileTerminalSizingOwnerLabel? {
+        guard canDisconnect(row), row.participant.deviceKind == .mac else { return nil }
+        return MobileTerminalSizingOwnerLabel(participant: row.participant)
+    }
+
     /// Whether this phone's own row counts toward size.
     public var selfCounts: Bool {
         selfParticipant?.counts ?? false

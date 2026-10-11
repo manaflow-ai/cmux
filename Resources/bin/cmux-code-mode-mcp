@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+bun=$(command -v bun || true)
+[ -n "$bun" ] || { echo 'cmux code mode MCP: bun is required' >&2; exit 2; }
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+if [ -f "$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs" ]; then
+  script="$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs"
+elif [ -f "$root/Resources/code-mode/mcp.mjs" ]; then
+  script="$root/Resources/code-mode/mcp.mjs"
+else
+  script="$root/code-mode/mcp.mjs"
+fi
+exec "$bun" "$script"

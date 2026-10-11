@@ -41,7 +41,22 @@ jobs:
     # The cask downloads that DMG from the published release and verifies its
     # SHA256 below, so the only thing it needs from the run is that the signed
     # build job succeeded.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != 'cancelled' }}
+    # `workflow_run` matches the source by display name, so a run of any
+    # workflow with that name (a fork pull request's copy, for one) triggers
+    # this. Accept only a real release workflow run from this repository;
+    # everything else about the run is attacker-controlled.
+    #
+    # release.yml runs on both a `v*` tag push and a manual dispatch, and the
+    # dispatch is the recovery path when a tag-push run fails after the DMG
+    # publishes. Both need write access to this repository, so both are
+    # trusted; `pull_request` and the rest stay out.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.path == '.github/workflows/release.yml' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event)
+      ) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
@@ -73,18 +88,28 @@ jobs:
           fi
 
   update-cask:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: gate
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     if: ${{ needs.gate.outputs.proceed == 'true' }}
     steps:
       - name: Get version
         id: version
+        # Run metadata and the dispatch input reach the script only through
+        # `env:`. Substituted into the script text, a branch name like
+        # `$(cmd)` would run with this job's tap token.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             # workflow_run: extract tag from the triggering workflow's head branch
-            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION="$HEAD_BRANCH"
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
@@ -92,7 +117,7 @@ jobs:
             exit 1
           fi
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
               echo "Invalid version: ${VERSION}" >&2
               exit 1
             fi
@@ -107,8 +132,9 @@ jobs:
       - name: Download DMG and get SHA256
         id: sha
         if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
           MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do

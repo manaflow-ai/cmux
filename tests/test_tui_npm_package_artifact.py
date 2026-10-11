@@ -99,6 +99,7 @@ def make_package_fixture(packages: Path) -> None:
                         "bin/cmux-tui",
                         "bin/cmux-tui-hook",
                         "bin/cmux-tui-ssh/manifest.json",
+                        "THIRD_PARTY_LICENSES.md",
                     ],
                 }
             )
@@ -160,7 +161,7 @@ def make_package_fixture(packages: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui", "THIRD_PARTY_LICENSES.md"],
                 }
             )
             + "\n"
@@ -192,6 +193,18 @@ def make_package_fixture(packages: Path) -> None:
     relay_launcher_bin = relay_launcher / "bin" / "cmux-relay.js"
     relay_launcher_bin.parent.mkdir(parents=True, exist_ok=True)
     write_relay_launcher_fixture(relay_launcher_bin)
+    write_license_files(packages)
+
+
+def write_license_files(packages: Path) -> None:
+    """Every generated npm package ships the GPL text as LICENSE."""
+
+    for package in packages.iterdir():
+        if package.is_dir():
+            (package / "LICENSE").write_text("GPL-3.0-or-later\n")
+            # Platform packages also ship their third-party notices.
+            if package.name not in ("cmux", "cmux-relay"):
+                (package / "THIRD_PARTY_LICENSES.md").write_text(f"notices {package.name}\n")
 
 
 def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:
@@ -269,20 +282,17 @@ def test_extract_rejects_paths_outside_package_root(tmp_path: Path) -> None:
 def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
     build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
     stable = (ROOT / ".github/workflows/tui-publish-npm.yml").read_text()
-    nightly = (ROOT / ".github/workflows/cmux-tui-nightly.yml").read_text()
 
     assert "package_npm_artifact.py create" in build
     assert "path: dist/npm-packages.tar.gz" in build
-    for workflow in (stable, nightly):
-        assert "package_npm_artifact.py extract" in workflow
-        assert "--archive dist/npm-packages.tar.gz" in workflow
+    assert "package_npm_artifact.py extract" in stable
+    assert "--archive dist/npm-packages.tar.gz" in stable
 
 
 def test_publish_workflows_smoke_install_machine_relay() -> None:
     workflows = (
         ROOT / ".github/workflows/cmux-tui-build-package.yml",
         ROOT / ".github/workflows/tui-publish-npm.yml",
-        ROOT / ".github/workflows/cmux-tui-nightly.yml",
     )
     for workflow_path in workflows:
         workflow = workflow_path.read_text()

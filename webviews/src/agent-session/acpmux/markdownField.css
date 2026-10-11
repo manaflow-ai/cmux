@@ -1,0 +1,177 @@
+/* The composer's Milkdown prompt (MarkdownField.tsx), drawn as the plain textarea it replaces
+   (.acpmux-composer-field): 15px on 22px lines, no chrome. Formatting shows only where the
+   user formats. Theme tokens only. */
+.acpmux-md-field {
+  position: relative;
+  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
+     leaves the transcript and location shelf anchored while the draft grows. */
+  max-height: calc(22px * 8 + 23px);
+  overflow-y: auto;
+  padding: 15px 16px 8px;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--agent-text);
+}
+.acpmux-md-placeholder {
+  position: absolute;
+  left: 16px;
+  top: 15px;
+  right: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--acpmux-composer-placeholder, var(--agent-muted));
+  pointer-events: none;
+}
+.acpmux-md {
+  min-height: 22px;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  caret-color: var(--agent-text);
+}
+.acpmux-md > * {
+  margin: 0;
+}
+.acpmux-md > * + * {
+  margin-top: 6px;
+}
+.acpmux-md strong {
+  font-weight: 600;
+}
+.acpmux-md a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.acpmux-md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+}
+.acpmux-md pre {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 19px;
+}
+.acpmux-md pre code {
+  padding: 0;
+  background: none;
+}
+.acpmux-md ul,
+.acpmux-md ol {
+  padding-left: 22px;
+}
+.acpmux-md li > p {
+  margin: 0;
+}
+.acpmux-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--agent-text) 20%, transparent);
+  color: var(--agent-muted);
+}
+.acpmux-md h1,
+.acpmux-md h2,
+.acpmux-md h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.acpmux-md hr {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+
+/* Editor box behavior required by the clean-room composer spec. */
+.acpmux-md-root {
+  min-width: 0;
+}
+.acpmux-md {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--agent-text);
+  position: relative;
+  outline: none;
+  caret-color: var(--agent-text);
+}
+.acpmux-md p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/*
+ * The following rules are adapted from prosemirror-view/style/prosemirror.css.
+ * Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+.acpmux-md {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+}
+.acpmux-md pre {
+  white-space: pre-wrap;
+}
+.acpmux-md li {
+  position: relative;
+}
+.acpmux-md.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+.acpmux-md.ProseMirror-hideselection *::-moz-selection {
+  background: transparent;
+}
+.acpmux-md.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+.acpmux-md [draggable][contenteditable="false"] {
+  user-select: text;
+}
+.acpmux-md .ProseMirror-selectednode {
+  outline: 2px solid var(--agent-accent);
+}
+.acpmux-md li.ProseMirror-selectednode {
+  outline: none;
+}
+.acpmux-md li.ProseMirror-selectednode::after {
+  content: "";
+  position: absolute;
+  left: -32px;
+  right: -2px;
+  top: -2px;
+  bottom: -2px;
+  border: 2px solid var(--agent-accent);
+  pointer-events: none;
+}
+.acpmux-md img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+}

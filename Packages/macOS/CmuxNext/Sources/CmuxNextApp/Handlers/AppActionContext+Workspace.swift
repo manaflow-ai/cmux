@@ -1,4 +1,6 @@
 import AppKit
+import os
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
@@ -33,21 +35,13 @@ extension AppActionContext {
     }
 
     /// The targeted workspace group (target, `group` argument), else the
-    /// group of the targeted or shown workspace.
+    /// group of the targeted or shown workspace. Workspace groups are
+    /// personal (the home session's); without personal state there are none.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
-        if usesPersonalGroups { return try personalGroup(invocation) }
-        try require(DaemonCapabilities.workspaceGroups)
-        let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
-        if let explicit {
-            guard let group = store.group(WorkspaceGroupID(rawValue: explicit.id)) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceGroup(explicit.id))
-            }
-            return group
+        guard usesPersonalGroups else {
+            throw ActionFailure(message: services.machines.local.personalStateUnavailableReason)
         }
-        guard let id = scope(invocation).workspace?.group, let group = store.group(id) else {
-            throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup)
-        }
-        return group
+        return try personalGroup(invocation)
     }
 
     /// The window named by the target or `window` argument (`WindowState.id`),
@@ -59,7 +53,7 @@ extension AppActionContext {
             return active
         }
         guard let controller = services.windows.controllers.first(where: { $0.state.id == ref.id }) else {
-            throw ActionFailure.invalidTarget(RefusalStrings.noWindow(ref.id))
+            throw ActionFailure.notFound(RefusalStrings.noWindow(ref.id))
         }
         return controller
     }
@@ -76,12 +70,21 @@ extension AppActionContext {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
+    /// runs off the main thread (cx-050n).
     func open(_ url: URL) throws {
-        guard NSWorkspace.shared.open(url) else { throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString)) }
+        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
+            throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
+        }
+        NSWorkspace.shared.openInBackground(url) { opened in
+            if !opened { Logger(subsystem: "com.cmuxterm.app.next", category: "actions").error("open failed after its app was found") }
+        }
     }
 
-    /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`.
+    /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`
+    /// or the run may not change this client's view.
     func activateApp() {
+        guard ActionRunScope.viewChangeAllowed() else { return }
         WindowActivation.activateApp()
     }
 }

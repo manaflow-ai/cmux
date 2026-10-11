@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -41,7 +42,32 @@ final class SSHService {
     }
 
     /// Why SSH machines cannot connect in this build, or nil.
-    var unavailableReason: String? { binary == nil ? RemoteStrings.noClient : nil }
+    var unavailableReason: String? {
+        if policyDisabled { return RefusalStrings.turnedOffByOrganization }
+        return binary == nil ? RemoteStrings.noClient : nil
+    }
+
+    /// Set while an administrator turned remote hosts off (`DisabledFeatures`).
+    private(set) var policyDisabled = false
+    /// Machines that were set to connect when the policy turned them off.
+    private var reconnectWhenAllowed: Set<String> = []
+
+    /// Turning remote hosts off disconnects every SSH machine, keeps its
+    /// workspaces (their terminals show "Turned off by your organization")
+    /// and leaves the remote daemon and its processes running. Turning it on
+    /// again reconnects the machines that were connecting before.
+    func applyPolicy(disabled: Bool) {
+        guard disabled != policyDisabled else { return }
+        policyDisabled = disabled
+        for session in machines.ssh { session.daemon.policyBlock.set(disabled) }
+        if disabled {
+            reconnectWhenAllowed = Set(machines.ssh.filter(\.autoConnect).map(\.machineID))
+            for session in machines.ssh { session.disconnect(keepAutoConnect: true) }
+        } else {
+            for session in machines.ssh where session.autoConnect && reconnectWhenAllowed.contains(session.machineID) { session.connect() }
+            reconnectWhenAllowed = []
+        }
+    }
 
     var sessions: [SSHMachineSession] { machines.ssh }
 
@@ -60,7 +86,12 @@ final class SSHService {
         })
         let machines = machines
         observers.append(Task { [weak self] in
-            for await records in Observations({ machines.local.store.personal.isLoaded ? machines.local.store.personal.sessions : [] }) {
+            // Live state only: restoring connects and prunes saved hosts,
+            // which the launch snapshot's cached registry must not drive.
+            for await records in ObservationStream({ () -> [SessionRecord] in
+                let store = machines.local.store
+                return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
+            }) {
                 self?.restore(records)
                 self?.restoreSavedHosts(registered: records)
             }
@@ -74,6 +105,7 @@ final class SSHService {
     }
 
     private func wakeAll(_ wake: SSHConnectionMachine.Wake) {
+        guard !policyDisabled else { return }
         for session in machines.ssh where session.autoConnect { session.wake(wake) }
     }
 
@@ -92,6 +124,11 @@ final class SSHService {
         guard let host = SSHHost(transportFields: fields), !forgotten.contains(host.machineID),
               machines.sshSession(host.machineID) == nil, let session = makeSession(host) else { return }
         session.autoConnect = fields["connect"] != "false"
+        if policyDisabled {
+            session.daemon.policyBlock.set(true)
+            if session.autoConnect { reconnectWhenAllowed.insert(session.machineID) }
+            return
+        }
         if session.autoConnect { session.connect() }
     }
 
@@ -114,6 +151,14 @@ final class SSHService {
             throw ActionFailure(message: RemoteStrings.invalidPath((error as? SSHHost.Invalid)?.field == "remote_state_dir" ? stateDir ?? "" : binary ?? ""))
         }
         forgotten.remove(host.machineID)
+        // The same machine (route, session, state directory) with another
+        // cmux-tui path: the old link goes and the record takes the new
+        // path, so a connect never runs the old binary again (cx-vuvc).
+        if let saved = machines.sshSession(host.machineID), saved.host != host {
+            logger.info("\(host.destination.description, privacy: .public): cmux-tui path is now \(host.remoteBinary, privacy: .public)")
+            saved.close()
+            _ = machines.removeSSH(host.machineID)
+        }
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
         // Saved now, before the first connect succeeds (no session id yet).
@@ -136,6 +181,7 @@ final class SSHService {
     }
 
     func reconnect(_ session: SSHMachineSession) {
+        guard !policyDisabled else { return }
         if session.linkStatus == .offline { session.connect() } else { session.wake(.user) }
     }
 
@@ -153,7 +199,7 @@ final class SSHService {
         session.close()
         _ = machines.removeSSH(session.machineID)
         forgetSavedHost(session.machineID)
-        guard let sessionID, machines.local.supports(DaemonCapabilities.profiles), let home = machines.local.connection else { return }
+        guard let sessionID, machines.local.supports(DaemonCapabilities.shared.profiles), let home = machines.local.connection else { return }
         do {
             try await home.forgetSession(sessionID, force: true)
         } catch {
@@ -184,7 +230,7 @@ final class SSHService {
         let machines = machines
         // task-owner: ends at the first answer from the machine's daemon, or when the session is forgotten
         Task { [weak self, weak session] in
-            for await level in Observations({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
+            for await level in ObservationStream({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
                 guard let session, session.offersInstall, machines.sshSession(session.machineID) === session else { return }
                 guard let level else { continue }
                 if level != .current {
@@ -209,6 +255,7 @@ final class SSHService {
 
     /// Installs the app's cmux-tui build on the machine and reconnects.
     func install(_ session: SSHMachineSession) async throws {
+        if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
         guard let binary else { throw ActionFailure(message: RemoteStrings.noClient) }
         guard let commit = await BundledCmuxTUI.commit(binary: binary) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
         let link = session.link, host = session.host
@@ -222,13 +269,16 @@ final class SSHService {
         session.lastError = nil
         do {
             session.installPhase = .manifest
-            let plan = try await installer.plan(commit: commit, platform: platform, remoteBinary: host.remoteBinary)
+            let plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
+                                                remoteBinary: host.remoteBinary)
+            // Turned off while planning: refuse before the remote work starts (never mid-install).
+            if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
                 // task-owner: one main-actor hop per install step
                 Task { @MainActor in session.installPhase = phase }
             }
             session.installPhase = nil
-            logger.info("installed cmux-tui \(commit, privacy: .public) on \(host.destination.description, privacy: .public)")
+            logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
             await link.handle(.installFinished(.success))
             reconnect(session)
         } catch {
@@ -247,8 +297,8 @@ final class SSHService {
     /// PATH for ProxyCommand helpers. Never a token or key.
     @Sendable static func environment() async -> [String: String] {
         let base = ProcessInfo.processInfo.environment
-        var env = await TerminalEnvironment.shared(base: base)()
-        for key in TerminalEnvironment.daemonIdentityKeys { if let value = base[key] { env[key] = value } }
+        var env = await TerminalEnvironment.instance.shared(base: base)()
+        for key in TerminalEnvironment.instance.daemonIdentityKeys { if let value = base[key] { env[key] = value } }
         return env
     }
 

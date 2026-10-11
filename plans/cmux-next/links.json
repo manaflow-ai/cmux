@@ -1,0 +1,68 @@
+{
+  "agent_tab" : "Copy Tab Link on an agent chat tab writes its chat's session link (kind session, no turn), not a tab link; a new chat with no session has no link",
+  "description" : "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions), generated from CmuxNextActions/DeepLink (DeepLink.url) and CloudConfiguration.callbackScheme. Do not edit: CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter LinkExportTests rewrites it.",
+  "ignored" : "every other query parameter is ignored, so a link never carries a command",
+  "kinds" : [
+    {
+      "example" : "cmux://workspace/ws_0123456789abcdef0123456789abcdef",
+      "id_prefix" : "ws_",
+      "id_rule" : "<prefix> + 32 lowercase hex digits [0-9a-f]",
+      "kind" : "workspace"
+    },
+    {
+      "example" : "cmux://pane/pane_0123456789abcdef0123456789abcdef",
+      "id_prefix" : "pane_",
+      "id_rule" : "<prefix> + 32 lowercase hex digits [0-9a-f]",
+      "kind" : "pane",
+      "opens" : "the pane's selected tab"
+    },
+    {
+      "example" : "cmux://tab/tab_0123456789abcdef0123456789abcdef",
+      "id_prefix" : "tab_",
+      "id_rule" : "<prefix> + 32 lowercase hex digits [0-9a-f]",
+      "kind" : "tab"
+    },
+    {
+      "example" : "cmux://session/ses-01.example_a",
+      "example_with_turn" : "cmux://session/ses-01.example_a#turn-turn_7",
+      "id_rule" : "an acpmux session id: 1 to 200 ASCII letters, digits, '-', '_' or '.'",
+      "kind" : "session",
+      "turn" : "optional fragment #turn-<turnId>; the turn id follows the same rule"
+    }
+  ],
+  "machine" : "optional ?machine=machine_<32 hex>: the machine the target lives on (a hint; ids are globally unique)",
+  "not_links" : [
+    "cmux://auth-callback is the sign-in callback, never a link"
+  ],
+  "schemes" : [
+    {
+      "build" : "release",
+      "bundle_id" : "com.cmuxterm.app",
+      "scheme" : "cmux"
+    },
+    {
+      "build" : "nightly",
+      "bundle_id" : "com.cmuxterm.app.nightly",
+      "scheme" : "cmux-nightly"
+    },
+    {
+      "build" : "rc",
+      "bundle_id" : "com.cmuxterm.app.rc",
+      "scheme" : "cmux-rc"
+    },
+    {
+      "build" : "debug",
+      "bundle_id" : "com.cmuxterm.app.debug",
+      "scheme" : "cmux-dev"
+    },
+    {
+      "build" : "tagged",
+      "example_tag" : "My Tag_1",
+      "rule" : "cmux-dev-<tag>, the tag lowercased, runs of [a-z0-9] joined by single hyphens",
+      "scheme" : "cmux-dev-my-tag-1"
+    }
+  ],
+  "shape" : "<scheme>://<kind>/<id>[?machine=machine_<32 hex>][#turn-<turnId>, session only]",
+  "target_scheme" : "cmux",
+  "target_scheme_rule" : "A client that is not a shipping cmux build writes the release scheme, so the link opens the user's installed cmux."
+}

@@ -43,16 +43,30 @@ public enum DaemonEvent: Sendable, Hashable {
     case bell(surface: SurfaceID)
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
-    /// Workspace status from the connection's `session.events` stream
-    /// (resource API v2). Not part of `list-workspaces`, so a tree snapshot
-    /// never supersedes it.
-    case workspaceStatus(WorkspaceStatusChange, stream: String)
-    /// That stream ended (`stream_end`); the connection opens a new one.
-    case sessionEventsEnded(stream: String)
+    /// What a surface's agent is touching now (`agent-presence-v1`).
+    case agentPresenceChanged(AgentPresence)
+
+    /// A `session.events` item: the state resources the daemon owns
+    /// (state-ownership.md 2), which `DaemonStore.session` mirrors.
+    case sessionState(SessionStreamItem)
 
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)
     case terminalRegistryChanged(revision: UInt64)
+    /// A browser profile's bookmarks changed (`bookmarks-v1`): refetch them.
+    case bookmarksChanged(browserProfileID: String, revision: UInt64)
+    /// One committed op on a local conversation (`local-conversations-v1`).
+    case conversationChanged(ConversationEvent)
+    /// A participant started or stopped typing (ephemeral).
+    case conversationTyping(ConversationTyping)
+    /// A `cloud-*` event of `cloud-conversations-v1` (cloud conversations,
+    /// the account inbox, socket states and lease requests).
+    case cloudConversations(CloudConversationsEvent)
+    /// `terminal-clipboard-read` (targeted at this connection): a program asks
+    /// for the clipboard (`TerminalClipboardBroker`).
+    case terminalClipboardRead(TerminalClipboardRead)
+    /// `terminal-clipboard-read-cancelled`: that read ended unanswered.
+    case terminalClipboardReadCancelled(requestID: String)
     /// `client-attached/changed/detached/list-invalidated`.
     case client(name: String, payload: JSONValue)
     /// The subscription ended because this client fell behind. The connection
@@ -60,4 +74,20 @@ public enum DaemonEvent: Sendable, Hashable {
     case overflow(String)
     case daemonShutdown
     case unknown(name: String, payload: JSONValue)
+}
+
+extension DaemonEvent {
+    /// Applies even when a tree snapshot covers its sequence: connection
+    /// lifecycle, `session.events` items and the app supervisor's events,
+    /// which `list-workspaces` does not carry.
+    var outlivesSnapshot: Bool {
+        switch self {
+        case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        // Transient questions to this connection; a snapshot never holds them.
+        case .terminalClipboardRead, .terminalClipboardReadCancelled: true
+        // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
+        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name)
+        default: false
+        }
+    }
 }

@@ -27,12 +27,17 @@ public enum DataAvailability: Sendable, Hashable, Codable {
 
 /// Why present data cannot be imported.
 public enum UnsupportedReason: String, Sendable, Codable {
-    /// Passwords and cookies are encrypted with the source browser's own key
-    /// and must be written into Chromium's encrypted stores; CEF does not
-    /// expose Chromium's importer yet.
+    /// Kept for stored values from older builds; no longer produced.
     case needsChromiumImporter
     /// Firefox add-ons do not install in Chromium.
     case notChromeExtensions
     /// The source keeps this data encrypted or in iCloud (Safari passwords).
     case sourceEncrypted
+    /// Passwords: cmux does not read password stores. The source's own
+    /// export (or the Passwords app) moves them to a password manager.
+    case exportFromSource
+    /// Tor Browser: session data stays in Tor.
+    case refusedForPrivacy
+    /// A browser whose files use a private format cmux cannot read.
+    case unknownFormat
 }

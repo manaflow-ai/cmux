@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts. The first `cargo run` below compiles the TUI and then starts it.
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty-next` and `ghostty` submodules (`git submodule update --init ghostty ghostty-next`). `ghostty-vt-sys` compiles `libghostty-vt.a` from `ghostty-next`, so an uninitialized submodule fails before the TUI starts; the shell-integration scripts come from `ghostty`. The first `cargo run` below compiles the TUI and then starts it.
 
 ## Local session
 
@@ -23,7 +23,7 @@ explicit when you split it across terminals:
 | --- | --- |
 | `cmux` | Create or attach the interactive default `main` session. |
 | `cmux --session NAME` | Create or attach the named interactive session. |
-| `cmux server start --session NAME` | Start a headless owner only. |
+| `cmux daemon start --session NAME` | Start a headless owner only. |
 | `cmux attach --session NAME` | Attach an existing owner; it does not create one. |
 
 This differs from tmux or Zellij attach-or-create shortcuts by keeping server
@@ -34,7 +34,7 @@ When migrating a script that used an attach-or-create command, keep one owner
 and one client. Run the owner in one terminal:
 
 ```bash
-cmux server start --session agents
+cmux daemon start --session agents
 ```
 
 Then attach from another terminal:
@@ -55,13 +55,13 @@ Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xte
 
 A plain `cmux` run starts (or reuses) a detached headless owner for the
 session and attaches to it as a client, so several `cmux` runs for the same
-session share one live session and detaching never ends it. `server ensure`
+session share one live session and detaching never ends it. `daemon ensure`
 does the same start-or-reuse without attaching. Set
 `{"server":{"detached_owner":false}}` to host the session inside the first
 TUI process instead.
 
-`server start` starts only the mux backend and control socket, in the
-foreground. `server status` checks it, `server stop` stops it, and `attach`
+`daemon start` starts only the mux backend and control socket, in the
+foreground. `daemon status` checks it, `daemon stop` stops it, and `attach`
 opens a TUI on the session.
 
 ```bash
@@ -128,12 +128,12 @@ The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTI
 
 ## Isolated products on top of cmux-tui
 
-A program that builds its own product on cmux-tui, such as an agent orchestrator or a test harness, must own a dedicated session. It must not share `main` or a person's interactive session. The session is the isolation unit: each session has its own control socket, workspace tree, and durable state subtree, so `server stop`, `session reset-state`, or a crash in one session never touches another.
+A program that builds its own product on cmux-tui, such as an agent orchestrator or a test harness, must own a dedicated session. It must not share `main` or a person's interactive session. The session is the isolation unit: each session has its own control socket, workspace tree, and durable state subtree, so `daemon stop`, `session reset-state`, or a crash in one session never touches another.
 
 ```bash
-cmux server start --session <product>-<instance> --headless
+cmux daemon start --session <product>-<instance> --headless
 cmux --session <product>-<instance> workspace create --name task-1
-cmux server stop --session <product>-<instance>
+cmux daemon stop --session <product>-<instance>
 ```
 
 Put the product name and an instance discriminator in the session name, for example `firstmate-a1b2c3`. Two installations of one product then coexist on one machine without cross-matching each other's workspaces. Address every call with `--session <name>` or the exact `--socket` path, and store the typed resource IDs a mutation returns instead of resolving by display name later.

@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.
@@ -8,7 +8,7 @@ import Synchronization
 /// Bounded (architecture.md 5a): past `limit` events the buffer collapses
 /// into one `.overflow` marker, which the store answers with one snapshot
 /// that supersedes everything dropped. Lifecycle events and transaction
-/// echoes (which settle optimistic patches) survive the collapse; every
+/// echoes (which settle intents and waiters) survive the collapse; every
 /// other event is dropped until the next `take()`.
 final class EventInbox: Sendable {
     private struct State {
@@ -17,8 +17,6 @@ final class EventInbox: Sendable {
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
         var echoes: Set<ClientTransactionID> = []
-        /// A `.stale` status marker is buffered since the collapse.
-        var statusStale = false
     }
 
     /// Matches the daemon's own per-client mailbox.
@@ -51,17 +49,17 @@ final class EventInbox: Sendable {
         }
     }
 
-    /// While collapsed: keep lifecycle events, one echo per transaction (as
-    /// a `tree-changed` carrying it), and one `.stale` marker for dropped
-    /// status (the snapshot does not carry it); drop the rest.
+    /// While collapsed: keep lifecycle and bookmark events and one echo per transaction
+    /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown:
+        case .connected, .disconnected, .daemonShutdown, .sessionState:
+            // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
-        case .workspaceStatus(_, let stream):
-            guard !state.statusStale else { return }
-            state.statusStale = true
-            state.events.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .workspaceStatus(.stale, stream: stream)))
+        case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
+            // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
+            state.events.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
             state.events.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
@@ -73,7 +71,6 @@ final class EventInbox: Sendable {
         state.withLock { state in
             state.framePending = false
             state.collapsed = false
-            state.statusStale = false
             state.echoes.removeAll(keepingCapacity: true)
             defer { state.events.removeAll(keepingCapacity: true) }
             return state.events
@@ -101,6 +98,7 @@ extension DaemonStore {
     public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
         let driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler)
         self.driver = driver
+        beginConnection()
         let pump = Task.detached { [weak self] () -> String? in
             do {
                 for try await envelope in connection.events where driver.inbox.append(envelope) {
@@ -113,7 +111,11 @@ extension DaemonStore {
         }
         let failure = await pump.value
         drain()
+        // The connection is gone: no echo or barrier will come for its commands.
+        drainAppliedWaiters = true
+        flushAppliedWaiters()
         if let failure { markFailed(failure) }
+        resumeRefreshWaiters()
         resyncRetry?.cancel()
         resyncRetry = nil
         needsResync = false
@@ -144,6 +146,9 @@ extension DaemonStore {
     func resync(seedAgents: Bool = false) {
         guard let driver, !isResyncing else { return }
         isResyncing = true
+        // This snapshot is requested after every waiting `refresh()` call.
+        let refreshing = refreshWaiters
+        refreshWaiters.removeAll()
         needsResync = false
         resyncRetry?.cancel()
         resyncRetry = nil
@@ -163,9 +168,42 @@ extension DaemonStore {
                 failed = true
             }
             isResyncing = false
-            if failed { scheduleResyncRetry(seedAgents: seedAgents) }
+            if failed {
+                scheduleResyncRetry(seedAgents: seedAgents)
+                // The retry serves them; without one (disconnected or
+                // budget spent) they return now with what the store has.
+                refreshWaiters.insert(contentsOf: refreshing, at: 0)
+                if resyncRetry == nil { resumeRefreshWaiters() }
+            } else {
+                for waiter in refreshing { waiter.resume() }
+            }
+            if !failed, !refreshWaiters.isEmpty {
+                // Asked while this snapshot was in flight: fetch one after it.
+                return resync()
+            }
             drain()
         }
+    }
+
+    /// Fetches a snapshot through the driver's resync (inbox hold, snapshot
+    /// barrier, intents lifted and reapplied) and returns once one requested
+    /// after this call is applied, or at once when no connection drives the
+    /// store. A failed snapshot returns too (after its retries), and the
+    /// store keeps what it had.
+    public func refresh() async {
+        guard driver != nil else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            refreshWaiters.append(continuation)
+            // A resync in flight was requested before this call: it fetches
+            // another one when it finishes.
+            if !isResyncing, resyncRetry == nil { resync() }
+        }
+    }
+
+    func resumeRefreshWaiters() {
+        let waiting = refreshWaiters
+        refreshWaiters.removeAll()
+        for waiter in waiting { waiter.resume() }
     }
 
     private func scheduleResyncRetry(seedAgents: Bool) {

@@ -5,8 +5,9 @@ cmux-next. Code: `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/`.
 Gate: `scripts/cmux-next/check-motion.sh` (no literal timing outside that
 directory). User request (2026-09-29): "animations need to be faster, think
 about how apple would do it." Earlier decisions that still apply: Cmd-D and
-Cmd-Shift-D splits apply in one frame (no animation); the sidebar is only
-shown or hidden; tab animations target Chrome quality.
+Cmd-Shift-D splits applied in one frame until 2026-10-10, when Leo asked
+for panes that grow from their edge (cx-f6i7); the sidebar is only
+shown or hidden; tab animations must be fast and smooth.
 
 ## Rules
 
@@ -40,8 +41,8 @@ shown or hidden; tab animations target Chrome quality.
      AppKit starts a new one from the value on screen.
 7. Reduce Motion (`NSWorkspace.accessibilityDisplayShouldReduceMotion`):
    movement (position, size, scale, scroll) is instant; opacity changes stay
-   as a crossfade of at most 0.1 s; spinners and pulses stop and show a
-   static glyph.
+   as a crossfade of at most 0.1 s, and hover and pressed fills are
+   instant; spinners and pulses stop and show a static glyph.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
    time constant x1.5, about Apple's system pacing), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,
@@ -63,30 +64,48 @@ nxmot (MacBook Pro, 120 Hz).
 
 | Token | Response / damping | Visible end | Rest | Used by |
 | --- | --- | --- | --- | --- |
-| `move` | 0.20 / 0.90 | 192 ms | 250 ms | tab reflow and reorder, sidebar row moves, pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
-| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar row insert, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
-| `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar row removal, sidebar hide (timed equivalent), browser toolbar hide |
+| `move` | 0.20 / 0.90 | 192 ms | 250 ms | tab reflow and reorder, sidebar row moves, inserts (a row grows in its own slot) and removals (it shrinks in place), all on this one spring (cx-bqm6), pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
+| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
+| `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
-| `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, niri column reveal, wheel notch, trackpad fling snap |
+| `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
-| `selection` | 0.15 / 0.90 | 142 ms | 200 ms | sidebar selection pill |
+| `selection` | 0.15 / 0.90 | 142 ms | 200 ms | page info toggle (the sidebar selection does not animate, SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) |
 | `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |
+| `pinDrag` | 0.351 / 0.839 | 375 ms | 525 ms | Home list pin drag: tiles making room, rows below the grid, a dropped tile landing (MessagesLab `SidebarPinDragging.spring`: stiffness 320, damping 30, mass 1; about 1.6 pt overshoot on 200 pt) |
 
 | Fade token | Duration | Used by |
 | --- | --- | --- |
-| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
+| `hover` | 0.08 s | hover and pressed fills easing in (tabs, chips, buttons, toolbar, menu and palette rows, sidebar rows, New Tab rows; `ChromeHover.fade`); tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim. Instant under Reduce Motion |
+| `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Instant under Reduce Motion |
 | `focus` | 0.10 s | pane focus ring and inactive dim |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
+| `theme` | 0.16 s | space, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
+| `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.36 s at normal speed, under 400 ms; a plain fade under Reduce Motion |
+| `pinLift` | 0.15 s, linear | Home list pin drag: the tile scaling up to the lift (MessagesLab `beginPinDrag`, a `CABasicAnimation` with no timing function) |
+| `pinSettle` | 0.25 s, linear | Home list pin drag: a dropped tile scaling back (`landPinDrag`, the same) |
+| `pinShrink` | 0.22 s | Home list pin drag: a ghost shrinking onto its row's avatar and fading out (`landPinDrag`) |
+| `highlight` | 1.20 s | Settings row highlight after a search jump or `openSettings setting:` deep link fades out; under Reduce Motion it holds this long and goes in one frame |
 
 | Loop | Period | Used by |
 | --- | --- | --- |
 | `spinner` | 0.9 s | busy tab spinner, sidebar agent spinner |
 | `pulse` | 1.8 s | sidebar agent-waiting pulse |
 | `flash` | 0.6 s | pane attention flash (two blinks; one 0.3 s fade under Reduce Motion) |
+
+| Marquee (`MotionMarquee`) | Value | Used by |
+| --- | --- | --- |
+| `delay` | 0.6 s pointer rest (Core Animation `beginTime`, no timer) | clipped tab and workspace titles on hover (plans/cmux-next/tabs.md) |
+| `pointsPerSecond` | 40 pt/s, at least `minimumScroll` 0.4 s, ease in and out | same |
+| `hold` | 1.2 s at the end, then back with `move`'s timed equivalent | same |
+
+Leaving stops the marquee at once; a title caught mid-scroll springs back
+with `disappear` from its presented position. `normal` scales delay,
+scroll and hold by 1.5; Reduce Motion and `off` never start it.
 
 "normal" multiplies every response and fade duration by 1.5; damping does
 not change. Loops keep their period (they show state, not transitions).
@@ -101,17 +120,11 @@ not change. Loops keep their period (they show state, not transitions).
   interactive spring are under-damped for the same reason.
 - Response 0.15 to 0.22 s. Apple's system defaults (`.smooth` / `.snappy`
   at 0.5 s perceptual duration, NSAnimationContext 0.25 s) suit consumer
-  apps; a tab strip is used hundreds of times an hour. Chrome's tab strip
-  animates bounds with `views::BoundsAnimator`'s default 200 ms ease-out and
-  its title fade in 100 ms ([Chromium tab.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/ui/views/tabs/tab.cc),
-  [analysis of BoundsAnimator's 200 ms default](https://danglingpointer.fun/posts/FasterChromium)).
-  Our `move` ends visibly at 192 ms: Chrome-level length with a spring's
-  continuity (Chrome's linear-time animations restart on interruption; ours
-  retarget). Safari, Finder and Spotlight timings were not measured here
-  (see "Not verified").
-- niri's default horizontal view movement is a spring with stiffness 800
-  and damping ratio 1 (response 0.222 s). `scroll` keeps niri's stiffness and
-  uses 0.9 damping to drop the tail.
+  apps; a tab strip is used hundreds of times an hour. Our `move` ends
+  visibly at 192 ms, with a spring's continuity: an interrupted move
+  retargets instead of restarting.
+- `scroll` is a spring with stiffness 800 (response 0.222 s) and 0.9
+  damping; damping 1 leaves a slow sub-pixel tail.
 - Hover in 0.08 s and focus in 0.1 s: fast enough to read as instant
   feedback, slow enough that sweeping the pointer across tabs does not
   strobe. Press states have no animation.
@@ -143,8 +156,8 @@ rest).
 | Tab group chip hover | CA action 0.14 s | `hover` | 140 ms | 80 ms | - |
 | Tab group editor panel | window fade 0.12 s | `fadeIn` | 120 ms | 120 ms | - |
 | Sidebar show / hide | width constraint animator with a SwiftUI spring(duration 0.30, bounce 0), which constraint animators ignore: it ran AppKit's 0.25 s default (measured 263-272 ms at every speed) | `appear` / `disappear` as timed equivalents (constraint animators take only timed curves) | 250-270 ms measured | 175 / 142 ms | 174 ms show, 150 ms hide |
-| Sidebar row reorder, insert, remove; workspace group collapse | SwiftUI spring(0.32, bounce 0.12) for all rows | moves `move`, inserts `appear`, removals `disappear` | 275 / 458 ms | 192 / 175 / 142 ms visible | move 341 ms, insert 114 ms (AppKit completion) |
-| Sidebar selection pill | CASpring(perceptual 0.26, bounce 0.08); fade 0.16 s | `selection`, `fadeIn` / `fadeOut` | 258 / 342 ms | 142 / 200 ms | 199-211 ms |
+| Sidebar row reorder, insert, remove; workspace group collapse | SwiftUI spring(0.32, bounce 0.12) for all rows | moves, inserts and removals all `move` (cx-bqm6: one spring, inserts open their slot, removals close it) | 275 / 458 ms | 192 / 175 / 142 ms visible | move 341 ms, insert 114 ms (AppKit completion) |
+| Sidebar selection | none: the selected row or item paints selectionFill in place, at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) | - | - | 0 ms | - |
 | Sidebar drag gap | CASpring(0.32, bounce 0.12) | `move` | 275 / 458 ms | 192 / 250 ms | - |
 | Sidebar drag lift / drop | shadow group 0.22 s ease-out; drop spring(0.28, bounce 0.18); refused dim spring 0.26 | `lift`, `settle`, `hover` | 220 / 308 / 258 ms | 120 / 175 / 80 ms | - |
 | Sidebar hover buttons, resize line | 0.14 s ease-out | `hover` | 140 ms | 80 ms | - |
@@ -153,15 +166,16 @@ rest).
 | Palette close | opacity + shrink 0.14 s ease-in | `fadeOut` | 140 ms | 80 ms | 83-92 ms |
 | Palette reopen during close | removed animations, restarted from 0 (jump) | continues from presentation | jump | no jump | - |
 | Palette actions menu | fade 0.14 s | `fadeIn` / `fadeOut` | 140 ms | 120 / 80 ms | - |
-| Palette result changes | instant | instant (unchanged, as Spotlight and Raycast) | 0 | 0 | - |
+| Palette result changes | instant | instant (unchanged) | 0 | 0 | - |
 | Omnibar fill / ring | CATransaction 0.12 s | `hover` | 120 ms | 80 ms | - |
-| Omnibar dropdown | instant show and hide | instant (unchanged, as Chrome) | 0 | 0 | - |
+| Omnibar dropdown | instant show and hide | instant (unchanged) | 0 | 0 | - |
 | Browser find bar, notices | fade in 0.14 s, out 0.12 s, curve (0.2, 0.9, 0.3, 1) | `fadeIn` / `fadeOut` | 140 / 120 ms | 120 / 80 ms | - |
 | Browser toolbar show / hide | constraint 0.2 s, same curve | `appear` / `disappear` (timed equivalent) | 200 ms | 175 / 142 ms | - |
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
-| niri column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
+| strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D), close, move | one frame | one frame (unchanged) | 0 | 0 | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `move`: the new pane grows from the far edge of the pane it split, which shrinks with it, and the divider slides in from that edge (cx-f6i7) | 0 | 192 / 250 ms | - |
+| Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
 | Focus ring and inactive dim | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
@@ -179,8 +193,7 @@ completions) and `layer.<keyPath>.<token>` (Core Animation completions).
 `debug.frames` records display-link frame intervals and `debug.hangs` main
 thread stalls over 50 ms. Tests: `MotionTokenTests` (token ranges, normal,
 off, Reduce Motion), `MotionInterruptionTests` (midway retarget of a spring
-and of layer animations starts from the presented value), tab `SpringTests`
-(pointer follow and release velocity), `AnimationSpeedSettingsTests`.
+and of layer animations starts from the presented value), `AnimationSpeedSettingsTests`.
 
 ### Results (tag nxmot, 2026-09-30, MacBook Pro 120 Hz, fleet-free local build)
 
@@ -232,16 +245,13 @@ point. The palette's scale math assumed a centered anchor, so it pivoted
 on the bottom-left corner and grew in from the left (about 10 pt of
 sideways travel at 0.97). `Motion.scale(_:about:in:)` builds a scale about
 an explicit pivot for any anchor point; every panel scale goes through it.
-The palette now opens like Linear's command menu: `fadeIn` plus an `appear`
+The palette now opens with `fadeIn` plus an `appear`
 spring from 0.97 about its center (visible end 175 ms), and closes with
 `fadeOut` (80 ms) plus a shrink to 0.98. Result changes stay instant. The
 palette keeps a fixed height, so there is no list-height animation yet.
 
 ## Not verified
 
-- Safari, Finder, Chrome and Spotlight timings were not measured on this
-  machine; the Chrome numbers above come from Chromium sources and a
-  published analysis.
 - Visual smoothness (screenshots or video) was not captured: the Computer
   Use tool was unavailable in this session. Evidence is span timing, frame
   intervals and stalls.

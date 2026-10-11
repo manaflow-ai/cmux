@@ -31,12 +31,7 @@ interface AttachedTerminalOptions {
   onError(error: Error): void;
 }
 
-export function useAttachedTerminal({
-  client,
-  surface,
-  focusOnMount = false,
-  onError,
-}: AttachedTerminalOptions) {
+export function useAttachedTerminal({ client, surface, focusOnMount = false, onError }: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -97,11 +92,8 @@ export function useAttachedTerminal({
     const input = terminal.onData((text) => {
       void client.send(surface, { text }).catch(onError);
     });
-    const writeTerminal = (data: string | Uint8Array) =>
-      new Promise<void>((resolve) => terminal.write(data, resolve));
-    const applyColors = async (
-      colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined,
-    ) => {
+    const writeTerminal = (data: string | Uint8Array) => new Promise<void>((resolve) => terminal.write(data, resolve));
+    const applyColors = async (colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined) => {
       const themePatch = colorsToSelectionThemePatch(colors);
       if (themePatch !== null) {
         terminal.options.theme = { ...baseTheme, ...themePatch };
@@ -116,9 +108,7 @@ export function useAttachedTerminal({
       const paletteSequence = colorsToPaletteSequence(colors);
       if (paletteSequence !== null) await writeTerminal(paletteSequence);
     };
-    const applyCursorDefaults = (
-      colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined,
-    ) => {
+    const applyCursorDefaults = (colors: DecodedVtStateEvent["colors"] | ColorsChangedEvent | undefined) => {
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
     };

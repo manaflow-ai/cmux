@@ -1,7 +1,7 @@
 public import AppKit
 public import Foundation
 
-/// Where a page's developer tools show, like Chrome's dock side.
+/// Where a page's developer tools show (the dock side).
 public nonisolated enum BrowserDevToolsDock: String, Hashable, Sendable, CaseIterable {
     /// Below the page, inside the pane.
     case bottom
@@ -18,7 +18,7 @@ public nonisolated enum BrowserDevToolsDock: String, Hashable, Sendable, CaseIte
     public var isSide: Bool { self == .left || self == .right }
 }
 
-/// A developer tools request (Chrome's Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C).
+/// A developer tools request (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C).
 public nonisolated enum BrowserDevToolsCommand: Hashable, Sendable {
     /// Open when closed, close when open (Cmd-Opt-I).
     case toggle

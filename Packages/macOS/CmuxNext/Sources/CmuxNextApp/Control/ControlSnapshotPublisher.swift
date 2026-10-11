@@ -21,6 +21,8 @@ final class ControlSnapshotPublisher {
     private var isScheduled = false
     private var isStopped = false
     private var observers: [any NSObjectProtocol] = []
+    /// Per-workspace control values kept between publishes (cx-9c8m).
+    private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
 
     init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource) {
@@ -30,6 +32,7 @@ final class ControlSnapshotPublisher {
     }
 
     func start() {
+        workspaceInfos.onStale = { [weak self] in self?.modelChanged() }
         // Read-your-writes for local state: a CLI mutation's effect on focus
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
@@ -37,7 +40,7 @@ final class ControlSnapshotPublisher {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.invalidate() }
+                MainActor.assumeIsolated { self?.invalidate() } // main-proof: observer on queue: .main
             })
         }
         publishNow()
@@ -72,8 +75,8 @@ final class ControlSnapshotPublisher {
     func publishNow() {
         guard !isStopped else { return }
         let started = ContinuousClock.now
-        let (topology, settings) = withObservationTracking {
-            (buildTopology(), services.settings?.snapshot.root)
+        let (topology, settings, tabSearch) = withObservationTracking {
+            (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
@@ -81,6 +84,7 @@ final class ControlSnapshotPublisher {
         router.snapshots.publish { snapshot in
             snapshot.topology = topology
             snapshot.settings = settings
+            snapshot.tabSearch = tabSearch
         }
         let elapsed = ContinuousClock.now - started
         if elapsed > .milliseconds(2) {
@@ -88,24 +92,36 @@ final class ControlSnapshotPublisher {
         }
     }
 
-    private func buildTopology() -> ControlTopology {
+    /// The topology of every machine, window and focus as of now (also
+    /// what Search Tabs lists in the palette).
+    static func topology(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
         let windows: WindowManager = services.windows
-        var topology = ControlTopologyMapper.topology(store: services.daemon.store) { [services] pane in
+        var topology = ControlTopologyMapper.topology(store: services.daemon.store, selectedTab: { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
-        }
+        }, pages: services.controlPageFacts, cache: cache)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         // Read inside tracking: every applied batch republishes, so a compat
         // read waiting on its write barrier wakes (CompatWriteBarrier).
         topology.daemonSequence = services.daemon.store.appliedSequence
         let machines = services.machines
-        // Workspaces on Cloud and SSH machines, so their public ids resolve
-        // and the CLI sees every workspace a window lists.
+        // Remote sessions' workspaces, qualified by session (data-model.md 1.3).
+        topology.sessions = ControlSessions.sessions(machines: machines)
         for daemon in machines.remoteDaemons where daemon.store.isLoaded {
+            let session = ControlSessions.key(daemon)
+            topology.sessionSequences[session] = daemon.store.appliedSequence
             topology.workspaces += daemon.store.workspaces.map { model in
-                var info = ControlTopologyMapper.workspace(from: model) { [services] pane in services.paneController(for: pane)?.selectedTab?.id }
+                var info = ControlTopologyMapper.cachedWorkspace(from: model, cache: cache, selectedTab: { [services] pane in
+                    services.paneController(for: pane)?.selectedTab?.id
+                }, pages: services.controlPageFacts)
+                info.sessionID = session
                 info.machine = daemon.machineID
                 return info
             }
+        }
+        // With the local daemon down, the remote sessions' workspaces are the
+        // whole tree: resolve their public ids instead of passing them through.
+        if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
+            topology.isLoaded = true
         }
         topology.windows = windows.controllers.map { controller in
             let members = windows.registry.members(of: controller.state.id)
@@ -127,9 +143,14 @@ final class ControlSnapshotPublisher {
         }
         if let active = windows.active {
             let pane = active.focusedPane
+            // The strip's selected tab: a daemon tab, or an internal page
+            // (Settings, Keyboard Shortcuts) or session browser tab the
+            // daemon does not hold, as debug.focus reports it (nxdog53).
             topology.focus = ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
-                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id)
+                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
         }
+        cache?.retain(services.daemon.store.workspaces
+            + machines.remoteDaemons.filter { $0.store.isLoaded }.flatMap { $0.store.workspaces })
         return topology
     }
 }

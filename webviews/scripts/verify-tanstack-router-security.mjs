@@ -2,26 +2,41 @@ import { readFileSync } from "node:fs";
 
 const expectedDependencyVersion = "1.170.11";
 const expectedLockEntries = new Map([
-  ["@tanstack/history", {
-    version: "1.162.0",
-    integrity: "sha512-79pf/RkhteYZTRgcR4F9kbk84P2N8rugQJswxfIqovlbRiT3yI7eBE+5QorIrZaOKktsgzRlXh1l/du/xpl4iA==",
-  }],
-  ["@tanstack/react-router", {
-    version: "1.170.11",
-    integrity: "sha512-gP2vzdyaI8Ow/Uz/MRPfK2wN09YwRI0Y/oF74Wuy9R3KmjbfJv2tLrkM+Onu1xWklSn3ugZarMPJXRE0kzrJTA==",
-  }],
-  ["@tanstack/react-store", {
-    version: "0.9.3",
-    integrity: "sha512-y2iHd/N9OkoQbFJLUX1T9vbc2O9tjH0pQRgTcx1/Nz4IlwLvkgpuglXUx+mXt0g5ZDFrEeDnONPqkbfxXJKwRg==",
-  }],
-  ["@tanstack/router-core", {
-    version: "1.171.9",
-    integrity: "sha512-QM5ZwLT9c5ZcTJW0QQZRRIBC4qjImUyUCXCVyuYVOF9xr76XLsJSX4F2dOxr9VptAv+W+TkWNOYdX8VaO9kdgA==",
-  }],
-  ["@tanstack/store", {
-    version: "0.9.3",
-    integrity: "sha512-8reSzl/qGWGGVKhBoxXPMWzATSbZLZFWhwBAFO9NAyp0TxzfBP0mIrGb8CP8KrQTmvzXlR/vFPPUrHTLBGyFyw==",
-  }],
+  [
+    "@tanstack/history",
+    {
+      version: "1.162.0",
+      integrity: "sha512-79pf/RkhteYZTRgcR4F9kbk84P2N8rugQJswxfIqovlbRiT3yI7eBE+5QorIrZaOKktsgzRlXh1l/du/xpl4iA==",
+    },
+  ],
+  [
+    "@tanstack/react-router",
+    {
+      version: "1.170.11",
+      integrity: "sha512-gP2vzdyaI8Ow/Uz/MRPfK2wN09YwRI0Y/oF74Wuy9R3KmjbfJv2tLrkM+Onu1xWklSn3ugZarMPJXRE0kzrJTA==",
+    },
+  ],
+  [
+    "@tanstack/react-store",
+    {
+      version: "0.9.3",
+      integrity: "sha512-y2iHd/N9OkoQbFJLUX1T9vbc2O9tjH0pQRgTcx1/Nz4IlwLvkgpuglXUx+mXt0g5ZDFrEeDnONPqkbfxXJKwRg==",
+    },
+  ],
+  [
+    "@tanstack/router-core",
+    {
+      version: "1.171.9",
+      integrity: "sha512-QM5ZwLT9c5ZcTJW0QQZRRIBC4qjImUyUCXCVyuYVOF9xr76XLsJSX4F2dOxr9VptAv+W+TkWNOYdX8VaO9kdgA==",
+    },
+  ],
+  [
+    "@tanstack/store",
+    {
+      version: "0.9.3",
+      integrity: "sha512-8reSzl/qGWGGVKhBoxXPMWzATSbZLZFWhwBAFO9NAyp0TxzfBP0mIrGb8CP8KrQTmvzXlR/vFPPUrHTLBGyFyw==",
+    },
+  ],
 ]);
 
 const compromisedVersions = new Map([
@@ -35,7 +50,9 @@ const lockfile = readFileSync(new URL("../bun.lock", import.meta.url), "utf8");
 
 const dependencyVersion = packageJSON.dependencies?.["@tanstack/react-router"];
 if (dependencyVersion !== expectedDependencyVersion) {
-  fail(`@tanstack/react-router must be exact-pinned to ${expectedDependencyVersion}, found ${dependencyVersion ?? "missing"}`);
+  fail(
+    `@tanstack/react-router must be exact-pinned to ${expectedDependencyVersion}, found ${dependencyVersion ?? "missing"}`,
+  );
 }
 
 const lockEntries = parseTanstackLockEntries(lockfile);

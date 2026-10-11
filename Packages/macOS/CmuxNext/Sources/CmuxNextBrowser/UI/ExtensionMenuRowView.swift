@@ -1,7 +1,8 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
-/// One Extensions menu row, as in Chrome: icon and name (click runs the
+/// One Extensions menu row: icon and name (click runs the
 /// action), a pin toggle and a "more" button. Gray hover fill, no accent.
 final class ExtensionMenuRowView: NSView {
     let extensionID: String
@@ -18,10 +19,10 @@ final class ExtensionMenuRowView: NSView {
         extensionID = info.id
         isPinned = info.isPinned
         pinButton = NSButton(image: NSImage(), target: nil, action: nil)
-        moreButton = NSButton(image: NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil) ?? NSImage(),
+        moreButton = NSButton(image: NSImage.icon(.actionMore, size: 14),
                               target: nil, action: nil)
         super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
-        setAccessibilityIdentifier(ExtensionsMenu.Identifier.row(info.id))
+        setAccessibilityIdentifier(ExtensionsMenu.rowIdentifier(info.id))
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(info.name)
 
@@ -43,9 +44,9 @@ final class ExtensionMenuRowView: NSView {
         }
         pinButton.action = #selector(pin)
         pinButton.isHidden = !canPin
-        pinButton.setAccessibilityIdentifier(ExtensionsMenu.Identifier.pin(info.id))
+        pinButton.setAccessibilityIdentifier(ExtensionsMenu.pinIdentifier(info.id))
         moreButton.action = #selector(more)
-        moreButton.setAccessibilityIdentifier(ExtensionsMenu.Identifier.more(info.id))
+        moreButton.setAccessibilityIdentifier(ExtensionsMenu.moreIdentifier(info.id))
         moreButton.setAccessibilityLabel(String(format: Strings.extensionMoreFormat, info.name))
         updatePin()
 
@@ -88,8 +89,7 @@ final class ExtensionMenuRowView: NSView {
     @objc func more() { onMore?() }
 
     private func updatePin() {
-        let symbol = isPinned ? "pin.fill" : "pin"
-        pinButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        pinButton.image = NSImage.icon(isPinned ? .statePinned : .actionPin, size: 14)
         pinButton.setAccessibilityLabel(isPinned ? Strings.extensionMenuTitle(.unpin) : Strings.extensionMenuTitle(.pin))
         pinButton.toolTip = pinButton.accessibilityLabel()
         pinButton.contentTintColor = isPinned ? .labelColor : .secondaryLabelColor
@@ -119,7 +119,9 @@ final class ExtensionMenuRowView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard isHovering || enclosingMenuItem?.isHighlighted == true else { return }
-        Palette.hoverFill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
+        performWithTheme {
+            Palette.hoverFill.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
+        }
     }
 }

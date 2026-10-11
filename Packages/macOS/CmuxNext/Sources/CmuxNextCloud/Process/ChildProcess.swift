@@ -1,5 +1,5 @@
 package import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
 /// stream of JSON lines. Reading happens on Foundation's pipe threads, never
@@ -88,6 +88,16 @@ package final class ChildProcess: Sendable {
             }
             if let done { waiter.resume(returning: done) }
         }
+    }
+
+    /// SIGTERM to this process only, not its process group: a `remote
+    /// connect` link client still needs its ssh child to send the session's
+    /// close frame, and then ends ssh itself (cx-bj1o). `terminate()` signals
+    /// the whole group, so ssh died first and the remote daemon held the
+    /// session for its resume lease.
+    package func terminateProcessOnly() {
+        guard let pid = state.withLock({ $0.exitStatus == nil ? $0.process?.processIdentifier : nil }), pid > 0 else { return }
+        kill(pid, SIGTERM)
     }
 
     /// SIGTERM; the helpers exit and remove their sockets.

@@ -15,26 +15,42 @@ struct BranchDaemonHarness {
 
     static func start(
         daemonEnvironment: [String: String]? = nil,
-        terminalEnvironment: (@Sendable () async -> [String: String])? = nil
+        terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+        sessionEvents: Bool = false,
+        terminalReapGraceSeconds: UInt32? = nil
     ) async throws -> BranchDaemonHarness {
         let binary = try #require(RealBinary.url)
         let id = UUID().uuidString.prefix(8).lowercased()
         let root = URL(fileURLWithPath: "/tmp/cnd-bd-\(id)")
         let session = "cnd-bd-\(id)"
         let base = ProcessInfo.processInfo.environment
-        let environment = daemonEnvironment ?? LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:])
-        let launcher = DaemonLauncher(
-            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { environment })
+        let environment = daemonEnvironment ?? LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
+        var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
+                                                         stateDirectory: root.appendingPathComponent("state"))
+        if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
+        let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
         let connection = DaemonConnection(
-            configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironment),
+            configuration: Self.configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
             endpointProvider: launcher.endpointProvider)
         let identity = try await connection.start()
         let store = await DaemonStore()
         let storeTask = Task { await store.run(connection: connection) }
         return BranchDaemonHarness(root: root, session: session, endpoint: ensured.endpoint, identity: identity,
                                    connection: connection, store: store, storeTask: storeTask)
+    }
+
+    /// The live daemon's connection without client deadlines: each request
+    /// waits for the daemon's own reply, and create-terminal answers once its
+    /// host is up (the event these suites need). A loaded host (32 suite
+    /// processes) missed the product's 5 s terminal start bound in three
+    /// suites of one shard at once, and a longer bound only moves that line.
+    /// These suites do not test the deadlines (DeadlineTests does); a hang
+    /// stops at each suite's `.timeLimit`.
+    static func configuration(terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+                              sessionEvents: Bool = false) -> DaemonConnection.Configuration {
+        DaemonConnection.Configuration(requestTimeout: nil, snapshotTimeout: nil,
+                                       terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents)
     }
 
     func stop() async {
@@ -51,7 +67,7 @@ struct BranchDaemonHarness {
     static func shutDown(_ connection: DaemonConnection) async {
         guard let identity = await connection.identity else { return await connection.close() }
         let hosts = TerminalHosts.of(daemon: identity.pid)
-        if identity.supports(DaemonCapabilities.terminalReap) {
+        if identity.supports(DaemonCapabilities.shared.terminalReap) {
             // Stop reconnecting first: on the daemon's EOF the connection
             // would run `server ensure` and start a fresh daemon that outlives
             // the test. The end-terminals shutdown uses its own socket.
@@ -82,9 +98,12 @@ struct BranchDaemonHarness {
     static func with(
         daemonEnvironment: [String: String]? = nil,
         terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+        sessionEvents: Bool = false,
+        terminalReapGraceSeconds: UInt32? = nil,
         _ body: (BranchDaemonHarness) async throws -> Void
     ) async throws {
-        let harness = try await start(daemonEnvironment: daemonEnvironment, terminalEnvironment: terminalEnvironment)
+        let harness = try await start(daemonEnvironment: daemonEnvironment, terminalEnvironment: terminalEnvironment,
+                                      sessionEvents: sessionEvents, terminalReapGraceSeconds: terminalReapGraceSeconds)
         do {
             try await body(harness)
         } catch {

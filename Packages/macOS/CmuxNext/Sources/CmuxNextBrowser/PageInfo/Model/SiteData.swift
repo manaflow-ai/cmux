@@ -18,8 +18,8 @@ public nonisolated struct SiteDataEntry: Hashable, Sendable, Identifiable {
     }
 }
 
-/// How the engine treats third-party cookies. Chrome shows the cookies
-/// subpage's third-party section only when they are blocked.
+/// How the engine treats third-party cookies. The cookies subpage shows its
+/// third-party section only when they are blocked.
 public nonisolated enum ThirdPartyCookiePolicy: Hashable, Sendable {
     case allowed
     /// Blocked by the engine, not changeable per site (WebKit ITP).
@@ -37,7 +37,6 @@ public nonisolated struct SiteDataSummary: Hashable, Sendable {
     }
 
     public var firstPartyCookies: Int { entries.filter { !$0.isThirdParty }.reduce(0) { $0 + $1.cookieCount } }
-    public var thirdPartySites: [SiteDataEntry] { entries.filter(\.isThirdParty) }
     public var siteCount: Int { entries.count }
 
     /// Groups cookie domains (".cdn.example.com", "example.com") into sites

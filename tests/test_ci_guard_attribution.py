@@ -321,6 +321,12 @@ class Comments(unittest.TestCase):
         self.assertIn("### `Validate fork runner routing`", body)
         self.assertIn("passes on `abc`", ga.render_pr_comment({"state": "green", "sha": "abc", "run_url": "u"}))
 
+    def test_a_green_fast_guard_comment_does_not_read_as_green_ci(self) -> None:
+        # #17074: "`CI fast guards` passes" was the only bot comment while its app-host tests were red.
+        body = ga.render_pr_comment({"state": "green", "sha": "abc", "run_url": "u"})
+        self.assertIn("covers only the fast guards, not CI", body)
+        self.assertIn("`ci-status`", body)
+
 
 class Robustness(unittest.TestCase):
     def test_an_older_checkout_the_runner_cannot_plan_counts_as_unknown(self) -> None:

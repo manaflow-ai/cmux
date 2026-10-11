@@ -9,6 +9,7 @@ public struct LayoutHandleMap: Sendable, Equatable {
     public var paneIDs: [DaemonPaneID: LayoutPaneID] = [:]
     public var splits: [LayoutSplitID: DaemonSplitID] = [:]
     public var columns: [LayoutColumnID: DaemonColumnID] = [:]
+    public var rows: [LayoutRowID: DaemonRowID] = [:]
     public var screens: [LayoutScreenID: DaemonScreenID] = [:]
 
     public init() {}
@@ -27,5 +28,9 @@ public struct LayoutHandleMap: Sendable, Equatable {
 
     static func columnID(_ handle: DaemonColumnID) -> LayoutColumnID {
         LayoutColumnID("column:\(handle.rawValue)")
+    }
+
+    static func rowID(_ handle: DaemonRowID) -> LayoutRowID {
+        LayoutRowID("row:\(handle.rawValue)")
     }
 }

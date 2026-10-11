@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 import CoreFoundation
 import Foundation
+import os
 
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
 /// (`OnScheduleMessagePumpWork`), from one timer on the main run loop in
@@ -60,6 +61,7 @@ final class CEFMessagePump {
     func request(milliseconds: Int64) {
         guard isRunning else { return }
         if milliseconds <= 0 { stats.immediateRequests += 1 } else { stats.delayedRequests += 1 }
+        pumpMark("pump-req-\(min(milliseconds, 9_999))")
         schedule.request(milliseconds: milliseconds, now: clock())
         rearm()
     }
@@ -93,7 +95,9 @@ final class CEFMessagePump {
             return
         }
         rearm()
+        pumpMark("pump-start")
         work()
+        pumpMark("pump-end")
         let finished = clock()
         let elapsed = finished - started
         stats.workRuns += 1
@@ -121,7 +125,7 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
     guard let context else { return }
     let address = UInt(bitPattern: context)
     let deliver: @Sendable () -> Void = {
-        MainActor.assumeIsolated {
+        MainActor.assumeIsolated { // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
             CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds)
         }
     }
@@ -131,4 +135,12 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
+}
+
+/// Tab switch timeline marks (cx-asb1): each pump pass and CEF request with
+/// wall-clock ms. Debug level: nothing is formatted or written unless a
+/// `log stream --level debug` reads category "tab-switch".
+private let pumpLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func pumpMark(_ name: @escaping @autoclosure () -> String) {
+    pumpLog.debug("tab-switch \(name(), privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

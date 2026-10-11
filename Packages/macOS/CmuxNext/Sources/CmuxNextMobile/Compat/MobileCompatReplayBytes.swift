@@ -5,7 +5,9 @@ import Foundation
 /// Ghostty surface. The replay is Ghostty's complete VT export (screen,
 /// scrollback, modes), so unlike the old Mac's byte tail it needs no grid.
 /// Default colors and cursor shape travel beside the replay (`vt-state.colors`),
-/// so they are re-applied here: OSC 10/11/12 before, DECSCUSR after.
+/// so they are re-applied here: OSC 10/11/12 before, DECSCUSR after. The
+/// unfinished sequence the replay ended in (`pending`) goes last, so the
+/// phone's next live chunk completes it.
 enum MobileCompatReplayBytes {
     /// What the phone itself prepends to a snapshot (`terminalSnapshotReplacementBytes`).
     static let resetPrefix = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
@@ -23,6 +25,7 @@ enum MobileCompatReplayBytes {
         if let colors = replay.colors, let shape = cursorShape(colors.cursorStyle, blink: colors.cursorBlink ?? false) {
             bytes.append(Data("\u{1B}[\(shape) q".utf8))
         }
+        bytes.append(replay.pending)
         return bytes
     }
 

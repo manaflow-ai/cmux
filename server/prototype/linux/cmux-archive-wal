@@ -1,0 +1,19 @@
+#!/bin/sh
+# cmux-archive-wal <dest-dir> <%p> <%f>
+# PROTOTYPE stand-in for `cmux server db archive-wal %p %f` (server.md 8.4):
+# copy the segment, fsync it, rename it into place, fsync the directory.
+# Refuses to overwrite a different segment with the same name.
+set -eu
+dest=$1
+src=$2
+name=$3
+case "$name" in */* | .* | '') echo "cmux-archive-wal: bad segment name: $name" >&2; exit 1 ;; esac
+if [ -e "$dest/$name" ]; then
+  cmp -s "$src" "$dest/$name" && exit 0
+  echo "cmux-archive-wal: $name exists with different content" >&2
+  exit 1
+fi
+cp "$src" "$dest/.$name.tmp"
+sync "$dest/.$name.tmp"
+mv "$dest/.$name.tmp" "$dest/$name"
+sync "$dest"

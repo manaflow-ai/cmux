@@ -11,7 +11,8 @@ extension TabStripView {
         guard let chip = motion[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
         groups.holdTask?.cancel()
         let members = displayed.filter { $0.groupID == group }.map(\.id)
-        let contentX = convert(press.start, to: tabsClip).x + scroll.value
+        let local = convert(press.start, to: tabsClip)
+        let contentX = local.x + scroll.value
         groups.drag = TabStripGroupState.Drag(
             groupID: group,
             memberIDs: members,
@@ -19,14 +20,15 @@ extension TabStripView {
             originalTabIndex: first,
             currentTabIndex: first,
             blockX: chip.x.value,
-            lastPoint: press.start
+            lastPoint: press.start,
+            grabY: local.y
         )
         groups.press = nil
         groups.chips[group]?.isPressed = false
         setLifted(group, true)
         setHovered(nil)
         setHoveredChip(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         installEscapeMonitor()
         updateSeparators()
     }
@@ -38,7 +40,7 @@ extension TabStripView {
 
     func updateGroupDrag(at point: CGPoint, event: NSEvent?) {
         guard var drag = groups.drag else { return }
-        if let event, point.y < -metrics.tearOffDistance || point.y > bounds.height + metrics.tearOffDistance {
+        if let event, isPastTearOff(point) {
             handOffGroupDrag(event: event)
             return
         }
@@ -113,7 +115,10 @@ extension TabStripView {
             tabIDs: drag.memberIDs,
             stripID: model.stripID,
             screenFrame: screenFrame,
-            grabOffset: CGPoint(x: pointer.x - screenFrame.minX, y: pointer.y - screenFrame.minY),
+            // The point pressed at mouse-down, not the pointer's offset now
+            // (the tear-off distance away), as for a single tab.
+            grabOffset: DragGrabPoint.screenOffset(of: CGPoint(x: frame.minX + drag.grabOffset, y: drag.grabY), in: frame,
+                                                   flipped: tabsClip.isFlipped),
             screenPoint: pointer,
             snapshot: snapshot(of: layers, frame: frame)
         )

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextDesign
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
 /// registry context). `FocusEffectApplier` in the app; a recorder in tests.
@@ -15,6 +17,8 @@ protocol FocusEffectApplying: AnyObject {
 /// reports caused by the applier's own `makeFirstResponder` are dropped.
 final class FocusCoordinator {
     private(set) var state = FocusState()
+    /// The close-focus setting (tests inject one).
+    var closeFocus: () -> CloseFocusPolicy = { DesignSettings.shared.closeFocus }
     weak var applier: (any FocusEffectApplying)?
     private var queue: [FocusEvent] = []
     private var isRunning = false
@@ -30,6 +34,9 @@ final class FocusCoordinator {
         case reduced(FocusEvent, before: FocusState, after: FocusState)
         /// A responder report dropped as the echo of the applier's own change.
         case suppressedResponder(FocusEvent.Responder)
+        /// A focus or selection change dropped: the action run sending it
+        /// may not change this client's view (`ActionRunScope.viewChangeAllowed()`).
+        case refusedByRun(FocusEvent)
     }
 
     /// Called after every reduction, before its effects run.
@@ -38,12 +45,23 @@ final class FocusCoordinator {
     var settledObserver: ((FocusState) -> Void)?
 
     func send(_ event: FocusEvent) {
+        // An action run that may not change this client's view (a CLI,
+        // script, agent or remote run without `focus: true`) never moves
+        // focus or selection, nor bumps the intent generation, which would
+        // void the user's own pending expectation (OWNERSHIP-PRINCIPLES.md).
+        if event.changesView, !ActionRunScope.viewChangeAllowed() {
+            observer?(.refusedByRun(event))
+            return
+        }
         queue.append(event)
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
         while !queue.isEmpty {
             let event = queue.removeFirst()
+            // `layout.closeFocus` is read per event: a settings change
+            // applies to the next close.
+            if state.closeFocus != closeFocus() { state.closeFocus = closeFocus() }
             let previous = state
             let (next, effects) = FocusReducer.reduce(previous, event)
             state = next

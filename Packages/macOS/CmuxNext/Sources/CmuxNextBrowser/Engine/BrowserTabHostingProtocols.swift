@@ -46,8 +46,8 @@ extension BrowserExtensionActionHosting {
 }
 
 
-/// Tabs whose engine reports a hung page and lets the user choose (Chrome's
-/// "Page unresponsive": Wait or Exit page).
+/// Tabs whose engine reports a hung page and lets the user choose ("Page
+/// unresponsive": Wait or Exit page).
 public protocol BrowserHangAnswering: AnyObject {
     /// `terminate` false waits (the engine restarts its hang timer); true
     /// ends the page's process, which shows the sad tab.

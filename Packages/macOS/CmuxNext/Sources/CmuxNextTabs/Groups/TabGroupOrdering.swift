@@ -1,8 +1,12 @@
+public import CmuxNextDesign
 public import CoreGraphics
 
-/// Pure ordering rules for groups: pinned tabs first and never grouped,
-/// group members contiguous, one chip before each group's members.
-public enum TabGroupOrdering {
+/// Pure rules for groups, shared by every strip that groups items (pane
+/// tab strips and the screen bar): pinned items first and never grouped,
+/// group members contiguous, one chip before each group's members, the
+/// selection leaving a collapsing group, and the color a new group gets.
+public struct TabGroupOrdering {
+    public init() {}
     /// Pinned tabs first (group cleared), then unpinned tabs in order with
     /// each group's members moved up to its first member. Tabs that name a
     /// group not in `groups` become ungrouped.
@@ -59,7 +63,32 @@ public enum TabGroupOrdering {
         return items
     }
 
-    /// Chrome's rule when a group collapses over the selection: select the
+    /// The item to select before `group` collapses over `selected`, for
+    /// callers that cannot open a new item: the nearest visible item
+    /// (`selectionAfterCollapsing`), else the first item outside the group
+    /// (selecting it expands its own collapsed group, so the selection stays
+    /// visible). Nil when nothing needs to change or every item is in `group`.
+    public static func selectionBeforeCollapsing(
+        _ group: TabGroupID,
+        in ordered: [TabItem],
+        collapsed: Set<TabGroupID>,
+        selected: TabID?
+    ) -> TabID? {
+        guard let selected, ordered.first(where: { $0.id == selected })?.groupID == group else { return nil }
+        return selectionAfterCollapsing(group, in: ordered, collapsed: collapsed, selected: selected)
+            ?? ordered.first { $0.groupID != group }?.id
+    }
+
+    /// The color a new group gets: the first of the nine group colors no
+    /// group in the same strip uses yet, skipping blue (no blue in
+    /// what cmux picks itself; a user may still choose it); grey when every
+    /// color is taken.
+    public static func nextColor(used: some Sequence<GroupColor>) -> GroupColor {
+        let taken = Set(used)
+        return GroupColor.allCases.first { $0 != .blue && !taken.contains($0) } ?? .grey
+    }
+
+    /// When a group collapses over the selection: select the
     /// nearest tab to the right outside the group, else to the left. Nil
     /// when every visible tab is in the group (the caller opens a new tab).
     public static func selectionAfterCollapsing(

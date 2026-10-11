@@ -370,7 +370,10 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 
 
 # Workflows whose queued macOS jobs a pull request must not take a pool from.
-RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+# Match the workflow path only.  CI run names include routing metadata such as
+# ``release=arm64``; looking at the combined name and path made every ordinary
+# pull-request run look like a release reservation.
+RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -457,6 +460,22 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
+def marker_may_exist(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether an owned-pool marker can exist yet, so listing the run's artifacts could find one.
+
+    One of the run's own jobs uploads the marker (ci.yml's `changes`, the
+    runner job of the dispatch workflows). A first attempt whose jobs have
+    not left the queue has therefore uploaded nothing. A later attempt may
+    hold an earlier attempt's marker (owned_marker()), and a listing cut off
+    at MAX_JOB_PAGES may hide a started job, so both are still listed. Queued
+    pull request runs make up much of a backed-up sweep, and each skipped
+    listing saves one API request per sweep.
+    """
+    if (run.get("run_attempt") or 1) > 1 or len(jobs) >= MAX_JOB_PAGES * 100:
+        return True
+    return any(job.get("status") not in QUEUED_JOB_STATUSES for job in jobs)
+
+
 def pool_load_snapshot(
     runs: Sequence[Mapping[str, Any]],
     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
@@ -499,7 +518,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
@@ -1159,12 +1178,62 @@ def build_orphan_plan(
     return decisions
 
 
+def _cancel_refused(error: RuntimeError) -> bool:
+    """Whether GitHub rejected a cancellation because the run cannot be cancelled."""
+    return "(409)" in str(error)
+
+
 def _force_cancel(github: "GitHub", orphan: Orphan, why: str) -> str:
     try:
         github.force_cancel(orphan.run["id"])
     except RuntimeError as error:
         return f"stuck: GitHub refused cancel and force-cancel ({why}; {error})"
     return f"force-cancelled ({why})"
+
+
+def cancel_plan(
+    github: "GitHub",
+    candidates: Sequence[Candidate],
+) -> tuple[dict[int, str], int]:
+    """Cancel planned runs, treating GitHub's uncancellable-run race as benign."""
+    results: dict[int, str] = {}
+    failures = 0
+    for candidate in candidates:
+        run_id = candidate.run["id"]
+        try:
+            # The inventory is seconds old; drop anything that finished or
+            # moved to a new head in between.
+            current = github.run(run_id)
+            if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                results[run_id] = f"skipped (now {current.get('status')})"
+                continue
+            if current.get("head_sha") != candidate.run.get("head_sha"):
+                results[run_id] = "skipped (head changed)"
+                continue
+        except RuntimeError as error:
+            failures += 1
+            results[run_id] = f"failed: {error}"
+            continue
+        try:
+            github.cancel(run_id)
+            results[run_id] = "cancelled"
+        except RuntimeError as error:
+            if not _cancel_refused(error):
+                failures += 1
+                results[run_id] = f"failed: {error}"
+                continue
+            try:
+                github.force_cancel(run_id)
+            except RuntimeError as force_error:
+                if not _cancel_refused(force_error):
+                    failures += 1
+                    results[run_id] = f"failed: {force_error}"
+                else:
+                    results[run_id] = (f"stuck: GitHub refused cancel and force-cancel "
+                                       f"(cancel refused: {error}; {force_error})")
+            else:
+                results[run_id] = f"force-cancelled (cancel refused: {error})"
+    return results, failures
 
 
 def cancel_orphans(
@@ -1273,10 +1342,61 @@ def render_orphan_summary(
 # ---------------------------------------------------------------------------
 
 
+RATE_LIMIT_HEADERS = {
+    "limit": "X-RateLimit-Limit",
+    "remaining": "X-RateLimit-Remaining",
+    "used": "X-RateLimit-Used",
+    "reset": "X-RateLimit-Reset",
+}
+
+
+def read_rate_limit(headers: Any) -> tuple[str, dict[str, int]] | None:
+    """(resource, {limit, remaining, used, reset}) from a response's rate limit headers, or None.
+
+    Every workflow in the repository spends the same GITHUB_TOKEN
+    installation budget. On 2026-10-06 that budget ran out, and the required
+    CLA and migration checks failed on every pull request.
+    """
+    if headers is None:
+        return None
+    values: dict[str, int] = {}
+    for key, name in RATE_LIMIT_HEADERS.items():
+        raw = headers.get(name)
+        if raw is None:
+            continue
+        try:
+            values[key] = int(raw)
+        except (TypeError, ValueError):
+            continue
+    if "remaining" not in values:
+        return None
+    return str(headers.get("X-RateLimit-Resource") or "core"), values
+
+
+def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
+    """The API budget left after the sweep's last request, per resource, to measure what sweeps cost."""
+    if not limits:
+        return "GitHub API budget: no rate limit headers seen."
+    parts = []
+    for resource, values in sorted(limits.items()):
+        text = f"{resource} {values['remaining']}"
+        if "limit" in values:
+            text += f" of {values['limit']}"
+        text += " left"
+        if "used" in values:
+            text += f", {values['used']} used"
+        if "reset" in values:
+            text += f", resets {dt.datetime.fromtimestamp(values['reset'], UTC).strftime('%H:%M:%SZ')}"
+        parts.append(text)
+    return "GitHub API budget after this sweep's last request: " + "; ".join(parts) + "."
+
+
 class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
         self.calls = 0
+        # Rate limit resource ("core", "graphql") -> the newest response's values.
+        self.rate_limits: dict[str, dict[str, int]] = {}
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -1293,12 +1413,19 @@ class GitHub:
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
+                self.note_rate_limit(response.headers)
                 raw = response.read()
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
+            self.note_rate_limit(error.headers)
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+
+    def note_rate_limit(self, headers: Any) -> None:
+        found = read_rate_limit(headers)
+        if found:
+            self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
         runs: dict[int, dict[str, Any]] = {}
@@ -1426,6 +1553,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
+        print(render_rate_limits(github.rate_limits), file=sys.stderr)
         return 1
 
     if args.pool_load:
@@ -1438,7 +1566,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
             for run in runs:
-                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
+                jobs = jobs_by_run.get(run.get("id"))
+                if jobs is not None and may_hold_owned_pool(run, jobs) and marker_may_exist(run, jobs):
                     try:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")
@@ -1472,23 +1601,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
-        for candidate in plan.to_cancel():
-            run_id = candidate.run["id"]
-            try:
-                # The inventory is seconds old; drop anything that finished or
-                # moved to a new head in between.
-                current = github.run(run_id)
-                if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
-                    results[run_id] = f"skipped (now {current.get('status')})"
-                    continue
-                if current.get("head_sha") != candidate.run.get("head_sha"):
-                    results[run_id] = "skipped (head changed)"
-                    continue
-                github.cancel(run_id)
-                results[run_id] = "cancelled"
-            except RuntimeError as error:
-                failures += 1
-                results[run_id] = f"failed: {error}"
+        results, failures = cancel_plan(github, plan.to_cancel())
 
     orphan_decisions = build_orphan_plan(
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
@@ -1504,6 +1617,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                      results=orphan_results)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {github.calls} API calls._\n"
+    summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     print(summary)
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:

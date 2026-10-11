@@ -109,6 +109,9 @@ Journal producers use `Session::journal_producers`,
 generic and do not require agent-specific core code. The longer
 `put_journal_producer_manifest` and `append_journal_event` spellings remain
 source-compatible aliases.
+`Error::error_code` returns a failure's machine-readable code: the raw
+response's `error_code` (kept with `error_details` on `Error::Command`) or the
+protocol/2 error's `code`.
 The optional `cmux-sidebar` package applies terminal-style render patches to a
 Ratatui buffer and forwards typed input without adding Ratatui to the base SDK.
 Private models live under `cmux::raw`.

@@ -2,7 +2,7 @@ public import CmuxNextActions
 
 /// The searchable text and ranking inputs of one item. Sendable, so an
 /// index can be built and searched off the main actor.
-nonisolated public struct PaletteSearchEntry: Sendable {
+nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     public var title: String
     public var keywords: [String]
     public var subtitle: String?
@@ -11,8 +11,28 @@ nonisolated public struct PaletteSearchEntry: Sendable {
     public var frecencyKey: String?
     public var isEnabled: Bool
     public var isVisibleWhenQueryEmpty: Bool
+    /// Matches only a query with this prefix (`PaletteItem.queryPrefix`).
+    public var queryPrefix: String?
+    /// Shows for an empty query only (`PaletteItem.hidesWhenTyping`).
+    public var hidesWhenTyping = false
+    /// The row enters a scope (`PaletteItem.enters`): a keyword equal to the query ranks it right
+    /// after whole-title matches.
+    public var entersScope = false
     /// Index into the page's section table.
     public var sectionIndex: Int
+    /// The section table index used while typing (`PalettePageSpec.mergesSectionsWhenTyping`), nil for `sectionIndex`.
+    public var typingSectionIndex: Int?
+    /// The registry action id: a query that is the id, or starts it, finds the row
+    /// (`PaletteItem.actionID`). Not a keyword, so ids never match ordinary words.
+    public var actionID: String?
+    /// `PaletteItem.isDemoted`.
+    public var demoted = false
+    /// The row has a keyboard shortcut (`PaletteItem.keycaps`): a core command,
+    /// ranked first among equal matches.
+    public var hasShortcut = false
+    /// `PaletteItem.suggestedRank`, and the Suggested section's index in the page's table.
+    public var suggestedRank: Int?
+    public var suggestedSectionIndex: Int?
 
     public init(
         title: String,
@@ -23,6 +43,7 @@ nonisolated public struct PaletteSearchEntry: Sendable {
         frecencyKey: String? = nil,
         isEnabled: Bool = true,
         isVisibleWhenQueryEmpty: Bool = true,
+        queryPrefix: String? = nil,
         sectionIndex: Int = 0
     ) {
         self.title = title
@@ -33,63 +54,22 @@ nonisolated public struct PaletteSearchEntry: Sendable {
         self.frecencyKey = frecencyKey
         self.isEnabled = isEnabled
         self.isVisibleWhenQueryEmpty = isVisibleWhenQueryEmpty
+        self.queryPrefix = queryPrefix
         self.sectionIndex = sectionIndex
     }
 }
 
-/// Prepared search candidates for one page: a flat fuzzy corpus plus the
-/// ranking inputs. A value type, so the main actor hands a snapshot to the
-/// searcher and never shares mutable state. A query that extends the
-/// previous one (typing another character) scans only the previous matches.
+/// The search candidates of one page, as the shared TypeScript ranker
+/// (`PaletteRankerBridge`) takes them. A value type, so the main actor hands
+/// a snapshot to the searcher and never shares mutable state.
 nonisolated public struct PaletteSearchIndex: Sendable {
     public let entries: [PaletteSearchEntry]
-    private let corpus: FuzzyCorpus
-    private var cache: (query: FuzzyQuery, matches: [Int])?
-
-    /// Field weights in percent.
-    static let titleWeight: Int32 = 100
-    static let keywordWeight: Int32 = 80
-    static let subtitleWeight: Int32 = 65
-    static let accessoryWeight: Int32 = 50
 
     public init(entries: [PaletteSearchEntry]) {
         self.entries = entries
-        var corpus = FuzzyCorpus()
-        for entry in entries {
-            var fields = [FuzzyField(FuzzyText(entry.title), weight: Self.titleWeight)]
-            if !entry.keywords.isEmpty {
-                fields.append(FuzzyField(FuzzyText(entry.keywords.joined(separator: " ")), weight: Self.keywordWeight))
-            }
-            if let subtitle = entry.subtitle, !subtitle.isEmpty {
-                fields.append(FuzzyField(FuzzyText(subtitle), weight: Self.subtitleWeight))
-            }
-            if let accessory = entry.accessory, !accessory.isEmpty {
-                fields.append(FuzzyField(FuzzyText(accessory), weight: Self.accessoryWeight))
-            }
-            corpus.append(fields)
-        }
-        self.corpus = corpus
     }
 
     public var count: Int { entries.count }
-
-    /// Indices and raw match scores (before frecency and bias) for `query`,
-    /// in entry order.
-    public mutating func matches(for query: FuzzyQuery) -> [(index: Int, score: Int)] {
-        let result: [(index: Int, score: Int)]
-        if let cache, query.refines(cache.query) {
-            result = corpus.matches(query, in: cache.matches)
-        } else {
-            result = corpus.matches(query, in: entries.indices)
-        }
-        cache = (query, result.map(\.index))
-        return result
-    }
-
-    /// Title positions to emphasize for `query`.
-    public func highlights(for index: Int, query: FuzzyQuery) -> [Int] {
-        corpus.matchedPositions(query, candidate: index)
-    }
 }
 
 extension PaletteSearchIndex {
@@ -121,7 +101,14 @@ extension PaletteSearchEntry {
             frecencyKey: item.frecencyKey,
             isEnabled: item.isEnabled,
             isVisibleWhenQueryEmpty: visible,
+            queryPrefix: item.queryPrefix,
             sectionIndex: sectionIndex
         )
+        hidesWhenTyping = item.hidesWhenTyping
+        entersScope = item.enters != nil
+        actionID = item.actionID?.rawValue
+        demoted = item.isDemoted
+        hasShortcut = !(item.keycaps ?? []).isEmpty
+        suggestedRank = item.suggestedRank
     }
 }

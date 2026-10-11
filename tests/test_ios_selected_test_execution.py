@@ -8,7 +8,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GUARD = REPO_ROOT / "scripts" / "ci" / "require_selected_test_execution.sh"
-IOS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "test-ios.yml"
 
 
 class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
@@ -23,17 +22,6 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
                 capture_output=True,
                 check=False,
             )
-
-    def test_workflow_documents_fully_qualified_ui_test_filter(self) -> None:
-        workflow = IOS_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn(
-            "cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell",
-            workflow,
-        )
-        self.assertNotIn(
-            "for example cmuxUITests/testSignInPairingAndWorkspaceShell",
-            workflow,
-        )
 
     def test_accepts_xctest_singular_and_plural_nonzero_counts(self) -> None:
         for summary in (

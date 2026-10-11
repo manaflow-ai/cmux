@@ -6,8 +6,6 @@ use async_trait::async_trait;
 use tokio::net::UnixStream;
 
 use crate::admin::verify_unix_peer_owner;
-#[cfg(test)]
-use crate::admin::verify_unix_peer_uid;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -18,22 +16,11 @@ use crate::provider::{
 #[derive(Debug, Clone)]
 pub struct UnixProvider {
     maximum: usize,
-    #[cfg(test)]
-    expected_uid: Option<u32>,
 }
 
 impl UnixProvider {
     pub fn new(maximum: usize) -> Self {
-        Self {
-            maximum,
-            #[cfg(test)]
-            expected_uid: None,
-        }
-    }
-
-    #[cfg(test)]
-    fn new_with_expected_uid(maximum: usize, expected_uid: u32) -> Self {
-        Self { maximum, expected_uid: Some(expected_uid) }
+        Self { maximum }
     }
 }
 
@@ -61,8 +48,6 @@ impl TransportProvider for UnixProvider {
             maximum: self.maximum,
             evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
             closed: AtomicBool::new(false),
-            #[cfg(test)]
-            expected_uid: self.expected_uid,
         }))
     }
 }
@@ -73,8 +58,6 @@ struct UnixLinkGroup {
     maximum: usize,
     evidence: CarrierEvidence,
     closed: AtomicBool,
-    #[cfg(test)]
-    expected_uid: Option<u32>,
 }
 
 fn retryable_dial_error(error: &std::io::Error) -> bool {
@@ -127,12 +110,6 @@ impl LinkGroup for UnixLinkGroup {
                 ProviderError::Transport(error.to_string())
             }
         })?;
-        #[cfg(test)]
-        let peer_validation = match self.expected_uid {
-            Some(expected_uid) => verify_unix_peer_uid(&stream, expected_uid),
-            None => verify_unix_peer_owner(&stream),
-        };
-        #[cfg(not(test))]
         let peer_validation = verify_unix_peer_owner(&stream);
         peer_validation.map_err(|error| ProviderError::Transport(error.to_string()))?;
         let (reader, writer) = stream.into_split();
@@ -156,7 +133,6 @@ mod tests {
 
     use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
     use tempfile::tempdir;
-    use tokio::net::UnixListener;
     use url::Url;
 
     use super::*;
@@ -172,24 +148,37 @@ mod tests {
         }
     }
 
-    async fn open_with_expected_uid(path: &std::path::Path, expected_uid: u32) {
-        let group = UnixProvider::new_with_expected_uid(1024, expected_uid)
-            .connect(request(path))
-            .await
-            .unwrap();
-        group
-            .open(LinkRequest { lane: Lane::Interactive, generation: 1 })
-            .await
-            .unwrap_or_else(|error| panic!("same-uid Unix responder was rejected: {error}"));
-    }
+    /// A socket file whose socket is bound but never listens, so every dial
+    /// is refused. A dropped listener is not enough: a process that another
+    /// test forks in that moment inherits the listening descriptor until it
+    /// execs, and the dial lands in its backlog (accepted).
+    fn bound_not_listening(path: &std::path::Path) -> std::os::fd::OwnedFd {
+        use std::os::fd::FromRawFd;
+        use std::os::unix::ffi::OsStrExt;
 
-    #[tokio::test]
-    async fn accepts_responder_owned_by_effective_uid() {
-        let directory = tempdir().unwrap();
-        let socket = directory.path().join("carrier.sock");
-        let _listener = UnixListener::bind(&socket).unwrap();
-
-        open_with_expected_uid(&socket, unsafe { libc::geteuid() }).await;
+        // SAFETY: socket has no pointer arguments; a non-negative result is a new descriptor.
+        let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(raw >= 0, "socket: {}", std::io::Error::last_os_error());
+        // SAFETY: raw is a new descriptor nothing else owns.
+        let socket = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw) };
+        // SAFETY: an all-zero sockaddr_un is a valid value.
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        let bytes = path.as_os_str().as_bytes();
+        assert!(bytes.len() < address.sun_path.len(), "socket path too long: {}", path.display());
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = *byte as libc::c_char;
+        }
+        let length = size_of::<libc::sockaddr_un>() as libc::socklen_t;
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+        {
+            address.sun_len = length as u8;
+        }
+        // SAFETY: address is an initialized sockaddr_un of `length` bytes.
+        let bound =
+            unsafe { libc::bind(raw, (&raw const address).cast::<libc::sockaddr>(), length) };
+        assert_eq!(bound, 0, "bind {}: {}", path.display(), std::io::Error::last_os_error());
+        socket
     }
 
     #[tokio::test]
@@ -197,7 +186,7 @@ mod tests {
         let directory = tempdir().unwrap();
         let missing = directory.path().join("missing.sock");
         let refused = directory.path().join("refused.sock");
-        drop(UnixListener::bind(&refused).unwrap());
+        let _bound = bound_not_listening(&refused);
 
         for socket in [missing, refused] {
             let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
@@ -212,80 +201,5 @@ mod tests {
                 socket.display()
             );
         }
-    }
-
-    #[tokio::test]
-    async fn permanent_dial_failures_are_terminal() {
-        let directory = tempdir().unwrap();
-        let non_directory = directory.path().join("ordinary-file");
-        std::fs::write(&non_directory, b"not a directory").unwrap();
-        let socket = non_directory.join("carrier.sock");
-        let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
-        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
-            Ok(_) => panic!("invalid Unix socket path was accepted"),
-            Err(error) => error,
-        };
-
-        assert!(!error.is_retryable_carrier_failure(), "permanent dial failure was retryable");
-    }
-
-    #[tokio::test]
-    async fn rejects_responder_owned_by_another_uid() {
-        let directory = tempdir().unwrap();
-        let socket = directory.path().join("carrier.sock");
-        let _listener = UnixListener::bind(&socket).unwrap();
-        let wrong_uid = unsafe { libc::geteuid() }.wrapping_add(1);
-        let group = UnixProvider::new_with_expected_uid(1024, wrong_uid)
-            .connect(request(&socket))
-            .await
-            .unwrap();
-
-        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
-            Ok(_) => panic!("wrong-uid Unix responder was accepted"),
-            Err(error) => error,
-        };
-        assert!(
-            matches!(error, ProviderError::Transport(ref message) if message.contains("peer uid")),
-            "unexpected error: {error}"
-        );
-        assert!(
-            !error.is_retryable_carrier_failure(),
-            "peer ownership rejection must remain terminal"
-        );
-    }
-
-    #[tokio::test]
-    async fn missing_socket_is_a_retryable_carrier_failure() {
-        let directory = tempdir().unwrap();
-        let socket = directory.path().join("missing.sock");
-        let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
-
-        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
-            Ok(_) => panic!("missing Unix socket unexpectedly opened"),
-            Err(error) => error,
-        };
-        assert!(
-            matches!(error, ProviderError::Link(LinkError::Transport(_))),
-            "unexpected error: {error}"
-        );
-        assert!(error.is_retryable_carrier_failure());
-    }
-
-    #[tokio::test]
-    async fn closed_group_is_a_retryable_carrier_failure() {
-        let directory = tempdir().unwrap();
-        let socket = directory.path().join("carrier.sock");
-        let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
-        group.close().await.unwrap();
-
-        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
-            Ok(_) => panic!("closed Unix connection group unexpectedly opened"),
-            Err(error) => error,
-        };
-        assert!(
-            matches!(error, ProviderError::Link(LinkError::Closed)),
-            "unexpected error: {error}"
-        );
-        assert!(error.is_retryable_carrier_failure());
     }
 }

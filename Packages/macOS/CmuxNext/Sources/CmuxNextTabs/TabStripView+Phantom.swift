@@ -45,13 +45,6 @@ extension TabStripView {
 
     // MARK: - Groups
 
-    /// Like `dropTarget`, for a whole group `width` points wide. The index
-    /// is the final index of the group's first tab for a move command; it is
-    /// always between groups, never inside one.
-    public func groupDropTarget(atScreenPoint screenPoint: CGPoint, width: CGFloat) -> TabStripDropTarget? {
-        target(atScreenPoint: screenPoint, verticalSlop: nil, groupWidth: width)
-    }
-
     /// Opens (or moves) a group-sized gap for an external group drag.
     @discardableResult
     public func updateGroupPhantom(atScreenPoint screenPoint: CGPoint, width: CGFloat) -> TabStripDropTarget? {
@@ -96,7 +89,7 @@ extension TabStripView {
         if let window { phantomPoint = convert(window.convertPoint(fromScreen: screenPoint), from: nil) }
         setHovered(nil)
         setHoveredChip(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         if target.index != dropPlaceholderIndex || target.groupID != dropPlaceholderGroup || groupWidth != groups.phantomWidth {
             dropPlaceholderIndex = target.index
             dropPlaceholderGroup = target.groupID

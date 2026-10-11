@@ -1,12 +1,13 @@
 import CmuxNextDaemon
 import Foundation
 
-/// How Reopen Closed Tab brings a terminal tab back. Closing a tab only
-/// detaches its terminal; the daemon ends it after the reap grace period
-/// (`terminal-reap-v1`, default 30 s). Within that window `project` shows
-/// the same live terminal again (scrollback and running process intact);
-/// once it ended, `spawn` starts a new shell in the saved directory. Tests
-/// replace both.
+/// How Reopen Closed Tab brings a terminal tab back. While the owner's
+/// reaper runs (`terminal-reaper-active-v1`), closing a tab only detaches
+/// its terminal and the daemon ends it after the reap grace period (default
+/// 30 s). Within that window `project` shows the same live terminal again
+/// (scrollback and running process intact); once it ended, or when the
+/// close ended it (no running reaper), `spawn` starts a new shell in the
+/// saved directory. Tests replace both.
 struct ClosedTerminalRestorer {
     struct Spawn {
         var pane: PaneID

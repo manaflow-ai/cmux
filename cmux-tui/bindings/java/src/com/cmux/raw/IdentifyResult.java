@@ -12,9 +12,12 @@ import java.util.Objects;
 
 public final class IdentifyResult implements WireValue {
     private final Field<String> buildCommit;
+    private final Field<String> buildId;
     private final Field<List<String>> capabilities;
+    private final Field<String> cliPath;
     private final String generation;
     private final Field<String> ghosttyCommit;
+    private final Field<String> launchSnapshotPath;
     private final Field<Boolean> lifecycleReady;
     private final Field<String> machineName;
     private final long pid;
@@ -28,10 +31,13 @@ public final class IdentifyResult implements WireValue {
 
     private IdentifyResult(Builder builder) {
         this.buildCommit = builder.buildCommit;
+        this.buildId = builder.buildId;
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
+        this.cliPath = builder.cliPath;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         this.ghosttyCommit = builder.ghosttyCommit;
+        this.launchSnapshotPath = builder.launchSnapshotPath;
         this.lifecycleReady = builder.lifecycleReady;
         this.machineName = builder.machineName;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
@@ -55,10 +61,13 @@ public final class IdentifyResult implements WireValue {
 
     public String app() { return "cmux-tui"; }
     public Field<String> buildCommit() { return buildCommit; }
+    public Field<String> buildId() { return buildId; }
     public Field<List<String>> capabilities() { return capabilities; }
+    public Field<String> cliPath() { return cliPath; }
     public Long daemonHandoff() { return 1L; }
     public String generation() { return generation; }
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
+    public Field<String> launchSnapshotPath() { return launchSnapshotPath; }
     public Field<Boolean> lifecycleReady() { return lifecycleReady; }
     public Field<String> machineName() { return machineName; }
     public long pid() { return pid; }
@@ -79,9 +88,17 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawBuildCommit)) {
             builder.buildCommit(rawBuildCommit == null ? null : Wire.string(rawBuildCommit, "IdentifyResult.build_commit"));
         }
+        Object rawBuildId = Wire.optional(object, "build_id");
+        if (!Wire.isMissing(rawBuildId)) {
+            builder.buildId(rawBuildId == null ? null : Wire.string(rawBuildId, "IdentifyResult.build_id"));
+        }
         Object rawCapabilities = Wire.optional(object, "capabilities");
         if (!Wire.isMissing(rawCapabilities)) {
             builder.capabilities(Wire.array(rawCapabilities, "IdentifyResult.capabilities", item -> Wire.string(item, "IdentifyResult.capabilities item")));
+        }
+        Object rawCliPath = Wire.optional(object, "cli_path");
+        if (!Wire.isMissing(rawCliPath)) {
+            builder.cliPath(rawCliPath == null ? null : Wire.string(rawCliPath, "IdentifyResult.cli_path"));
         }
         Object rawDaemonHandoff = Wire.required(object, "daemon_handoff");
         ProtocolSupport.literal(rawDaemonHandoff, 1L, "IdentifyResult.daemon_handoff");
@@ -90,6 +107,10 @@ public final class IdentifyResult implements WireValue {
         Object rawGhosttyCommit = Wire.optional(object, "ghostty_commit");
         if (!Wire.isMissing(rawGhosttyCommit)) {
             builder.ghosttyCommit(rawGhosttyCommit == null ? null : Wire.string(rawGhosttyCommit, "IdentifyResult.ghostty_commit"));
+        }
+        Object rawLaunchSnapshotPath = Wire.optional(object, "launch_snapshot_path");
+        if (!Wire.isMissing(rawLaunchSnapshotPath)) {
+            builder.launchSnapshotPath(rawLaunchSnapshotPath == null ? null : Wire.string(rawLaunchSnapshotPath, "IdentifyResult.launch_snapshot_path"));
         }
         Object rawLifecycleReady = Wire.optional(object, "lifecycle_ready");
         if (!Wire.isMissing(rawLifecycleReady)) {
@@ -125,10 +146,13 @@ public final class IdentifyResult implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "app", "cmux-tui");
         Wire.put(object, "build_commit", buildCommit);
+        Wire.put(object, "build_id", buildId);
         Wire.put(object, "capabilities", capabilities);
+        Wire.put(object, "cli_path", cliPath);
         Wire.put(object, "daemon_handoff", 1L);
         Wire.put(object, "generation", generation);
         Wire.put(object, "ghostty_commit", ghosttyCommit);
+        Wire.put(object, "launch_snapshot_path", launchSnapshotPath);
         Wire.put(object, "lifecycle_ready", lifecycleReady);
         Wire.put(object, "machine_name", machineName);
         Wire.put(object, "pid", pid);
@@ -145,21 +169,24 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(buildCommit, buildId, capabilities, cliPath, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
 
     public static final class Builder {
         private Field<String> buildCommit = Field.omitted();
+        private Field<String> buildId = Field.omitted();
         private Field<List<String>> capabilities = Field.omitted();
+        private Field<String> cliPath = Field.omitted();
         private String generation;
         private boolean generationSet;
         private Field<String> ghosttyCommit = Field.omitted();
+        private Field<String> launchSnapshotPath = Field.omitted();
         private Field<Boolean> lifecycleReady = Field.omitted();
         private Field<String> machineName = Field.omitted();
         private Long pid;
@@ -182,8 +209,16 @@ public final class IdentifyResult implements WireValue {
             this.buildCommit = Field.ofNullable(value);
             return this;
         }
+        public Builder buildId(String value) {
+            this.buildId = Field.ofNullable(value);
+            return this;
+        }
         public Builder capabilities(List<String> value) {
             this.capabilities = Field.of(value);
+            return this;
+        }
+        public Builder cliPath(String value) {
+            this.cliPath = Field.ofNullable(value);
             return this;
         }
         public Builder generation(String value) {
@@ -193,6 +228,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder ghosttyCommit(String value) {
             this.ghosttyCommit = Field.ofNullable(value);
+            return this;
+        }
+        public Builder launchSnapshotPath(String value) {
+            this.launchSnapshotPath = Field.ofNullable(value);
             return this;
         }
         public Builder lifecycleReady(Boolean value) {

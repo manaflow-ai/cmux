@@ -226,9 +226,10 @@ struct WindowRegistry: Equatable, Sendable {
     /// unregistered one opens with it (a new window waiting for the
     /// workspace it was created for, so it never shows empty). Other orphans
     /// go to the most recent open window, else the most recent (closed)
-    /// one, else `fallbackWindow`. Windows left empty close.
+    /// one, else `fallbackWindow`. `held` orphans stay unowned this time.
+    /// Windows left empty close.
     @discardableResult
-    mutating func reconcile(live: [String], dead: Set<String>, placements: [String: String] = [:],
+    mutating func reconcile(live: [String], dead: Set<String>, placements: [String: String] = [:], held: Set<String> = [],
                             fallbackWindow: @autoclosure () -> String) -> Changes {
         var changes = Changes()
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
@@ -237,7 +238,7 @@ struct WindowRegistry: Equatable, Sendable {
         }
         discarding = discarding.intersection(live).subtracting(dead)
         let owned = Set(windows.flatMap(\.workspaceIDs)).union(discarding)
-        for orphan in live where !owned.contains(orphan) {
+        for orphan in live where !owned.contains(orphan) && !held.contains(orphan) {
             let claimed = placements[orphan].flatMap { placementWindow($0) }
             let heir = claimed ?? mostRecentOpen() ?? recency.first { !isIncognito($0) } ?? register(fallbackWindow())
             guard let index = windows.firstIndex(where: { $0.id == heir }) else { continue }

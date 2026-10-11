@@ -1,0 +1,198 @@
+{
+  "scopes": {
+    "host.list": {
+      "scope": "host:read",
+      "class": "read"
+    },
+    "host.connect": {
+      "scope": "host:control",
+      "class": "mutation"
+    },
+    "host.disconnect": {
+      "scope": "host:control",
+      "class": "mutation"
+    },
+    "fs.roots.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.root.pick": {
+      "scope": "fs:read",
+      "class": "mutation"
+    },
+    "fs.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.read": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.thumbnail": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.mkdir": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.rename": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.copy": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.move": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.trash": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.job.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.job.cancel": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.job.resolve": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.undo": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "document.open": {
+      "scope": "fs:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "fs:read",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "host.list": {
+      "conns": [
+        {
+          "conn": "conn_local01",
+          "host": "host_mac01",
+          "kind": "local",
+          "label": "This Mac",
+          "state": "connected",
+          "path": null
+        },
+        {
+          "conn": "conn_srv01",
+          "host": "host_studio01",
+          "kind": "server",
+          "label": "studio",
+          "state": "connected",
+          "path": "direct · 3 ms"
+        },
+        {
+          "conn": "conn_team01",
+          "host": "host_teamvm01",
+          "kind": "team_vm",
+          "label": "acme team VM",
+          "state": "connected",
+          "path": "tunnel · 9 ms"
+        },
+        {
+          "conn": "conn_ssh01",
+          "host": null,
+          "kind": "ssh",
+          "label": "build-box",
+          "state": "disconnected",
+          "path": null
+        }
+      ]
+    },
+    "fs.roots.list": {
+      "roots": [
+        {
+          "root": "root_home01",
+          "conn": "conn_local01",
+          "label": "Home",
+          "kind": "home",
+          "display": "~",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_proj01",
+          "conn": "conn_local01",
+          "label": "orbit",
+          "kind": "workspace",
+          "display": "~/src/orbit",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_dl01",
+          "conn": "conn_local01",
+          "label": "Downloads",
+          "kind": "folder",
+          "display": "~/Downloads",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_team01",
+          "conn": "conn_team01",
+          "label": "acme",
+          "kind": "remote",
+          "display": "acme:/home/dev",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_srv01",
+          "conn": "conn_srv01",
+          "label": "studio",
+          "kind": "remote",
+          "display": "studio:~",
+          "rights": "read"
+        }
+      ]
+    },
+    "fs.job.list": {
+      "jobs": []
+    },
+    "app.storage.get": [
+      {
+        "conn": "conn_local01",
+        "root": "root_proj01",
+        "path": "Sources",
+        "label": "Sources"
+      },
+      {
+        "conn": "conn_team01",
+        "root": "root_team01",
+        "path": "logs",
+        "label": "logs"
+      }
+    ],
+    "fs.list": {
+      "listing": "lst_empty01",
+      "entries": [],
+      "cursor": null,
+      "total": 0,
+      "revision": "1042"
+    },
+    "fs.read": {
+      "text": "# Release notes draft\n\nShipping the file browser prototype this week.\n\n## Done\n- Column view and dual pane\n- Copy between hosts with progress\n- Previews for text, images and PDF\n\n## Next\n- Keyboard selection in lists\n- Drag onto terminals and agents\n",
+      "truncated": false,
+      "size": 2140,
+      "encoding": "utf8"
+    },
+    "fs.thumbnail": {
+      "image": "img_shot01",
+      "width": 2880,
+      "height": 1800
+    }
+  },
+  "events": []
+}

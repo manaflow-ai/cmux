@@ -28,7 +28,6 @@ function hunkRange(hunk: CommentHunk, side: DiffCommentSide): { start: number; c
     : { start: hunk.deletionStart, count: hunk.deletionCount, lineIndex: hunk.deletionLineIndex };
 }
 
-
 function lineContent(lines: string[], index: number): string {
   // @pierre/diffs keeps each line's trailing newline; strip it so excerpts,
   // anchors, and previews never double-space.
@@ -140,9 +139,10 @@ export function diffExcerptFor(
         deletionLine += content.lines;
         continue;
       }
-      const blockTouchesRange = side === "additions"
-        ? content.additions > 0 && additionLine <= last && additionLine + content.additions - 1 >= first
-        : content.deletions > 0 && deletionLine <= last && deletionLine + content.deletions - 1 >= first;
+      const blockTouchesRange =
+        side === "additions"
+          ? content.additions > 0 && additionLine <= last && additionLine + content.additions - 1 >= first
+          : content.deletions > 0 && deletionLine <= last && deletionLine + content.deletions - 1 >= first;
       if (blockTouchesRange) {
         for (let offset = 0; offset < content.deletions; offset += 1) {
           rows.push(`-${lineContent(deletionLines, content.deletionLineIndex + offset)}`);

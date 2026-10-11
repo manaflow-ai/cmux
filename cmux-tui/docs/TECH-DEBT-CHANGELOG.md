@@ -455,11 +455,11 @@ entry is not completion evidence unless the stated behavior is exercised.
 
 | Intent | Evidence | Current status |
 | --- | --- | --- |
-| One canonical session with stable device/session IDs across macOS and iPhone. | `/Users/lawrence/.codex/history.jsonl`, `/Users/lawrence/.claude/history.jsonl` | Open. No multi-device catalog and reorder proof. |
-| PTY ownership survives cmux or renderer restart, with one worker per workspace. | `/Users/lawrence/.codex/sessions/2026/07/16/` rollout record | Open. No restart, duplicate-reader, or startup-order proof. |
+| One canonical session with stable device/session IDs across macOS and iPhone. | `$HOME/.codex/history.jsonl`, `$HOME/.claude/history.jsonl` | Open. No multi-device catalog and reorder proof. |
+| PTY ownership survives cmux or renderer restart, with one worker per workspace. | `$HOME/.codex/sessions/2026/07/16/` rollout record | Open. No restart, duplicate-reader, or startup-order proof. |
 | Versioned TUI IPC carries input, resize, focus, sequence, launch, and restart state with measured isolation. | Same 2026-07-16 rollout record | Open. No valid renderer/PTY performance result. |
 | Stale panes and surfaces self-heal without duplicate viewers or orphan PTYs. | Local history and rollout records | Open. Reconnect and stale-host behavior need bounded tests. |
-| Journal-first persistence restores projections, receipts, PTY intent, and host reboot outcomes. | `/Users/lawrence/.codex/history.jsonl`, `/Users/lawrence/.claude/history.jsonl` | Open. Snapshots and process restarts are not restore proof. |
+| Journal-first persistence restores projections, receipts, PTY intent, and host reboot outcomes. | `$HOME/.codex/history.jsonl`, `$HOME/.claude/history.jsonl` | Open. Snapshots and process restarts are not restore proof. |
 | npm/PyPI packages install offline and pass executable smoke checks on supported targets. | `.github/workflows/cmux-tui-build-package.yml`, `tests/test_tui_npm_package_artifact.py` | Partial. Hosted publish and registry-install proof remain open. |
 | One authenticated socket/WebSocket/Iroh contract supports ordered events, bounded frames, reconnect, and close. | Local history and socket contract docs | Open. Cross-transport exact-head tests remain required. |
 | Remote attach and Iroh discovery preserve PTY ownership, latency, reconnect, and cleanup. | Local history and Iroh preflight records | Open. Existing preflight did not establish a live host/socket. |

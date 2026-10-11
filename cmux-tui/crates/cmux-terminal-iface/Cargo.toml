@@ -1,0 +1,16 @@
+[package]
+name = "cmux-terminal-iface"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux.terminal.backend/1 and cmux.terminal.connector/1: shared types, traits, data frames and credit rules for the daemon and app servers"
+
+[lints]
+workspace = true
+
+# serde only: app servers outside this workspace (first-party-apps/cloud/server,
+# samples/apps/ssh-terminal) take this crate by path, so it stays small.
+[dependencies]
+serde.workspace = true

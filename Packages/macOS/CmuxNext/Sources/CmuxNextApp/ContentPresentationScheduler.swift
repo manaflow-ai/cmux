@@ -52,7 +52,7 @@ final class ContentPresentationScheduler {
         }
         cancel(pane)
         if !alive { createdThisFrame = true }
-        pane.showSelected()
+        BenchSpans.measure("presentation.showNow") { pane.showSelected() }
         schedule()
         return true
     }
@@ -82,7 +82,7 @@ final class ContentPresentationScheduler {
             if pane.selectedContentIsAlive || !created {
                 if !pane.selectedContentIsAlive { created = true }
                 pending[key] = nil
-                pane.showSelected()
+                BenchSpans.measure("presentation.frame") { pane.showSelected() }
             } else {
                 remaining.append(key)
             }

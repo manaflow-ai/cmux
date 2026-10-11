@@ -1,89 +1,65 @@
 import Foundation
-import Synchronization
 
-/// The connection's one `session.events` stream (resource API v2), the
-/// source of workspace status. Opened right after `subscribe`, so its
-/// snapshot is held with the other handshake events and follows
-/// `.connected`. A daemon without the operation answers with an error and
-/// the app shows no status.
+/// The `session.events` stream that carries the daemon's state resources
+/// (closed history, workspace status, ephemeral workspaces, screen metadata
+/// and groups, tab records, terminal progress) to `DaemonStore.session`.
 ///
-/// Thread-safe: the reader thread filters lines through `admit`.
-final class SessionEventsTracker: Sendable {
-    /// Ends in a row without a snapshot before the stream stays closed
-    /// until the next connect. A slow app gets one `gap` end and a fresh
-    /// snapshot; a daemon that keeps ending the stream must not get a loop.
-    static let reopenBudget = 3
+/// Opened after the handshake, without blocking it, when the daemon's
+/// `identify` advertises `state-resources-v1`. Its lines arrive on the
+/// control socket between the raw events and travel through the same
+/// ordered event stream (`DaemonEvent.sessionState`). A stream that ends with
+/// `gap` (the app fell behind) is opened again for a fresh snapshot.
+extension DaemonConnection {
+    /// True when this connection mirrors the state resources (it opens
+    /// `session.events`); otherwise the store never learns about them.
+    public nonisolated var mirrorsSessionState: Bool { configuration.sessionEvents }
 
-    private struct State {
-        var streamID: String?
-        var endsWithoutSnapshot = 0
-    }
-
-    private let state = Mutex(State())
-
-    /// A new stream id (`stream_<32 hex>`), now the only one admitted.
-    /// Returns the id it replaces.
-    func begin(resetBudget: Bool) -> (id: String, replaced: String?) {
-        let id = "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        let replaced = state.withLock { state in
-            defer {
-                state.streamID = id
-                if resetBudget { state.endsWithoutSnapshot = 0 }
+    /// Opens `session.events` on connection `serial` when the daemon serves
+    /// the state resources.
+    func openSessionEvents(serial: UInt64) async {
+        guard configuration.sessionEvents, isReady, self.serial == serial,
+              identity?.supports(DaemonCapabilities.shared.stateResources) == true else { return }
+        let id = SessionEventsWire.newStreamID()
+        sessionStream = id
+        do {
+            _ = try await resourceRequest({ requestID in
+                ResourceRequestEnvelope(id: requestID, operation: "session.events",
+                                        params: ["stream_id": .string(id)], idempotencyKey: nil)
+            }, as: SessionEventsWire.Opened.self)
+        } catch {
+            guard sessionStream == id else { return }
+            sessionStream = nil
+            // No stream: waiters for the first snapshot stop waiting.
+            if let sequence = eventSequence() {
+                yieldEvent(DaemonEventEnvelope(sequence: sequence, event: .sessionState(.ended(reason: "failed"))))
             }
-            return state.streamID
         }
-        return (id, replaced)
     }
 
-    /// The socket closed: its stream is gone, so the next `begin` cancels
-    /// nothing.
-    func forget() {
-        state.withLock { $0.streamID = nil }
-    }
-
-    /// True when the reader should deliver `event`. Stream lines of another
-    /// stream, stream ends, and status-less deltas (`.unknown` stream lines)
-    /// are dropped here, off the main actor. `reopen` runs once per end of
-    /// the current stream while the budget lasts.
-    func admit(_ event: DaemonEvent, reopen: () -> Void) -> Bool {
-        switch event {
-        case .workspaceStatus(let change, let stream):
-            return state.withLock { state in
-                guard state.streamID == stream else { return false }
-                if case .reset = change { state.endsWithoutSnapshot = 0 }
-                return true
-            }
-        case .sessionEventsEnded(let stream):
-            let again = state.withLock { state -> Bool in
-                guard state.streamID == stream else { return false }
-                state.streamID = nil
-                state.endsWithoutSnapshot += 1
-                return state.endsWithoutSnapshot <= Self.reopenBudget
-            }
-            if again { reopen() }
-            return false
-        case .unknown(let name, _) where name == "stream_item" || name == "stream_end":
-            return false
-        default:
-            return true
+    /// Routes stream lifecycle the reader saw: reopen a stream that ended
+    /// with `gap`.
+    func sessionStreamEvent(_ item: SessionStreamItem, serial: UInt64) async {
+        guard self.serial == serial else { return }
+        switch item {
+        case .ended(let reason):
+            sessionStream = nil
+            if reason == "gap" { await openSessionEvents(serial: serial) }
+        case .snapshot, .delta:
+            break
         }
     }
 }
 
-extension DaemonConnection {
-    /// `session.events` with a fresh stream id, without waiting for the
-    /// reply. Cancels the stream it replaces, if any.
-    static func openSessionEvents(on transport: LineTransport, tracker: SessionEventsTracker, resetBudget: Bool) {
-        let (stream, replaced) = tracker.begin(resetBudget: resetBudget)
-        if let replaced {
-            let cancel = ["stream": JSONValue.string(replaced)]
-            try? transport.sendResourceNoReply(cmd: "stream.cancel") { id in
-                try ResourceRequestEnvelope(id: id, operation: "stream.cancel", params: cancel).line()
-            }
-        }
-        let params = ["stream_id": JSONValue.string(stream)]
-        try? transport.sendResourceNoReply(cmd: "session.events") { id in
-            try ResourceRequestEnvelope(id: id, operation: "session.events", params: params).line()
-        }
+/// Wire shapes of the `session.events` stream request.
+enum SessionEventsWire {
+    /// A fresh `stream_<32 hex>` id.
+    static func newStreamID() -> String {
+        "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// The `session.events` reply.
+    struct Opened: Decodable {
+        var streamID: String
+        enum CodingKeys: String, CodingKey { case streamID = "stream_id" }
     }
 }

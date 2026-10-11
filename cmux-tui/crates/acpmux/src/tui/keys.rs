@@ -353,6 +353,9 @@ impl App {
         if self.on_overlay_key(key) {
             return;
         }
+        if self.focus == Focus::Input && self.on_answering_key(key) {
+            return;
+        }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         // The sidebar steps with Option-j/k (plain j/k do nothing there), ahead of
         // the global Alt-j/k focus bindings, which are no-ops from the sidebar.
@@ -535,7 +538,7 @@ impl App {
                     .and_then(|id| self.transcripts.get(&id))
                     .map(|t| t.pending_permission().is_some())
                     .unwrap_or(false);
-                if has_pending && self.editor().is_empty() {
+                if has_pending && self.editor().is_empty() && self.answering.is_none() {
                     match key.code {
                         KeyCode::Char('y') => return self.answer_permission(PermChoice::Allow),
                         KeyCode::Char('n') => return self.answer_permission(PermChoice::Deny),

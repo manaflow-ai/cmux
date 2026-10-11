@@ -6,13 +6,15 @@
 //! authenticated datagram, exactly as a listening WireGuard peer does.
 
 use std::io;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use ip_network::IpNetwork;
 use tokio::net::UdpSocket;
 use zeroize::Zeroizing;
 
 use crate::config::{Endpoint, InterfaceAddress, WgConfig};
+
+pub mod sim;
 
 /// A fresh Curve25519 keypair as `(private, public)`.
 pub fn random_keypair() -> ([u8; 32], [u8; 32]) {
@@ -34,14 +36,40 @@ pub struct LoopbackPair {
     pub server_v6: IpAddr,
 }
 
-/// Freestyle-shaped configs for both sides: MTU 1200, one IPv4 and one IPv6
-/// address each, dual-family allowed networks, and a client keepalive.
+/// Matching configs for both sides of a tunnel, without sockets.
+pub struct ConfigPair {
+    pub client: WgConfig,
+    pub server: WgConfig,
+    pub client_v4: IpAddr,
+    pub server_v4: IpAddr,
+    pub client_v6: IpAddr,
+    pub server_v6: IpAddr,
+}
+
+/// Freestyle-shaped configs for both sides over loopback UDP.
 pub async fn loopback_pair() -> io::Result<LoopbackPair> {
-    let (client_private, client_public) = random_keypair();
-    let (server_private, server_public) = random_keypair();
     let client_socket = UdpSocket::bind("127.0.0.1:0").await?;
     let server_socket = UdpSocket::bind("127.0.0.1:0").await?;
-    let server_addr = server_socket.local_addr()?;
+    let ConfigPair { client, server, client_v4, server_v4, client_v6, server_v6 } =
+        config_pair(server_socket.local_addr()?);
+    Ok(LoopbackPair {
+        client,
+        server,
+        client_socket,
+        server_socket,
+        client_v4,
+        server_v4,
+        client_v6,
+        server_v6,
+    })
+}
+
+/// Freestyle-shaped configs for both sides: MTU 1200, one IPv4 and one IPv6
+/// address each, dual-family allowed networks, and a client keepalive. The
+/// client's endpoint is `server_addr`; the server has none and answers.
+pub fn config_pair(server_addr: SocketAddr) -> ConfigPair {
+    let (client_private, client_public) = random_keypair();
+    let (server_private, server_public) = random_keypair();
 
     let client_v4: IpAddr = "10.200.0.1".parse().expect("literal");
     let server_v4: IpAddr = "10.200.0.2".parse().expect("literal");
@@ -64,6 +92,7 @@ pub async fn loopback_pair() -> io::Result<LoopbackPair> {
         allowed_ips: allowed.clone(),
         endpoint: Some(Endpoint { host: server_addr.ip().to_string(), port: server_addr.port() }),
         persistent_keepalive: Some(5),
+        peer_addresses: vec![server_v4, server_v6],
     };
     let server = WgConfig {
         private_key: Zeroizing::new(server_private),
@@ -77,15 +106,7 @@ pub async fn loopback_pair() -> io::Result<LoopbackPair> {
         allowed_ips: allowed,
         endpoint: None,
         persistent_keepalive: None,
+        peer_addresses: vec![client_v4, client_v6],
     };
-    Ok(LoopbackPair {
-        client,
-        server,
-        client_socket,
-        server_socket,
-        client_v4,
-        server_v4,
-        client_v6,
-        server_v6,
-    })
+    ConfigPair { client, server, client_v4, server_v4, client_v6, server_v6 }
 }

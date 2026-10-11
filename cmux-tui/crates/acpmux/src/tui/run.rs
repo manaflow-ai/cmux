@@ -291,7 +291,6 @@ pub(super) fn make_app(
             .unwrap_or_else(|| "$".into()),
         keymap,
         skill_paths: tui.skill_paths,
-        previous_directory: None,
         show_thoughts: false,
         show_system: false,
         quit: false,
@@ -338,6 +337,7 @@ pub(super) fn make_app(
         buttons: Vec::new(),
         perm_rows: Vec::new(),
         dialog_rect: Rect::default(),
+        answering: None,
     })
 }
 

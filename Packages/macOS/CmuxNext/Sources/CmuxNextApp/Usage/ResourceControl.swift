@@ -18,7 +18,7 @@ enum ResourceControl {
 
     static func run(_ params: [String: JSONValue], services: AppServices?) async throws -> JSONValue {
         guard let services else { throw ControlError(code: "unavailable", message: RefusalStrings.noWindowShowsWorkspace) }
-        let target = try await MainActor.run { try target(params, services: services) }
+        let target = try await MainActor.run { try Self.target(params, services: services) }
         let milliseconds = min(max(params["interval_ms"]?.intValue ?? 1000, 100), 1500)
         let first = await services.resources.sample(target)
         await waitOnce(.milliseconds(milliseconds))

@@ -26,7 +26,7 @@ import Testing
         // buttons still surface the numeric IP, which works even when the
         // phone's DNS is not pointed at the tailnet.
         let entry = CmxManualPairingEntry.best(in: [
-            try route(id: "tailscale", host: "lawrences-mac.tail1234.ts.net", priority: 10),
+            try route(id: "tailscale", host: "my-mac.tail1234.ts.net", priority: 10),
             try route(id: "tailscale_2", host: "100.64.0.5", priority: 20),
         ])
         #expect(entry == CmxManualPairingEntry(host: "100.64.0.5", port: 58465))
@@ -34,9 +34,9 @@ import Testing
 
     @Test func fallsBackToDNSNameWhenNoIPLiteralRoute() throws {
         let entry = CmxManualPairingEntry.best(in: [
-            try route(id: "tailscale", host: "lawrences-mac.tail1234.ts.net", priority: 10),
+            try route(id: "tailscale", host: "my-mac.tail1234.ts.net", priority: 10),
         ])
-        #expect(entry == CmxManualPairingEntry(host: "lawrences-mac.tail1234.ts.net", port: 58465))
+        #expect(entry == CmxManualPairingEntry(host: "my-mac.tail1234.ts.net", port: 58465))
     }
 
     @Test func skipsLoopbackRoutesEntirely() throws {

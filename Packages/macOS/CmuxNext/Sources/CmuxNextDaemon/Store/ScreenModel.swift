@@ -22,6 +22,9 @@ public final class ScreenModel: Identifiable {
     public internal(set) var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
+    /// Color, icon, pin, and group come from the daemon's state resources
+    /// (`DaemonStore.session`), which the raw tree does not carry.
+    @ObservationIgnored var metadataFromState = false
 
     init(_ s: ScreenSnapshot) {
         id = Self.identity(s)
@@ -53,13 +56,25 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
-        if color != s.color { color = s.color }
-        if icon != s.icon { icon = s.icon }
-        if pinned != s.pinned { pinned = s.pinned }
-        if group != s.group { group = s.group }
+        if !metadataFromState {
+            if color != s.color { color = s.color }
+            if icon != s.icon { icon = s.icon }
+            if pinned != s.pinned { pinned = s.pinned }
+            if group != s.group { group = s.group }
+        }
         if let reordered = reconcile(panes, with: s.panes, id: PaneModel.identity, make: PaneModel.init, update: { $0.update($1) }) {
             panes = reordered
         }
+    }
+
+    /// Lays the daemon's screen state over the record.
+    func applyState(_ state: SessionStateMirror.ScreenState) {
+        metadataFromState = true
+        if color != state.color { color = state.color }
+        if icon != state.icon { icon = state.icon }
+        if pinned != state.pinned { pinned = state.pinned }
+        let value = state.group.map { ScreenGroupID(rawValue: $0) }
+        if group != value { group = value }
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }

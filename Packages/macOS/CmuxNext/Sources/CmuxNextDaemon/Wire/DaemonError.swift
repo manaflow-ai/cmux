@@ -9,8 +9,10 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     case daemonShutdown
     case socketPathTooLong(String)
     case connectFailed(path: String, errno: Int32)
-    /// The daemon answered `ok:false`.
-    case command(cmd: String, message: String, code: String?)
+    /// The daemon answered `ok:false`. A `cmux.protocol/2` resource error
+    /// also carries its `details` (any JSON) and `retryable` flag; a raw
+    /// protocol error has neither.
+    case command(cmd: String, message: String, code: String?, details: JSONValue? = nil, retryable: Bool? = nil)
     case malformedResponse(String)
     case wrongApp(String)
     case unsupportedProtocol(Int)
@@ -35,7 +37,7 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .daemonShutdown: "cmux-tui daemon shut down"
         case .socketPathTooLong(let path): "socket path exceeds sun_path: \(path)"
         case .connectFailed(let path, let code): "connect \(path) failed: \(String(cString: strerror(code)))"
-        case .command(let cmd, let message, let code): "\(cmd) failed: \(message)\(code.map { " [\($0)]" } ?? "")"
+        case .command(let cmd, let message, let code, _, _): "\(cmd) failed: \(message)\(code.map { " [\($0)]" } ?? "")"
         case .malformedResponse(let detail): "malformed cmux-tui response: \(detail)"
         case .wrongApp(let app): "socket is served by \(app), not cmux-tui"
         case .unsupportedProtocol(let version): "cmux-tui protocol \(version) is not supported (need 12)"

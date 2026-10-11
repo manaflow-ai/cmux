@@ -8,11 +8,16 @@ public nonisolated struct TabDropProposal: Hashable, Sendable {
     /// Screen frame the ghost should collapse into (an inline tab slot), or
     /// nil to keep the floating preview card.
     public var ghostFrame: CGRect?
+    /// The surface itself refuses the drop here (a sidebar row of another
+    /// machine, the pinned area): the localized reason. `kind` is then
+    /// only the nearest kind the surface knows; it never runs.
+    public var refusedReason: String?
 
-    public init(kind: TabDropKind, highlightFrame: CGRect, ghostFrame: CGRect? = nil) {
+    public init(kind: TabDropKind, highlightFrame: CGRect, ghostFrame: CGRect? = nil, refusedReason: String? = nil) {
         self.kind = kind
         self.highlightFrame = highlightFrame
         self.ghostFrame = ghostFrame
+        self.refusedReason = refusedReason
     }
 }
 

@@ -258,7 +258,7 @@ impl JournalKernel {
         };
 
         let reader = SessionJournalReader::open(&database_path)?;
-        let head_sequence = reader.after(0, 1)?.head_sequence;
+        let head_sequence = reader.head()?;
         let kernel = Arc::new(Self {
             state: Mutex::new(JournalFanoutState {
                 epoch: 0,

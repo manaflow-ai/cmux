@@ -107,6 +107,8 @@ pub struct Draft {
     /// Thinking effort to apply right after the session is created.
     pub effort: Option<String>,
     pub images: Vec<PromptImage>,
+    /// The directory before the last `cd`, for `cd -` on this draft.
+    pub previous_cwd: Option<String>,
 }
 
 pub const POLICIES: [&str; 5] =

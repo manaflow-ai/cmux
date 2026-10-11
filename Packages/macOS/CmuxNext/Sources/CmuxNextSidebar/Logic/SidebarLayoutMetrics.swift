@@ -1,5 +1,6 @@
+public import CmuxNextDesign
 public import CoreGraphics
-import Foundation
+public import Foundation
 
 /// Row metrics. Values come from CmuxNextDesign `Metrics` tokens; see
 /// `standard`. Kept as a plain value so layout stays pure.
@@ -11,22 +12,17 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var groupHeaderHeight: CGFloat
     /// Workspace row with one line.
     public var rowHeight: CGFloat
-    /// Workspace row with one live status line.
+    /// Workspace row with a secondary detail line.
     public var rowHeightWithSubtitle: CGFloat
-    /// Height of the status progress bar, its gap included.
-    public var progressBarHeight: CGFloat
-    /// The least a status line may take, from its font: a custom row height
-    /// can bring the step between the two row heights below a line.
-    public var minimumStatusLineHeight: CGFloat
+    public var tabRowHeight: CGFloat
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
-        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, progressBarHeight: CGFloat = 6,
-        minimumStatusLineHeight: CGFloat = 0,
-        rowSpacing: CGFloat, groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
+        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
+        groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
         self.bottomPadding = bottomPadding
@@ -35,22 +31,14 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.groupHeaderHeight = groupHeaderHeight
         self.rowHeight = rowHeight
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
-        self.progressBarHeight = progressBarHeight
-        self.minimumStatusLineHeight = minimumStatusLineHeight
+        self.tabRowHeight = tabRowHeight
         self.rowSpacing = rowSpacing
         self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// One status line: the step from a one-line row to a two-line row, at
-    /// least `minimumStatusLineHeight`.
-    public var statusLineHeight: CGFloat { max(rowHeightWithSubtitle - rowHeight, minimumStatusLineHeight) }
-
-    /// The title line plus the status block: one `statusLineHeight` per
-    /// status line and the progress bar.
-    public func height(for ws: SidebarWorkspace) -> CGFloat {
-        guard let status = ws.liveStatus else { return rowHeight }
-        return rowHeight + CGFloat(status.lines.count) * statusLineHeight + (status.showsProgressBar ? progressBarHeight : 0)
+    func height(for content: WorkspaceRowContent) -> CGFloat {
+        content.detail == nil ? rowHeight : rowHeightWithSubtitle
     }
 }
 
@@ -67,9 +55,54 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
-    /// Show the machine header even when only one machine is listed.
-    /// Off by default: headers appear once a Cloud or SSH machine joins.
+    /// With `sidebar.groupByComputer`, show the machine header even when
+    /// only one machine is listed, titled "Projects" (the sidebar list sets
+    /// it). One list (the default) never shows it (cx-mdo0).
     public var showsSoleMachineHeader = false
+    /// One workspace list (`sidebar.groupByComputer` off): machine sections
+    /// show no header and no gap between them, and a row of a computer other
+    /// than this Mac names it (and a failed connection) on its second line.
+    public var flattensMachines = false
+    /// In one list, the status a computer's rows name after its name when it
+    /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
+    /// Localized by the model, so the layout stays nonisolated.
+    public var machineStatusLabels: [MachineID: String] = [:]
+    /// Include tab rows beneath each visible workspace.
+    public var showWorkspaceTabs = false
+    /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
+    public var collapsedWorkspaces: Set<WorkspaceID> = []
+    /// Keep the active workspace visible beneath a collapsed group so the
+    /// current destination remains anchored while the other members fold away.
+    public var activeWorkspaceID: WorkspaceID?
+    /// What workspace rows show (`sidebar.workspaceRow.*`).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
+    /// and marks, whatever `workspaceRow` shows (`rowContent`).
+    public var minimal = false
+    /// The start of today: the last-activity element shows a time for today,
+    /// else a date. A day, not the current time, so options stay equal.
+    public var now = Date(timeIntervalSince1970: 0)
+    /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
+    public var hidesWorkspaces = false
+    /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
+    /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
+    public var groupsByFolder = false
 
     public init() {}
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Icon only: the name and the unread mark always draw (minimal mode).
+    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon]))
+
+    /// What `ws`'s row draws under these options. Minimal mode drops the
+    /// second line (including another computer's name and a machine's
+    /// stage), counts, badges and the working dots; attention states
+    /// (waiting, error) still show, like the unread mark.
+    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
+        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
+        content.detail = nil
+        return content
+    }
 }

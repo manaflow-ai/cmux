@@ -3,10 +3,13 @@ public import Foundation
 /// Parses Safari's `Bookmarks.plist`: nested `WebBookmarkTypeList` folders
 /// and `WebBookmarkTypeLeaf` bookmarks. The Favorites bar, the Bookmarks
 /// menu and the Reading List get readable folder names.
-public enum SafariBookmarksParser {
+public struct SafariBookmarksParser {
+    /// Creates a reader for Safari bookmarks or history.
+    public init() {}
+
     public enum Failure: Error { case notBookmarks }
 
-    public static func parse(_ data: Data) throws -> [ImportedBookmark] {
+    public func parse(_ data: Data) throws -> [ImportedBookmark] {
         guard let root = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
             throw Failure.notBookmarks
         }
@@ -15,7 +18,7 @@ public enum SafariBookmarksParser {
         return result
     }
 
-    private static func walk(_ node: [String: Any], path: [String], into result: inout [ImportedBookmark]) {
+    private func walk(_ node: [String: Any], path: [String], into result: inout [ImportedBookmark]) {
         for child in node["Children"] as? [[String: Any]] ?? [] {
             switch child["WebBookmarkType"] as? String {
             case "WebBookmarkTypeLeaf":
@@ -30,7 +33,7 @@ public enum SafariBookmarksParser {
         }
     }
 
-    private static func folderName(_ title: String) -> String {
+    private func folderName(_ title: String) -> String {
         switch title {
         case "BookmarksBar": "Favorites"
         case "BookmarksMenu": "Bookmarks Menu"
@@ -42,8 +45,11 @@ public enum SafariBookmarksParser {
 
 /// Reads Safari's `History.db` (`history_items` and `history_visits`,
 /// visit times in seconds since 2001), newest first.
-public enum SafariHistoryReader {
-    public static func read(_ file: URL, limit: Int) throws -> [ImportedHistoryEntry] {
+public struct SafariHistoryReader {
+    /// Creates a reader for Safari bookmarks or history.
+    public init() {}
+
+    public func read(_ file: URL, limit: Int) throws -> [ImportedHistoryEntry] {
         let database = try SQLiteSnapshot(copying: file)
         var entries: [ImportedHistoryEntry] = []
         let sql = """
@@ -56,7 +62,7 @@ public enum SafariHistoryReader {
             """
         try database.query(sql) { row in
             guard let text = row.string(0), let url = ImportableURL.parse(text),
-                  let date = BrowserTime.cocoa(row.double(3)) else { return true }
+                  let date = BrowserTime().cocoa(row.double(3)) else { return true }
             let title = row.string(1).flatMap { $0.isEmpty ? nil : $0 }
             entries.append(ImportedHistoryEntry(url: url, title: title, visitCount: Int(row.int64(2)), lastVisit: date))
             return true

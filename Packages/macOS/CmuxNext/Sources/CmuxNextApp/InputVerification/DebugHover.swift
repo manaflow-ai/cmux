@@ -16,6 +16,8 @@ enum DebugHover {
     /// Owners of tracking areas the simulated pointer is in, per window.
     /// Keyed by owner: views replace their areas in updateTrackingAreas.
     private static var inside: [Int: [ObjectIdentifier: Inside]] = [:]
+    /// The last move's crossings, by owner class (`debug.mouse hover` reports them).
+    static var lastCrossings: [String] = []
 
     /// `location` is in window base coordinates. Returns the owners that
     /// received an event.
@@ -24,6 +26,7 @@ enum DebugHover {
         let previous = inside[window.windowNumber] ?? [:]
         var now: [ObjectIdentifier: Inside] = [:]
         var delivered = 0
+        lastCrossings = []
         func visit(_ view: NSView) {
             guard !view.isHidden else { return }
             for area in view.trackingAreas where area.options.contains(.mouseEnteredAndExited) || area.options.contains(.mouseMoved) {
@@ -33,6 +36,7 @@ enum DebugHover {
                 now[id] = Inside(owner: owner)
                 if previous[id] == nil, area.options.contains(.mouseEnteredAndExited), let event = crossing(.mouseEntered, location, window) {
                     owner.mouseEntered(with: event)
+                    lastCrossings.append("entered:\(type(of: owner))")
                     delivered += 1
                 }
                 if area.options.contains(.mouseMoved), let event = moved(location, window) {
@@ -46,6 +50,7 @@ enum DebugHover {
         for (id, entry) in previous where now[id] == nil {
             guard let owner = entry.owner, let event = crossing(.mouseExited, location, window) else { continue }
             owner.mouseExited(with: event)
+            lastCrossings.append("exited:\(type(of: owner))")
             delivered += 1
         }
         inside[window.windowNumber] = now

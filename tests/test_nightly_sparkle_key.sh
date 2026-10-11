@@ -26,6 +26,16 @@ expect shared    nightly rc
 expect "<error>" nightly nightly ""
 expect "<error>" typo    nightly
 
+# The cmux-next track signs only with its own key and never falls back.
+got="$(TRACK=nightly-next CHANNEL=nightly NIGHTLY_SPARKLE_KEY=nightly SHARED_SPARKLE_PRIVATE_KEY=shared \
+  NIGHTLY_SPARKLE_PRIVATE_KEY=nightly NEXT_SPARKLE_PRIVATE_KEY=next "$PICK")"
+[ "$got" = next ] || { echo "FAIL: nightly-next picked '$got', want 'next'"; exit 1; }
+if TRACK=nightly-next CHANNEL=nightly NIGHTLY_SPARKLE_KEY=nightly SHARED_SPARKLE_PRIVATE_KEY=shared \
+  NIGHTLY_SPARKLE_PRIVATE_KEY=nightly "$PICK" >/dev/null 2>&1; then
+  echo "FAIL: nightly-next without its own key must fail, not fall back"
+  exit 1
+fi
+
 if SHARED_SPARKLE_PRIVATE_KEY="" CHANNEL=nightly "$PICK" >/dev/null 2>&1; then
   echo "FAIL: a missing shared key must fail"
   exit 1
@@ -37,13 +47,13 @@ if grep -Eq '^ +SPARKLE_PRIVATE_KEY: \$\{\{ secrets\.' "$WORKFLOW"; then
   echo "FAIL: nightly.yml passes SPARKLE_PRIVATE_KEY directly; use scripts/ci/nightly-sparkle-key.sh"
   exit 1
 fi
-if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -ne 2 ]; then
-  echo "FAIL: nightly.yml must derive the embedded key and sign the appcast through the helper"
+if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -lt 3 ]; then
+  echo "FAIL: nightly.yml must derive the embedded key and sign every appcast through the helper"
   exit 1
 fi
 
-if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"' "$WORKFLOW"; then
-  echo "FAIL: the appcast step must drop previous nightlies signed for another key before building deltas"
+if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh' "$WORKFLOW" || ! grep -Fq 'nightly-delta/previous "$SPARKLE_PUBLIC_KEY"' "$WORKFLOW"; then
+  echo "FAIL: the post-publication delta step must drop previous nightlies signed for another key before building deltas"
   exit 1
 fi
 

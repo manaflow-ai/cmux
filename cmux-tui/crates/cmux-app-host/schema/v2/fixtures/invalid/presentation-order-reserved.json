@@ -1,0 +1,1 @@
+{"manifestVersion":2,"id":"example/x","name":"X","version":"1.0.0","description":"d","repository":"https://github.com/example/x","engines":{"cmux":"^2.0"},"presentation":{"sidebarItem":{"section":"top","order":5},"web":{"url":"https://example.com"}}}

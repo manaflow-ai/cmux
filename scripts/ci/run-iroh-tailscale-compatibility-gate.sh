@@ -14,6 +14,7 @@ rm -f "$result_root"/*.log
 # The Mac half of this gate (cmuxTests/IrohTailscaleVersionSkewMacGateTests,
 # run through the deleted cmux-unit scheme) went with the legacy app target.
 # The iOS package halves below still pin the released-iOS routing contract.
+# The CmuxMobileShell half went with the legacy iOS app (ios/CmuxiOS replaced it).
 
 run_package_gate() {
   local package_path="$1"
@@ -49,17 +50,6 @@ run_package_gate() {
     exit 1
   fi
 }
-
-run_package_gate \
-  Packages/iOS/CmuxMobileShell \
-  'ReconnectRouteSelectionTests/(legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP|legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate|preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade|rejectedIrohReconnectNeverDowngradesToRawTailscale|storedReconnectPinsIrohAndExcludesRawFallbacks|switchToLegacySavedMacUpgradesFromRegistryWithoutRescan)' \
-  6 \
-  'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP()' \
-  'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate()' \
-  'CmuxMobileShellTests.ReconnectRouteSelectionTests/preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade()' \
-  'CmuxMobileShellTests.ReconnectRouteSelectionTests/rejectedIrohReconnectNeverDowngradesToRawTailscale()' \
-  'CmuxMobileShellTests.ReconnectRouteSelectionTests/storedReconnectPinsIrohAndExcludesRawFallbacks()' \
-  'CmuxMobileShellTests.ReconnectRouteSelectionTests/switchToLegacySavedMacUpgradesFromRegistryWithoutRescan()'
 
 run_package_gate \
   Packages/iOS/CmuxMobileRPC \

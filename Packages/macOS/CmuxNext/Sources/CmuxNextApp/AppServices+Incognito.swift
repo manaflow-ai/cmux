@@ -41,7 +41,7 @@ extension AppServices {
     }
 
     /// An incognito request from a page ("Open Link in Incognito Window",
-    /// Chrome's New Incognito Window): a new tab in the source page's
+    /// New Incognito Window): a new tab in the source page's
     /// window when that is incognito, else a new incognito window.
     func openOffTheRecord(_ url: URL?, source: (any BrowserTab)?) {
         if let source, let key = cache.key(of: source), let (_, pane) = locateTab(key),

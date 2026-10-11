@@ -1,6 +1,6 @@
 import Foundation
 
-// Chrome-style screen groups (`screen-groups-v1`, cmux-tui/spec/commands.md
+// Screen groups (`screen-groups-v1`, cmux-tui/spec/commands.md
 // `create-screen-group` ... `reopen-saved-screen-group`). Screens are named
 // by numeric handle. Group changes emit `tree-changed` plus a
 // `screen-changed` per member.
@@ -8,6 +8,7 @@ import Foundation
 public struct UngroupScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "ungroup-screen-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
     public var group: ScreenGroupID
     public init(group: ScreenGroupID) { self.group = group }
 }
@@ -16,6 +17,7 @@ public struct UngroupScreenGroupRequest: DaemonRequest {
 public struct CloseScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "close-screen-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
     public var group: ScreenGroupID
     public var endTerminals: Bool?
     public init(group: ScreenGroupID, endTerminals: Bool? = nil) {

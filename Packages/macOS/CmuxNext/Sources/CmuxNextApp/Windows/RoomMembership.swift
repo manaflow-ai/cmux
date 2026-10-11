@@ -29,22 +29,16 @@ struct RoomMembership: Equatable, Sendable {
         rooms(of: workspace).contains(room)
     }
 
+    /// Whether Delete Space on `room` closes `workspace`
+    /// (SPACE-DELETE-CLOSES-ITS-WORKSPACES): no other room shows it. The
+    /// daemon applies the same rule (`room_archive::closing_keys`).
+    func closes(_ workspace: Workspace, deleting room: ProfileID) -> Bool {
+        room != .defaultProfile && rooms(of: workspace) == [room]
+    }
+
     /// Pins `workspace` to `room` (Move Workspace to Room), replacing any
     /// other pin.
     mutating func pin(_ workspace: Workspace, to room: ProfileID) {
         pins[workspace] = room
-    }
-
-    /// A room left the list: its pins go to `target`, or are removed (the
-    /// workspaces return to their followers); it stops following.
-    mutating func removeRoom(_ room: ProfileID, movingPinsTo target: ProfileID?) {
-        follows[room] = nil
-        for (workspace, pinned) in pins where pinned == room { pins[workspace] = target }
-    }
-
-    /// Membership for a daemon that has no personal state yet (before the
-    /// home session serves rules): `default` follows every session.
-    static func followingAll(_ sessions: [String]) -> RoomMembership {
-        RoomMembership(follows: [.defaultProfile: Set(sessions)])
     }
 }

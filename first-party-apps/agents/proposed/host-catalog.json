@@ -1,0 +1,208 @@
+{
+  "family": "agent_cli",
+  "operations": [
+    {
+      "class": "read",
+      "cli": {
+        "path": "agents list",
+        "visible": true
+      },
+      "docs": "Agent CLIs installed on one machine: version, latest version (cached registry check), install method, and accounts as non-secret labels with sign-in state. Never a credential, token or email.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "check_latest": {
+            "description": "Check the registries again instead of using the cached latest version",
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "agent_cli"
+      },
+      "name": "agent_cli.list",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "agents/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "agents update",
+        "visible": true
+      },
+      "docs": "Run the CLI's own update command for its install method in a new visible terminal on that machine.",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "cli": {
+            "description": "Provider id from the agent CLI table (claude, codex, opencode, pi, chief, ...)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cli"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agent_cli.update",
+      "owner": "session_host",
+      "palette": {
+        "title": "Update Agent CLI…"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "execute",
+      "since": "agents/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "agents install",
+        "visible": true
+      },
+      "docs": "Run one install method of the provider table in a new visible terminal on that machine.",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "cli": {
+            "description": "Provider id from the agent CLI table (claude, codex, opencode, pi, chief, ...)",
+            "type": "string"
+          },
+          "method": {
+            "description": "Install method",
+            "type": "string",
+            "enum": [
+              "npm",
+              "brew",
+              "native"
+            ]
+          }
+        },
+        "required": [
+          "cli",
+          "method"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agent_cli.install",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "execute",
+      "since": "agents/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "agents sign-in",
+        "visible": true
+      },
+      "docs": "Run the CLI's own login in a new visible terminal on that machine. cmux never reads or stores the credential.",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "cli": {
+            "description": "Provider id from the agent CLI table (claude, codex, opencode, pi, chief, ...)",
+            "type": "string"
+          },
+          "account": {
+            "description": "acct_ handle to sign in again; a new account when absent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cli"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agent_cli.sign_in",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "execute",
+      "since": "agents/1",
+      "origin": "user"
+    },
+    {
+      "class": "stream",
+      "cli": {
+        "path": "agents watch",
+        "visible": true
+      },
+      "docs": "Changes on one or every machine: a CLI installed, updated, removed, signed in or out, and the end of update, install and sign-in jobs.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agent_cli.watch",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "agents/1"
+    }
+  ],
+  "owner": "session_host",
+  "schema_version": 1,
+  "trigger_events": [
+    "agent_cli.changed",
+    "agent_cli.job.finished"
+  ]
+}

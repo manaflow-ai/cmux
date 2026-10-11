@@ -4,6 +4,7 @@ import Foundation
 public struct MoveTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     public var group: TabGroupID
     public var pane: PaneID
     public var index: Int
@@ -20,6 +21,7 @@ public struct MoveTabGroupRequest: DaemonRequest {
 public struct MoveTabGroupToSplitRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group-to-split"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     public var group: TabGroupID
     public var pane: PaneID
     public var edge: PaneEdge
@@ -34,10 +36,11 @@ public struct MoveTabGroupToSplitRequest: DaemonRequest {
     }
 }
 
-/// Drops a whole group between niri columns.
+/// Drops a whole group between strip columns.
 public struct MoveTabGroupToColumnRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group-to-column"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     public var group: TabGroupID
     public var target: ColumnDropTarget
     public var afterColumn: ColumnID?

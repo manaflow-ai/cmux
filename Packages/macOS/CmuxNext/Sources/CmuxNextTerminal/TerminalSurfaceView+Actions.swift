@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session
 // model or forwarded to the delegate.
@@ -23,22 +23,22 @@ extension TerminalSurfaceView {
             if let delegate = session.delegate {
                 delegate.terminalSessionDidRingBell(session)
             } else {
-                NSSound.beep()
+                GhosttyRuntime.shared.bellSettings.ring()
             }
-        case .desktopNotification(let title, let body):
-            session.delegate?.terminalSession(session, didPostNotification: title, body: body)
         case .openURL(let text):
             guard let url = Self.url(from: text) else { return false }
             if let delegate = session.delegate {
                 return delegate.terminalSession(session, open: url)
             }
-            return NSWorkspace.shared.open(url)
+            // Never the blocking open: Ghostty holds the renderer lock here.
+            NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
         case .mouseShape(let shape):
             setCursor(Self.cursor(for: shape))
         case .mouseVisible(let visible):
             if !visible { NSCursor.setHiddenUntilMouseMoves(true) }
         case .mouseOverLink(let link):
-            model.hoveredLink = link
+            // Sent on every pointer move over a link; only a change notifies.
+            if model.hoveredLink != link { model.hoveredLink = link }
         case .cellSize:
             // Font size changed: re-apply the announced grid at the new cell
             // size; an owner reports the grid the view now fits.
@@ -61,14 +61,16 @@ extension TerminalSurfaceView {
             model.backgroundOverride = NSColor(srgbRed: CGFloat(red) / 255, green: CGFloat(green) / 255, blue: CGFloat(blue) / 255, alpha: 1)
         case .scrollbar(let scrollbar):
             model.scrollbar = scrollbar
+            // Output or a mouse scroll moved the viewport under the cursor box.
+            copyMode.syncCursor()
         case .startSearch(let needle):
-            model.search = TerminalSearchState(needle: needle, total: nil, selected: nil)
+            session.find.searchStarted(needle: needle)
         case .endSearch:
-            model.search = nil
+            session.find.searchEnded()
         case .searchTotal(let total):
-            model.search?.total = total
+            session.find.receiveTotal(total)
         case .searchSelected(let selected):
-            model.search?.selected = selected
+            session.find.receiveSelected(selected)
         case .copyTitleToClipboard:
             guard !model.title.isEmpty else { return false }
             TerminalPasteboard.write([TerminalClipboardItem(mime: "text/plain", text: model.title)], to: .standard)

@@ -1,6 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 /// NSEvent -> `ghostty_input_key_s` translation (ghostty.h:300-308).
 nonisolated enum GhosttyInput {
@@ -144,5 +144,32 @@ nonisolated enum GhosttyInput {
         guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
               let property = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return nil }
         return Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue() as String
+    }
+
+    /// The lowercase character a physical key types with no modifiers, for
+    /// matching Latin command keys under a Korean or Russian layout. Uses the
+    /// current layout when it yields ASCII, else the ASCII-capable source
+    /// (Korean 두벌식 has layout data but still translates to Hangul).
+    static func asciiCharacter(forKeyCode keyCode: UInt16) -> String? {
+        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+           let result = character(in: source, keyCode: keyCode), result.allSatisfy(\.isASCII) {
+            return result
+        }
+        guard let source = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue() else { return nil }
+        return character(in: source, keyCode: keyCode)
+    }
+
+    private static func character(in source: TISInputSource, keyCode: UInt16) -> String? {
+        guard let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()
+        guard let bytes = CFDataGetBytePtr(data) else { return nil }
+        let layout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var deadKeyState: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let status = UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDisplay), 0, UInt32(LMGetKbdType()),
+                                    UInt32(kUCKeyTranslateNoDeadKeysBit), &deadKeyState, chars.count, &length, &chars)
+        guard status == noErr, length > 0 else { return nil }
+        return String(utf16CodeUnits: chars, count: length).lowercased()
     }
 }

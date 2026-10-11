@@ -1,0 +1,154 @@
+{
+  "scopes": {
+    "coderouter.status": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.accounts.list": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.keys.list": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.usage.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.route.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.accounts.connect": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.accounts.remove": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.accounts.share": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.route.order.set": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.agents.set": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.route.test": {
+      "scope": "coderouter:execute",
+      "class": "mutation"
+    },
+    "coderouter.keys.create": {
+      "scope": "coderouter:keys",
+      "class": "mutation"
+    },
+    "coderouter.keys.revoke": {
+      "scope": "coderouter:keys",
+      "class": "mutation"
+    },
+    "ui.secret.reveal": {
+      "scope": "coderouter:keys",
+      "class": "mutation"
+    },
+    "clipboard.writeSecret": {
+      "scope": "coderouter:keys",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "coderouter.accounts.connect": {
+      "status": "connected"
+    },
+    "coderouter.accounts.remove": {
+      "removed": true
+    },
+    "coderouter.accounts.share": {
+      "accounts": [
+        "acct_1"
+      ],
+      "visibility": "team"
+    },
+    "coderouter.route.order.set": {
+      "ok": true
+    },
+    "coderouter.agents.set": {
+      "enabled": true
+    },
+    "coderouter.route.test": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    },
+    "coderouter.keys.create": {
+      "key": {
+        "id": "key_3",
+        "label": "editor",
+        "prefix": "crk_Q3vT",
+        "created_at_ms": 1790899200000,
+        "last_used_at_ms": null,
+        "revoked": false
+      },
+      "handle": "handle_9f2c",
+      "handle_expires_at_ms": 2106259200000
+    },
+    "coderouter.keys.revoke": {
+      "revoked": true
+    },
+    "ui.secret.reveal": {
+      "shown": true
+    },
+    "clipboard.writeSecret": {
+      "copied": true
+    },
+    "app.storage.get": null,
+    "app.storage.set": null,
+    "action.run": null,
+    "coderouter.status": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    },
+    "coderouter.detect": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    },
+    "coderouter.accounts.list": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    },
+    "coderouter.keys.list": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    },
+    "coderouter.usage.get": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    },
+    "coderouter.route.get": {
+      "$error": {
+        "code": "coderouter.unreachable",
+        "message": "CodeRouter did not answer within 15 seconds."
+      }
+    }
+  }
+}

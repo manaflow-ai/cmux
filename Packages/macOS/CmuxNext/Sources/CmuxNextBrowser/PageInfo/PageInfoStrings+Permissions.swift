@@ -1,6 +1,6 @@
 import Foundation
 
-/// Permission names and Chrome's "Can ask to …" texts.
+/// Permission names and the "Can ask to …" texts.
 extension PageInfoStrings {
     static func name(_ kind: SitePermissionKind) -> String {
         switch kind {
@@ -30,7 +30,7 @@ extension PageInfoStrings {
         }
     }
 
-    /// Chrome's "Can ask to …" state text for a permission at its ask default.
+    /// The "Can ask to …" state text for a permission at its ask default.
     static func askText(_ kind: SitePermissionKind) -> String? {
         switch kind {
         case .location: String(localized: "pageInfo.ask.location", defaultValue: "Can ask for your location", table: "PageInfo", bundle: .module)
