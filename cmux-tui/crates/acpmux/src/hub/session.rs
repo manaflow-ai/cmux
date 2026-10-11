@@ -52,6 +52,8 @@ pub struct Session {
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
     pub(super) attached: std::sync::atomic::AtomicUsize,
+    /// Of those, the ones that do not show the chat (`hub/seen.rs`).
+    pub(super) hidden: std::sync::atomic::AtomicUsize,
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
