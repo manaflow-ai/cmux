@@ -17,7 +17,7 @@ final class ChromeSecureTextField: NSSecureTextField {
         focusRingType = .none
         density.update { [weak self] in
             guard let self else { return }
-            setFontKeepingEdit(BrowserMetrics.bodyFont)
+            font = BrowserMetrics.bodyFont
             applyColors()
         }
         density.start()
@@ -25,12 +25,6 @@ final class ChromeSecureTextField: NSSecureTextField {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// Applies the font and placeholder an edit kept back (``setPlaceholderKeepingEdit(_:)``).
-    override func textDidEndEditing(_ notification: Notification) {
-        super.textDidEndEditing(notification)
-        density.reapply()
-    }
 
     func setPlaceholder(_ text: String) {
         placeholderText = text

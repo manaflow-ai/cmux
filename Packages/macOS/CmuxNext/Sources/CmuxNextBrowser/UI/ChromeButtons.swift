@@ -266,7 +266,7 @@ class ChromeTextField: NSTextField {
         cell?.wraps = false
         density.update { [weak self] in
             guard let self else { return }
-            setFontKeepingEdit(Self.tokenFont)
+            font = BrowserMetrics.bodyFont
             applyPlaceholder()
         }
         density.start()
@@ -274,15 +274,6 @@ class ChromeTextField: NSTextField {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// Applies the font and placeholder an edit kept back (``setPlaceholderKeepingEdit(_:)``).
-    override func textDidEndEditing(_ notification: Notification) {
-        super.textDidEndEditing(notification)
-        density.reapply()
-    }
-
-    /// The density font; the omnibar's is larger, and two fonts would restyle it twice per change.
-    class var tokenFont: NSFont { BrowserMetrics.bodyFont }
 
     func setPlaceholder(_ text: String) {
         placeholderText = text
@@ -331,19 +322,14 @@ class ChromeTextField: NSTextField {
 }
 
 extension NSTextField {
-    /// Sets the placeholder unless it is unchanged or an edit is active. The field's and the
-    /// cell's setters both end and restart an active edit: the end-editing and focus paths run
-    /// mid-typing, and the focus model could put the responder back on the field mid-teardown,
-    /// nesting edits until the main-thread watchdog stopped the app (cx-p0fz). A field calls it
-    /// again when its edit ends.
+    /// The field's setter ends and restarts an active edit, which runs the
+    /// end-editing and focus paths mid-typing; the cell's only redraws.
     func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString) {
-        guard placeholderAttributedString?.isEqual(to: placeholder) != true, currentEditor() == nil else { return }
-        placeholderAttributedString = placeholder
-    }
-
-    /// Sets the font unless it is unchanged or an edit is active, as the placeholder.
-    func setFontKeepingEdit(_ newFont: NSFont) {
-        guard font != newFont, currentEditor() == nil else { return }
-        font = newFont
+        guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
+            placeholderAttributedString = placeholder
+            return
+        }
+        cell.placeholderAttributedString = placeholder
+        needsDisplay = true
     }
 }
