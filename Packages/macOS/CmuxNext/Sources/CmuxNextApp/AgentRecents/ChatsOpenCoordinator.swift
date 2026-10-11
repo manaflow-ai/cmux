@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -89,20 +90,22 @@ final class ChatsOpenCoordinator {
     /// Open in Terminal (the row's right-click menu): the harness's own resume command.
     func openInTerminal(_ key: String) { open(key, inTerminal: true) }
 
-    func open(_ key: String, inTerminal: Bool = false) {
+    /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab.
+    func open(_ key: String, inTerminal: Bool = false, replacing page: String? = nil) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
         Task { [weak self] in
             guard let self else { return }
             do {
                 guard let plan = try await environment.chatOpenPlan(key: key) else { return }
-                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal)
+                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, replacing: page)
             } catch {
                 services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
             }
         }
     }
 
-    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false) async {
+    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
+                          replacing page: String? = nil) async {
         guard let services else { return }
         let chat = services.chatsFeed?.chats.first { $0.id == key }
         let title = chat?.title
@@ -115,15 +118,33 @@ final class ChatsOpenCoordinator {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose
             // Folder there (cx-nn3e.1), never a bare Open panel.
-            createWorkspace(WorkspaceSpawn(name: title), seed: AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason)))
+            let seed = AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason))
+            if let page, replace(page, with: seed) { return }
+            createWorkspace(WorkspaceSpawn(name: title), seed: seed)
         case .reveal(let tab):
             _ = services.revealTab(tab)
         case .newWorkspace(let name, let cwd, let seed, let command, let env):
+            if command == nil, let page, let seed, replace(page, with: seed) { return }
             createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command, env: env), seed: seed)
         case .readOnly(let path):
             guard let pane = services.windows.active?.focusedPane else { return }
             _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false)
         }
+    }
+
+    /// The New Tab page `page` becomes `seed`'s chat: the chat opens in the page's pane, in the
+    /// page's place, and the page closes once the chat's tab exists. False when the page is gone.
+    private func replace(_ page: String, with seed: AgentPaneSeed) -> Bool {
+        guard let services else { return false }
+        // The page's store id (it may have been provisional at the click). The New Tab page is an
+        // agent tab, not an internal page tab: its pane is found by its tab model.
+        let page = services.agentTabs.resolve(page)
+        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page),
+              let pane = services.paneController(for: model) else { return false }
+        let placed = NewTabSlot.placing(after: slot, services: services) { [weak pane] (_: String) in
+            pane?.close([StripTabID(page)])
+        }
+        return services.agentTabs.openTab(in: pane, seed: AgentPaneSeedSource(seed), then: placed)
     }
 
     /// A new workspace in the active window whose first tab is `seed`'s chat (or `spawn`'s
