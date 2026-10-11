@@ -159,6 +159,18 @@
   font-size: var(--text-body);
   font-weight: 600;
 }
+.acpmux-artifact-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.acpmux-artifact-version {
+  min-width: 26px;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted);
+}
 .acpmux-artifact-tabs {
   display: inline-flex;
   padding: 2px;

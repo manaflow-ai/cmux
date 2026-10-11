@@ -127,6 +127,27 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app
+            // (cx-ncc.72). Only while an agent chat has the keyboard. Archive runs the chat menu's
+            // Archive; scripts use `cmux acp` and the chat's own transcript instead.
+            ActionDescriptor(
+                id: "agentPane.copyLastCodeBlock",
+                title: String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module),
+                keywords: ["agent", "chat", "code", "block", "copy", "snippet", "answer", "reply"],
+                defaultShortcut: Shortcut(";", modifiers: [.command, .option]),
+                category: .agents, symbol: "doc.on.clipboard", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.archiveChat",
+                title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),
+                keywords: ["agent", "chat", "archive", "hide", "close", "done"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
+                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
                 title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit changes…", bundle: .module),

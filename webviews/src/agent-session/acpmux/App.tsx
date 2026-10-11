@@ -124,11 +124,13 @@ import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
+import { artifactVersions } from "./conversation/artifactVersions";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
+import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
@@ -207,6 +209,9 @@ declare global {
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
       command?(name: string): void;
+      /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
+      /// since a script it runs here is no gesture the page's clipboard accepts.
+      lastCodeBlock?(): string | null;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
@@ -1663,6 +1668,18 @@ function AcpmuxPane() {
   const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
   if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
   const artifactSession = snapshot.sessionId;
+  // Its versions (cx-ncc.64): the chat's finished replies' documents of its kind and title.
+  const artifactRows = artifact ? snapshot.rows : undefined;
+  const artifactVersionList = useMemo(
+    () =>
+      artifact && artifactRows
+        ? artifactVersions(
+            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
+            artifact,
+          )
+        : undefined,
+    [artifact, artifactRows],
+  );
   const openArtifact = useCallback(
     (next: Artifact) =>
       setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 })),
@@ -2343,6 +2360,7 @@ function AcpmuxPane() {
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
+  const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
@@ -2472,6 +2490,7 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
+      lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
@@ -2482,6 +2501,9 @@ function AcpmuxPane() {
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
+        // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
+        // the menu has none or the chat is archived.
+        if (name === "archiveChat") archiveChatRef.current?.();
         if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (
           [
@@ -3195,15 +3217,17 @@ function AcpmuxPane() {
         setHeaderState({ sideTabs: result?.shown === true }),
       ),
     );
+  const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
-      archived: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived),
+      archived,
       local: localCwd !== undefined,
     },
     (archived) => ignoreFailure(callNative("chat.archive", { archived })),
     t,
   );
+  archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
@@ -4232,6 +4256,7 @@ function AcpmuxPane() {
           <ArtifactPanel
             key={artifact.opened}
             artifact={artifact}
+            versions={artifactVersionList}
             onClose={() => setArtifact(undefined)}
             onSave={saveDocumentNatively}
           />

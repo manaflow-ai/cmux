@@ -199,3 +199,66 @@ test("Save hands the document to the host's save panel under its title, and says
   act(() => root!.render(<ArtifactPanel artifact={{ kind: "svg", lang: "svg", code: "<svg/>" }} onClose={() => {}} />));
   expect(button("Save")).toBeUndefined();
 });
+
+// A document's versions (cx-ncc.64, Claude parity): a reply that rewrites a document the chat already
+// has (same kind, same title) is its next version; the panel steps between them.
+test("a document's versions are the chat's documents of its kind and title, oldest first", async () => {
+  const { artifactVersions } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const replies = [
+    "Here it is:\n\n```html\n<title>Pricing</title><p>One plan</p>\n```\n",
+    "And notes:\n\n```md\n# Pricing\n\nNot HTML.\n```\n\n```html\n<title>Signup</title>\n```",
+    "Updated, quoted:\n\n> ```html\n> <title>Pricing</title><p>Two plans</p>\n> ```\n",
+    // The transcript draws a `~~~` fence as text, with no Open: not a version.
+    "~~~html\n<title>Pricing</title><p>Draft</p>\n~~~",
+  ];
+  const opened = { kind: "html" as const, lang: "html", code: "<title>Pricing</title><p>Two plans</p>" };
+  expect(artifactVersions(replies, opened).map((version) => version.code)).toEqual([
+    "<title>Pricing</title><p>One plan</p>",
+    "<title>Pricing</title><p>Two plans</p>",
+  ]);
+  // A document with no title, or one the chat has once, has only itself.
+  const untitled = { kind: "svg" as const, lang: "svg", code: "<svg/>" };
+  expect(artifactVersions(["```svg\n<svg/>\n```", "```svg\n<svg/>\n```"], untitled)).toEqual([untitled]);
+  const signup = { kind: "html" as const, lang: "html", code: "<title>Signup</title>" };
+  expect(artifactVersions(replies, signup)).toEqual([signup]);
+});
+
+test("the panel steps between a document's versions, starting on the one opened", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const version = (body: string) => ({ kind: "markdown" as const, lang: "md", code: `# Notes\n\n${body}` });
+  const versions = [version("First."), version("Second."), version("Third.")];
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<ArtifactPanel artifact={versions[1]!} versions={versions} onClose={() => {}} />));
+  const count = () => host.querySelector(".acpmux-artifact-version")?.textContent;
+  const body = () => host.querySelector(".acpmux-artifact-doc p")?.textContent;
+  expect(count()).toBe("2/3");
+  expect(body()).toBe("Second.");
+  act(() => button("Next version")!.click());
+  expect(count()).toBe("3/3");
+  expect(body()).toBe("Third.");
+  expect(button("Next version")!.disabled).toBe(true);
+  act(() => button("Previous version")!.click());
+  act(() => button("Previous version")!.click());
+  expect(count()).toBe("1/3");
+  expect(body()).toBe("First.");
+  expect(button("Previous version")!.disabled).toBe(true);
+
+  // The list moves under the panel (the reply it was opened from finished): it keeps the shown one.
+  act(() =>
+    root!.render(
+      <ArtifactPanel artifact={versions[1]!} versions={[version("Zero."), ...versions]} onClose={() => {}} />,
+    ),
+  );
+  expect(count()).toBe("2/4");
+  expect(body()).toBe("First.");
+  // A list without the shown one: only the opened one, no arrows.
+  act(() => root!.render(<ArtifactPanel artifact={versions[1]!} versions={[versions[2]!]} onClose={() => {}} />));
+  expect(body()).toBe("Second.");
+  expect(button("Next version")).toBeUndefined();
+
+  // One version: no arrows.
+  act(() => root!.render(<ArtifactPanel artifact={versions[0]!} versions={[versions[0]!]} onClose={() => {}} />));
+  expect(button("Next version")).toBeUndefined();
+});
