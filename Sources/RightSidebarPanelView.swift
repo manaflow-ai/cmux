@@ -268,9 +268,7 @@ struct RightSidebarPanelView: View {
                 .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))
                 .layoutPriority(1)
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
-                    openAsPaneButton(mode: fileExplorerState.mode)
-                }
+                openAsPaneButton(mode: fileExplorerState.mode)
                 closeButton
             }
         }
@@ -313,8 +311,12 @@ struct RightSidebarPanelView: View {
         }
     }
 
+    /// Keeps its slot in modes that can't open as a pane (Dock, Feed) and
+    /// fades out instead, so the tabs get the same width in every mode and
+    /// switching doesn't jump their layout mid-animation.
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
-        Button {
+        let isShown = mode.canOpenAsPane && mode.isAvailable()
+        return Button {
             onOpenAsPane(mode)
         } label: {
             HeaderChromeIconStyle.symbol("rectangle.split.2x1")
@@ -326,7 +328,7 @@ struct RightSidebarPanelView: View {
         )
         .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
             keyPrefix: "rightSidebarHeaderOpenAsPane",
-            isVisible: true
+            isVisible: isShown
         )
         .rightSidebarHeaderControlAlignment()
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
@@ -337,7 +339,13 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
-        .titlebarInteractiveControl()
+        .accessibilityHidden(!isShown)
+        .disabled(!isShown)
+        .allowsHitTesting(isShown)
+        .opacity(isShown ? 1 : 0)
+        .animation(reduceMotion ? nil : ModeBarButton.switchAnimation, value: isShown)
+        // Only a shown button keeps the titlebar from dragging the window.
+        .background { if isShown { TitlebarInteractiveControlRegion() } }
     }
 
     private var closeButton: some View {
