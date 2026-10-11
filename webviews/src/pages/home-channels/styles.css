@@ -5,11 +5,11 @@
    (composer 10, popovers 10, hover card 8, buttons 6). Rows never move when their actions show. */
 :root {
   --hc-accent: var(--cmux-app-accent, var(--page-text));
-  --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-background, Canvas));
+  --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-token, Canvas));
   --hc-rail-bg: var(--cmux-app-sidebar, color-mix(in srgb, var(--page-text) 3%, transparent));
   --hc-danger: var(--cmux-app-danger, #e5484d);
-  /* Ink on a text- or danger-colored fill: the opaque surface (the page background is clear in a
-     translucent window). */
+  /* Ink on a text-colored fill: the opaque surface (the page background is clear in a translucent
+     window). */
   --hc-on-text: var(--cmux-surface-token, Canvas);
   --hc-fill: color-mix(in srgb, var(--page-text) 4%, transparent);
   --hc-fill-strong: color-mix(in srgb, var(--page-text) 8%, transparent);
@@ -20,6 +20,7 @@
   --agent-muted: var(--page-text-2);
   --agent-soft: var(--page-text-3);
   --agent-accent: var(--hc-accent);
+  --agent-on-accent: var(--hc-on-accent);
   --agent-border: var(--page-separator);
   --agent-page-bg: transparent;
   --agent-danger: var(--hc-danger);
@@ -89,7 +90,8 @@ body,
 .hc-text-button.danger {
   border-color: transparent;
   background: var(--hc-danger);
-  color: var(--hc-on-text);
+  /* Danger is fitted against the app theme's window, so that is its ink. */
+  color: var(--cmux-app-window, var(--cmux-surface-token, Canvas));
 }
 
 /* ---------- Rail ---------- */
