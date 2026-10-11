@@ -117,9 +117,12 @@ extension PageWebView {
         state.outcome = PageClaimOutcome(path: path,
                                          milliseconds: Double(seconds) * 1_000 + Double(attoseconds) / 1e15)
         guard path != .acknowledged else {
+            if repaintsAtNextLayout { needsLayout = true }
             resumeLoadWaiters()
             return
         }
+        // The reloaded document reports its own first paint.
+        repaintsAtNextLayout = false
         loaded = false
         reloadDocument()
     }
