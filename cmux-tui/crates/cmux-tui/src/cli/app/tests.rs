@@ -1,3 +1,6 @@
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+
 use super::page::WAIT_MARGIN;
 use super::*;
 
