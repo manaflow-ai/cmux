@@ -1514,7 +1514,7 @@ fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
         use std::io::Write as _;
         use std::os::unix::fs::OpenOptionsExt;
         let mut file =
-            fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
+            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
         file.write_all(route.as_bytes()).ok()?;
     }
     #[cfg(not(unix))]
