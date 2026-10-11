@@ -12,6 +12,7 @@ import { translate, type Translate, useT } from "../i18n";
 import { highlightsCode, MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
+import { OpenPreview } from "./OpenPreview";
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
 const codeUnsafeCSS = `${diffUnsafeCSS}
@@ -40,6 +41,11 @@ const LANG_LABELS: Record<string, string> = {
   swift: "Swift",
   sh: "Shell",
   bash: "Shell",
+  html: "HTML",
+  htm: "HTML",
+  svg: "SVG",
+  markdown: "Markdown",
+  md: "Markdown",
 };
 
 export function languageLabel(lang: string, t: Translate = translate) {
@@ -133,6 +139,7 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{label ?? languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
+          <OpenPreview code={code} lang={lang} />
           <button
             type="button"
             className="cv-codeblock__action"
