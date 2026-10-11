@@ -46,7 +46,7 @@ test("the agent pane and pages take the accent, with readable glyphs on it", asy
     expect(accented.accent).not.toBe(accented.text);
     expect(contrast(rgba(accented.onAccent as string), rgba(accented.accent as string))).toBeGreaterThanOrEqual(4.5);
     const page = webThemePayload(themeTokens(theme, "theme")).variables;
-    expect(page["--cmux-accent"]).toBe(accented.accent);
-    expect(page["--cmux-on-accent"]).toBe(accented.onAccent);
+    expect(page["--cmux-accent"]).toBe(accented.accent as string);
+    expect(page["--cmux-on-accent"]).toBe(accented.onAccent as string);
   }
 });
