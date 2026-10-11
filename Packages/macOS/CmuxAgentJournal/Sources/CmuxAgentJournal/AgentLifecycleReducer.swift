@@ -118,25 +118,32 @@ public struct AgentLifecycleReducer: Sendable {
             // the app cannot strand a session behind a skewed timestamp.
             return false
         }
-        if event.draft.kind == .sessionStarted, event.draft.sessionStartOwnsSurface {
-            // A new authoritative session owns the pane. Retire every older
-            // session there so a StopFailure cannot outlive a restart.
-            for existingSessionKey in state.sessionKeys(surfaceId: surfaceId, agentKey: agentKey)
-                where existingSessionKey != sessionKey {
-                state.retire(
+        if event.draft.kind == .sessionStarted {
+            if event.draft.sessionStartOwnsSurface {
+                // A new authoritative session owns the pane. Retire every
+                // older session there so a StopFailure cannot outlive a
+                // restart.
+                for existingSessionKey in state.sessionKeys(surfaceId: surfaceId, agentKey: agentKey)
+                    where existingSessionKey != sessionKey {
+                    state.retire(
+                        surfaceId: surfaceId,
+                        agentKey: agentKey,
+                        sessionKey: existingSessionKey,
+                        at: event.sequence
+                    )
+                }
+                state.recordSessionBoundary(
                     surfaceId: surfaceId,
                     agentKey: agentKey,
-                    sessionKey: existingSessionKey,
-                    at: event.sequence
+                    sessionKey: sessionKey,
+                    sequence: event.sequence
                 )
             }
+            // Any accepted SessionStart reclaims this session's retired
+            // projection. Non-Claude adapters can have multiple live sessions
+            // on one pane, but a moved session must still be able to move back
+            // and receive later lifecycle events.
             state.unretire(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey)
-            state.recordSessionBoundary(
-                surfaceId: surfaceId,
-                agentKey: agentKey,
-                sessionKey: sessionKey,
-                sequence: event.sequence
-            )
         }
         // A session may be rebound to another pane. Retire its old projection
         // as soon as the new pane reports activity.
