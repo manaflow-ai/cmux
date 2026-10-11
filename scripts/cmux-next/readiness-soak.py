@@ -345,15 +345,18 @@ class Soak:
         """{pid: kind} for every process of this app copy and its agents."""
         app_pid = self.setup["identity"].get("pid")
         found = {}
-        bin_dir = os.path.join(self.app, "Contents/Resources/bin/")
+        # The app may name its helpers by the copy's path or with symlinks resolved (/var -> /private/var).
+        apps = {self.app, os.path.realpath(self.app)}
+        tuis = tuple(os.path.join(app, "Contents/Resources/bin/cmux-tui") for app in apps)
+        acpmuxes = tuple(os.path.join(app, "Contents/Resources/bin/acpmux") for app in apps)
         for pid, ppid, cmd in process_table():
             if pid == app_pid:
                 found[pid] = "app"
             elif ppid == app_pid and " Helper" in cmd:
                 found[pid] = "chromium-helper"
-            elif cmd.startswith(self.tui):
+            elif cmd.startswith(tuis):
                 found[pid] = "terminal-host" if "__terminal-host" in cmd else "daemon"
-            elif cmd.startswith(bin_dir + "acpmux"):
+            elif cmd.startswith(acpmuxes):
                 found[pid] = "acpmux"
             elif self.work in cmd and "fake_agent.py" in cmd:
                 found[pid] = "agent"
@@ -508,6 +511,9 @@ class Soak:
                 row["fd_growth"] = round(end_fds - start_fds)
                 if row["fd_growth"] > self.args.max_fd_growth:
                     failures.append(f"{kind} open fds grew by {row['fd_growth']} ({start_fds:g} -> {end_fds:g}) from the first to the last hour")
+        for kind in ("app", "daemon", "acpmux"):
+            if samples and kind not in summary:
+                failures.append(f"no {kind} process was found, so its checks did not run")
         for kind, limit in (("app", self.args.max_app_cpu), ("daemon", self.args.max_daemon_cpu)):
             mean = (summary.get(kind) or {}).get("mean_cpu_percent")
             if mean is not None and mean > limit:
