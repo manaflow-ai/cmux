@@ -2,78 +2,68 @@
 //!
 //! Editors save in place, by atomic rename, or by delete and recreate, so
 //! the watcher observes each file's directory, not the file. While a
-//! directory does not exist it watches the nearest existing ancestor and
-//! moves down as directories appear. Events that arrive together are
-//! coalesced into one hint; the consumer then reads the latest state (the
-//! owner's `reload` reports a change only when the effective settings
-//! changed).
+//! directory does not exist it watches the nearest existing ancestor for
+//! the next missing directory and moves down as directories appear.
+//!
+//! Only content changes of the watched files count: a create, a delete, a
+//! rename, a close after a write and a metadata change of a watched name
+//! (or a missing directory on the way to one appearing or vanishing).
+//! Opens, reads and read-only closes never count: the reload a hint
+//! triggers reads the watched file, and a watched ancestor such as /etc
+//! sees an open on every process start. Events that arrive within
+//! [`QUIET`] of each other are one burst and give one hint; the consumer
+//! then reads the latest state (the owner's `reload` reports a change only
+//! when the effective settings changed).
+//!
+//! Linux uses inotify directly with masks that leave out opens and reads
+//! (`inotify.rs`), so the kernel queues nothing for unrelated opens. Other
+//! platforms use notify's recommended watcher (FSEvents, Windows directory
+//! changes), which reports no opens; its callback drops every event that is
+//! not about a watched name before it reaches the watch thread
+//! (`portable.rs`). FSEvents reports everything below a watched directory, so
+//! on macOS a missing directory's nearest ancestor gets a kqueue vnode watch
+//! that fires only for its own entries (`ancestors.rs`).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher as _};
+use std::time::Duration;
 
 use crate::owner::ConfigStore;
 use crate::store::Change;
 
-type Shared = Arc<Mutex<Option<RecommendedWatcher>>>;
+#[cfg(target_os = "linux")]
+mod inotify;
+#[cfg(target_os = "linux")]
+use inotify as backend;
+#[cfg(target_os = "macos")]
+mod ancestors;
+#[cfg(not(target_os = "linux"))]
+mod portable;
+#[cfg(not(target_os = "linux"))]
+use portable as backend;
 
-enum Message {
-    Event(notify::Result<Event>),
-    Stop,
-}
+/// A burst ends after this long without another event.
+const QUIET: Duration = Duration::from_millis(100);
+/// A burst that keeps going still gives a hint after this long.
+const MAX_DELAY: Duration = Duration::from_millis(1000);
 
 /// A running watch. Dropping it stops the watch and joins its thread.
 pub struct Watcher {
-    inner: Shared,
-    stop: Sender<Message>,
-    thread: Option<JoinHandle<()>>,
+    _backend: backend::Handle,
 }
 
 impl Watcher {
     /// Watches `files` and calls `on_hint` on the watcher's own thread: once
     /// right after the watch is armed (so a save between the consumer's
-    /// first read and arming is not missed), then once per burst of events
-    /// that touch a watched file or one of its missing ancestors.
+    /// first read and arming is not missed), then once per burst of content
+    /// changes of a watched file or of one of its missing ancestors.
     pub fn start(
         files: Vec<PathBuf>,
-        mut on_hint: impl FnMut() + Send + 'static,
+        on_hint: impl FnMut() + Send + 'static,
     ) -> notify::Result<Watcher> {
-        let (sender, receiver) = channel::<Message>();
-        let stop = sender.clone();
-        let watcher = notify::recommended_watcher(move |event| {
-            let _ = sender.send(Message::Event(event));
-        })?;
-        let inner: Shared = Arc::new(Mutex::new(Some(watcher)));
-        let mut watched = BTreeSet::new();
-        rearm(&inner, &files, &mut watched)?;
-        let shared = Arc::clone(&inner);
-        let thread = std::thread::Builder::new()
-            .name("cmux-config-watch".to_string())
-            .spawn(move || {
-                on_hint();
-                run(&receiver, &shared, &files, &mut watched, &mut on_hint);
-            })
-            .map_err(|error| notify::Error::generic(&error.to_string()))?;
-        Ok(Watcher { inner, stop, thread: Some(thread) })
-    }
-}
-
-impl Drop for Watcher {
-    fn drop(&mut self) {
-        let _ = self.stop.send(Message::Stop);
-        if let Ok(mut guard) = self.inner.lock() {
-            guard.take();
-        }
-        if let Some(thread) = self.thread.take() {
-            // The last owner may drop the watcher from its own callback.
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
-            }
-        }
+        Ok(Watcher { _backend: backend::start(files, on_hint)? })
     }
 }
 
@@ -94,77 +84,66 @@ pub fn watch_store(
     })
 }
 
-fn run(
-    receiver: &Receiver<Message>,
-    shared: &Shared,
-    files: &[PathBuf],
-    watched: &mut BTreeSet<PathBuf>,
-    on_hint: &mut impl FnMut(),
-) {
-    while let Ok(Message::Event(first)) = receiver.recv() {
-        let mut burst = vec![first];
-        for message in receiver.try_iter() {
-            match message {
-                Message::Event(event) => burst.push(event),
-                Message::Stop => return,
+/// The directories to watch (canonical) and, in each, the entry names whose
+/// changes matter.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Plan(BTreeMap<PathBuf, Interest>);
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Interest {
+    /// Watched files in this directory, and missing directories on the way
+    /// to a watched file.
+    names: BTreeSet<OsString>,
+    /// The directory holds a watched file (it is not only the nearest
+    /// existing ancestor of a missing directory).
+    holds_file: bool,
+}
+
+impl Plan {
+    /// Each file's own directory, or for a missing directory its nearest
+    /// existing ancestor with the next missing name.
+    fn of(files: &[PathBuf]) -> Plan {
+        let mut plan = Plan::default();
+        for file in files {
+            let (Some(parent), Some(name)) = (file.parent(), file.file_name()) else { continue };
+            let mut directory = normalize(parent);
+            let mut child = name.to_os_string();
+            let mut holds_file = true;
+            loop {
+                if directory.is_dir() {
+                    let interest = plan.0.entry(directory).or_default();
+                    interest.names.insert(child);
+                    interest.holds_file |= holds_file;
+                    break;
+                }
+                let Some(name) = directory.file_name().map(OsString::from) else { break };
+                if !directory.pop() {
+                    break;
+                }
+                child = name;
+                holds_file = false;
             }
         }
-        let targets: Vec<PathBuf> = files.iter().map(|file| normalize(file)).collect();
-        let relevant = burst.iter().any(|event| match event {
-            Err(_) => true,
-            Ok(event) => {
-                event.need_rescan()
-                    || event.paths.iter().any(|path| touches(&normalize(path), &targets))
-            }
-        });
-        // A directory that appeared or vanished moves the watch.
-        let _ = rearm(shared, files, watched);
-        if relevant {
-            on_hint();
-        }
+        plan
     }
-}
 
-/// The event path is a target, or an ancestor directory of one.
-fn touches(path: &Path, targets: &[PathBuf]) -> bool {
-    targets.iter().any(|target| target == path || target.starts_with(path))
-}
-
-/// Points the watches at the nearest existing directory of every file.
-fn rearm(
-    shared: &Shared,
-    files: &[PathBuf],
-    watched: &mut BTreeSet<PathBuf>,
-) -> notify::Result<()> {
-    let wanted: BTreeSet<PathBuf> =
-        files.iter().filter_map(|file| nearest_existing_dir(file)).collect();
-    if wanted == *watched {
-        return Ok(());
-    }
-    let Ok(mut guard) = shared.lock() else { return Ok(()) };
-    let Some(watcher) = guard.as_mut() else { return Ok(()) };
-    for gone in watched.difference(&wanted) {
-        let _ = watcher.unwatch(gone);
-    }
-    let mut result = Ok(());
-    for added in wanted.difference(watched) {
-        if let Err(error) = watcher.watch(added, RecursiveMode::NonRecursive) {
-            result = Err(error);
+    /// `path` is a watched name in a watched directory, or a watched
+    /// directory itself (it was removed or renamed).
+    #[cfg(not(target_os = "linux"))]
+    fn matches(&self, path: &Path) -> bool {
+        if self.0.contains_key(path) {
+            return true;
         }
-    }
-    *watched = wanted;
-    result
-}
-
-/// The file's directory, or its nearest existing ancestor (canonical).
-fn nearest_existing_dir(file: &Path) -> Option<PathBuf> {
-    let mut directory = file.parent()?.to_path_buf();
-    loop {
-        if directory.is_dir() {
-            return directory.canonicalize().ok();
-        }
-        if !directory.pop() {
-            return None;
+        match (path.parent(), path.file_name()) {
+            // macOS and Windows volumes are usually case-insensitive: an
+            // event names the entry as it is on disk.
+            (Some(parent), Some(name)) => self.0.get(parent).is_some_and(|interest| {
+                interest.names.iter().any(|watched| {
+                    watched.as_os_str() == name
+                        || watched.to_string_lossy().eq_ignore_ascii_case(&name.to_string_lossy())
+                })
+            }),
+            _ => false,
         }
     }
 }

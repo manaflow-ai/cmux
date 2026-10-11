@@ -8,6 +8,11 @@ public nonisolated enum BrowserPermissionKind: Hashable, Sendable {
     /// A second download without a fresh user gesture
     /// (`AutomaticDownloadPolicy`): Allow or Block, remembered for the site.
     case automaticDownloads
+    /// The device's location (Geolocation API): Block or Allow, remembered
+    /// for the site.
+    case location
+    /// Web notifications (WebKit tabs): Block or Allow, remembered for the site.
+    case notifications
 }
 
 /// What a prompt asks the user.
@@ -19,6 +24,10 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     /// HTTP authentication (Basic, Digest, NTLM): a user name and password
     /// for `host` (`realm` is the server's text, when it sends one).
     case credentials(host: String, realm: String?)
+    /// A link to another app (`BrowserExternalApps`): open `scheme` links in
+    /// the app named `app`? Answered `.allowOnce` (Open), `.allow` (Open,
+    /// always for the site) or `.cancel`.
+    case openExternalApp(app: String, scheme: String)
 }
 
 /// The user's answer to a prompt.

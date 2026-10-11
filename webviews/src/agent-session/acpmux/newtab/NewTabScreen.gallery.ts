@@ -215,6 +215,44 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
     },
+    "tool-menu-open": {
+      note: "A tool's extra actions open from its trailing disclosure without moving the page or clipping the popup.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The tool menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening a portaled tool menu must not move the page." },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".nt-tool-menu-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
+      },
+    },
+    "tool-menu-keyboard": {
+      note: "Arrow navigation and Escape keep the tool menu's focus contract explicit.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "Keyboard tool menus must remain on top of the page." },
+        layoutShiftMax: { value: 0, reason: "Keyboard menu navigation must not move page content." },
+      },
+      play: async (ctx) => {
+        const trigger = { selector: ".nt-tool-menu-button" };
+        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
+        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
+        await ctx.focus(trigger);
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(0));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(1));
+        await ctx.press("Escape");
+        await ctx.waitFor(
+          () =>
+            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
+            ctx.document.activeElement === ctx.find(trigger),
+        );
+      },
+    },
     "typed-prompt": {
       note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",
       ready: newTab({ projects: [CWD] }),

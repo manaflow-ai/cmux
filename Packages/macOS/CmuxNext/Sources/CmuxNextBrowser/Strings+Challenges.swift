@@ -44,7 +44,6 @@ extension Strings {
                defaultValue: "cmux could not confirm that this server is \(host). \(reason) Proceed only if you know this server, for example a test server on your own network.",
                bundle: .module)
     }
-    static var certificateBack: String { String(localized: "browser.certificate.back", defaultValue: "Go Back", bundle: .module) }
     static func certificateProceed(host: String) -> String {
         String(localized: "browser.certificate.proceed", defaultValue: "Proceed to \(host) (Unsafe)", bundle: .module)
     }

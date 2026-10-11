@@ -50,6 +50,9 @@ public final class AgentPaneView: NSView {
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: NSTextField?
+    /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
+    var remoteApprovalsNotice: NSStackView?
+    var remoteApprovals: AgentPaneRemoteApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let logExport = AgentPaneLogExport()
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
@@ -317,6 +320,7 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
+        model.transport.onRemoteApprovalsOff = nil
         transportPacer?.stop()
         removeContextMenu()
         if let page {

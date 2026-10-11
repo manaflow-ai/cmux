@@ -18,6 +18,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
     }
     #[cfg(unix)]
+    capabilities.push(tab_restart::CAPABILITY);
+    #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }
@@ -40,6 +42,7 @@ pub(super) fn advertised_capabilities(
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
@@ -109,8 +112,11 @@ pub(super) fn advertised_capabilities(
         BOOKMARKS_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
+        icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
+        conversations::CONVERSATION_DRAFT_CAPABILITY,
+        conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
@@ -145,6 +151,7 @@ pub(super) fn advertised_capabilities(
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
+        crate::git_ops::FILES_LIST_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,

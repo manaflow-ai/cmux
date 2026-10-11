@@ -1,4 +1,4 @@
-//! `git.diff`, `git.status` and `git.files.search`: read-only git reads of
+//! `git.diff`, `git.status`, `git.files.search` and `git.files.list`: read-only git reads of
 //! the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; each request runs git on its own connection thread,
 //! bounded by a deadline and output limits. `git.checkpoint.*` captures
@@ -7,6 +7,7 @@
 mod checkpoint;
 mod diff;
 mod files;
+mod list;
 mod parse;
 mod run;
 mod target;
@@ -33,12 +34,16 @@ pub(crate) const CHECKPOINTS_CAPABILITY: &str = "git-checkpoints-v1";
 /// Advertised in identify: the session host answers `git.files.search`.
 pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 
+/// Advertised in identify: the session host answers `git.files.list`.
+pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::GitDiff
             | ResourceOperation::GitStatus
             | ResourceOperation::GitFilesSearch
+            | ResourceOperation::GitFilesList
     ) || checkpoint::handles(operation)
 }
 
@@ -54,6 +59,7 @@ pub(crate) fn dispatch(
         ResourceOperation::GitDiff => "git.diff",
         ResourceOperation::GitStatus => "git.status",
         ResourceOperation::GitFilesSearch => "git.files.search",
+        ResourceOperation::GitFilesList => "git.files.list",
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
@@ -61,6 +67,7 @@ pub(crate) fn dispatch(
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.files.search" => files::search(&repository, &directory, &request.fields),
+        "git.files.list" => list::list(&repository, &directory, &request.fields),
         _ => status(&repository),
     }
 }

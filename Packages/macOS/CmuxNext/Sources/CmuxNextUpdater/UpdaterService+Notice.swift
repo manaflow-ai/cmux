@@ -6,8 +6,6 @@ public import Foundation
 /// 2026-10-09): its content for this build, its buttons, its x, and the up
 /// to date notice hiding itself on the injected clock.
 extension UpdaterService {
-    /// How long "up to date" stays before it hides itself.
-    nonisolated public static var noteDuration: Duration { UpdateCard.upToDateDuration }
 
     /// The card's icon, text and actions for the running build, or nil.
     public var cardPresentation: UpdateCardPresentation? {

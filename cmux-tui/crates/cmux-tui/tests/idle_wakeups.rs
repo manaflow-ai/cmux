@@ -37,6 +37,12 @@ struct Daemon {
 
 impl Daemon {
     fn start(name: &str) -> Self {
+        Self::start_with_settings(name, Path::new("cmux-next.json"))
+    }
+
+    /// `settings` is relative to the test's folder; its folders are created
+    /// only when the file is at the top.
+    fn start_with_settings(name: &str, settings: &Path) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-idle-{name}-{}-{stamp}", std::process::id()));
@@ -44,12 +50,20 @@ impl Daemon {
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
         let config = dir.join("config.json");
+        // The daemon's own settings file exists, as on a configured machine: its
+        // watcher must not wake on the daemon's own reads of it (a Linux inotify
+        // open event once fed a reload loop of ~40k reloads/s).
+        let settings = dir.join(settings);
+        if settings.parent() == Some(dir.as_path()) {
+            fs::write(&settings, "{}\n").unwrap();
+        }
         let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .env("CMUX_NEXT_CONFIG_FILE", &settings)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -283,7 +297,36 @@ fn delta(before: Usage, after: Usage) -> Usage {
 
 #[test]
 fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
-    let daemon = Daemon::start("daemon");
+    assert_idle(&Daemon::start("daemon"), || {});
+}
+
+/// Before the first save the settings folder does not exist, so the daemon
+/// watches its nearest existing ancestor (the home folder or ~/.config for a
+/// real install; /Library while /Library/Managed Preferences is missing on
+/// every unmanaged Mac). Writes anywhere below that ancestor must not wake
+/// the daemon: only the missing folder appearing matters (on macOS, an
+/// FSEvents watch of /Library woke it for every write under /Library, 2-130
+/// context switches/s on busy CI minis).
+#[test]
+fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
+    let daemon = Daemon::start_with_settings("ancestor", Path::new("config/cmux/cmux-next.json"));
+    let busy = daemon.dir.join("busy/deep/er");
+    fs::create_dir_all(&busy).unwrap();
+    assert_idle(&daemon, move || {
+        // About 20 writes a second through the window, in a folder beside
+        // the missing one.
+        for round in 0..(WINDOW.as_millis() / 50) {
+            fs::write(busy.join(format!("file-{}", round % 8)), round.to_string()).unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    assert!(!daemon.dir.join("config").exists(), "the daemon created the settings folder");
+}
+
+/// Starts a terminal, keeps the app's streams open, settles, then runs
+/// `during` across the quiet window and fails when the daemon or a terminal
+/// host woke up.
+fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
     let created = request(
         &daemon.socket,
         serde_json::json!({
@@ -329,7 +372,14 @@ fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
         .chain(hosts.iter().map(|pid| (format!("terminal host {pid}"), *pid)))
         .collect();
     let before: Vec<Usage> = processes.iter().map(|(_, pid)| usage(*pid)).collect();
+    let started = Instant::now();
+    let activity = std::thread::spawn(during);
     std::thread::sleep(WINDOW);
+    activity.join().unwrap();
+    assert!(
+        started.elapsed() < WINDOW + Duration::from_secs(2),
+        "the activity outlived the window"
+    );
     let after: Vec<Usage> = processes.iter().map(|(_, pid)| usage(*pid)).collect();
 
     let mut failures = Vec::new();

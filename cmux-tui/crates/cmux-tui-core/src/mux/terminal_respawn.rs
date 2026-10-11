@@ -25,10 +25,13 @@
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent resume command or the terminal's
-//! command line is typed on the new prompt without a newline.
+//! command line is typed on the new prompt without a newline. The manual
+//! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
+//! `restart-tab`) runs the same worker.
 
 #[cfg(unix)]
 pub(super) mod launch;
+pub(crate) mod manual;
 #[cfg(unix)]
 mod prefill;
 mod supervisor;
@@ -69,9 +72,10 @@ pub(crate) struct TerminalRespawns {
     /// Wakes respawn workers that wait out a backoff delay when the owner
     /// shuts down ([`TerminalRespawns::wake_all`]).
     wake: (Mutex<()>, Condvar),
-    /// Full argv of command terminals this daemon process launched; it is
-    /// never persisted, so a later daemon only names the program. Entries go
-    /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
+    /// Full argv of command terminals this daemon process launched. A later
+    /// daemon reads the relaunch record's argv instead, which leaves out
+    /// credential-like arguments. Entries go when their terminal is closed;
+    /// [`ARGV_LIMIT`] bounds the rest.
     argv: Mutex<ArgvMemory>,
     /// VT replay a new terminal's host applies before its shell's first
     /// byte, by the reserved terminal id of a creation that has not launched
@@ -183,6 +187,9 @@ pub(super) struct RespawnPlan {
     pub(super) delay: Duration,
     /// The committed host-loss receipt this attempt answers.
     pub(super) recorded: TerminalExit,
+    /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
+    /// the incarnation reopens, not only a host loss.
+    pub(super) user_restart: bool,
 }
 
 impl Mux {
@@ -351,6 +358,7 @@ impl Mux {
             old_runtime,
             delay,
             recorded: end.exit().clone(),
+            user_restart: false,
         }))
     }
 
@@ -426,6 +434,14 @@ impl Mux {
             return Ok(None);
         }
         let old_runtime = plan.old_runtime.take();
+        // A user restart may replace a runtime whose host still runs (a
+        // process end kept by `on_exit` keep keeps its host until the last
+        // client stream leaves): end it, then wait below for its exit.
+        if plan.user_restart
+            && let Some(old) = old_runtime.as_ref()
+        {
+            old.kill();
+        }
         let geometry = old_runtime.as_ref().map(|old| (old.size(), old.cell_pixel_size()));
         if let Some(old) = old_runtime.as_ref() {
             self.unregister_kitty_image_surface(old)?;
@@ -440,8 +456,11 @@ impl Mux {
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let Some(revision) =
-                registry.begin_terminal_respawn(&plan.terminal_id, &plan.old_incarnation)?
+            let Some(revision) = registry.begin_terminal_respawn(
+                &plan.terminal_id,
+                &plan.old_incarnation,
+                plan.user_restart,
+            )?
             else {
                 return Ok(None);
             };
@@ -449,6 +468,9 @@ impl Mux {
             registry.terminal_record(&plan.terminal_id)?.map(|terminal| terminal.workspace_key)
         };
         if let Some(root) = self.terminal_host_root() {
+            if plan.user_restart {
+                wait_for_old_hosts(&root, &plan.terminal_id);
+            }
             remove_dead_host_records(&root, &plan.terminal_id);
             // Another thread (startup reconciliation, an adoption thread)
             // may be between removing the old record and its endpoint: the
@@ -567,6 +589,22 @@ fn remove_dead_host_records(root: &Path, terminal_id: &str) {
     };
     for (path, record) in records.iter().filter(|(_, record)| record.terminal_id == terminal_id) {
         let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(path, record);
+    }
+}
+
+/// Wait for every host of `terminal_id` under `root` to exit (its live
+/// marker's lease is the exit event), so the new host can take the
+/// terminal's identity. A user restart ended them first.
+#[cfg(unix)]
+fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
+    let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+        return;
+    };
+    for (path, record) in records.iter().filter(|(_, record)| record.terminal_id == terminal_id) {
+        if let Err(error) = crate::terminal_host_runtime::wait_for_terminal_host_exit(path, record)
+        {
+            eprintln!("cmux-tui: could not wait for the old host of {terminal_id}: {error:#}");
+        }
     }
 }
 

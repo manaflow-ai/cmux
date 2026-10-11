@@ -456,3 +456,19 @@ fn validate_relay_view(view: &str) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+pub(super) fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
+    cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
+}
+
+pub(super) fn paired_surface_size(
+    command: &str,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> anyhow::Result<Option<(u16, u16)>> {
+    match (cols, rows) {
+        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
+        (None, None) => Ok(None),
+        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
+    }
+}

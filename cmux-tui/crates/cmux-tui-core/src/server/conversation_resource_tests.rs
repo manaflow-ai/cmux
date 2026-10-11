@@ -357,7 +357,7 @@ fn the_remote_relay_admits_none_of_the_conversation_operations() {
 }
 
 #[test]
-fn drafts_never_reach_the_raw_subscribe_stream() {
+fn only_a_draft_is_a_draft_event() {
     let draft = ConversationEvent::Draft {
         conversation: "c".into(),
         participant: "agent_mux".into(),

@@ -28,6 +28,8 @@ export const HEADER_ACTIONS = {
   terminal: "splitRight",
   browser: "splitBrowserRight",
   changes: "openDiffViewer",
+  /// Not an app action: the App opens the Files tree (CmuxNextApp AgentChatSplitToggles.files).
+  files: "files",
   /// Not an app action: its own `pane.action` (CmuxNextAgentPane AgentPaneModel.previewAction).
   preview: "preview",
   rename: "renameTab",
@@ -73,6 +75,7 @@ export function ChatHeaderTools({
   onBrowser,
   hasChanges = false,
   onChanges,
+  onFiles,
   previewUrl,
   onPreview,
   sideTabs = false,
@@ -94,6 +97,8 @@ export function ChatHeaderTools({
   hasChanges?: boolean;
   /// Changes runs the diff viewer with the quick action's mode, as Terminal and Browser run their split.
   onChanges?: (mode: QuickActionMode) => void;
+  /// Files runs the tree of the chat's folder with the quick action's mode; without it (a remote chat) Files hides.
+  onFiles?: (mode: QuickActionMode) => void;
   /// The local page the chat's last turn started or mentioned: Preview shows then, and while its page is open.
   previewUrl?: string;
   /// Preview opens `url` beside the chat with the quick action's mode; a click that closes it may name none.
@@ -158,6 +163,21 @@ export function ChatHeaderTools({
               onClick={() => onChanges(mode)}
             >
               <Icon name="diff.file" size={15} />
+            </button>
+          ) : null
+        ) : id === "files" ? (
+          onFiles ? (
+            <button
+              key={id}
+              data-quick-action={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t("header.files")}
+              aria-pressed={on(HEADER_ACTIONS.files, mode)}
+              title={t("header.files")}
+              onClick={() => onFiles(mode)}
+            >
+              <Icon name="folder" size={15} />
             </button>
           ) : null
         ) : id === "preview" ? (
@@ -243,13 +263,15 @@ export function ChatHeaderTools({
   );
 }
 
-/// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page).
+/// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page,
+/// Files a folder on this Mac).
 const ALWAYS_SHOWN: ReadonlySet<QuickActionId> = new Set(["terminal", "browser", "newTab"]);
 
 const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
   terminal: "header.terminal",
   browser: "header.browser",
   changes: "header.changes",
+  files: "header.files",
   preview: "header.preview",
   newTab: "header.newTab",
 };

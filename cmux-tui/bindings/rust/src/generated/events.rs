@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa.
+// cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -239,6 +239,14 @@ pub struct ConversationChangedEvent {
     pub conversation: String,
     pub rev: u64,
     pub transaction: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationDraftEvent {
+    pub conversation: String,
+    pub item: T::JsonValue,
+    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -810,6 +818,7 @@ pub enum Event {
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
+    ConversationDraft(ConversationDraftEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -888,6 +897,7 @@ impl Event {
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
+            Self::ConversationDraft(_) => Some("conversation-draft"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -965,6 +975,7 @@ impl Event {
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -1186,6 +1197,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-changed") => match serde_json::from_value::<ConversationChangedEvent>(raw.clone()) {
             Ok(event) => Event::ConversationChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-draft") => match serde_json::from_value::<ConversationDraftEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationDraft(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
