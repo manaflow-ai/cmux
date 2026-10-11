@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
@@ -32,6 +33,9 @@ final class OnboardingService {
     /// the daemon for that destination. Nil connects through `SSHService`
     /// (tests stand in a daemon).
     var classicSSH: (@MainActor (String) throws -> DaemonService)?
+    /// What acpmux would do with a classic agent session (`_acpmux/chat_open`):
+    /// only `adopt` opens a chat. Nil asks this Mac's acpmux (tests answer).
+    var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
     /// The toast `workspace.importClassic` showed last.
     var classicImportNotice: String?
 

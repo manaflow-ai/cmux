@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextOnboarding
@@ -104,9 +105,40 @@ struct ClassicImportTests {
         #expect(imported.notice?.contains("Cloud VM") == true, "\(imported.notice ?? "no toast")")
     }
 
+    /// Classic's older Cloud VMs were saved as a `remote` on the websocket
+    /// transport with a `managedCloudVMID`, without `cloudVM`: they stay in
+    /// classic too, and the import never tries SSH to them.
+    @Test func anOlderCloudVMWorkspaceStaysInClassic() async throws {
+        let imported = try await importClassic(Self.everything) { session in
+            #expect(session.contains("\"transport\":\"ssh\""), "the fixture's SSH workspace changed")
+            return session.replacingOccurrences(of: "\"transport\":\"ssh\"",
+                                                with: "\"transport\":\"websocket\",\"managedCloudVMID\":\"vm-legacy1\"")
+        }
+        #expect(imported.sshDestinations.isEmpty, "\(imported.sshDestinations)")
+        #expect(imported.shapes["ssh box"] == nil, "\(imported.shapes.keys.sorted())")
+        #expect(imported.notice?.contains("Cloud VM") == true, "\(imported.notice ?? "no toast")")
+    }
+
+    /// A session acpmux cannot resume as a chat (its plan is the harness's
+    /// own terminal) stays a terminal in its folder, never a broken chat.
+    @Test func anAgentSessionAcpmuxCannotResumeStaysATerminal() async throws {
+        let shapes = try await importClassic(Self.everything, plan: { _, cwd in
+            ["kind": "terminal", "terminal": ["argv": ["claude", "--resume", "7f3c2a10-5b4e-4c8d-9a61-2e0f8b9d4c37"]], "cwd": cwd ?? ""]
+        }).shapes["full"] ?? []
+        #expect(shapes.contains { $0.hasPrefix("right(down(app|claude)|") }, "\(shapes)")
+    }
+
+    /// acpmux's answer for a session it can adopt.
+    private static func adoptPlan(_ adopt: AgentPaneAdopt, _ cwd: String?) -> [String: Any] {
+        ["kind": "adopt", "adopt": ["harness": adopt.harness, "agentSessionId": adopt.agentSessionId],
+         "sessionNew": [String: Any](), "cwd": cwd ?? ""]
+    }
+
     /// Runs the action on `fixture` (after `edit`), with SSH workspaces
-    /// reaching this test's daemon, and returns what it opened.
-    private func importClassic(_ fixture: URL, _ edit: (String) -> String = { $0 }) async throws -> Imported {
+    /// reaching this test's daemon and acpmux answering `plan`, and returns
+    /// what it opened.
+    private func importClassic(_ fixture: URL, _ edit: (String) -> String = { $0 },
+                               plan: @escaping (AgentPaneAdopt, String?) -> [String: Any] = ClassicImportTests.adoptPlan) async throws -> Imported {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-classic-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -137,6 +169,7 @@ struct ClassicImportTests {
             destinations.append(destination)
             return services.daemon
         }
+        services.onboarding.classicChatPlan = { adopt, cwd in AcpmuxChatOpenPlan(result: plan(adopt, cwd)) }
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
