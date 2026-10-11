@@ -110,3 +110,25 @@ test("a theme previews live in the app before it is picked: hover or arrows, rig
   expect(ops(page.provider, "cmux.settings.preview.end").length).toBeGreaterThan(0);
   expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
 });
+
+test("a theme with color edits reads as custom and previews its edited colors", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: {
+      values: {
+        "appearance.theme": "Dracula",
+        "appearance.themeEdits": { "Dracula/background": "#101010", "Gruvbox Dark/4": "#123456" },
+      },
+    },
+  });
+  expect(theme(page).querySelector("[data-theme-picker]")?.textContent).toContain("Dracula (custom)");
+  // The preview draws the edited background; the theme's other colors stay its own.
+  expect(theme(page).querySelector("[data-theme-preview] rect")?.getAttribute("fill")).toBe("#101010");
+  await click(theme(page).querySelector("[data-theme-picker]")!);
+  const name = (theme: string) =>
+    document.querySelector(`[data-theme-option="${theme}"] .theme-option-name`)?.textContent ?? "";
+  expect(name("Gruvbox Dark")).toBe("Gruvbox Dark (custom)");
+  expect(name("Tokyo Night")).toBe("Tokyo Night");
+  // The edits never become a setting row of their own.
+  expect(page.container.querySelector('[data-key="appearance.themeEdits"]')).toBeNull();
+});
