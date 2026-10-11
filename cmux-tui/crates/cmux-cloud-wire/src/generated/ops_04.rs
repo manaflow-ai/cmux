@@ -4,6 +4,57 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedCountsResult {
+    pub open_requests: i64,
+    pub unread: i64,
+    pub by_priority: BTreeMap<String, i64>,
+    pub by_poster_kind: BTreeMap<String, i64>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes feed.counts declares.
+    FeedCountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Read one feed item (its answer once it is answered). An agent reads only the items it posted.
+    FeedGetOp {
+        name: "feed.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:FeedDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: FeedGetParams,
+        result: FeedGetResult,
+        error: FeedGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedGetParams {
+    pub item: FeedItemId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedGetResult {
+    pub item: FeedItem,
+}
+
+wire_errors! {
+    /// The error codes feed.get declares.
+    FeedGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
 wire_op! {
     /// The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.
     FeedKindsOp {
@@ -849,51 +900,4 @@ pub struct FirewallListResultRulesItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FirewallListResult {
     pub rules: Vec<FirewallListResultRulesItem>,
-}
-
-wire_errors! {
-    /// The error codes firewall.list declares.
-    FirewallListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Comment on a GitHub issue or pull request as the cmux GitHub App installation.
-    GithubIssueCommentOp {
-        name: "github.issue.comment",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: GithubIssueCommentParams,
-        result: Value,
-        error: GithubIssueCommentError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GithubIssueCommentParams {
-    pub connection: ConnectionId,
-    pub repo: String,
-    pub issue: i64,
-    pub body: String,
-}
-
-wire_errors! {
-    /// The error codes github.issue.comment declares.
-    GithubIssueCommentError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

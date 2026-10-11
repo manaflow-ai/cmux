@@ -633,6 +633,7 @@ class ConversationTabRecord:
     conversation: Union[str, MissingType] = field(default=MISSING)
     owner: Union[str, MissingType] = field(default=MISSING)
     page: Union[str, MissingType] = field(default=MISSING)
+    route: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1596,6 +1597,7 @@ class Tab:
     notification: Union[NotificationMarker, None, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
     supports_clear_history_key_fallback: Union[bool, MissingType] = field(default=MISSING)
+    terminal_host_fallback: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -3279,6 +3281,7 @@ class NewConversationTabRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     page: Union[str, None, MissingType] = field(default=MISSING)
+    route: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 

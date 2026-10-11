@@ -28,6 +28,8 @@ final class NotificationCenterService {
     var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
+    /// Pages' click handlers of their web notifications' banners.
+    @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
@@ -78,7 +80,10 @@ final class NotificationCenterService {
             for await active in ObservationStream({ driver.isActive }) where active { driver.run() }
         })
         tasks.append(followPermissionBridge(services, principal: principal))
-        desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
+        desktop.onOpen = { [weak self] id, surface in
+            self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
+            self?.webNotificationClicks.run(bannerID: id)
+        }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
