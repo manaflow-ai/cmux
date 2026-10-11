@@ -2,9 +2,10 @@
 // A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
 // as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
 // open group's list (SubagentListRow), opened by a click; and the header summary's Subagents
-// section, which reads the same groups.
+// section, which reads the same groups. A list line opens that subagent's own view (the child
+// view): a "Subagent of" pill naming its parent, then its rows, nested groups included.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -74,6 +75,42 @@ const DONE = chat([
   assistant("All four areas are covered. Two timeouts are too short; the rest is fine.", 9),
   summary(9, { status: "completed", durationMs: 180_000 }),
 ]);
+
+/** The mixed group's running "Test coverage" subagent with a view of its own: a thought and
+ * tool calls, a nested group it spawned, and its text. */
+const COVERAGE = "agent-test-coverage";
+const NESTED = [
+  agent("Unit tests", 3.2, "completed", { parent: COVERAGE, ran: 1.1 }),
+  agent("Integration tests", 3.2, "running", { parent: COVERAGE, action: "bun test src/net/fetch" }),
+];
+const NESTED_MIXED: typeof MIXED = {
+  ...MIXED,
+  subagentViews: {
+    [COVERAGE]: [
+      activity(
+        [
+          thought("Which tests cover retries and timeouts today?"),
+          tool("Read src/net/fetch.test.ts", "read", "completed"),
+          tool("Search for timeout in src/net", "search", "completed"),
+        ],
+        3.6,
+        { id: `${COVERAGE}:activity-1` },
+      ),
+      assistant("Retries have no tests. Splitting unit and integration coverage.", 3.3, {
+        id: `${COVERAGE}:assistant-2`,
+      }),
+      group(NESTED, 3.2),
+    ],
+    [NESTED[0]!.id]: [assistant("Added four retry cases; all pass.", 2.1, { id: `${NESTED[0]!.id}:assistant-1` })],
+  },
+};
+
+/** Opens the first group, then `name`'s own view. */
+const openChild = (name: string) => async (ctx: PlayContext) => {
+  await openGroup(4)(ctx);
+  await ctx.click({ role: "button", name: `Open ${name}` });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+};
 
 /** Opens the first group and waits for its `count` subagent lines. */
 const openGroup = (count: number) => async (ctx: PlayContext) => {
@@ -168,6 +205,33 @@ export default agentPaneEntry({
       note: "An ended turn's group opened: the reply below moves down without a layout shift.",
       snapshot: DONE,
       play: openGroup(AUDIT.length),
+    },
+    child: {
+      note: "A list line opened: the subagent's own view, under a Subagent of pill naming the chat.",
+      snapshot: NESTED_MIXED,
+      play: openChild("Test coverage"),
+    },
+    "child-nested": {
+      note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",
+      height: 520,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.click({ selector: ".cv-subagents" });
+        await ctx.click({ role: "button", name: "Open Unit tests" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__parent")?.textContent === "Test coverage");
+      },
+    },
+    "child-back": {
+      note: "The pill goes back to the parent: the chat's transcript, its group still open.",
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.click({ selector: ".cv-subagent-of__pill" });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+        );
+      },
     },
     summary: {
       note: "The header summary: its Subagents section stacks the groups' subagents with their counts.",
