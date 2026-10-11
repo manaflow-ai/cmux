@@ -434,9 +434,6 @@ export class AcpmuxDirectClient {
   private sessions: Session[] = [];
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
-  /// Sessions whose turn ended while another was selected. acpmux does not track what the
-  /// user has seen, so the pane keeps this until the session is selected.
-  private unseen = new Set<string>();
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -540,6 +537,7 @@ export class AcpmuxDirectClient {
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
   }
 
   /// A client with no connection that shows one recorded session as it stood at a point in it
@@ -886,31 +884,24 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
   }
 
-  /// A full session list from `_acpmux/watch`. A turn whose end the reread is the first to show
-  /// (its notice lost to a lag or a reconnect) counts as unseen too; sessions gone from the list
-  /// leave the set.
+  /// A full session list from `_acpmux/watch`. acpmux owns `unread` (cx-n8ou): the pane only
+  /// tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
   private reread(sessions: Session[] | undefined): Session[] {
-    const next = (sessions ?? []).filter((session) => session.sessionId);
-    const ids = new Set(next.map((session) => session.sessionId));
-    const running = new Set(this.sessions.filter((session) => session.status === "running").map((s) => s.sessionId));
-    for (const id of this.unseen) if (!ids.has(id)) this.unseen.delete(id);
-    for (const session of next)
-      if (
-        running.has(session.sessionId) &&
-        session.status !== "running" &&
-        session.sessionId !== this.selectedSessionId
-      )
-        this.unseen.add(session.sessionId);
-    return next.map(this.withUnseen);
+    return (sessions ?? []).filter((session) => session.sessionId);
   }
 
-  /// The session with its unseen flag; a new object, so its sidebar entry is rebuilt.
-  private withUnseen = (session: Session): Session =>
-    this.unseen.has(session.sessionId) && session.unread !== true ? { ...session, unread: true } : session;
+  /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
+  /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
+  private showChanged = (): void => {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.closed) return;
+    const visible = pageShown();
+    void this.request("_acpmux/view", { sessionId, visible }).catch(() => undefined);
+    if (visible) this.markSeen(sessionId);
+  };
 
   /// Selecting a session is seeing it, including an unread flag acpmux sent.
   private markSeen(sessionId: string): void {
-    this.unseen.delete(sessionId);
     this.sessions = this.sessions.map((session) =>
       session.sessionId === sessionId && session.unread === true ? { ...session, unread: false } : session,
     );
@@ -1039,6 +1030,7 @@ export class AcpmuxDirectClient {
       limit: 400,
       kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
       eventStream: true,
+      visible: pageShown(),
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
@@ -1107,18 +1099,13 @@ export class AcpmuxDirectClient {
     const session = params?.session;
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
-      this.unseen.delete(session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
       else this.emit("session purged");
       return;
     }
     if (!session?.sessionId) return;
-    const before = this.sessions.find((item) => item.sessionId === session.sessionId);
-    // A turn that ends in the background is news the user hasn't seen.
-    if (session.sessionId !== this.selectedSessionId && before?.status === "running" && session.status !== "running")
-      this.unseen.add(session.sessionId);
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), this.withUnseen(session)];
+    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
@@ -2104,6 +2091,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();
@@ -2242,4 +2230,10 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
   }));
+}
+
+/// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
+/// hidden, or in an occluded window.
+function pageShown(): boolean {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
