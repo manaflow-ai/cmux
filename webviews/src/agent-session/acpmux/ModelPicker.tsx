@@ -162,7 +162,7 @@ const blockedProfile = (entry: HarnessChoice | undefined) =>
 
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
-  "acpmux-mp-rail grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail-tab grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -451,7 +451,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const focusRail = (index: number) => {
     if (index < 0) {
-      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail[aria-label]")?.focus();
+      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail-tab[aria-label]")?.focus();
       return;
     }
     menu.current?.querySelector<HTMLElement>(`[data-harness-index="${index}"]`)?.focus();
@@ -570,8 +570,15 @@ export function ModelPicker(props: ModelPickerProps) {
           style={menuStyle}
         >
           {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
-          <ScrollArea className="w-11 flex-none border-r-[0.5px] border-edge">
-            <PickerOptionList className="flex flex-col items-center gap-1 py-1.5" aria-label={harnessText}>
+          <ScrollArea
+            className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
+            viewportClassName="acpmux-mp-rail-viewport"
+            horizontal
+          >
+            <PickerOptionList
+              className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
+              aria-label={harnessText}
+            >
               <PickerOption
                 type="button"
                 className={railTab}
@@ -661,7 +668,7 @@ export function ModelPicker(props: ModelPickerProps) {
               )}
             </PickerOptionList>
           </ScrollArea>
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput
