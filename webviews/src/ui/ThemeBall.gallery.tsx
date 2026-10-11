@@ -42,7 +42,7 @@ function sheet(themes: readonly GhosttyTheme[]) {
         {FAMOUS.map((name) => (
           <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 28 }}>
             <ThemeBall name={name} colors={byName.get(name)} size={size} />
-            <span style={{ fontSize: 13 }}>{name}</span>
+            <span style={{ fontSize: "var(--text-body)" }}>{name}</span>
           </div>
         ))}
       </div>
