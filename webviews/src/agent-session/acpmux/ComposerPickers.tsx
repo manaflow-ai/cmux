@@ -414,16 +414,30 @@ export function ComposerPickers({
         />
       )}
       {showPlan && plan && (
-        <button
-          type="button"
-          className="acpmux-plan"
-          aria-pressed={planning}
-          title={t(PICKER_LABELS.planHint)}
-          onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
+        // Its right-click menu names both modes; the current one is disabled (cx-2lm4).
+        <ContextMenu
+          className="acpmux-plan-menu"
+          items={[
+            { id: "plan", label: t(PICKER_LABELS.plan), disabled: planning, onSelect: () => onMode(plan.id) },
+            {
+              id: "build",
+              label: t(PICKER_LABELS.build),
+              disabled: !planning,
+              onSelect: () => onMode(lastMode.current.mode ?? modes[0]?.id ?? plan.id),
+            },
+          ]}
         >
-          {planning ? <PlanIcon /> : <BuildIcon />}
-          <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
-        </button>
+          <button
+            type="button"
+            className="acpmux-plan"
+            aria-pressed={planning}
+            title={t(PICKER_LABELS.planHint)}
+            onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
+          >
+            {planning ? <PlanIcon /> : <BuildIcon />}
+            <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
+          </button>
+        </ContextMenu>
       )}
     </div>
   );
