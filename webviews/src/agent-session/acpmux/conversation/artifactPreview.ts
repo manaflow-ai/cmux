@@ -5,8 +5,29 @@ import { createContext } from "react";
 export type ArtifactKind = "html" | "svg" | "markdown";
 export type Artifact = { kind: ArtifactKind; lang: string; code: string };
 
-export function artifactKind(_lang: string | undefined, _code: string): ArtifactKind | undefined {
+const KINDS: Record<string, ArtifactKind> = {
+  html: "html",
+  htm: "html",
+  xhtml: "html",
+  svg: "svg",
+  markdown: "markdown",
+  md: "markdown",
+};
+
+/// The kind of document a fence holds, when the panel can draw it: its language, or an `xml` fence
+/// that holds one SVG image.
+export function artifactKind(lang: string | undefined, code: string): ArtifactKind | undefined {
+  const name = (lang ?? "").toLowerCase();
+  const kind = KINDS[name];
+  if (kind) return kind;
+  if (name === "xml" && /^\s*(<\?xml[^>]*\?>\s*)?<svg[\s>]/i.test(code)) return "svg";
   return undefined;
+}
+
+/// The HTML the render frame draws for a preview: an SVG image centered and fit to the panel.
+export function previewHtml(artifact: Artifact): string {
+  if (artifact.kind !== "svg") return artifact.code;
+  return `<style>body{display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center}svg{max-width:100%;height:auto}</style>${artifact.code}`;
 }
 
 /// Opens a fence in the side panel; unset where the page has none (a gallery, a test).

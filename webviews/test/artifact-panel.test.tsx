@@ -1,29 +1,45 @@
 // A reply's document in the side panel (cx-ncc.63, Claude parity): an HTML, SVG or Markdown fence has
 // an Open button that opens it in the panel beside the chat; the panel draws its preview with the
 // source a tab away, copies it, and closes on its button or Escape.
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import { JSDOM } from "jsdom";
+import { afterAll, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 
-const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "KeyboardEvent", "IS_REACT_ACT_ENVIRONMENT"] as const;
-const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
-let root: Root | undefined;
-let host: HTMLElement;
-
-beforeAll(() => {
-  const { window } = new JSDOM("<!doctype html><div id=root></div>");
-  Object.assign(scope, {
-    window,
-    document: window.document,
-    navigator: window.navigator,
-    HTMLElement: window.HTMLElement,
-    KeyboardEvent: window.KeyboardEvent,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
-  host = window.document.getElementById("root")!;
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
 });
+const scope = globalThis as Record<string, unknown>;
+const replacements: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  Node: dom.window.Node,
+  customElements: dom.window.customElements,
+  MutationObserver: dom.window.MutationObserver,
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+// The code card's highlighter (@pierre/diffs) defines its elements, which read DOM constructors, on import.
+for (const key of Object.getOwnPropertyNames(dom.window))
+  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent)/.test(key) && !(key in scope))
+    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
+const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+Object.assign(scope, replacements);
+const window = dom.window;
+const host = window.document.getElementById("root")!;
+let root: Root | undefined;
 
 afterAll(() => {
   act(() => root?.unmount());
