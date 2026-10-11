@@ -165,7 +165,7 @@ final class NotificationCenterService {
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
-        ProgramStatusSeenStore.shared.markSeen(tab, turns: .shared)
+        ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
