@@ -28,11 +28,6 @@ public final class AppStorePages {
         models[key]?.present(appID: appID, installed: installed)
     }
 
-    /// Lists again in every tab.
-    public func refreshAll() {
-        for model in models.values { model.refresh() }
-    }
-
     /// Drops tab `key`'s model. A Remove still in its undo window commits: the closed tab has no
     /// Undo to show, and the user asked for a remove (the task keeps the model until it ends).
     public func tabClosed(_ key: String) {

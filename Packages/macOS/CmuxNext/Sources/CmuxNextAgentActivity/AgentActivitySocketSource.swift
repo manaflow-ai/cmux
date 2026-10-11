@@ -113,7 +113,8 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let connection = AgentActivityLineConnection(path: config.socketPath, expectedServerUID: geteuid())
+        let connection = AgentActivityLineConnection(path: config.socketPath,
+                                                     acceptsServer: CuaHelperIdentity.isHelperServer)
         subscription = connection
         connection.start(
             send: AgentActivityWire.requestLine(method: "activity_subscribe", args: ["sessions": true, "events_for": []],

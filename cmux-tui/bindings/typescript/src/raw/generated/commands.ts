@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0bd42f2a0bc62e63d9f17a4658fb450f6a559be8ec9a0a6397987b6dde11a81e. */
+/* cmux-tui mux protocol 12, IR 471310f7c5824f4af3c568f5a0d5f7f84b41030b4e4cd086301614dc158cb9e7. */
 
 
 import type * as T from "./types.js";
@@ -540,6 +540,24 @@ export interface ConversationCreateRequest extends CmuxRequestBase {
 export type ConversationCreateResult = {
   "conversation": T.ConversationSummary;
   "replayed": boolean;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationDraftRequest extends CmuxRequestBase {
+  cmd: "conversation-draft";
+  "conversation": string;
+  "done": boolean;
+  "fresh": boolean;
+  "harness"?: (string) | null;
+  "kind": string;
+  "segment": bigint;
+  "seq": bigint;
+  "text": string;
+  "truncated"?: (boolean) | null;
+  "turn": string;
+}
+export type ConversationDraftResult = {
+  "published": boolean;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -2465,6 +2483,7 @@ export type CmuxRequest =
   | ConversationAttachmentUploadRequest
   | ConversationBindRequest
   | ConversationCreateRequest
+  | ConversationDraftRequest
   | ConversationHistoryRequest
   | ConversationImportRequest
   | ConversationListRequest
@@ -3075,6 +3094,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-draft": {
+    request: ConversationDraftRequest;
+    result: ConversationDraftResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-draft-v1";
     stream: null;
   };
   "conversation-history": {

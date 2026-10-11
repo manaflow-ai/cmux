@@ -18,8 +18,6 @@ public struct ShortcutStrokeSpec: Sendable, Hashable {
         self.option = option
         self.control = control
     }
-
-    public var hasModifier: Bool { command || shift || option || control }
 }
 
 /// A parsed `shortcuts.bindings.<actionID>` value.

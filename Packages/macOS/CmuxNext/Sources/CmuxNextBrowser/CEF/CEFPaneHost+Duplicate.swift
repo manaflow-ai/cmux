@@ -11,10 +11,6 @@ import Foundation
 extension CEFPaneHost {
     static let duplicateForkAPI: Int32 = 16
 
-    public func canDuplicate(_ tab: CEFTab) -> Bool {
-        tab.browserID != nil && runtime.forkAPIVersion >= Self.duplicateForkAPI
-    }
-
     /// The adopted copy of `tab`, or nil: an older fork, a closed tab, or a
     /// tab with nothing committed yet.
     @discardableResult

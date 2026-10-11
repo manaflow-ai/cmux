@@ -82,12 +82,6 @@ final class PromptBarView: NSView {
         density.start()
     }
 
-    /// Lines the message takes (tests).
-    var messageLineCount: Int {
-        let line = NSLayoutManager().defaultLineHeight(for: messageLabel.font ?? BrowserMetrics.bodyFont)
-        return max(1, Int((messageLabel.intrinsicContentSize.height / line).rounded()))
-    }
-
     /// The message wraps at the width the bar may take: `promptMaxWidth`,
     /// or less in a narrower pane (its container, else the bar itself),
     /// minus the padding. Never the label's own last width: a short earlier

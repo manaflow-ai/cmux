@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0bd42f2a0bc62e63d9f17a4658fb450f6a559be8ec9a0a6397987b6dde11a81e";
+pub const ir_sha256 = "471310f7c5824f4af3c568f5a0d5f7f84b41030b4e4cd086301614dc158cb9e7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4070,6 +4070,36 @@ pub fn conversationCreate(client: anytype, request: ConversationCreateRequest) !
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationDraftRequest = struct {
+    conversation: []const u8,
+    done: bool,
+    fresh: bool,
+    harness: wire.Field([]const u8) = .absent,
+    kind: []const u8,
+    segment: u64,
+    seq: u64,
+    text: []const u8,
+    truncated: wire.Field(bool) = .absent,
+    turn: []const u8,
+};
+
+pub const ConversationDraftResult = struct {
+    published: bool,
+};
+
+pub fn conversationDraft(client: anytype, request: ConversationDraftRequest) !wire.Decoded(ConversationDraftResult) {
+    return client.callTyped(
+        ConversationDraftResult,
+        .{
+            .name = "conversation-draft",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-draft-v1",
         },
         request,
     );
@@ -9826,7 +9856,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 245;
+pub const command_count: usize = 246;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9880,6 +9910,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-attachment-upload", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
     .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-create", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-draft", .authority = "local-admin", .since = 12, .capability = "conversation-draft-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
