@@ -196,11 +196,13 @@ class Soak:
         self.app = os.path.realpath(args.app)
         self.out = args.out
         os.makedirs(self.out, exist_ok=True)
-        self.work = tempfile.mkdtemp(prefix="cmux-soak-")
+        # Resolved (/var -> /private/var), so the copy and its helpers have one path that TagTeardown matches.
+        self.work = os.path.realpath(tempfile.mkdtemp(prefix="cmux-soak-"))
         self.acpmux_home = os.path.join(self.work, "acpmux")
         self.quiet_file = os.path.join(self.work, "quiet")
         self.acp = Acpmux(acpmux_socket(self.acpmux_home))
-        self.samples = open(os.path.join(self.out, "samples.jsonl"), "a")
+        self.samples = None  # opened by begin(), after preflight: a refused soak never touches another's files
+        self.stage = "setup"
         self.events = []
         self.setup = {}
         self.agents = {}  # session id -> {"started": monotonic or None, "turns": n, "done": n}
@@ -219,6 +221,8 @@ class Soak:
         if not self.args.same_tag:
             self.app = own_copy(self.app, self.work)
         self.tag, executable = bundle_tag(self.app)
+        with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as handle:
+            self.bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
         self.binary = os.path.join(self.app, "Contents/MacOS", executable)
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
         self.socket = self.args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
@@ -245,6 +249,29 @@ class Soak:
         if any(cmd.startswith(self.binary) for _, _, cmd in table):
             raise SystemExit(f"readiness-soak: {self.binary} is already running")
         self.webkit_before = {pid for pid, _, cmd in table if "com.apple.WebKit." in cmd}
+
+    def forget(self):
+        """Remove the state the app keeps under this run's own bundle id and tag (both carry the soak's PID,
+        so no other build shares them). --same-tag runs the build as it is and keeps its state."""
+        if self.args.same_tag or not getattr(self, "bundle_id", None):
+            return
+        bundle, tag = self.bundle_id, self.tag
+        support = os.path.expanduser("~/Library/Application Support")
+        run("defaults", "delete", bundle)
+        for path in (os.path.expanduser(f"~/Library/Preferences/{bundle}.plist"),
+                     os.path.join(support, bundle),
+                     os.path.join(support, "cmux-next", bundle),
+                     os.path.join(support, "cmux", bundle),
+                     os.path.join(support, "cmux", f"managed-status.{bundle}.json"),
+                     os.path.join(support, "cmux", "tags", tag),
+                     os.path.expanduser(f"~/.cmux/chief/isolated/{tag}")):
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, ignore_errors=True)
+            elif os.path.lexists(path):
+                os.remove(path)
+
+    def begin(self):
+        self.samples = open(os.path.join(self.out, "samples.jsonl"), "w")
 
     def launch(self):
         os.makedirs(self.acpmux_home)
@@ -451,7 +478,8 @@ class Soak:
                     next_turn[session] = time.monotonic() + self.args.turn_every
             record = {"at": now_iso(), "elapsed_s": round(time.time() - self.started), "processes": processes,
                       "phase": "quiet" if quiet else "load",
-                      "running": sum(e["started"] is not None for e in self.agents.values()),
+                      "running": sum(e["started"] is not None or statuses.get(session) == "running"
+                                     for session, e in self.agents.items()),
                       "ping_ms": ping_ms, "snapshot_ms": snapshot_ms,
                       "turns": sum(e["turns"] for e in self.agents.values()),
                       "turns_done": sum(e["done"] for e in self.agents.values())}
@@ -461,9 +489,15 @@ class Soak:
     # ---- report --------------------------------------------------------------------------
 
     def report(self):
-        self.samples.close()
-        with open(os.path.join(self.out, "samples.jsonl")) as handle:
-            samples = [json.loads(line) for line in handle if line.strip()]
+        stem = "report"
+        if self.samples:
+            self.samples.close()
+            with open(os.path.join(self.out, "samples.jsonl")) as handle:
+                samples = [json.loads(line) for line in handle if line.strip()]
+        else:
+            samples = []
+            if os.path.exists(os.path.join(self.out, "samples.jsonl")):
+                stem = "refused"  # --out holds another soak's run; keep its report
         warm = [s for s in samples if s["elapsed_s"] >= self.args.warmup]
         # Idle: quiet samples once every turn has ended and --settle seconds have passed.
         quiet_from = min((s["elapsed_s"] for s in samples if s.get("phase") == "quiet"), default=None)
@@ -549,7 +583,7 @@ class Soak:
                   "snapshot_ms_p50": pings[len(pings) // 2] if pings else None,
                   "snapshot_ms_p99": pings[int(len(pings) * 0.99)] if pings else None,
                   "turns": samples[-1]["turns"] if samples else 0, "turns_done": samples[-1]["turns_done"] if samples else 0}
-        with open(os.path.join(self.out, "report.json"), "w") as handle:
+        with open(os.path.join(self.out, f"{stem}.json"), "w") as handle:
             json.dump(result, handle, indent=1)
         lines = [f"# cmux-next readiness soak: {'PASS' if result['ok'] else 'FAIL'}", "",
                  f"Build {self.setup.get('identity', {}).get('build')} ({self.setup.get('identity', {}).get('version')}), "
@@ -575,7 +609,7 @@ class Soak:
                 lines.append(f"| {s['elapsed_s'] // 60} | {s.get('phase', 'load')} | " + " | ".join(cells) + " |")
         if self.events:
             lines += ["", "Events:"] + [f"- {e['at']} {e['kind']}: {e['detail']}" for e in self.events]
-        with open(os.path.join(self.out, "report.md"), "w") as handle:
+        with open(os.path.join(self.out, f"{stem}.md"), "w") as handle:
             handle.write("\n".join(lines) + "\n")
         print("\n".join(lines))
         return result
@@ -628,6 +662,7 @@ def main():
     try:
         soak.identify()
         soak.preflight()
+        soak.begin()
         teardown = TagTeardown(soak.app, acpmux_home=soak.acpmux_home, acpmux_socket=soak.acp.path, log=say)
         teardown.install()
         soak.launch()
@@ -635,10 +670,14 @@ def main():
         soak.start_browsers()
         soak.start_agents()
         say(f"setup: {json.dumps(soak.setup)}")
+        soak.stage = "run"
         soak.loop()
     except SystemExit as stop:
-        # A refused or failed setup still writes report.json and report.md, naming why.
-        soak.setup["error"] = str(stop.code)
+        if soak.stage == "setup":
+            # A refused or failed setup still writes report.json and report.md, naming why.
+            soak.setup["error"] = str(stop.code)
+        else:
+            soak.event("stopped", f"the soak was stopped ({stop.code}); the report covers what ran")
         raise
     finally:
         try:
@@ -648,6 +687,7 @@ def main():
                 soak.quit()
             if teardown:
                 teardown.end()
+                soak.forget()
             shutil.rmtree(soak.work, ignore_errors=True)
     sys.exit(0 if result.get("ok") else 1)
 
