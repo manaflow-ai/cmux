@@ -20,7 +20,7 @@
   "agent-session/acpmux/ModelPicker.tsx": 1,
   "agent-session/acpmux/ModelPickerDrill.tsx": 3,
   "agent-session/acpmux/ModelPickerShell.tsx": 3,
-  "agent-session/acpmux/newtab/NewTabScreen.tsx": 4,
+  "agent-session/acpmux/newtab/NewTabScreen.tsx": 10,
   "agent-session/acpmux/NewTabPage.tsx": 5,
   "agent-session/acpmux/paneSurface.ts": 1,
   "agent-session/acpmux/perf.ts": 1,
