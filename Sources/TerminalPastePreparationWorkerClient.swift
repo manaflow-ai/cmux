@@ -1,5 +1,6 @@
 import CmuxTerminal
 import Foundation
+import os
 
 /// Launches one killable paste worker and adopts its validated output files.
 struct TerminalPastePreparationWorkerClient: Sendable {
@@ -58,6 +59,15 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         )
     }
 
+#if DEBUG
+    /// Replaces the snapshot worker for tests that are not about it: launching
+    /// the app binary as a worker takes from 0.06 s to over 5 s on CI runners.
+    static let debugSnapshotCaptureOverride =
+        OSAllocatedUnfairLock<TerminalPasteboardService.PreviousContentsCapture?>(
+            initialState: nil
+        )
+#endif
+
     static func snapshottingWithCurrentBinary()
         -> TerminalPastePreparationWorkerClient
     {
@@ -74,6 +84,11 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     func captureSnapshot(
         _ request: TerminalPasteboardContentsCaptureRequest
     ) async throws -> TerminalPasteboardContentsSnapshot? {
+#if DEBUG
+        if let capture = Self.debugSnapshotCaptureOverride.withLock({ $0 }) {
+            return await capture(request)
+        }
+#endif
         let result = try await prepare(
             TerminalPastePreparationRequest(snapshot: request)
         )

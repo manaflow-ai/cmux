@@ -8368,6 +8368,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertTrue(pasteboard.setString("user clipboard", forType: .string))
             TextBoxSubmit.debugWaitTimeoutSecondsOverride = 0
             defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
+            // A loaded runner: the app-binary snapshot worker took over 5 s
+            // to launch in run 38099700449 (attempt 1), and the paste waits on it.
+            TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock {
+                $0 = { request in
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                    TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock { $0 = nil }
+                    return try? await TerminalPastePreparationWorkerClient
+                        .snapshottingWithCurrentBinary()
+                        .captureSnapshot(request)
+                }
+            }
+            defer { TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock { $0 = nil } }
 
             let imageURL = try makeTemporaryPNGFile(named: "moon.png")
             var completed = false
