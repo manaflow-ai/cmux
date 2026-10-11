@@ -12,6 +12,6 @@ struct ComputerUseCursorFadeTests {
         let flag = try #require(argv.firstIndex(of: "--idle-hide-ms"), "the helper must be told when to fade: \(argv)")
         let ms = try #require(Double(argv[argv.index(after: flag)]))
         #expect(ms > 0, "0 disables the fade, so the cursor stays after the run")
-        #expect(ms <= 5_000, "the cursor should leave within a few seconds of the last action")
+        #expect(ms <= 15_000, "the cursor should leave soon after the last action, not stay for the session")
     }
 }
