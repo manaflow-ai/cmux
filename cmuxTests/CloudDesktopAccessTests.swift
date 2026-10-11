@@ -386,6 +386,25 @@ struct CloudDesktopAccessTests {
         #expect(browser.cloudResourceForSession == nil)
     }
 
+    @Test("Leaving a Cloud route clears a pending request body")
+    func externalNavigationClearsPendingCloudRequest() async throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let url = try #require(URL(string: "http://127.0.0.1:3000/submit"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data("private-body".utf8)
+        let model = CloudPortAccessModel(
+            target: .init(host: "127.0.0.1", port: 3000), coordinator: nil,
+            wake: {}, startForward: { _ in 43000 }, stopForward: {}, route: .loopback
+        )
+        browser.configureCloudBrowser(model: model, url: url, request: request)
+        #expect(browser.pendingCloudNavigationRequest?.httpBody == Data("private-body".utf8))
+        browser.leaveCloudResourceForLocalNavigation()
+        #expect(browser.pendingCloudNavigationRequest == nil)
+        await model.retire()
+    }
+
     @Test("A delayed Cloud restore keeps the saved path and query")
     func delayedCloudRestoreKeepsSavedURL() throws {
         let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())

@@ -42,7 +42,13 @@ struct RemoteLoopbackProxyAliasTests {
     func loopbackDetection() {
         #expect(RemoteLoopbackProxyAlias.isLoopbackHost("localhost"))
         #expect(RemoteLoopbackProxyAlias.isLoopbackHost("127.0.0.1"))
+        #expect(RemoteLoopbackProxyAlias.isLoopbackHost("127.42.7.9"))
+        #expect(RemoteLoopbackProxyAlias.isLoopbackHost("2130706433"))
+        #expect(RemoteLoopbackProxyAlias.isLoopbackHost("0x7f000001"))
         #expect(RemoteLoopbackProxyAlias.isLoopbackHost("::1"))
+        #expect(RemoteLoopbackProxyAlias.isLoopbackHost("::"))
+        #expect(RemoteLoopbackProxyAlias.isLoopbackHost("::ffff:127.0.0.1"))
+        #expect(RemoteLoopbackProxyAlias.isLoopbackHost("64:ff9b::127.0.0.1"))
         #expect(RemoteLoopbackProxyAlias.isLoopbackHost("0.0.0.0"))
         #expect(RemoteLoopbackProxyAlias.isLoopbackHost("api.localhost"))
         #expect(RemoteLoopbackProxyAlias.isLoopbackHost("http://localhost:3000/app"))
