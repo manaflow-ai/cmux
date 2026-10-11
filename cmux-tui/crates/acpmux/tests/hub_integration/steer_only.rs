@@ -199,13 +199,15 @@ async fn queue_ops_steer_with_interrupt_stops_a_turn_its_agent_cannot_steer() {
 #[tokio::test]
 async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
     let env = BTreeMap::from([("FAKE_CODEX_STEER".to_owned(), "1".to_owned())]);
-    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     c.send(method::SESSION_PROMPT, text_prompt(&id, "p-turn", "work")).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "turn: work").await;
-    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-a", "more")).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-a" && p["queued"] == true)
+    // Its sender waits on its own connection for the answer.
+    let mut a = connect(&hub).await;
+    let pa = a.send(method::SESSION_PROMPT, text_prompt(&id, "p-a", "more")).await;
+    a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-a" && p["queued"] == true)
         .await;
     let attached =
         c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
@@ -222,4 +224,10 @@ async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
     // The running turn took it: one turn answered both prompts.
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "answered 2").await;
     assert!(queue_order(&mut c, &id).await.is_empty());
+    // Its sender hears how it ran (a steer, under its own id), not that it was withdrawn.
+    let (answer, _) = a.response(pa).await;
+    let answer = answer.unwrap();
+    assert_eq!(answer["_meta"]["acpmux"]["promptId"], "p-a", "{answer}");
+    assert_eq!(answer["_meta"]["acpmux"]["steer"], true, "{answer}");
+    assert_ne!(answer["_meta"]["acpmux"]["withdrawn"], true, "{answer}");
 }
