@@ -8436,6 +8436,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
             let imageURL = try makeTemporaryPNGFile(named: "moon.png")
             mark("png")
+            let hop = ClipTimingFlag()
+            Task { @MainActor in hop.value = true }
+            waitFor(timeout: 30.0, until: { hop.value })
+            mark("main-actor-hop")
+            for pass in ["cold", "warm"] {
+                let captured = ClipTimingFlag()
+                let request = TerminalPasteboardContentsCaptureRequest(
+                    pasteboardName: NSPasteboard.general.name.rawValue,
+                    changeCount: NSPasteboard.general.changeCount,
+                    maximumByteCount: 1 << 20
+                )
+                Task.detached {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    let snapshot = try? await TerminalPastePreparationWorkerClient
+                        .snapshottingWithCurrentBinary()
+                        .captureSnapshot(request)
+                    print(String(
+                        format: "CLIPTIMING worker-capture-%@ took %.3f ok=%@",
+                        pass,
+                        ProcessInfo.processInfo.systemUptime - start,
+                        snapshot == nil ? "false" : "true"
+                    ))
+                    await MainActor.run { captured.value = true }
+                }
+                waitFor(timeout: 30.0, until: { captured.value })
+                mark("worker-capture-\(pass) done=\(captured.value)")
+            }
             if let probe = GhosttyApp.terminalPasteboard.reserveClipboardRead(from: GHOSTTY_CLIPBOARD_STANDARD) {
                 let ready = ClipTimingFlag()
                 Task { @MainActor in _ = await probe.waitUntilReady(); ready.value = true }
