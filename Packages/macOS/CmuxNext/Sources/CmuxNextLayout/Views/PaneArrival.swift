@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 
 /// Where a pane added by a split starts (cx-f6i7): a zero-width (or
@@ -71,5 +72,22 @@ struct PaneArrival: Equatable {
     static func presentation(shown: CGRect, target: CGRect) -> CGRect {
         target.offsetBy(dx: (shown.minX - target.minX) + (shown.maxX - target.maxX),
                         dy: (shown.minY - target.minY) + (shown.maxY - target.maxY))
+    }
+
+    /// The range strip panes show in beside docked columns (nil without
+    /// any), moved with docks still growing in from their edge (`docks`, the
+    /// arriving frames), so the strip is never cut short of a dock that has
+    /// not reached its place.
+    static func stripClip(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> CGRect? {
+        guard !geometry.dock.isEmpty else { return nil }
+        var minX = geometry.clipMinX, maxX = geometry.clipMaxX, minY = geometry.clipMinY, maxY = geometry.clipMaxY
+        for dock in docks {
+            let shown = dock.rect, target = dock.targetRect
+            if target.maxX <= geometry.clipMinX + 1 { minX += shown.maxX - target.maxX }
+            if target.minX >= geometry.clipMaxX - 1 { maxX += shown.minX - target.minX }
+            if target.maxY <= geometry.clipMinY + 1 { minY += shown.maxY - target.maxY }
+            if target.minY >= geometry.clipMaxY - 1 { maxY += shown.minY - target.minY }
+        }
+        return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 }

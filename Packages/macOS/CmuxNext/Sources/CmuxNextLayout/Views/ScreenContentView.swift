@@ -229,7 +229,7 @@ final class ScreenContentView: NSView {
 
     func applyPresentation() {
         let strip = stripShift
-        let uncovered = uncoveredRect
+        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { paneFrames[$0] })
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -239,7 +239,7 @@ final class ScreenContentView: NSView {
             host.frame = (revealing == nil ? frame.rect : PaneArrival.presentation(shown: frame.rect, target: frame.targetRect)).offsetBy(dx: shift.dx, dy: shift.dy)
             host.alphaValue = frame.alpha.value
             host.isDocked = !scrolls
-            clipToStrip(host, scrolls: scrolls, uncovered: uncovered, revealing: revealing)
+            clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing)
         }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
