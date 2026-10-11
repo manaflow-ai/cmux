@@ -4,13 +4,13 @@ import Foundation
 /// Decodes an HTTP/1.1 `Transfer-Encoding: chunked` body as it arrives (RFC 9112 section 7.1):
 /// hex size lines (extensions ignored), the chunk data with its CRLF, a zero chunk, then trailer
 /// lines (dropped) up to an empty line. Refused: a size line over ``maximumLineBytes``, a size that
-/// is not 1 to 16 hex digits, chunk data without its CRLF, trailers over ``maximumTrailerBytes``,
+/// is not 1 to 15 hex digits (whitespace only around it), chunk data without its CRLF, trailers over ``maximumTrailerBytes``,
 /// and data past `maximumBody` (``RemoteFetchReplyReader/Refusal/overCap``).
 nonisolated struct RemoteFetchChunkedBody {
     static let maximumLineBytes = 4 * 1024
     static let maximumTrailerBytes = 16 * 1024
 
-    private enum State {
+    private nonisolated enum State {
         case size
         case data(remaining: Int)
         case dataEnd
@@ -95,7 +95,9 @@ nonisolated struct RemoteFetchChunkedBody {
     }
 
     private static func chunkSize(_ line: ArraySlice<UInt8>) throws(RemoteFetchReplyReader.Refusal) -> Int {
-        let digits = line.prefix { $0 != UInt8(ascii: ";") }.filter { $0 != 0x20 && $0 != 0x09 }
+        let blank: (UInt8) -> Bool = { $0 == 0x20 || $0 == 0x09 }
+        let field = line.prefix { $0 != UInt8(ascii: ";") }
+        let digits = field.drop(while: blank).reversed().drop(while: blank).reversed()
         guard (1...15).contains(digits.count) else { throw RemoteFetchReplyReader.Refusal(reason: "chunk size") }
         var size = 0
         for byte in digits {
@@ -131,7 +133,7 @@ nonisolated struct RemoteFetchContentDecoding {
         case "deflate":
             // Most servers send zlib framing (RFC 1950); some send raw DEFLATE. COMPRESSION_ZLIB reads raw.
             let bytes = [UInt8](body.prefix(2))
-            let zlib = bytes.count == 2 && bytes[0] & 0x0f == 8 && (Int(bytes[0]) << 8 | Int(bytes[1])) % 31 == 0
+            let zlib = bytes.count == 2 && bytes[0] & 0x0f == 8 && bytes[0] >> 4 <= 7 && (Int(bytes[0]) << 8 | Int(bytes[1])) % 31 == 0
             if zlib, bytes[1] & 0x20 != 0 { throw RemoteFetchReplyReader.Refusal(reason: "deflate with a preset dictionary") }
             return try inflate(zlib ? body.dropFirst(2) : body[...], algorithm: COMPRESSION_ZLIB, maximumBody: maximumBody)
         case "br":
@@ -181,6 +183,7 @@ nonisolated struct RemoteFetchContentDecoding {
             stream.pointee.src_ptr = base
             stream.pointee.src_size = src.count
             while failure == nil {
+                let before = stream.pointee.src_size
                 let (status, produced) = buffer.withUnsafeMutableBufferPointer { dst -> (compression_status, Int) in
                     guard let target = dst.baseAddress else { return (COMPRESSION_STATUS_ERROR, 0) }
                     stream.pointee.dst_ptr = target
@@ -188,6 +191,7 @@ nonisolated struct RemoteFetchContentDecoding {
                     let status = compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
                     return (status, chunk - stream.pointee.dst_size)
                 }
+                let consumed = before - stream.pointee.src_size
                 output.append(contentsOf: buffer[0..<produced])
                 if output.count > maximumBody {
                     failure = RemoteFetchReplyReader.Refusal(reason: "decoded body over the cap", overCap: true)
@@ -196,7 +200,7 @@ nonisolated struct RemoteFetchContentDecoding {
                 switch status {
                 case COMPRESSION_STATUS_END:
                     return
-                case COMPRESSION_STATUS_OK where produced > 0:
+                case COMPRESSION_STATUS_OK where produced > 0 || consumed > 0:
                     continue
                 default:
                     // An error, or no progress with all input given: a cut or corrupt stream.

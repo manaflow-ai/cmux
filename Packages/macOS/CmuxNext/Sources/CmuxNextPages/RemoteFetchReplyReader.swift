@@ -23,7 +23,9 @@ nonisolated struct RemoteFetchReplyReader {
     static let redirects: Set<Int> = [301, 302, 303, 307, 308]
 
     let maximumBody: Int
-    private let message = CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
+    private var message = CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
+    /// Interim (1xx) replies skipped before the final one.
+    private var interim = 0
     /// The bytes received until the headers completed (at most 16 KB plus one read).
     private var raw = Data()
     private var head: (status: Int, headers: [String: String], length: Int?)?
@@ -58,6 +60,17 @@ nonisolated struct RemoteFetchReplyReader {
         let received = CFHTTPMessageCopyBody(message)?.takeRetainedValue() as Data? ?? Data()
         let headerBytes = raw.count - received.count
         guard headerBytes <= Self.maximumHeaderBytes else { throw Refusal(reason: "headers over 16 KB") }
+        // An HTTP/1.1 server may send interim replies (100 Continue, 103 Early Hints) before the
+        // final one: skip them and parse what follows as a new reply. 101 (a protocol switch) is
+        // refused below.
+        let status = CFHTTPMessageGetResponseStatusCode(message)
+        if (100..<200).contains(status), status != 101 {
+            interim += 1
+            guard interim <= 4 else { throw Refusal(reason: "too many interim replies") }
+            message = CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
+            raw = Data()
+            return received.isEmpty ? false : try append(received)
+        }
         let checked = try Self.checkHead(message, headerBlock: raw.prefix(headerBytes))
         if let length = checked.length, length > maximumBody { throw Refusal(reason: "Content-Length over the cap", overCap: true) }
         head = checked

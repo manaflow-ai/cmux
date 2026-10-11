@@ -71,14 +71,9 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     public static let imageAccept = "image/webp,image/avif,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5"
     /// The `Accept` of a browser's video or audio request.
     public static let mediaAccept = "video/*,audio/*;q=0.9,*/*;q=0.5"
-    /// The person's first preferred languages, as the system's URL loading sends them.
-    static var acceptLanguage: String {
-        let languages = Locale.preferredLanguages.prefix(3)
-        guard !languages.isEmpty else { return "en" }
-        return languages.enumerated().map { index, tag in
-            index == 0 ? tag : "\(tag);q=\(String(format: "%.1f", 1.0 - Double(index) * 0.1))"
-        }.joined(separator: ", ")
-    }
+    /// A fixed `Accept-Language`, as browsers send one: the person's own languages would tell
+    /// every host a reply or a document names which languages they read.
+    static let acceptLanguage = "en-US,en;q=0.9"
 
     public var maximumBytes: Int
     public var timeout: Duration
