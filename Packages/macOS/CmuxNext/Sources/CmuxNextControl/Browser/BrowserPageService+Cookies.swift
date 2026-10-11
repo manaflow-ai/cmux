@@ -3,8 +3,10 @@ import Foundation
 
 /// `browser.page.cookies.get|set|clear` and `browser.page.storage.get|set|clear`:
 /// the old `cmux browser cookies` and `cmux browser storage`. Cookies belong
-/// to the tab's profile (its engine's store); storage is the page's
-/// `localStorage` or `sessionStorage`.
+/// to the tab's profile (its engine's store), which is the person's, so a
+/// clear stays on the tab's site and `all` is refused, as the driver's
+/// `cookies.clear` does; storage is the page's `localStorage` or
+/// `sessionStorage`.
 extension BrowserPageService {
     func cookieAndStorageMethods() -> [ControlMethod] {
         let engine = engine
@@ -12,7 +14,8 @@ extension BrowserPageService {
             .async("browser.page.cookies.get") { call in
                 let tab = try Self.tab(call)
                 let filter = try CookieFilter(call.request.params)
-                let cookies = try await Self.cookies(engine, tab).filter(filter.listed)
+                let now = Date()
+                let cookies = try await Self.cookies(engine, tab).filter { filter.listed($0, now: now) }
                 var result = Self.base(tab)
                 result["cookies"] = .array(cookies.map(\.json))
                 return .object(result)
@@ -28,20 +31,27 @@ extension BrowserPageService {
             .async("browser.page.cookies.clear") { call in
                 let tab = try Self.tab(call)
                 let filter = try CookieFilter(call.request.params)
-                let all = call.request.params["all"]?.boolValue == true
+                let all = try CookieFilter.flag(call.request.params, "all") == true
                 guard all != filter.hasScope else {
                     throw ControlError.invalidParams(ControlStrings.text("control.error.cookiesClearScope",
                                                                          "browser.page.cookies.clear takes exactly one of params.all or a cookie scope (name, url, domain, path)"))
                 }
+                guard !all else {
+                    throw ControlError.invalidParams(ControlStrings.text("control.error.cookiesClearAll",
+                                                                         "params.all would clear every site in the person's browser profile; clear the tab's site instead"))
+                }
+                let site = try Self.site(tab)
                 let now = Date()
-                let doomed = try await Self.cookies(engine, tab).filter { all || filter.cleared($0, now: now) }
+                let doomed = try await Self.cookies(engine, tab).filter { $0.isOnSite(site) && filter.cleared($0, now: now) }
                 if !doomed.isEmpty { _ = try await Self.run(engine, .cookies(.delete(doomed)), tab) }
                 var result = Self.base(tab)
                 result["cleared"] = JSONValue(doomed.count)
                 return .object(result)
             },
             storage("get", engine: engine) { call, area in
-                .get(area, key: call.request.params["key"]?.stringValue)
+                guard let raw = call.request.params["key"], raw != .null else { return .get(area, key: nil) }
+                guard let key = raw.stringValue else { throw CookieFilter.wrongType("key") }
+                return .get(area, key: key)
             },
             storage("set", engine: engine) { call, area in
                 .set(area, key: try Self.string(call, "key"), value: try Self.storageValue(call))
@@ -95,6 +105,16 @@ extension BrowserPageService {
         return list.compactMap(BrowserPageCookie.init(json:))
     }
 
+    /// The host of the tab's http(s) page, the site a clear is scoped to.
+    static func site(_ tab: Tab) throws -> String {
+        guard let url = tab.url.flatMap(URL.init(string:)), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host?.lowercased(), !host.isEmpty else {
+            throw ControlError(code: "invalid_state", message: ControlStrings.text("control.error.cookiesClearNoSite",
+                                                                                 "The tab shows no http(s) page, so a clear has no site to scope to; open the site first"))
+        }
+        return host
+    }
+
     /// One cookie from `name`, `value`, … or several from `cookies: [{…}]`.
     /// The domain is `domain`, else `url`'s host, else the tab's page (the
     /// old precedence); a domain without a leading dot is host-only.
@@ -110,6 +130,10 @@ extension BrowserPageService {
             guard [name, value, entry["path"]?.stringValue ?? "/"].allSatisfy(isHeaderSafe) else {
                 throw ControlError.invalidParams(ControlStrings.text("control.error.cookieUnsafe",
                                                                      "Cookie names, values and paths cannot contain ';', line breaks or control characters"))
+            }
+            if let expires = entry["expires"]?.doubleValue, expires <= Date().timeIntervalSince1970 {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.cookieExpired",
+                                                                     "An expired cookie would delete a cookie; use browser.page.cookies.clear instead"))
             }
             let url = try CookieFilter.url(entry["url"])
             let given = entry["domain"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
@@ -128,11 +152,11 @@ extension BrowserPageService {
     }
 
     /// The old CLI's cookie filters. Listing: `name` exact, `domain` a
-    /// substring, `path` exact. Clearing: `name` exact, `url` the cookies a
-    /// request there carries, `domain` that domain or a subdomain, `path`
-    /// exact. Both also match `value`, `secure` and `expires` (Unix seconds)
-    /// exactly. A filter of the wrong type is refused, not ignored, so a
-    /// clear never widens.
+    /// substring, `path` exact. Clearing: `name` exact, `domain` that domain
+    /// or a subdomain, `path` exact. Both take `url` (the cookies a request
+    /// there carries) and match `value`, `secure`, `httpOnly` and `expires`
+    /// (Unix seconds) exactly. A filter of the wrong type is refused, not
+    /// ignored, so a clear never widens.
     struct CookieFilter {
         var name: String?
         var value: String?
@@ -140,6 +164,7 @@ extension BrowserPageService {
         var domain: String?
         var path: String?
         var secure: Bool?
+        var httpOnly: Bool?
         var expires: Double?
 
         init(_ params: [String: JSONValue]) throws {
@@ -154,10 +179,8 @@ extension BrowserPageService {
             url = try Self.url(params["url"])
             domain = try text("domain")
             path = try text("path")
-            if let raw = params["secure"], raw != .null {
-                guard let flag = raw.boolValue else { throw Self.wrongType("secure") }
-                secure = flag
-            }
+            secure = try Self.flag(params, "secure")
+            httpOnly = try Self.flag(params, "httpOnly") ?? Self.flag(params, "http_only")
             if let raw = params["expires"], raw != .null {
                 guard let seconds = raw.doubleValue else { throw Self.wrongType("expires") }
                 expires = seconds.rounded(.down)
@@ -177,23 +200,35 @@ extension BrowserPageService {
             return url
         }
 
+        /// A boolean param, nil when absent.
+        static func flag(_ params: [String: JSONValue], _ key: String) throws -> Bool? {
+            guard let raw = params[key], raw != .null else { return nil }
+            guard let flag = raw.boolValue else { throw wrongType(key) }
+            return flag
+        }
+
         static func wrongType(_ key: String) -> ControlError {
             ControlError(code: "invalid_params", message: ControlStrings.format("control.error.cookieParam", "params.%@ has the wrong type", key),
                          data: ["param": .string(key)])
         }
 
-        var hasScope: Bool { name != nil || url != nil || domain != nil || path != nil || value != nil || secure != nil || expires != nil }
+        var hasScope: Bool {
+            name != nil || url != nil || domain != nil || path != nil || value != nil || secure != nil || httpOnly != nil || expires != nil
+        }
 
         private func matchesExactFields(_ cookie: BrowserPageCookie) -> Bool {
             (name.map { cookie.name == $0 } ?? true)
                 && (value.map { cookie.value == $0 } ?? true)
                 && (path.map { cookie.path == $0 } ?? true)
                 && (secure.map { cookie.secure == $0 } ?? true)
+                && (httpOnly.map { cookie.httpOnly == $0 } ?? true)
                 && (expires.map { cookie.expires?.rounded(.down) == $0 } ?? true)
         }
 
-        func listed(_ cookie: BrowserPageCookie) -> Bool {
-            matchesExactFields(cookie) && (domain.map { cookie.domain.localizedCaseInsensitiveContains($0) } ?? true)
+        func listed(_ cookie: BrowserPageCookie, now: Date) -> Bool {
+            matchesExactFields(cookie)
+                && (url.map { cookie.isSent(to: $0, now: now) } ?? true)
+                && (domain.map { cookie.domain.localizedCaseInsensitiveContains($0) } ?? true)
         }
 
         func cleared(_ cookie: BrowserPageCookie, now: Date) -> Bool {

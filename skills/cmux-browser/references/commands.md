@@ -57,7 +57,6 @@ cmux browser "$TAB" close
 cmux browser "$TAB" cookies get --name session_id
 cmux browser "$TAB" cookies set session_id abc123 --domain .example.com --secure
 cmux browser "$TAB" cookies clear --domain example.com
-cmux browser "$TAB" cookies clear --all
 cmux browser "$TAB" storage local get
 cmux browser "$TAB" storage local set theme dark
 cmux browser "$TAB" storage session get draft
@@ -94,12 +93,16 @@ act on the tab you name; the old `tab switch|close <index>` has no equivalent.
 
 `cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
 `domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
-`get` filters by `--name` (exact), `--domain` (substring) and `--path`.
+`get` filters by `--name`, `--value`, `--path`, `--expires`, `--secure` and
+`--http-only` (exact), `--domain` (substring) and `--url` (the cookies a request
+there would send).
 `set NAME VALUE` takes the domain from `--domain` (a leading dot covers
 subdomains), else `--url`'s host, else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
-seconds. `clear` takes `--all` or a scope: `--name`, `--url` (the cookies a
-request there would send), `--domain` (that domain and its subdomains),
-`--path`; it reports how many it cleared.
+seconds; a time already past is refused (use `clear`). `clear` takes the same
+filters, `--domain` meaning that domain and its subdomains, and reports how many
+it cleared. It needs at least one and only reaches the tab's site (its host,
+parent domains and subdomains), because the store is the person's browser
+profile; `--all` is refused.
 
 `storage local|session` (default `local`) reads one key or every key with
 `get`, writes with `set KEY VALUE` and empties the area with `clear`, in the

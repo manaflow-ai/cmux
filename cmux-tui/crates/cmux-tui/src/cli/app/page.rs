@@ -275,10 +275,10 @@ fn split_words(args: &[String]) -> (&[String], &[String]) {
     args.split_at(args.iter().position(|arg| arg.starts_with("--")).unwrap_or(args.len()))
 }
 
-/// `cookies [get] [--name N] [--domain D] [--path P]`,
-/// `cookies set NAME VALUE [--url U | --domain D] [--path P] [--expires UNIX] [--secure] [--http-only]`,
-/// `cookies clear --all | [--name N] [--url U] [--domain D] [--path P]`.
-/// None is a usage error.
+/// `cookies [get|clear] [--name N] [--value V] [--url U] [--domain D] [--path P]
+/// [--expires UNIX] [--secure] [--http-only]` (the old filters; the app refuses
+/// `clear --all`), `cookies set NAME VALUE [--url U | --domain D] [--path P]
+/// [--expires UNIX] [--secure] [--http-only]`. None is a usage error.
 fn cookies(
     args: &[String],
     params: &mut Map<String, Value>,
@@ -288,10 +288,10 @@ fn cookies(
         Some((action, words)) => (action.as_str(), words),
         None => ("get", words),
     };
-    let (valued, switches): (&[&str], &[&str]) = match action {
-        "get" => (&["name", "domain", "path"], &[]),
-        "set" => (&["name", "value", "url", "domain", "path", "expires"], &["secure", "http-only"]),
-        "clear" => (&["name", "url", "domain", "path"], &["all"]),
+    let valued: &[&str] = &["name", "value", "url", "domain", "path", "expires"];
+    let switches: &[&str] = match action {
+        "get" | "set" => &["secure", "http-only"],
+        "clear" => &["secure", "http-only", "all"],
         _ => return None,
     };
     let options = match Options::parse(flags, valued, switches) {

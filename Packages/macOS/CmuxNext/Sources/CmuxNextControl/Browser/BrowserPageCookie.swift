@@ -58,6 +58,13 @@ public struct BrowserPageCookie: Sendable, Hashable {
         return domainMatch && pathMatch
     }
 
+    /// Whether the cookie is the site's: the host's own, a parent domain's
+    /// (which the host gets) or a subdomain's. A browser never stores a
+    /// cookie for a public suffix, so no other site matches.
+    func isOnSite(_ site: String) -> Bool {
+        !host.isEmpty && (host == site || site.hasSuffix("." + host) || host.hasSuffix("." + site))
+    }
+
     /// Whether the cookie belongs to `domain` or one of its subdomains
     /// (dots and case ignored), as the old `cookies clear --domain` matched.
     func isIn(domain other: String) -> Bool {

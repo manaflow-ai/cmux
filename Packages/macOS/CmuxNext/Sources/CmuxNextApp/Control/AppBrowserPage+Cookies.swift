@@ -11,7 +11,14 @@ extension AppBrowserPage {
             case .list:
                 return ["cookies": .array(try await page.cookies().map { pageCookie($0).json })]
             case .set(let cookies):
-                for cookie in cookies { try await page.setCookie(browserCookie(cookie)) }
+                for cookie in cookies {
+                    do {
+                        try await page.setCookie(browserCookie(cookie))
+                    } catch BrowserTabError.unsupported(let reason) where reason != "cookies" {
+                        // The engine could not make the cookie from these fields.
+                        throw ControlError(code: "invalid_params", message: reason)
+                    }
+                }
             case .delete(let cookies):
                 try await page.deleteCookies(cookies.map(browserCookie))
             }

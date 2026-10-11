@@ -257,12 +257,15 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 
 - `browser.page.cookies.get|set|clear` and `cmux browser <tab_…|page> cookies
   [get|set NAME VALUE|clear]`: the old CLI's fields (`hostOnly`, `httpOnly`,
-  `session_only`, `expires` in Unix seconds) and filters. `get` matches `name`, `value`,
-  `path`, `secure` and `expires` exactly and `domain` as a substring. `set` takes one
+  `session_only`, `expires` in Unix seconds) and filters. `get` and `clear` match `name`,
+  `value`, `path`, `secure`, `httpOnly` and `expires` exactly and `url` as the cookies a
+  request there carries (RFC 6265 domain, path, secure and expiry); `get` matches
+  `domain` as a substring, `clear` as that domain and its subdomains. `set` takes one
   cookie or `cookies: […]`, its domain from `domain`, else `url`'s host, else the tab's
-  page; HttpOnly goes through a parsed `Set-Cookie` header on WebKit (the old #10530).
-  `clear` takes exactly one of `all` or a scope: `url` clears what a request there carries
-  (RFC 6265 domain, path, secure and expiry), `domain` that domain and its subdomains. A
+  page; HttpOnly goes through a parsed `Set-Cookie` header on WebKit (the old #10530). The
+  store is the person's profile, so, as the driver's `cookies.clear`: `clear` needs a scope
+  and stays on the tab's site (its host, parent domains and subdomains; `invalid_state`
+  without an http(s) page), `all` and an already expired `set` are `invalid_params`. A
   filter of the wrong type, or a url without a host, is `invalid_params`, never ignored.
   A hibernated tab is `unavailable`: its engine store is reached through its page. Cookies come from the tab's
   profile store (`BrowserTab.cookies|setCookie|deleteCookie`: `WKHTTPCookieStore`, or

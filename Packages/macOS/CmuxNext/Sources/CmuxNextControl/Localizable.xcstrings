@@ -6813,6 +6813,268 @@
         }
       }
     },
+    "control.error.cookiesClearAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.all would clear every site in the person's browser profile; clear the tab's site instead"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سيمسح params.all كل المواقع في ملف تعريف المتصفح الخاص بالشخص؛ امسح موقع علامة التبويب بدلًا من ذلك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all bi obrisao sve stranice u korisnikovom profilu preglednika; umjesto toga obrišite stranicu ove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all ville rydde alle websteder i personens browserprofil; ryd fanens websted i stedet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all würde jede Website im Browserprofil der Person löschen; lösche stattdessen die Website des Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all borraría todos los sitios del perfil del navegador de la persona; borra en su lugar el sitio de la pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all effacerait tous les sites du profil de navigateur de la personne ; effacez plutôt le site de l'onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all cancellerebbe tutti i siti nel profilo del browser della persona; cancella invece il sito della scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all を使うと、ユーザーのブラウザプロファイルにあるすべてのサイトが消去されます。代わりにタブのサイトを消去してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all នឹងសម្អាតគេហទំព័រទាំងអស់នៅក្នុងប្រវត្តិរូបកម្មវិធីរុករករបស់អ្នកប្រើ; សូមសម្អាតគេហទំព័ររបស់ផ្ទាំងជំនួសវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all은 사용자의 브라우저 프로필에 있는 모든 사이트를 지웁니다. 대신 탭의 사이트를 지우세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all ville tømme alle nettsteder i personens nettleserprofil; tøm fanens nettsted i stedet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all wyczyściłoby wszystkie witryny w profilu przeglądarki tej osoby; zamiast tego wyczyść witrynę karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all limparia todos os sites do perfil do navegador da pessoa; limpe o site da aba em vez disso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all очистит все сайты в профиле браузера пользователя; вместо этого очистите сайт вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all จะล้างทุกเว็บไซต์ในโปรไฟล์เบราว์เซอร์ของผู้ใช้ ให้ล้างเว็บไซต์ของแท็บแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all kişinin tarayıcı profilindeki tüm siteleri temizler; bunun yerine sekmenin sitesini temizleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all очистить усі сайти в профілі браузера користувача; натомість очистьте сайт вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all sẽ xóa mọi trang web trong hồ sơ trình duyệt của người dùng; thay vào đó hãy xóa trang web của tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all 会清除此人浏览器配置文件中的所有网站；请改为清除该标签页的网站"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.all 會清除此人瀏覽器設定檔中的所有網站；請改為清除該分頁的網站"
+          }
+        }
+      }
+    },
+    "control.error.cookiesClearNoSite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab shows no http(s) page, so a clear has no site to scope to; open the site first"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تعرض علامة التبويب صفحة http(s)، لذا لا يوجد موقع يقتصر عليه المسح؛ افتح الموقع أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica ne prikazuje http(s) stranicu, pa brisanje nema stranicu na koju bi se ograničilo; prvo otvorite stranicu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen viser ingen http(s)-side, så en rydning har intet websted at afgrænse til; åbn webstedet først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Tab zeigt keine http(s)-Seite, daher hat das Löschen keine Website als Bereich; öffne zuerst die Website"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pestaña no muestra una página http(s), así que el borrado no tiene un sitio al que limitarse; abre primero el sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'onglet n'affiche aucune page http(s), donc l'effacement n'a aucun site auquel se limiter ; ouvrez d'abord le site"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La scheda non mostra una pagina http(s), quindi la cancellazione non ha un sito a cui limitarsi; apri prima il sito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブに http(s) ページが表示されていないため、消去の対象とするサイトがありません。先にサイトを開いてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងមិនបង្ហាញទំព័រ http(s) ទេ ដូច្នេះការសម្អាតគ្មានគេហទំព័រដើម្បីកំណត់វិសាលភាព; សូមបើកគេហទំព័រជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭에 http(s) 페이지가 없어 지울 사이트 범위를 정할 수 없습니다. 먼저 사이트를 여세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen viser ingen http(s)-side, så tømmingen har ikke noe nettsted å avgrense til; åpne nettstedet først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta nie wyświetla strony http(s), więc czyszczenie nie ma witryny, do której można je ograniczyć; najpierw otwórz witrynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A aba não mostra uma página http(s), então a limpeza não tem um site ao qual se limitar; abra o site primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Во вкладке нет страницы http(s), поэтому очистку не к чему ограничить; сначала откройте сайт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บไม่ได้แสดงหน้า http(s) จึงไม่มีเว็บไซต์ให้จำกัดขอบเขตการล้าง ให้เปิดเว็บไซต์ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme bir http(s) sayfası göstermiyor, bu yüzden temizlemenin sınırlanacağı bir site yok; önce siteyi açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка не показує сторінку http(s), тому очищення немає до якого сайту обмежити; спочатку відкрийте сайт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab không hiển thị trang http(s) nên việc xóa không có trang web để giới hạn; hãy mở trang web trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该标签页没有显示 http(s) 页面，因此清除没有可限定的网站；请先打开该网站"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該分頁沒有顯示 http(s) 頁面，因此清除沒有可限定的網站；請先開啟該網站"
+          }
+        }
+      }
+    },
     "control.error.cookiePayload": {
       "extractionState": "manual",
       "localizations": {
@@ -7071,6 +7333,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cookie 的名稱、值和路徑不能包含 ';'、換行字元或控制字元"
+          }
+        }
+      }
+    },
+    "control.error.cookieExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An expired cookie would delete a cookie; use browser.page.cookies.clear instead"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سيؤدي ملف تعريف ارتباط منتهي الصلاحية إلى حذف ملف تعريف ارتباط؛ استخدم browser.page.cookies.clear بدلًا من ذلك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Istekli kolačić bi obrisao kolačić; umjesto toga koristite browser.page.cookies.clear"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En udløbet cookie ville slette en cookie; brug browser.page.cookies.clear i stedet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein abgelaufenes Cookie würde ein Cookie löschen; verwende stattdessen browser.page.cookies.clear"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una cookie caducada eliminaría una cookie; usa browser.page.cookies.clear en su lugar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un cookie expiré supprimerait un cookie ; utilisez plutôt browser.page.cookies.clear"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un cookie scaduto eliminerebbe un cookie; usa invece browser.page.cookies.clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "期限切れの Cookie を設定すると Cookie が削除されます。代わりに browser.page.cookies.clear を使ってください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខូគីដែលផុតកំណត់នឹងលុបខូគី; សូមប្រើ browser.page.cookies.clear ជំនួសវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "만료된 쿠키는 쿠키를 삭제합니다. 대신 browser.page.cookies.clear를 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En utløpt informasjonskapsel ville slette en informasjonskapsel; bruk browser.page.cookies.clear i stedet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wygasły plik cookie usunąłby plik cookie; zamiast tego użyj browser.page.cookies.clear"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um cookie expirado excluiria um cookie; use browser.page.cookies.clear em vez disso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Просроченный cookie удалит cookie; используйте вместо этого browser.page.cookies.clear"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุกกี้ที่หมดอายุจะลบคุกกี้ ให้ใช้ browser.page.cookies.clear แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Süresi dolmuş bir çerez bir çerezi siler; bunun yerine browser.page.cookies.clear kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прострочений cookie видалить cookie; натомість використовуйте browser.page.cookies.clear"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cookie đã hết hạn sẽ xóa một cookie; hãy dùng browser.page.cookies.clear thay thế"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已过期的 Cookie 会删除 Cookie；请改用 browser.page.cookies.clear"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已過期的 Cookie 會刪除 Cookie；請改用 browser.page.cookies.clear"
           }
         }
       }
