@@ -183,7 +183,10 @@ try:
             for i in range(count):
                 if app.poll() is not None:
                     break
-                rpc("action.run", {"id": action})
+                reply = rpc("action.run", {"id": action})
+                error = reply.get("error") if isinstance(reply, dict) else None
+                if error and not (isinstance(error, dict) and error.get("code") == "unavailable"):
+                    failures.append("action %s failed: %s" % (action, json.dumps(reply)[:200]))
                 failures += check("%s %d" % (action, i + 1), app, results)
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "after-stress.png")}, timeout=60)
         if app.poll() is None:

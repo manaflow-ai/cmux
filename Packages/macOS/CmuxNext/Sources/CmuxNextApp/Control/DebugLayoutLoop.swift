@@ -34,6 +34,8 @@ enum DebugLayoutLoop {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        // Enough views that AppKit's limit (a pass per view) is past the guard's.
+        for index in 0..<24 { host.addSubview(NSView(frame: NSRect(x: 100 + index * 4, y: 10, width: 2, height: 2))) }
         let looping = LayoutLoopFixtureView()
         looping.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(looping)
