@@ -124,13 +124,15 @@ pub fn read_turns(
             })
             .map_err(unreadable)?;
         }
-        // One JSON object: `chatHistory[]{exchange{request_message, response_text}, finishedAt}`.
+        // One JSON object: `chatHistory[]{exchange{request_message, response_text}, finishedAt}`;
+        // a prompt may be only in its first text node (`request_nodes[type 0].text_node`). An
+        // exchange with no prompt is skipped, so its answer never lands on the turn before.
         AdapterKind::Auggie => {
             let file = whole_json(path)?;
             for item in file.get("chatHistory").and_then(Value::as_array).into_iter().flatten() {
                 let exchange = item.get("exchange").unwrap_or(&Value::Null);
                 let at = item.get("finishedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms);
-                let prompt = exchange.get("request_message").cloned().unwrap_or(Value::Null);
+                let Some(prompt) = auggie_prompt(exchange) else { continue };
                 let answer = exchange.get("response_text").cloned().unwrap_or(Value::Null);
                 turns.add(&json!({"role": "user", "content": prompt}), at);
                 turns.add(&json!({"role": "assistant", "content": answer}), at);
@@ -187,8 +189,26 @@ pub fn read_turns(
     Ok(turns.done())
 }
 
-/// At most this many of a chat's newest rows are read from a SQLite store.
-const MAX_ROWS: usize = 4_000;
+/// An Auggie exchange's prompt: `request_message`, else its first text node.
+fn auggie_prompt(exchange: &Value) -> Option<String> {
+    let text = |value: Option<&Value>| {
+        value.and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned)
+    };
+    text(exchange.get("request_message")).or_else(|| {
+        exchange
+            .get("request_nodes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|node| node.get("type").and_then(Value::as_i64) == Some(0))
+            .find_map(|node| text(node.pointer("/text_node/content")))
+    })
+}
+
+/// At most this many of a chat's newest rows are read from a SQLite store, and a cell larger
+/// than `MAX_CELL` is read as NULL (only tool output or a giant paste gets there).
+const MAX_ROWS: usize = 2_000;
+const MAX_CELL: usize = 128 * 1024;
 
 /// One `messages` row of a SQLite store.
 struct Row {
@@ -217,8 +237,8 @@ fn sqlite_rows(
     let metadata = if cols.contains("metadata_json") { "metadata_json" } else { "NULL" };
     let order = if time == "NULL" { "rowid" } else { "2" };
     let sql = format!(
-        "SELECT role, {time}, {content}, {metadata} FROM messages WHERE session_id = ?1 \
-         ORDER BY {order} DESC, rowid DESC LIMIT {MAX_ROWS}"
+        "SELECT role, {time}, CASE WHEN length({content}) > {MAX_CELL} THEN NULL ELSE {content} END, \
+         {metadata} FROM messages WHERE session_id = ?1 ORDER BY {order} DESC, rowid DESC LIMIT {MAX_ROWS}"
     );
     let mut stmt = conn.prepare(&sql).map_err(unreadable)?;
     let mut rows: Vec<_> = stmt
