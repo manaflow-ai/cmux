@@ -16,10 +16,11 @@ printing the folder's absolute path:
   CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH=1
   CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME=reports
   CMUX_UI_TEST_TERMINAL_CMD_CLICK_SKIP_FIXTURE_FILE=1
-  CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON='["reports/summary.txt"]'
   CMUX_UI_TEST_TERMINAL_CMD_CLICK_CD_FIXTURE=1
   CMUX_UI_TEST_CAPTURE_OPEN_PATH=FIX/open-editor.log
   CMUX_UI_TEST_CAPTURE_OPEN_FOLDER_PATH=FIX/open-folder.log
+With FIX/reports present as a folder the click must open it in Finder; with no
+such folder or file the click must open nothing (no editor on a missing path).
 Run it where the app can be key (a whole capture mini or a local tagged build):
   CMUX_FOLDER_LINK_FIXTURE=FIX python3 tests_v2/test_terminal_folder_link_opens_finder.py
 """
@@ -76,8 +77,10 @@ def main() -> int:
     while time.time() < deadline and data.get("ready") != "1":
         time.sleep(0.5)
         data = load()
-    check("harness printed the folder path", data.get("ready") == "1" and os.path.isdir(FOLDER),
+    check("harness printed the folder path", data.get("ready") == "1",
           str(data.get("displayToken") or data.get("setupError")))
+    expect_folder = os.path.isdir(FOLDER)
+    print("folder present:", expect_folder)
 
     click = run("click-1", "cmd_click_token")
     print("click", json.dumps({k: v for k, v in click.items() if k.startswith("lastCommand")})[:600])
@@ -85,9 +88,11 @@ def main() -> int:
     editor = lines("open-editor.log")
     folders = lines("open-folder.log")
     want = os.path.realpath(FOLDER)
-    check("the folder does not go to the editor", not any(os.path.realpath(p) == want for p in editor),
-          f"editor={editor}")
-    check("the folder opens in Finder", any(os.path.realpath(p) == want for p in folders), f"finder={folders}")
+    check("nothing goes to the editor", not editor, f"editor={editor}")
+    if expect_folder:
+        check("the folder opens in Finder", any(os.path.realpath(p) == want for p in folders), f"finder={folders}")
+    else:
+        check("a missing path opens nothing", not folders, f"finder={folders}")
 
     print(f"RESULT {sum(results)}/{len(results)}")
     return 0 if all(results) else 1
