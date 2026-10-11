@@ -473,7 +473,7 @@ fn person_only_and_money_ops_never_reach_an_app() {
 fn write_linked_app(apps: &Apps) {
     write_script(
         &apps.dir.join("servers").join("host-probe"),
-        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\n(while [ ! -e \"$2\" ]; do sleep 0.05; done; printf '{\"t\":\"host.request\",\"id\":8,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n') &\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\n(while [ ! -e \"$2\" ]; do sleep 0.05; done; printf '{\"t\":\"host.request\",\"id\":8,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n') &\nwaiter=$!\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\nkill $waiter 2>/dev/null\n",
     );
     let app = apps.dir.join("first-party").join("linked");
     std::fs::create_dir_all(&app).unwrap();
