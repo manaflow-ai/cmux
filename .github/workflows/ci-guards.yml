@@ -793,6 +793,12 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_release_dmg_lzma.sh
 
+      - name: Validate per-architecture stable release
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_ci_release_per_arch_stable.py
+          python3 tests/test_compose_stable_appcast.py
+
       - name: Validate Homebrew cask macOS dependency syntax
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
