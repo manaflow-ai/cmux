@@ -376,6 +376,7 @@ public final class AgentPaneView: NSView {
     public func applyTheme() {
         let tokens = themeTokens
         let surface = surfaceKind
+        AgentPaneLaunchTimings.shared.mark("diag.theme_\(tokens.isDark ? "dark" : "light")_\(window == nil ? "nowindow" : "window")")
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
