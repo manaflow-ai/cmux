@@ -107,6 +107,8 @@ extension PageWebView {
     /// Records a claim that loaded its document.
     func noteLoadedClaim() {
         _ = claimState.end()
+        // The loaded document reports its own first paint, not the one it replaces.
+        repaintsAtNextLayout = false
         claimState.outcome = PageClaimOutcome(path: .loaded, milliseconds: 0)
     }
 
