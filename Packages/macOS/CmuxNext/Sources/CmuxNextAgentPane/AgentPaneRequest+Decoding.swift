@@ -62,8 +62,13 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.saveFile":
-            // Stub until the side panel's Save lands (cx-ncc.75).
-            self = .unsupported(method)
+            // A document's kind only: the inspector's log has its own method.
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
+               let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: kind) {
+                self = .saveFile(save)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.showContextUsage":
             if let show = params?["show"] as? Bool {
                 self = .showContextUsage(show)

@@ -120,7 +120,7 @@ import {
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
-import { ArtifactPanel } from "./conversation/ArtifactPanel";
+import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -275,6 +275,15 @@ export async function saveLogNatively(text: string, suggestedName: string): Prom
     return "unavailable";
   }
 }
+
+/** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, reads as cancelled. */
+const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
+  try {
+    return (await callNative<boolean>("pane.saveFile", { text, suggestedName, kind })) === true ? "saved" : "cancelled";
+  } catch {
+    return "cancelled";
+  }
+};
 
 /// The machine a refused handshake names (`details.machineName`), for the composer's chip.
 function refusedMachine(error: unknown): string | undefined {
@@ -4138,7 +4147,14 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {artifact && <ArtifactPanel key={artifact.opened} artifact={artifact} onClose={() => setArtifact(undefined)} />}
+        {artifact && (
+          <ArtifactPanel
+            key={artifact.opened}
+            artifact={artifact}
+            onClose={() => setArtifact(undefined)}
+            onSave={saveDocumentNatively}
+          />
+        )}
         {imageView && (
           <ImageViewer
             images={imageView.images}

@@ -30,5 +30,15 @@ export function previewHtml(artifact: Artifact): string {
   return `<style>body{display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center}svg{max-width:100%;height:auto}</style>${artifact.code}`;
 }
 
+/// The name a saved document is offered under: an HTML or SVG `<title>`, a Markdown document's first
+/// heading; empty when it has none (the host names it).
+export function documentName(artifact: Artifact): string {
+  const found =
+    artifact.kind === "markdown"
+      ? /^ {0,3}#{1,6}[ \t]+(.+?)[ \t#]*$/m.exec(artifact.code)
+      : /<title[^>]*>([^<]*)<\/title>/i.exec(artifact.code);
+  return (found?.[1] ?? "").replace(/\s+/g, " ").trim();
+}
+
 /// Opens a fence in the side panel; unset where the page has none (a gallery, a test).
 export const ArtifactContext = createContext<((artifact: Artifact) => void) | undefined>(undefined);
