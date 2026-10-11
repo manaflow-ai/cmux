@@ -33,6 +33,7 @@ final class SiteDataWindow: PageInfoWindow {
                                            color: PageInfoStyle.secondaryText, wraps: true)
         let done = NSButton(title: PageInfoStrings.done, target: self, action: #selector(finish))
         done.keyEquivalent = "\r"
+        done.useThemeDefaultBezel()
         done.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
         [subtitle, scroll, done].forEach(root.addSubview)

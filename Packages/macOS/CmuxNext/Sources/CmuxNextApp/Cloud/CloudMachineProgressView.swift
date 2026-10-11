@@ -75,6 +75,7 @@ final class CloudMachineProgressView: NSView {
             buttons.addArrangedSubview(button)
         }
         retryButton.keyEquivalent = "\r"
+        retryButton.useThemeDefaultBezel()
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space2
         let stack = NSStackView(views: [titleLabel, elapsedLabel, stepsStack, detailLabel, buttons, typingLabel])

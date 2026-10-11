@@ -52,6 +52,7 @@ public class HomeSheetController: NSViewController {
         primaryButton.target = self
         primaryButton.action = #selector(primary(_:))
         primaryButton.keyEquivalent = "\r"
+        primaryButton.useThemeDefaultBezel()
         primaryButton.setAccessibilityIdentifier("cmux.home.sheet.primary")
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space3

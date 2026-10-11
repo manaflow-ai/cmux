@@ -73,5 +73,7 @@ struct BookmarkEditorSheet: View {
         .font(Font(Typography.body))
         .padding(Metrics.space6)
         .frame(width: Metrics.paletteWidth * 0.7)
+        // Default buttons in the theme's accent, never the system blue (cx-wqn5).
+        .tint(Color(nsColor: Palette.accent))
     }
 }

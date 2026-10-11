@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
 import Observation
@@ -133,6 +134,7 @@ final class MachineBrowserStateView: NSView {
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
         openLocallyButton.keyEquivalent = "\r"
+        openLocallyButton.useThemeDefaultBezel()
         retryButton.target = self
         retryButton.action = #selector(retryPressed)
         let buttons = NSStackView(views: [retryButton, openLocallyButton])
