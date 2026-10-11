@@ -22,8 +22,8 @@ extension AgentTabStore {
     /// the start reads the tab again (a New Tab page opened in a remote pane showed
     /// `agent_session.unknown_tab` here before the tree caught up).
     func existingRemoteChat(_ key: String) async throws -> (surface: UInt64, session: String?)? {
-        if let pending = remoteCreations[key] ?? remoteCreations[resolve(key)] { _ = try await pending.value() }
-        let key = resolve(key)
+        if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
+        let key = resolveRemote(key)
         guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
             return nil
         }
@@ -38,23 +38,23 @@ extension AgentTabStore {
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
-        if let running = remoteStarts[resolve(key)] { return try await running.value }
+        if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
         // task-owner: one start per tab, stored before its first wait, so a ready and a reconnect
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
             return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
         }
-        remoteStarts[resolve(key)] = task
-        defer { if remoteStarts[resolve(key)] == task { remoteStarts[resolve(key)] = nil } }
+        remoteStarts[resolveRemote(key)] = task
+        defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
         return try await task.value
     }
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
-        if let pending = remoteCreations[key] ?? remoteCreations[resolve(key)] { _ = try await pending.value() }
-        let key = resolve(key)
+        if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
+        let key = resolveRemote(key)
         guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
             throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: machine)
         }
@@ -73,11 +73,11 @@ extension AgentTabStore {
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
-            if lookup(resolve(key)) != nil { sessions[resolve(key)] = session }
+            if lookup(resolveRemote(key)) != nil { sessions[resolveRemote(key)] = session }
             return .init(surface: surface, session: session)
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
-            if error.code == "agent_session.bound", let session = lookup(resolve(key))?.record.session {
+            if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
                 return .init(surface: surface, session: session)
             }
             throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message)
