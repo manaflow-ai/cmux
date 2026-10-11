@@ -99,9 +99,12 @@ struct ClassicImportTests {
         // The daemon ends with its terminals on every path, a failed expectation included.
         let shapes: Result<[String], any Error>
         do { shapes = .success(try await Self.importAndRead(services)) } catch { shapes = .failure(error) }
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
+        // Stop the app's connection first: on the daemon's EOF it would start a
+        // fresh daemon that outlives the test. The shutdown uses its own socket.
+        if let connection = services.daemon.connection {
+            services.daemon.shutdownConnection()
+            await connection.close()
+            _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
         return try shapes.get()
     }
