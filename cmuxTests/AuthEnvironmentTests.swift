@@ -52,7 +52,7 @@ struct AuthEnvironmentTests {
         #expect(AuthEnvironment.resolvedStackPublishableClientKey(
             environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
             isDebugBuild: true
-        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
+        ) == "")
     }
 
     @Test("invalid macOS auth override fails toward the build channel")
@@ -165,7 +165,7 @@ struct AuthEnvironmentTests {
         #expect(AuthEnvironment.resolvedStackPublishableClientKey(
             environment: environment,
             isDebugBuild: true
-        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
+        ) == "")
     }
 
     @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")

@@ -27,7 +27,7 @@ jobs:
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
       - name: Exercise shared refresh transport and deadlines without credentials
-        run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests'
+        run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests'
       - name: Exercise coordinator cancellation, sessions, and recovery
         run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'AuthCoordinator|AuthError'
       - name: Verify retired session watcher completion over loopback
