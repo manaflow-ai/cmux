@@ -72,9 +72,10 @@ pub(crate) struct TerminalRespawns {
     /// Wakes respawn workers that wait out a backoff delay when the owner
     /// shuts down ([`TerminalRespawns::wake_all`]).
     wake: (Mutex<()>, Condvar),
-    /// Full argv of command terminals this daemon process launched; it is
-    /// never persisted, so a later daemon only names the program. Entries go
-    /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
+    /// Full argv of command terminals this daemon process launched. A later
+    /// daemon reads the relaunch record's argv instead, which leaves out
+    /// credential-like arguments. Entries go when their terminal is closed;
+    /// [`ARGV_LIMIT`] bounds the rest.
     argv: Mutex<ArgvMemory>,
     /// VT replay a new terminal's host applies before its shell's first
     /// byte, by the reserved terminal id of a creation that has not launched

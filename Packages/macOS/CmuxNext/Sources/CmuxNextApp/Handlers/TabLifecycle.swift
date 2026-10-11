@@ -61,7 +61,7 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting, and so
     /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
-    /// `inStrip` (New Horizontal Tab) adds a tab even where Cmd-T would open a workspace.
+    /// `inStrip` (New Horizontal Tab) is kept for its callers; Cmd-T itself always adds a tab now.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
                                  inStrip: Bool = false, toRight: Bool = false) {
         // A named tab or pane that resolves to nothing is refused by the
@@ -105,18 +105,9 @@ enum TabLifecycle {
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
         let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
-        // The user's Cmd-T follows the tab bar (cx-xt5k, cx-soza): a pane that shows its tab bar
-        // gets a tab; one that hides it (`PaneTabBar`: an agent chat alone by default) gets a new
-        // workspace in the current group (New Workspace, on the New Tab page). The strip's + names
-        // its pane and always adds a tab; with `tabs.swapCmdTAndCmdN` on, this action is Cmd-N and
-        // always adds a tab.
-        if user, followsSetting, !named, !inStrip, !(ctx.services.settings?.snapshot.swapCmdTAndCmdN ?? false),
-           let controller, controller.view.hidesStrip {
-            var workspace = ActionInvocation(origin: .user)
-            workspace.keyContext = invocation.keyContext
-            _ = ctx.registry.perform("newTab", invocation: workspace)
-            return
-        }
+        // Cmd-T opens a tab in the current workspace, like a browser, also in a pane that hides its
+        // tab bar (an agent chat alone): Lawrence decided 2026-10-11 (cx-04fy), replacing the
+        // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
         var sameKind = NewTabKind.resolve(
             selectedKind: tab?.kind, engine: tab?.browserEngine,
             isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
