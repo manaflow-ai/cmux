@@ -23191,137 +23191,6 @@
         }
       }
     },
-    "handlers.refusal.groupHasNoDirectory": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مساحة عمل في المجموعة لها مجلد عمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nijedan radni prostor u grupi nema radni direktorij"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "intet arbejdsområde i gruppen har en arbejdsmappe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kein Arbeitsbereich in der Gruppe hat ein Arbeitsverzeichnis"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "no workspace in the group has a working directory"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ningún espacio de trabajo del grupo tiene un directorio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun espace de travail du groupe n’a de répertoire de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuno spazio di lavoro del gruppo ha una cartella di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "グループ内のワークスペースに作業ディレクトリがありません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានកន្លែងធ្វើការណាមួយក្នុងក្រុមមានថតធ្វើការទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹의 작업 공간 중 작업 디렉터리가 있는 것이 없습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen arbeidsområder i gruppen har en arbeidsmappe"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "żaden obszar roboczy w grupie nie ma katalogu roboczego"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum espaço de trabalho do grupo tem um diretório de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ни у одного рабочего пространства в группе нет рабочей папки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีพื้นที่ทำงานในกลุ่มที่มีไดเรกทอรีทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "gruptaki hiçbir çalışma alanının çalışma dizini yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "жоден робочий простір у групі не має робочої теки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "không không gian làm việc nào trong nhóm có thư mục làm việc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "分组中没有工作区有工作目录"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "群組中沒有工作區有工作目錄"
-          }
-        }
-      }
-    },
     "handlers.refusal.sectionTakesNoWorkspaces": {
       "extractionState": "manual",
       "localizations": {
@@ -23711,6 +23580,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "暫時無法將群組的工作區加入區塊"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noPaneWithNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the screen has no pane with that number"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي الشاشة على جزء بهذا الرقم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekran nema okno s tim brojem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skærmen har ingen rude med det nummer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Bildschirm hat keinen Bereich mit dieser Nummer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la pantalla no tiene ningún panel con ese número"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l’écran n’a pas de panneau portant ce numéro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lo schermo non ha un riquadro con quel numero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面にその番号のペインはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អេក្រង់មិនមានផ្ទាំងដែលមានលេខនោះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면에 그 번호의 패널이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skjermen har ingen rute med det nummeret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekran nie ma panelu o tym numerze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a tela não tem um painel com esse número"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на экране нет панели с таким номером"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าจอไม่มีบานหน้าต่างหมายเลขนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekranda bu numarada bölme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на екрані немає панелі з таким номером"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "màn hình không có khung nào mang số đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕上没有该编号的窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "畫面上沒有該編號的窗格"
           }
         }
       }

@@ -132,6 +132,32 @@ pub fn signed_app_build() -> bool {
     })
 }
 
+/// How the executable at a path relates to this build's code signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TeamMatch {
+    /// Signed by this build's Team ID.
+    SameTeam,
+    /// This build has no Team ID (unsigned, ad hoc, or not macOS): there is
+    /// no team to compare.
+    UnsignedBuild,
+}
+
+/// Checks that the executable at `path` carries this build's Team ID
+/// signature (version-skew re-exec, plans/cmux-next/version-skew.md). A
+/// different team, or a signature that does not validate, is an error.
+pub fn same_team_as_this_build(path: &std::path::Path) -> Result<TeamMatch, String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::caller::macos::path_has_own_team(path)
+            .map(|signed| if signed { TeamMatch::SameTeam } else { TeamMatch::UnsignedBuild })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Ok(TeamMatch::UnsignedBuild)
+    }
+}
+
 /// `CFBundleIdentifier` characters allowed into the requirement text.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn plain_bundle_identifier(identifier: &str) -> bool {

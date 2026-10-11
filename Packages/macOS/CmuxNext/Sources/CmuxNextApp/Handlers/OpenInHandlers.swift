@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 
 /// Open-in-app and Reveal in Finder for the focused file. Until the file
 /// preview surface lands, the focused file is a browser page showing a
@@ -8,7 +9,7 @@ enum OpenInHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("filePreviewOpenExternally", run: { try context.open(try focusedFile(context, $0)) })
         registry.bind("filePreviewRevealInFinder", run: { invocation in
-            NSWorkspace.shared.activateFileViewerSelecting([try focusedFile(context, invocation)])
+            NSWorkspace.shared.revealInBackground([try focusedFile(context, invocation)])
         })
         registry.bind("filePreviewOpenWith", run: { invocation in
             let file = try focusedFile(context, invocation)

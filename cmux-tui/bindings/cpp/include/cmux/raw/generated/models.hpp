@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896";
+inline constexpr std::string_view kProtocolIrSha256 = "c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
+enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
 struct AgentSessionSource;
@@ -486,6 +487,7 @@ struct WaitForRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -658,6 +660,28 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+enum class AgentPresenceActivity {
+    thinking,
+    editing,
+    reading,
+    running,
+    browsing,
+    computer_use,
+    waiting,
+};
+
+struct AgentPresenceChangedEvent {
+    std::optional<AgentPresenceActivity> activity{};
+    std::optional<std::string> agent{};
+    std::optional<std::uint64_t> line{};
+    std::optional<std::string> path{};
+    std::optional<std::string> session{};
+    Id surface{};
+    std::optional<std::string> tool{};
+    std::optional<std::uint64_t> updated_at_ms{};
+    friend bool operator==(const AgentPresenceChangedEvent&, const AgentPresenceChangedEvent&) = default;
 };
 
 struct AgentRecord {
@@ -1700,6 +1724,8 @@ struct ConversationReaction {
 };
 
 struct ConversationMessage {
+    std::optional<std::vector<std::string>> answers{};
+    std::optional<std::vector<std::string>> answers_pending{};
     std::string author{};
     std::string client_msg_id{};
     std::string conversation{};
@@ -1711,6 +1737,7 @@ struct ConversationMessage {
     std::optional<ConversationPartRef> reply_to{};
     std::optional<std::string> retracted_at{};
     std::uint64_t seq{};
+    std::optional<std::string> thread_root{};
     friend bool operator==(const ConversationMessage&, const ConversationMessage&) = default;
 };
 
@@ -2531,7 +2558,9 @@ struct IdentifyRequest {
 
 struct IdentifyResult {
     Field<std::string> build_commit{};
+    Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
+    Field<std::string> cli_path{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
@@ -5087,6 +5116,12 @@ template <>
 struct Codec<ActivitySubscribeResult> {
     static Result<Json> encode(const ActivitySubscribeResult& value);
     static Result<ActivitySubscribeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentPresenceActivity> {
+    static Result<Json> encode(const AgentPresenceActivity& value);
+    static Result<AgentPresenceActivity> decode(const Json& value);
 };
 
 template <>
@@ -7895,6 +7930,12 @@ template <>
 struct Codec<AgentChangedEvent> {
     static Result<Json> encode(const AgentChangedEvent& value);
     static Result<AgentChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentPresenceChangedEvent> {
+    static Result<Json> encode(const AgentPresenceChangedEvent& value);
+    static Result<AgentPresenceChangedEvent> decode(const Json& value);
 };
 
 template <>

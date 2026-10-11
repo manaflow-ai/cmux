@@ -209,6 +209,7 @@
     "window_record.list",
     "window_record.put",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close",
     "workspace.create",
     "workspace.ensure_app",
@@ -501,6 +502,12 @@
   "events": [
     {
       "name": "agent-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "agent-presence-changed",
       "streams": [
         "subscribe"
       ]

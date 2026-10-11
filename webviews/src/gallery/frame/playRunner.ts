@@ -98,7 +98,90 @@ function synthetic(element: Element, kind: string): void {
   if (kind === "click") fire("click");
 }
 
-function syntheticKey(key: string): void {
+const TABBABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "iframe",
+  "object",
+  "embed",
+  "audio[controls]",
+  "video[controls]",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function tabOrder(element: Element): number {
+  const value = element.getAttribute("tabindex");
+  if (value === null) return 0;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : -1;
+}
+
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+function hiddenByAncestor(element: Element): boolean {
+  for (let ancestor: Element | null = element; ancestor; ancestor = composedParent(ancestor)) {
+    if (ancestor.hasAttribute("hidden") || ancestor.hasAttribute("inert")) return true;
+    const style = ancestor.ownerDocument.defaultView?.getComputedStyle(ancestor);
+    if (style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse") return true;
+    if (ancestor.tagName === "DETAILS" && !ancestor.hasAttribute("open")) {
+      const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+      if (!summary?.contains(element)) return true;
+    }
+  }
+  return false;
+}
+
+function isTabbable(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || tabOrder(element) < 0) return false;
+  if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
+  return !hiddenByAncestor(element);
+}
+
+function tabbableElements(): HTMLElement[] {
+  const elements: HTMLElement[] = [];
+  const visit = (root: Document | Element | ShadowRoot) => {
+    for (const child of Array.from(root.children)) {
+      if (isTabbable(child)) elements.push(child);
+      if (child.shadowRoot) visit(child.shadowRoot);
+      visit(child);
+    }
+  };
+  visit(document);
+  const normal = elements.filter((element) => tabOrder(element) === 0);
+  const positive = elements
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => tabOrder(element) > 0)
+    .sort((a, b) => tabOrder(a.element) - tabOrder(b.element) || a.index - b.index)
+    .map(({ element }) => element);
+  return [...positive, ...normal];
+}
+
+function deepestActiveElement(): Element {
+  let target: Element = document.activeElement ?? document.body;
+  while (target instanceof HTMLElement && target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  return target;
+}
+
+function moveFocusForTab(backward: boolean): void {
+  const elements = tabbableElements();
+  if (!elements.length) return;
+  const current = deepestActiveElement();
+  const index = elements.indexOf(current as HTMLElement);
+  const next = index < 0 ? (backward ? elements.at(-1) : elements[0]) : elements[index + (backward ? -1 : 1)];
+  if (next && next !== current) next.focus({ preventScroll: true });
+}
+
+export function syntheticKey(key: string): void {
   const parts = key.split("+");
   const name = parts.pop()!;
   // Playwright exposes the space key as " "; the gallery DSL spells it "Space".
@@ -110,8 +193,7 @@ function syntheticKey(key: string): void {
     shiftKey: parts.includes("Shift"),
   };
   // The focused element, inside open shadow roots too (a web component's focused row).
-  let target: Element = document.activeElement ?? document.body;
-  while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  const target = deepestActiveElement();
   const keydown = new KeyboardEvent("keydown", {
     key: eventKey,
     bubbles: true,
@@ -120,7 +202,11 @@ function syntheticKey(key: string): void {
     ...modifiers,
   });
   target.dispatchEvent(keydown);
-  target.dispatchEvent(
+  // KeyboardEvent dispatch does not run the browser's default focus traversal. Reproduce Tab for
+  // the gallery shell, which has no trusted-input driver. The hosted matrix runner uses Playwright
+  // instead, so its native traversal remains authoritative.
+  if (!keydown.defaultPrevented && eventKey === "Tab") moveFocusForTab(modifiers.shiftKey);
+  deepestActiveElement().dispatchEvent(
     new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
   );
   // KeyboardEvent dispatch does not run the browser's default button activation.

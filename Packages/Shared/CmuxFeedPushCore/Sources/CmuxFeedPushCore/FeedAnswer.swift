@@ -3,6 +3,10 @@ import Foundation
 /// What a banner action sends as `feed.answer {item, answer}`.
 public enum FeedAnswer: Hashable, Sendable {
     case decision(allow: Bool, scope: String?)
+    /// An approve answer with the phone's presence-key proof (cx-aocz). The
+    /// Mac that posted an agent's permission request answers an allow only
+    /// with a valid proof.
+    case signedDecision(allow: Bool, scope: String?, proof: FeedApproveProof)
     case confirmed(Bool)
     case text(String)
 
@@ -28,6 +32,10 @@ public enum FeedAnswer: Hashable, Sendable {
         switch self {
         case .decision(let allow, let scope):
             var object: [String: JSONValue] = ["decision": .string(allow ? "allow" : "deny")]
+            if let scope { object["scope"] = .string(scope) }
+            return .object(object)
+        case .signedDecision(let allow, let scope, let proof):
+            var object: [String: JSONValue] = ["decision": .string(allow ? "allow" : "deny"), "proof": proof.value]
             if let scope { object["scope"] = .string(scope) }
             return .object(object)
         case .confirmed(let value): return .object(["confirmed": .bool(value)])

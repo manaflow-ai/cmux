@@ -227,7 +227,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
                                                 defaultIndex: snapshot.defaultIndex, hidden: hidden)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
-        if view.underlay != nil, let key = currentTabKey, !services.agentTabs.isNewTabPage(key) { view.dropBackdrop(keeping: nil) } // became a chat
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
@@ -294,7 +293,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
         if view.stripView.window != nil { view.stripView.sync(fromModel: true) } // strip + content: one transaction (L4)
-        view.show(content?.view, overBackdrop: key.map(services.agentTabs.isNewTabPage) == true) // PaneContentView+NewTabBackdrop
+        view.show(content?.view)
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }

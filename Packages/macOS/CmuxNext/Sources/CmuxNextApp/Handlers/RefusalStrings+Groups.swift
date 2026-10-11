@@ -29,7 +29,6 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.resourceCardNotShown", "the tab or workspace is not shown in a window, so its resource card cannot open")
     }
     static var workspaceHasNoDirectory: String { text("handlers.refusal.workspaceHasNoDirectory", "the workspace has no working directory") }
-    static var groupHasNoDirectory: String { text("handlers.refusal.groupHasNoDirectory", "no workspace in the group has a working directory") }
     static var sectionTakesNoWorkspaces: String { text("handlers.refusal.sectionTakesNoWorkspaces", "that section cannot hold workspaces") }
     static var groupCannotJoinSection: String { text("handlers.refusal.groupCannotJoinSection", "the group's workspaces cannot be added to a section yet") }
     static var groupAlreadyInSection: String { text("handlers.refusal.groupAlreadyInSection", "every workspace in the group is already in that section") }

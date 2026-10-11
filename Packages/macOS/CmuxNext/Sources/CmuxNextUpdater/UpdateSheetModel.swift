@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxUpdater
 import Observation
+import CmuxNextCompat
 
 /// What the update sheet renders and where its buttons go.
 @MainActor
@@ -42,7 +43,7 @@ public final class UpdateSheetModel: UpdateSheetSource {
         case .relaunch:
             if case .installing(let installing) = state { installing.retryTerminatingApplication() }
         case .releaseNotes(let url):
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.openInBackground(url)
         }
     }
 }

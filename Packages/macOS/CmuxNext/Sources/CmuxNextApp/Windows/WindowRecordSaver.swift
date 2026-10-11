@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextWakeups
 
@@ -67,7 +68,7 @@ final class WindowRecordSaver {
         saves.scheduled = true
         // Not part of any action's scope: a projection write keeps a fresh
         // mutation id (its CAS retries must not replay an earlier write).
-        DaemonCommandScope.$current.withValue(nil) {
+        DaemonCommandScope.$current.withValueInTask(nil) {
             // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
             saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
         }
@@ -132,8 +133,20 @@ final class WindowRecordSaver {
                                       isFullScreen: controller?.window?.styleMask.contains(.fullScreen) ?? false,
                                       selectedTabs: selectedTabs(window: window))
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
+            record?.focusedPanes = focusedPanes(window: window)
             return record
         }
+    }
+
+    /// The pane last focused in each workspace the window lists: the focus
+    /// machine's memory, and the shown workspace's current pane.
+    private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
+        guard let state = manager.states[window.id] else { return [:] }
+        let focus = state.focus.state
+        var panes = focus.remembered
+        if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
+        let listed = Set(window.workspaceIDs)
+        return panes.filter { listed.contains($0.key) }
     }
 
     /// Remembered tab per pane across the window's workspaces.

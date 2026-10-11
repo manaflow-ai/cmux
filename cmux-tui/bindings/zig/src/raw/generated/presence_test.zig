@@ -133,9 +133,12 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationChange, "message");
     try expectExplicitNullRejected(protocol.ConversationChange, "participant");
     try expectExplicitNullRejected(protocol.ConversationChange, "seq");
+    try expectExplicitNullRejected(protocol.ConversationMessage, "answers");
+    try expectExplicitNullRejected(protocol.ConversationMessage, "answers_pending");
     try expectExplicitNullRejected(protocol.ConversationMessage, "edited_at");
     try expectExplicitNullRejected(protocol.ConversationMessage, "reply_to");
     try expectExplicitNullRejected(protocol.ConversationMessage, "retracted_at");
+    try expectExplicitNullRejected(protocol.ConversationMessage, "thread_root");
     try expectExplicitNullRejected(protocol.ConversationPart, "host");
     try expectExplicitNullRejected(protocol.ConversationPart, "preview");
     try expectExplicitNullRejected(protocol.ConversationPart, "runs");

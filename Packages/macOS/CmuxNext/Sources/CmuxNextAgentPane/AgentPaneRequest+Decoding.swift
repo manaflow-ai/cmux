@@ -107,6 +107,8 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
+        case "newTab.context":
+            self = .newTabContext
         case "newTab.remember":
             // One input (R86): only the agent pick is remembered.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -136,6 +138,14 @@ extension AgentPaneRequest {
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
+        case "workspace.useFolder":
+            // Any text: a path that is not an existing absolute folder is refused by the host
+            // (`transport.path_invalid`), so the page never takes it for an older host.
+            if let cwd = params?["cwd"] as? String, cwd.utf8.count <= Self.maximumOpenTabText {
+                self = .useFolder(cwd, confirm: params?["confirm"] as? Bool == true)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
@@ -159,6 +169,9 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState
+        case "pane.setQuickActions":
+            if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
+            else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":

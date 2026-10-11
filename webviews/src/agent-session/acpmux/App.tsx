@@ -35,7 +35,7 @@ import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
-import { useNewTabAdoption } from "./newtab/adoption";
+import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { isAgentHome, projectLabel } from "./sessionList";
@@ -110,6 +110,7 @@ import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
+import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -118,7 +119,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
-import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
+import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -134,6 +135,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { type FolderAsk, StartFolderAsk, confirmFolder, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -148,6 +150,9 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { FailedPrompt } from "./FailedPrompt";
+import { ReplayScreen } from "./replay/ReplayScreen";
+import { sessionReplay } from "./replay/replay.experiment";
+import { experimentArm } from "../../experiments/experiment";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -494,24 +499,6 @@ type DrawnHeight = { sessionId?: string; version: number; width: number; height:
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
-
-/// The text a transcript row contributes to a keyboard copy. Rendered Markdown is intentionally
-/// not scraped from the DOM: doing that would make copy depend on virtualization and would lose
-/// the source text while a reply is streaming.
-function transcriptCopyText(row: AcpmuxRow): string {
-  const parts: string[] = [];
-  if (row.text?.trim()) parts.push(row.text.trim());
-  if (row.shell) {
-    if (row.shell.command.trim()) parts.push(`$ ${row.shell.command.trim()}`);
-    if (row.shell.output.trim()) parts.push(row.shell.output.trim());
-    if (row.shell.error?.trim()) parts.push(row.shell.error.trim());
-  }
-  for (const item of row.items ?? []) {
-    if (item.text.trim()) parts.push(item.text.trim());
-    if (item.tool?.output?.trim()) parts.push(item.tool.output.trim());
-  }
-  return parts.join("\n").trim();
-}
 
 /// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
 /// floating action for prompts and tool rows where no adjacent copy control exists.
@@ -972,12 +959,7 @@ export function VirtualTranscript({
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      const text = rowIds
-        .map((id) => rows.find((row) => row.id === id))
-        .filter((row): row is AcpmuxRow => row !== undefined)
-        .map((row) => transcriptCopyText(row))
-        .filter(Boolean)
-        .join("\n\n");
+      const text = transcriptRangeText(rows, rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],
@@ -1302,6 +1284,8 @@ function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
+  /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
+  const [replaying, setReplaying] = useState<string | undefined>();
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   // An unsent chat can choose its folder even before an agent is available.
@@ -1312,6 +1296,16 @@ function AcpmuxPane() {
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
+  /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
+  /// above the composer, and `use` runs with the folder once they answer Use Home Folder.
+  /// `sessionId` is the chat the pick was for: a chat that started or changed meanwhile drops it.
+  const [folderAsk, setFolderAsk] = useState<{
+    ask: FolderAsk;
+    use(cwd: string): void;
+    cancel?(): void;
+    sessionId?: string;
+    error?: string;
+  }>();
   const [importError, setImportError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
@@ -1345,6 +1339,8 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
+  // Another chat ends the replay: coming back to this one opens it live.
+  if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
   // snapshot instead of clearing a valid repository while the daemon is being replaced.
@@ -1406,6 +1402,14 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
+  /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
+  /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
+  const startFolder = freshChat && !snapshot.sessionId ? projectDraft : undefined;
+  const startFolderRef = useRef(startFolder);
+  startFolderRef.current = startFolder;
+  /// The folder question, while the chat it was asked for is still the one shown.
+  const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
   const continueAvailable =
     !!snapshot.canHandoff &&
     !!snapshot.handoff?.ready &&
@@ -1757,6 +1761,7 @@ function AcpmuxPane() {
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
+  const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     void callNative("chat.select", { sessionId });
@@ -1874,13 +1879,18 @@ function AcpmuxPane() {
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
-  // The second animation frame after that render runs once its frame was drawn.
+  // One animation frame after that render, then a task: the task runs once that frame was drawn.
+  // Not two frames: WebKit stops animation frames once the window is occluded, so a second frame
+  // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
+  // the same way).
   const paintReported = useRef(false);
-  const showsWhatItIs = handshaken || hostError !== undefined;
+  // A New Tab page is what it is from its first render: its frame draws before the handshake
+  // (cx-0rpl.10), and the host shows no loading mark over it.
+  const showsWhatItIs = handshaken || hostError !== undefined || newTab !== undefined;
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
+    requestAnimationFrame(() => setTimeout(() => void callNative("pane.painted").catch(() => undefined), 0));
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
@@ -1916,16 +1926,41 @@ function AcpmuxPane() {
     }),
     [shellRuns],
   );
+  /// A folder the user picked on this Mac: the host takes it at once or asks first
+  /// (startFolder.tsx); `use` runs only with a folder the host took.
+  /// Only the latest pick's answer counts (two quick picks can answer out of order).
+  const folderPick = useRef(0);
+  const shownSession = useRef(snapshot.sessionId);
+  shownSession.current = snapshot.sessionId;
+  const requestFolder = useCallback((cwd: string, use: (folder: string) => void, cancel?: () => void) => {
+    const pick = ++folderPick.current;
+    const sessionId = shownSession.current;
+    setFolderAsk(undefined);
+    void pickFolder(callNative, cwd, (folder) => {
+      if (pick === folderPick.current) use(folder);
+    }).then((ask) => {
+      if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId });
+    });
+  }, []);
+  const freshRef = useRef(false);
+  freshRef.current = freshChat && !snapshot.sessionId;
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
-      if (freshChat && !snapshot.sessionId && !peer) {
-        setProjectDraft(cwd);
+      // Another computer's folder is that computer's to check.
+      if (peer) {
+        void callNative("chat.new", { cwd, peer }).catch(() => undefined);
         return;
       }
-      void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined);
+      // Fresh or started is read when the folder is used (an answer can come later).
+      requestFolder(cwd, (folder) => {
+        if (freshRef.current) setProjectDraft(folder);
+        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+      });
     },
-    [freshChat, snapshot.sessionId],
+    [requestFolder],
   );
+  const automationPick = useRef<(cwd: string) => void>(undefined);
+  automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
     window.React = React;
     window.cmuxAcpmuxRegistry = {
@@ -2053,6 +2088,7 @@ function AcpmuxPane() {
         selectSession: (sessionId) => automationView.current?.selectSession(sessionId),
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
+        pickFolder: (cwd) => automationPick.current?.(cwd),
       },
     });
     let cancelled = false;
@@ -2146,7 +2182,12 @@ function AcpmuxPane() {
           setGithubRepository(undefined);
         }
         // A tab opened as the new tab page shows it until it becomes something (#16620).
-        if (!reconnect) setNewTab(newTabHost(host));
+        // A page that drew its New Tab frame before the handshake (useEarlyNewTabContext) keeps its
+        // state: a page the user already left stays a chat.
+        if (!reconnect && !earlyNewTab.current) setNewTab(newTabHost(host));
+        // The early context lacks the folder the handshake filled in (seed, start folder): add it.
+        else if (!reconnect && typeof host.cwd === "string" && host.cwd)
+          setNewTab((current) => (current && !current.cwd ? { ...current, cwd: host.cwd as string } : current));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -2335,16 +2376,17 @@ function AcpmuxPane() {
             return persistSession(await client.select(String(sessionId)));
           },
           // A pick of another harness is a switch: drawn now, started behind it.
+          // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
+          // a chat with no project (`noProject`) or for a peer gets no start folder.
           "chat.new": async ({ harness, cwd, peer, deferred, noProject }) => {
+            const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true)
-              return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined, {
-                deferred: deferred === true,
-              });
+              return harnessSwitch.switchTo(String(harness), folder, { deferred: deferred === true });
             harnessSwitch.cancel();
             return persistSession(
               await client.create(
                 harness ? String(harness) : undefined,
-                cwd ? String(cwd) : undefined,
+                folder,
                 peer ? String(peer) : undefined,
                 noProject === true,
               ),
@@ -2641,7 +2683,19 @@ function AcpmuxPane() {
             },
           ]
         : [];
+    const replay: ChatMenuItem[] =
+      !quick && snapshot.sessionId && experimentArm(sessionReplay) === "on"
+        ? [
+            {
+              key: "replay",
+              label: t("replay.open"),
+              icon: "history",
+              onSelect: () => setReplaying(snapshot.sessionId),
+            },
+          ]
+        : [];
     const tools: ChatMenuItem[] = [
+      ...replay,
       {
         key: "inspector",
         label: t("inspector.title"),
@@ -2722,7 +2776,13 @@ function AcpmuxPane() {
       ],
     );
   };
-  const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
+  // chat view's error card with Retry shows, as before.
+  const showNewTab =
+    newTab !== undefined &&
+    !snapshot.sessionId &&
+    snapshot.rows.length === 0 &&
+    (handshaken || hostError === undefined);
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -2746,11 +2806,18 @@ function AcpmuxPane() {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
       return;
     }
+    const inherited = newTab?.cwd;
     setNewTab(undefined);
-    void (async () => {
-      if (cwd) await callNative("chat.new", { cwd });
-      if (text) await callNative("chat.send", { text });
-    })().catch(() => undefined);
+    const start = (folder?: string) =>
+      void (async () => {
+        if (folder) await callNative("chat.new", { cwd: folder });
+        if (text) await callNative("chat.send", { text });
+      })().catch(() => undefined);
+    // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
+    // folder. Another project the user picked there goes through the host first.
+    // Use Private Folder (or Keep) there gives the typed text back to the composer.
+    if (cwd && cwd !== inherited) requestFolder(cwd, start, text ? () => setDraft(text) : undefined);
+    else start(startFolder);
   };
   const loadNewTabProjects = useCallback(
     () =>
@@ -2834,6 +2901,18 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
+  const toggleActivity = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const loadReplay = useCallback(
+    // l10n-allow: never shown; the replay says replay.failed.
+    () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
+    [replaying],
+  );
   const transcript = (
     <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>
@@ -2850,14 +2929,7 @@ function AcpmuxPane() {
                 githubRepository={githubRepository}
                 // The Quick Composer has no room for the changes view; its file rows stay plain.
                 onOpenDiff={quick ? undefined : openDiff}
-                onToggleActivity={(id) =>
-                  setExpanded((current) => {
-                    const next = new Set(current);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
+                onToggleActivity={toggleActivity}
               />
             </SessionRowsContext.Provider>
           </TurnCountsContext.Provider>
@@ -2963,27 +3035,47 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {showsFolderChoice({
-        offered: chooseFolder,
-        freshChat,
-        quick,
-        projectDraft,
-        sessionId: snapshot.sessionId,
-        missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-      }) && (
-        <FolderChoice
-          error={folderError}
-          onChoose={() => {
-            setFolderError(undefined);
-            void callNative<{ cwd?: string }>("workspace.chooseFolder")
-              .then((result) => {
-                if (!result?.cwd) return;
-                setChooseFolder(false);
-                chooseProject(result.cwd);
-              })
-              .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+      {pendingFolder ? (
+        <StartFolderAsk
+          ask={pendingFolder.ask}
+          current={freshChat && !snapshot.sessionId ? projectDraft : (movedTo ?? snapshot.summary?.cwd)}
+          error={pendingFolder.error}
+          onUse={() => {
+            // The question closes on the click, so a second click cannot use the folder twice.
+            const pending = pendingFolder;
+            setFolderAsk(undefined);
+            void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
+              setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
+            );
+          }}
+          onCancel={() => {
+            pendingFolder.cancel?.();
+            setFolderAsk(undefined);
           }}
         />
+      ) : (
+        showsFolderChoice({
+          offered: chooseFolder,
+          freshChat,
+          quick,
+          projectDraft,
+          sessionId: snapshot.sessionId,
+          missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+        }) && (
+          <FolderChoice
+            error={folderError}
+            onChoose={() => {
+              setFolderError(undefined);
+              void callNative<{ cwd?: string }>("workspace.chooseFolder")
+                .then((result) => {
+                  if (!result?.cwd) return;
+                  setChooseFolder(false);
+                  chooseProject(result.cwd);
+                })
+                .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+            }}
+          />
+        )
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
@@ -3129,7 +3221,8 @@ function AcpmuxPane() {
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
-          blocked={trustAsk.blocked}
+          // No prompt goes while a picked folder waits for the user's answer.
+          blocked={pendingFolder ? {} : trustAsk.blocked}
           accessory={<DictationButton dictation={dictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
@@ -3202,7 +3295,9 @@ function AcpmuxPane() {
               home={newTab.home}
               tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-              inputToken={newTab.inputToken}
+              // Typed keys stay in the host's buffer until acpmux answered: a prompt sent before the
+              // handshake would have no client to start its chat.
+              inputToken={handshaken ? newTab.inputToken : undefined}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
@@ -3216,6 +3311,8 @@ function AcpmuxPane() {
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,
+                chatCwd: startFolder,
+                requestFolder,
                 leave: () => setNewTab(undefined),
                 selectSession,
                 showAllChats,
@@ -3251,8 +3348,24 @@ function AcpmuxPane() {
               }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
-              inputToken={newTab.inputToken}
+              inputToken={handshaken ? newTab.inputToken : undefined}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+            />
+          ) : replaying && replaying === snapshot.sessionId ? (
+            <ReplayScreen
+              sessionId={replaying}
+              title={snapshot.summary?.title || snapshot.summary?.name}
+              load={loadReplay}
+              onClose={() => setReplaying(undefined)}
+              transcript={(rows) => (
+                <VirtualTranscript
+                  rows={rows}
+                  sessionId={`replay:${replaying}`}
+                  expanded={expanded}
+                  registry={registry}
+                  onToggleActivity={toggleActivity}
+                />
+              )}
             />
           ) : (
             <>
@@ -3287,6 +3400,15 @@ function AcpmuxPane() {
                       sideTabs={sideTabs}
                       onSideTabs={toggleSideTabs}
                       onPointerEnter={quick ? undefined : refreshTabState}
+                      onCustomize={(list) => {
+                        // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
+                        // A save the App refused (layout.json mid-edit) puts the buttons back.
+                        const before = quickActions();
+                        configureQuickActions({ quickActions: list });
+                        callNative("pane.setQuickActions", { quickActions: list }).catch(() =>
+                          configureQuickActions({ quickActions: before }),
+                        );
+                      }}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.

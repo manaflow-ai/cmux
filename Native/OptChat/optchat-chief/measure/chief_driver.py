@@ -54,8 +54,11 @@ ap.add_argument("--turns-during-import", type=int, default=0, help="import scena
 ap.add_argument("--keep-mux", default="", help="at the end, copy the brain's MUX dir (memory, traces) here")
 ap.add_argument("--env", action="append", default=[], help="KEY=VALUE for the host (and so every turn and node); recorded in run.json")
 opts = ap.parse_args()
-# SIGTERM runs the cleanup below (stops what this script started).
+# SIGTERM, SIGINT (Ctrl-C) and SIGHUP (a closed ssh session) run the cleanup
+# below (stops what this script started, the brain's acpmux daemon too).
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
+signal.signal(signal.SIGHUP, lambda *_: sys.exit(129))
 if opts.max_settle is None:
     # A soak records a long first wait after its import instead of stopping on it.
     opts.max_settle = 1800 if opts.scenario == "soak" else 60
@@ -148,6 +151,58 @@ def login_env():
     return env
 
 
+def lock_holders(path):
+    """PIDs that hold `path` open (lsof), [] when none or no file."""
+    if not os.path.exists(path):
+        return []
+    r = subprocess.run(["/usr/sbin/lsof", "-t", path], capture_output=True, text=True, timeout=20)
+    return sorted({int(x) for x in r.stdout.split() if x.isdigit()})
+
+
+def stop_acpmux():
+    """Stop the brain's own acpmux daemon (the host started it under ACPMUX_HOME)
+    and its local router if one started, through their own shutdown paths, then
+    check that no process holds this home's locks. A holder left after that is
+    this run's (the home is this run's alone): SIGTERM, then SIGKILL."""
+    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "ACPMUX_HOME": ACPMUX_HOME,
+           "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
+    try:
+        subprocess.run([os.path.join(BINS, "acpmux"), "daemon", "shutdown"], env=env, timeout=30, capture_output=True)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    router = os.path.join(ACPMUX_HOME, "router", "router.sock")
+    if os.path.exists(router):
+        try:
+            with socket.socket(socket.AF_UNIX) as s:
+                s.settimeout(5)
+                s.connect(router)
+                s.sendall(b'{"op":"shutdown"}\n')
+                s.recv(4096)
+        except OSError:
+            pass
+    locks = [os.path.join(ACPMUX_HOME, "daemon.lock"), os.path.join(ACPMUX_HOME, "router", "router.lock")]
+    left = []
+    for step in ("wait", "term", "kill"):
+        deadline = time.time() + (20 if step == "wait" else 5)
+        while time.time() < deadline:
+            try:
+                left = sorted({p for lock in locks for p in lock_holders(lock)} - {os.getpid()})
+            except (OSError, subprocess.TimeoutExpired):
+                left = []
+            if not left:
+                break
+            time.sleep(0.5)
+        if not left or step == "kill":
+            break
+        for p in left:
+            try:
+                os.kill(p, signal.SIGTERM if step == "wait" else signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    run["acpmux_left"] = left
+    log(f"acpmux cleanup: home {ACPMUX_HOME}: {'no process holds its locks' if not left else 'STILL HELD by ' + str(left)}")
+
+
 def cleanup():
     try:
         if run.get("conversation") and not os.path.exists(os.path.join(OUT, "conversation.json")):
@@ -160,12 +215,7 @@ def cleanup():
             os.kill(p, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    # The host started the brain's own acpmux daemon under ACPMUX_HOME; stop it through its CLI.
-    try:
-        subprocess.run([os.path.join(BINS, "acpmux"), "daemon", "shutdown"], env={"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin",
-                       "ACPMUX_HOME": ACPMUX_HOME}, timeout=30, capture_output=True)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    stop_acpmux()
     for p in pids:
         try:
             os.waitpid(p, 0)

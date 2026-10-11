@@ -16,19 +16,23 @@ public struct AgentPaneHeaderHooks {
     public var sideTabs: @MainActor () -> Bool?
     /// Preview: toggles (`true`) or opens a browser tab beside the chat on a local page.
     public var preview: @MainActor (String?, Bool) -> Void
+    /// The right-click menu's quick actions, saved to `agent-pane/layout.json`; whether they were.
+    public var saveQuickActions: @MainActor ([AgentPaneQuickAction]) async -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
-                preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in }) {
+                preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
+                saveQuickActions: @escaping @MainActor ([AgentPaneQuickAction]) async -> Bool = { _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
         self.sideTabs = sideTabs
         self.preview = preview
+        self.saveQuickActions = saveQuickActions
     }
 }
 
@@ -59,6 +63,11 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action preview")
             }
             header.preview(url, toggle)
+            return AgentPaneReply.success()
+        case .setQuickActions(let list):
+            guard newTab == nil, let header, await header.saveQuickActions(list) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.setQuickActions")
+            }
             return AgentPaneReply.success()
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
