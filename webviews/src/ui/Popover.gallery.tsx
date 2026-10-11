@@ -106,7 +106,10 @@ const outsideClick: Play = async (ctx) => {
 
 const keyboardNavigation: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Open popover" });
-  await ctx.waitFor(() => ctx.find({ role: "button", name: "First action" }));
+  await ctx.waitFor(() => {
+    const first = ctx.find({ role: "button", name: "First action" });
+    return ctx.document.activeElement === first;
+  });
   await ctx.press("Tab");
   await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ role: "button", name: "Second action" }));
   await ctx.press("Shift+Tab");
