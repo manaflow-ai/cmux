@@ -46,6 +46,7 @@ import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
+import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
@@ -1907,6 +1908,32 @@ function AcpmuxPane() {
   }, [hunkDecisions]);
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
+  // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
+  // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
+  // run now, kept the same array while they stay the same.
+  const pickerSession = useMemo(
+    () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
+    [snapshot.summary?.harness, snapshot.summary?.configOptions],
+  );
+  const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  const retryModelsKey = (
+    pickerCatalog.harnesses.find(
+      (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
+    )?.models ?? []
+  )
+    .filter((model) => !model.unavailable && !isDefaultChoice(model))
+    .map((model) => `${model.id}\t${model.name || model.id}`)
+    .join("\n");
+  const retryModels = useMemo(
+    () =>
+      retryModelsKey
+        ? retryModelsKey.split("\n").map((line) => {
+            const [id = "", name = ""] = line.split("\t");
+            return { id, name: name || id };
+          })
+        : [],
+    [retryModelsKey],
+  );
   // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
   const turnActions = useMemo<TurnActions>(
     () => ({
@@ -1931,6 +1958,15 @@ function AcpmuxPane() {
             attachments: directClient.current?.retryAttachmentsFor(rowId) ?? [],
           }).catch(() => undefined),
       }),
+      ...(connected &&
+        retryModels.length > 1 && {
+          retryWith: {
+            models: retryModels,
+            current: snapshot.summary?.model,
+            retry: (rowId: string, prompt: string, model: string) =>
+              void callNative("chat.retryWith", { rowId, prompt, model }).catch(() => undefined),
+          },
+        }),
       ...(connected &&
         loginCommand &&
         snapshot.summary?.hostKind !== "cloud" && {
@@ -1959,6 +1995,8 @@ function AcpmuxPane() {
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
+      snapshot.summary?.model,
+      retryModels,
       catalog,
     ],
   );
@@ -2744,6 +2782,18 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
+          // then the prompt goes again with its attachments. A refused move sends nothing (its notice
+          // says why), so the retry never runs on the old model.
+          "chat.retryWith": async ({ rowId, prompt, model }) => {
+            const summary = snapshotRef.current?.summary;
+            const next = String(model ?? "");
+            if (summary?.model !== next) {
+              const live = summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined;
+              if (!(await harnessSwitch.pickModel(next, live))) return;
+            }
+            await send(String(prompt ?? ""), client.retryAttachmentsFor(String(rowId ?? "")));
+          },
           // Edit and Resend (the message menu): the prompt goes back into the composer, before
           // anything typed since, with the caret in it.
           "chat.editPrompt": async ({ text }) => {

@@ -12,7 +12,9 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
+import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 
@@ -92,7 +94,7 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const { fork, forkSeq, retry, reauthenticate, route, switchModel } = useContext(TurnActionsContext);
+  const { fork, forkSeq, retry, retryWith, reauthenticate, route, switchModel } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -131,6 +133,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             <Retry size={14} />
           </button>
         )}
+        {retry && prompt && retryWith && retryWith.models.length > 1 && (
+          <RetryModelMenu
+            retryWith={retryWith}
+            onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+          />
+        )}
         {authenticationFailed && reauthenticate && (
           <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
             {t("turn.signInAgain")}
@@ -153,6 +161,37 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         {clock.format(row.at)}
       </time>
     </div>
+  );
+}
+
+/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
+function RetryModelMenu({
+  retryWith,
+  onPick,
+}: {
+  retryWith: NonNullable<TurnActions["retryWith"]>;
+  onPick(model: string): void;
+}) {
+  const t = useT();
+  return (
+    <Menu>
+      <MenuButton
+        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
+        label={t("turn.retryWith")}
+        title={t("turn.retryWith")}
+      >
+        <ChevronDown size={12} />
+      </MenuButton>
+      <MenuPopup label={t("turn.retryWith")} align="start">
+        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
+          {retryWith.models.map((model) => (
+            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
+              {model.name}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
   );
 }
 
