@@ -69,6 +69,10 @@ jobs:
             for tip in origin/main origin/feat-cmux-next origin/nightly-next; do
               git rev-list --max-count=5000 "$tip" | paste -sd' '
             done
+            # A rerun of a release or RC tag bundles the newest published commit in its history.
+            git for-each-ref 'refs/tags/v*' --format='%(objectname)' | while read -r tag; do
+              git rev-list --max-count=500 "$tag" | paste -sd' '
+            done
             gh release view nightly-next --repo "$REPOSITORY" --json assets --jq '.assets[].name' |
               sed -nE 's/^cmux-nightly-next-macos-[a-z0-9_]+-([0-9]{3,})\.dmg$/\1/p' | sort -u |
               while read -r build; do
@@ -95,7 +99,9 @@ jobs:
           python3 scripts/ci/cmux_binaries_prune.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Publish the cold queue
-        if: ${{ hashFiles('.github/cold-tier/cmux-lawrence-cold.pem') != '' }}
+        # Always: a run that queues nothing (dry run, deletes switched off, a failure) must replace
+        # the last queue, or the host keeps deleting from it for days.
+        if: ${{ always() && hashFiles('.github/cold-tier/cmux-lawrence-cold.pem') != '' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -104,7 +110,13 @@ jobs:
         run: |
           set -euo pipefail
           cold="$RUNNER_TEMP/cold"
-          if [ ! -f "$cold/queue.json" ]; then echo "no cold queue this run"; exit 0; fi
+          mkdir -p "$cold"
+          if [ ! -f "$cold/queue.json" ] || [ "${{ job.status }}" != success ]; then
+            echo "no cold queue this run: publishing an empty one"
+            rm -f "$cold/deletes.json"
+            printf '{"generated": "%s", "groups": []}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$cold/queue.json"
+            echo '{}' > "$cold/deletes.json"
+          fi
           # The presigned deletes are secret: only cmux-lawrence's private key opens them, and the
           # plain file never leaves this runner.
           openssl smime -encrypt -binary -aes256 -outform DER -in "$cold/deletes.json" \

@@ -25,14 +25,18 @@ A commit-addressed prefix is kept when its commit is any of:
 - published within the last 14 days, so a dev build of a branch keeps its remote install that long;
 - on main, feat-cmux-next or nightly-next (--trunk-commits) and published within the last 30 days,
   for rebuilds of recent commits;
-- one of the 3 newest published commits in a --windows line: each tip's history (what the app
-  resolvers pick), and the 64 commits behind every nightly-next build still on the nightly-next
-  release (the build's resolver picked the newest published tree among those, and shipped apps
-  fetch that commit's prefix at runtime). Tag commits (cmux-tui-v*, cmux-app-ffi-*, cmux-next-dev)
-  come in through --pin-file.
+- one of the 3 newest published commits (a prefix with a manifest.json) in a --windows line: each
+  tip's history and each release tag's history (what the app resolvers pick when that revision is
+  built), and the 64 commits behind every nightly-next build still on the nightly-next release. Tag
+  commits (cmux-tui-v*, cmux-app-ffi-*, cmux-next-dev) come in through --pin-file.
 
-An older trunk prefix is COLD when it is the newest of its family published that UTC day (one
-build a day kept for bisects), otherwise deleted. COLD prefixes stay in R2 until the cmux-lawrence
+A shipped nightly-next app fetches the `commit=` of its bundled cmux-tui.version at runtime: the
+source commit of the tree its build resolved, which may lie outside that window or off trunk. Those
+are kept because every tree's source commit is; a tree rule that prunes trees must keep the trees
+shipped builds resolved.
+
+An older trunk prefix is COLD when its commit is the newest trunk commit with a cmux-tui build
+published that UTC day (one build a day kept for bisects; its relays go with it), otherwise deleted. COLD prefixes stay in R2 until the cmux-lawrence
 cold-copy job has written them to both cold SSD images and verified sha256: with --cold-out this
 writes `queue.json` (each object's key, size and sha256, read from R2) and `deletes.json`
 (a presigned DELETE URL per object, valid 7 days), which the workflow encrypts to cmux-lawrence's
@@ -77,7 +81,7 @@ BUCKET = "cmux-binaries"
 BRANCH_DAYS = 14
 TRUNK_DAYS = 30
 WINDOW_KEEP = 3  # newest published commits kept per --windows line, per family
-COLD_MAX_BYTES = 50 * 1024**3  # queued for the SSDs per run; the rest wait a day
+COLD_MAX_BYTES = 20 * 1024**3  # queued for the SSDs per run; the rest wait a day
 PRESIGN_SECONDS = 7 * 86400
 MAX_DELETES = 5000
 MIN_TRUNK_COMMITS = 1000  # fewer means the checkout was shallow: every commit would look like a branch
@@ -220,7 +224,9 @@ def tree_commits(bucket, trees: list[Group]) -> set[str]:
 def window_keeps(by_family: dict[str, list[Group]], windows: list[list[str]]) -> dict[str, set[str]]:
     keeps = {}
     for family, groups in by_family.items():
-        published = {group.id for group in groups}
+        # A failed upload without a manifest is not something a resolver would pick.
+        published = {group.id for group in groups
+                     if any(item["key"].endswith("/manifest.json") for item in group.objects)}
         kept = keeps.setdefault(family, set())
         for window in windows:
             kept.update([sha for sha in window if sha in published][:WINDOW_KEEP])
@@ -228,18 +234,18 @@ def window_keeps(by_family: dict[str, list[Group]], windows: list[list[str]]) ->
 
 
 def daily_snapshots(by_family: dict[str, list[Group]], trunk: set[str], now: dt.datetime) -> dict[str, set[str]]:
-    snapshots = {}
-    for family, groups in by_family.items():
-        newest_of_day: dict[str, Group] = {}
-        for group in groups:
-            age = census.age_days(group.newest, now)
-            if group.id not in trunk or age is None or age < TRUNK_DAYS:
-                continue
-            day = group.newest[:10]
-            if day not in newest_of_day or group.newest > newest_of_day[day].newest:
-                newest_of_day[day] = group
-        snapshots[family] = {group.id for group in newest_of_day.values()}
-    return snapshots
+    """One commit a day, chosen by its cmux-tui build, for every family: a cold relay always has
+    its cmux-tui beside it."""
+    newest_of_day: dict[str, Group] = {}
+    for group in by_family.get("cmux-tui", []):
+        age = census.age_days(group.newest, now)
+        if group.id not in trunk or age is None or age < TRUNK_DAYS:
+            continue
+        day = group.newest[:10]
+        if day not in newest_of_day or group.newest > newest_of_day[day].newest:
+            newest_of_day[day] = group
+    commits = {group.id for group in newest_of_day.values()}
+    return {family: commits for family in by_family}
 
 
 def plan(by_family: dict[str, list[Group]], ctx: Context) -> tuple[list[Group], dict, list[Group]]:

@@ -202,6 +202,27 @@ class TrunkRule(unittest.TestCase):
         self.assertNotIn("SK", url)
 
 
+class ColdSnapshots(unittest.TestCase):
+    def test_a_cold_relay_keeps_its_cmux_tui_beside_it(self):
+        bucket = FakeBucket()
+        # The relay of the day's newest cmux-tui commit landed earlier than another commit's relay.
+        bucket.add_build("cmux-tui", trunk(50), 40.10)
+        bucket.add_build("chatmux-relay", trunk(50), 40.30)
+        bucket.add_build("cmux-tui", trunk(51), 40.20)
+        bucket.add_build("chatmux-relay", trunk(51), 40.15)
+        summary = run(bucket)
+        self.assertEqual({key.split("/")[1] for key in bucket.deleted}, {trunk(51)})
+        self.assertEqual((summary["cold"]["cmux-tui"][0], summary["cold"]["chatmux-relay"][0]), (1, 1))
+
+    def test_a_prefix_without_a_manifest_takes_no_window_slot(self):
+        bucket = FakeBucket()
+        for n in (60, 61, 62, 63):
+            bucket.add_build("cmux-tui", trunk(n), 70 + n / 1000)
+        bucket.objects = [o for o in bucket.objects if o["key"] != f"cmux-tui/{trunk(60)}/manifest.json"]
+        run(bucket, windows=[[trunk(60), trunk(61), trunk(62), trunk(63)]])
+        self.assertNotIn(trunk(63), {key.split("/")[1] for key in bucket.deleted})
+
+
 class Main(unittest.TestCase):
     def test_an_empty_pin_history_stops_the_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -236,6 +257,9 @@ class Workflow(unittest.TestCase):
         self.assertLess(script.index("openssl smime -encrypt"), script.index("upload-r2-object.py"))
         self.assertLess(script.index('rm -f "$cold/deletes.json"'), script.index("upload-r2-object.py"))
         self.assertIn("for name in deletes.p7m queue.json", script)
+        # A run that queues nothing replaces the last queue with an empty one.
+        self.assertIn("always()", publish["if"])
+        self.assertIn('"groups": []', script)
         self.assertIn("vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
