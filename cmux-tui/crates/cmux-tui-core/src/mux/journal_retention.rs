@@ -17,8 +17,8 @@
 //! starts, and a daemon that is shutting down or handing off captures
 //! nothing, so ending N terminals costs no checkpoint work.
 //!
-//! A daemon that stops while its hosts keep running (`SIGTERM` at logout or
-//! reboot, `server stop`) takes one more checkpoint at shutdown, see
+//! A daemon that stops on `SIGTERM` (logout, reboot) while its hosts keep
+//! running takes one more checkpoint at shutdown, see
 //! [`Mux::capture_shutdown_checkpoint`].
 //!
 //! Trade-off: a crash between a reconnect and its coalesced checkpoint
@@ -39,7 +39,7 @@ const RETRY_INITIAL: Duration = Duration::from_millis(250);
 const CHECKPOINT_ORIGIN: &str = "terminal_host_reconnect";
 const SLOW_CAPTURE: Duration = Duration::from_secs(1);
 const SHUTDOWN_CHECKPOINT_ORIGIN: &str = "daemon_shutdown";
-/// How long a shutdown retries a capture that races terminal output.
+/// How long a shutdown retries a failed screen checkpoint.
 const SHUTDOWN_CAPTURE_BUDGET: Duration = Duration::from_secs(2);
 const SHUTDOWN_CAPTURE_RETRY: Duration = Duration::from_millis(50);
 
@@ -336,25 +336,30 @@ impl Mux {
 }
 
 impl Mux {
-    /// Checkpoint every terminal's screen before a daemon that keeps its
-    /// hosts stops. A reboot ends the hosts after the daemon, so no exit
-    /// replay is recorded, and the respawn at the next start shows the
-    /// latest checkpoint (cx-6so.49 L2): without this one, an older or no
-    /// screen. A handoff skips it (the next daemon adopts the live hosts),
-    /// as do a teardown that ends terminals and a daemon without terminals.
-    /// A capture refuses while terminals still write, so it is retried
-    /// within a short budget; a failure only costs the screen.
-    pub(super) fn capture_shutdown_checkpoint(&self) {
-        if self.control_clients.daemon_handoff_in_progress()
+    /// Whether this shutdown checkpoints the terminal screens, decided when
+    /// it starts. A reboot ends the hosts after the daemon, so no exit replay
+    /// is recorded, and the respawn at the next start shows the latest
+    /// checkpoint (cx-6so.49 L2): without this one, an older or no screen. A
+    /// handoff skips it (an app update's next daemon adopts the live hosts;
+    /// `server stop` takes the same path), as do a teardown that ends
+    /// terminals and a daemon without terminals. Respawn is unix only.
+    pub(super) fn wants_shutdown_checkpoint(&self) -> bool {
+        if cfg!(not(unix))
+            || self.control_clients.daemon_handoff_in_progress()
             || self.journal_retention.teardown_active()
         {
-            return;
+            return false;
         }
         let terminals =
             unique_surface_runtimes(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
-        if !terminals.iter().any(|surface| surface.kind() == SurfaceKind::Pty) {
-            return;
-        }
+        terminals.iter().any(|surface| surface.kind() == SurfaceKind::Pty)
+    }
+
+    /// Checkpoint every terminal's screen at shutdown. Runs once the terminal
+    /// readers drained and the journal is fenced: while a terminal still
+    /// writes, every capture is rejected as racing the journal. A failure
+    /// only costs the screen.
+    pub(super) fn capture_shutdown_checkpoint(&self) {
         let key = format!(
             "shutdown:{}:{}",
             std::process::id(),
@@ -366,14 +371,15 @@ impl Mux {
                 self.create_journal_checkpoint(SHUTDOWN_CHECKPOINT_ORIGIN, &key)
             }))
             .unwrap_or_else(|_| Err(anyhow::anyhow!("checkpoint capture panicked")));
-            match captured {
+            let error = match captured {
                 Ok(_) => return,
-                Err(error) if Instant::now() >= deadline => {
-                    eprintln!("cmux-tui: no terminal screen checkpoint at shutdown: {error:#}");
-                    return;
-                }
-                Err(_) => std::thread::sleep(SHUTDOWN_CAPTURE_RETRY),
+                Err(error) => error,
+            };
+            if Instant::now() + SHUTDOWN_CAPTURE_RETRY >= deadline {
+                eprintln!("cmux-tui: no terminal screen checkpoint at shutdown: {error:#}");
+                return;
             }
+            std::thread::sleep(SHUTDOWN_CAPTURE_RETRY);
         }
     }
 }

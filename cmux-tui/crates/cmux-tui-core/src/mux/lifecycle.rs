@@ -108,6 +108,7 @@ impl Mux {
     }
 
     pub fn shutdown(&self) {
+        let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
@@ -119,7 +120,6 @@ impl Mux {
         ) {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
-        self.capture_shutdown_checkpoint();
         self.config_reload_changed.notify_all();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
@@ -127,14 +127,16 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
-        self.finalize_terminal_journal("shutdown");
+        self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
     }
 
-    pub(super) fn finalize_terminal_journal(&self, context: &str) {
+    /// Stop the terminal readers and the journal writer; with
+    /// `screen_checkpoint`, checkpoint the terminal screens in between.
+    pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {
         if self.journal_ingress.is_closed() {
             if let Err(error) = self.journal_ingress.close_and_join() {
                 eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
@@ -186,6 +188,9 @@ impl Mux {
         // from inserting output after the barrier.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
+        }
+        if screen_checkpoint {
+            self.capture_shutdown_checkpoint();
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
