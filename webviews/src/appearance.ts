@@ -1,4 +1,4 @@
-import { mixColors, withMinimumContrast } from "./syntax-colors";
+import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerTheme = {
@@ -232,7 +232,9 @@ function changeColor(theme: DiffViewerTheme, type: "light" | "dark", paletteKeys
   if (changeColors === "theme") return themed;
   const background = syntaxContrastBackground(theme, type);
   const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
-  return withMinimumContrast(mixColors(themed, background, MUTED_MIX), background, foreground, 4.5);
+  const muted = withMinimumContrast(mixColors(themed, background, MUTED_MIX), background, foreground, 4.5);
+  // A color that cannot be measured (not hex) keeps the theme's own, which already reads.
+  return (contrastBetween(muted, background) ?? 0) >= 4.5 ? muted : themed;
 }
 
 function semanticPaletteColor(theme: DiffViewerTheme, paletteKeys: string[], fallback: string): string {

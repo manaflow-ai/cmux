@@ -15,7 +15,8 @@ export function useViewerPrefsBootstrap(payload: any, dispatch: React.Dispatch<A
     started.current = true;
     loadViewerPrefs()
       .then((prefs) => {
-        setDiffChangeColors(prefs.colors);
+        // The page never writes `colors`, so a failed read (no key) keeps the seeded pick.
+        if (prefs.colors) setDiffChangeColors(prefs.colors);
         dispatch({
           type: "apply-persisted-options",
           prefs,
