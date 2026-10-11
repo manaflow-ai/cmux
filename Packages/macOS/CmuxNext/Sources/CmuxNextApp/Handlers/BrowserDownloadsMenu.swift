@@ -7,7 +7,7 @@ import CmuxNextCompat
 /// The toolbar's Downloads menu (`browser.downloads.show`, Edge's downloads
 /// flyout, cx-6qwm.1): the newest downloads first, each with its progress
 /// or end and a submenu to open it, show it in Finder, pause, resume or
-/// cancel it, or copy its link; then Open Downloads Folder and Clear.
+/// cancel it, retry it, or copy its link; then Open Downloads Folder and Clear.
 /// cmux opens a file only on a click here, never by itself.
 enum BrowserDownloadsMenu {
     /// Rows listed; the list keeps more (`BrowserDownloadList.limit`).
@@ -24,7 +24,7 @@ enum BrowserDownloadsMenu {
             empty.isEnabled = false
             menu.addItem(empty)
         }
-        for download in items { menu.addItem(row(download)) }
+        for download in items { menu.addItem(row(download, list: list)) }
         menu.addItem(.separator())
         for item in registry.makeContextMenu(for: .browserPage, target: target, entries: [.action("browser.downloads.showFolder")]).items {
             item.menu?.removeItem(item)
@@ -36,7 +36,7 @@ enum BrowserDownloadsMenu {
         return menu
     }
 
-    private static func row(_ download: BrowserDownload) -> NSMenuItem {
+    private static func row(_ download: BrowserDownload, list: BrowserDownloadList) -> NSMenuItem {
         let item = NSMenuItem(title: download.filename, action: nil, keyEquivalent: "")
         item.subtitle = status(download)
         let icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: (download.filename as NSString).pathExtension) ?? .data)
@@ -51,6 +51,11 @@ enum BrowserDownloadsMenu {
         if download.canPause {
             let title = download.isPaused ? BrowserHitStrings.downloadResume : BrowserHitStrings.downloadPause
             submenu.addItem(closure(title) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
+        }
+        if download.canRetry {
+            submenu.addItem(closure(BrowserHitStrings.downloadRetry) { [weak list, weak download] in
+                if let list, let download { list.retry(download) }
+            })
         }
         if download.status == .inProgress {
             submenu.addItem(closure(BrowserHitStrings.downloadCancel) { [weak download] in download?.cancel() })

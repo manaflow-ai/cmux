@@ -190,6 +190,13 @@ final class CEFDownloads {
         item.update(received: 0, total: total)
         item.cancelHandler = { shim.control(id, 0) }
         item.pauseHandler = { paused in shim.control(id, paused ? 1 : 2) }
+        if let source = URL(string: url), ["http", "https"].contains(source.scheme?.lowercased()) {
+            // Retry starts it again from its tab, to the file the person chose if they chose one.
+            item.retryHandler = { [weak self] in
+                guard let self else { return false }
+                return pick.map { save(source, to: $0, browser: browser) } ?? download(url, browser: browser)
+            }
+        }
         items[id] = item
         shim.answer(id, placement.temporaryURL.path(percentEncoded: false))
         logger.notice("download \(id) started for tab \(browser), chosen=\(pick != nil)")
