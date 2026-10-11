@@ -98,6 +98,34 @@ struct AgentPaneProjectFilesTests {
         #expect(rig.opened == ["AGENTS.md"])
     }
 
+    /// A picked link is copied as the file it names, a snapshot, never as a link out of the project.
+    @Test func copiesALinkAsItsFile() async throws {
+        let rig = try Rig()
+        let target = try rig.file("notes.md", "# Notes")
+        let link = URL(fileURLWithPath: rig.source).appendingPathComponent("link.md")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        rig.picks = [link]
+        let reply = await rig.add()
+        #expect(Self.added(reply) == [".cmux/context/notes.md"], "\(reply)")
+        let copy = rig.folder + "/.cmux/context/notes.md"
+        #expect(try FileManager.default.attributesOfItem(atPath: copy)[.type] as? FileAttributeType == .typeRegular)
+        #expect(rig.read(".cmux/context/notes.md") == "# Notes")
+    }
+
+    /// A CLAUDE.md that links to another project's (another of the pane's folders) is not appended to.
+    @Test func refusesAnInstructionsFileInAnotherFolder() async throws {
+        let rig = try Rig()
+        let other = Rig.temporary("other")
+        let folder = rig.folder
+        rig.model.workspaceRoots = { [folder, other] }
+        try "Theirs.\n".write(toFile: other + "/CLAUDE.md", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: rig.folder + "/CLAUDE.md", withDestinationPath: other + "/CLAUDE.md")
+        rig.picks = [try rig.file("spec.md", "# Spec")]
+        #expect(Self.errorCode(await rig.add()) == AgentPaneTransportError.pathOutsideRoots.rawValue)
+        #expect(try String(contentsOfFile: other + "/CLAUDE.md", encoding: .utf8) == "Theirs.\n")
+        #expect(!FileManager.default.fileExists(atPath: rig.folder + "/.cmux"))
+    }
+
     /// A cancelled pick writes and opens nothing.
     @Test func cancelledPickChangesNothing() async throws {
         let rig = try Rig()
