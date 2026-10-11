@@ -104,7 +104,7 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter });
+                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
             } else {
                 super::requests::attach(hub, conn, &id);
             }
