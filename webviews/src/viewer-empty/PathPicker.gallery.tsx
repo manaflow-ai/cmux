@@ -17,6 +17,7 @@ type Props = {
   loading?: boolean;
   fail?: boolean;
   direction?: UiDirection;
+  stableFilter?: boolean;
 };
 
 function entry(path: string, name: string, kind: PickerEntry["kind"], git = false): PickerEntry {
@@ -73,7 +74,14 @@ function listing(path: string | null, hidden: boolean): PickerListing {
   };
 }
 
-function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fail = false, direction = "ltr" }: Props) {
+function GalleryPathPicker({
+  mode = "folder",
+  start = HOME,
+  loading = false,
+  fail = false,
+  direction = "ltr",
+  stableFilter = false,
+}: Props) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [receipt, setReceipt] = useState("Ready");
   const strings = viewerEmptyStrings([direction === "rtl" ? "ar" : "en"]);
@@ -82,6 +90,8 @@ function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fai
     if (loading) return new Promise<PickerListing>(() => {});
     if (fail) throw new Error("fixture listing failed");
     const value = listing(path, options.hidden);
+    if (stableFilter && value.path === PROJECTS)
+      return { ...value, entries: value.entries.filter((item) => item.name.startsWith("cmux")) };
     // The any-file play starts in a project folder with one deliberate fuzzy match. Keeping the
     // initial row count stable makes the measured filter about input response, not row removal.
     if (mode === "anyFile" && value.path === PROJECTS)
@@ -341,7 +351,7 @@ export default componentEntry<Props>({
   load: async () => GalleryPathPicker,
   variants: {
     locations: { props: {}, play: locations },
-    filter: { props: { start: PROJECTS }, play: filter },
+    filter: { props: { start: PROJECTS, stableFilter: true }, play: filter },
     hidden: { props: {}, play: hidden },
     "path-completion": { props: { start: PROJECTS }, play: pathCompletion },
     "recent-folders": { props: {}, play: recentFolders },
@@ -367,7 +377,7 @@ export default componentEntry<Props>({
       },
     },
     virtualized: { props: { start: CMUX }, play: virtualized },
-    rtl: { props: { direction: "rtl", start: PROJECTS }, play: rtlCompletion },
+    rtl: { props: { direction: "rtl", start: PROJECTS, stableFilter: true }, play: rtlCompletion },
     cancel: { props: {}, play: cancel },
   },
 });
