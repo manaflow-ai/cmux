@@ -1,5 +1,7 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -160,29 +162,57 @@ extension SessionTransferService {
             process.standardOutput = stdout
             process.standardError = stderr
             try Task.checkCancellation()
-            let exited = AsyncStream<(status: Int32, stdout: Data, stderr: Data)> { continuation in
-                // Also after the wait gave up: the output is read and its files go.
-                process.terminationHandler = { process in
-                    let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
-                    try? FileManager.default.removeItem(at: directory)
-                    continuation.yield((process.terminationStatus, out, err))
-                    continuation.finish()
-                }
+            // The first of exit, `limit` and cancellation resumes the caller once (a continuation race,
+            // as ControlDeadline does): nothing waits on a loser.
+            let outcome = FirstOutcome<(status: Int32, stdout: Data, stderr: Data)?>()
+            // Also after the wait gave up: the output is read and its files go.
+            process.terminationHandler = { process in
+                let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
+                try? FileManager.default.removeItem(at: directory)
+                outcome.resolve((process.terminationStatus, out, err))
             }
             try process.run()
-            return await withTaskGroup(of: (status: Int32, stdout: Data, stderr: Data)?.self) { group in
-                group.addTask { await exited.first { _ in true } }
-                group.addTask {
-                    // wakeup-allow: one-shot deadline (how long a pull waits for the move)
-                    try? await Task.sleep(for: limit)
-                    return nil
-                }
-                defer { group.cancelAll() }
-                return await group.next() ?? nil
+            let bound = DemandTimer(owner: "SessionTransfer.runToEnd")
+            bound.schedule(after: limit) { outcome.resolve(nil) }
+            defer { bound.cancel() }
+            return await withTaskCancellationHandler {
+                await outcome.value()
+            } onCancel: {
+                outcome.resolve(nil)
             }
         } catch {
             try? files.removeItem(at: directory)
             throw error is CancellationError ? error : Failure.chatNotMoved(String(describing: error))
+        }
+    }
+}
+
+/// One value, delivered once to one waiter: the first `resolve` wins; later ones are dropped.
+private nonisolated final class FirstOutcome<Value: Sendable>: Sendable {
+    private enum Phase {
+        case pending(CheckedContinuation<Value, Never>?)
+        case done(Value)
+    }
+    private let phase = Mutex<Phase>(.pending(nil))
+
+    func resolve(_ value: Value) {
+        let waiter: CheckedContinuation<Value, Never>? = phase.withLock { phase in
+            guard case .pending(let waiter) = phase else { return nil }
+            phase = .done(value)
+            return waiter
+        }
+        waiter?.resume(returning: value)
+    }
+
+    func value() async -> Value {
+        await withCheckedContinuation { continuation in
+            let ready: Value? = phase.withLock { phase in
+                switch phase {
+                case .done(let value): return value
+                case .pending: phase = .pending(continuation); return nil
+                }
+            }
+            if let ready { continuation.resume(returning: ready) }
         }
     }
 }
