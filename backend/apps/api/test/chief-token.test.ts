@@ -73,4 +73,36 @@ describe("chief tokens", { timeout: 60_000 }, () => {
     const other = (await op(b.session, "chief.create", {})).json.value
     expect((await a.mint(other.id)).status).toBe(403)
   })
+
+  it("cannot read or subscribe the owner's inbox; the owner session still can (cx-59n8.11)", async () => {
+    const a = await installFor("chief-tok-inbox")
+    const chief = (await op(a.session, "chief.create", { display_name: "Helper" })).json.value
+    const tok = (await a.mint(chief.id)).json.access_token as string
+    // HTTP read: inbox.list is the owner's DM list with message previews.
+    const ownerList = await call("/v1/read", a.session, { op: "inbox.list", params: {} })
+    expect(ownerList.status, JSON.stringify(ownerList.json)).toBe(200)
+    const chiefList = await call("/v1/read", tok, { op: "inbox.list", params: {} })
+    expect(chiefList.status, JSON.stringify(chiefList.json)).toBe(403)
+    expect(JSON.stringify(chiefList.json)).toContain("auth.forbidden")
+    // The cloud socket (the stream behind the daemon's cloud-inbox-subscribe).
+    const subscribe = async (token: string) => {
+      const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+      expect(res.status).toBe(101)
+      const ws = res.webSocket!
+      const frames: Array<any> = []
+      let wake: (() => void) | undefined
+      ws.addEventListener("message", (e) => {
+        frames.push(JSON.parse(e.data as string))
+        wake?.()
+      })
+      ws.accept()
+      ws.send(JSON.stringify({ t: "subscribe", stream: `inbox:${a.user}`, pending: [] }))
+      const answer = () => frames.find((f) => (f.t === "snapshot" && f.stream === `inbox:${a.user}`) || f.t === "error")
+      for (let i = 0; i < 200 && !answer(); i++) await Promise.race([new Promise<void>((r) => (wake = r)), new Promise((r) => setTimeout(r, 25))])
+      ws.close()
+      return answer()
+    }
+    expect(await subscribe(a.session)).toMatchObject({ t: "snapshot", stream: `inbox:${a.user}` })
+    expect(await subscribe(tok)).toMatchObject({ t: "error", code: "auth.forbidden" })
+  })
 })
