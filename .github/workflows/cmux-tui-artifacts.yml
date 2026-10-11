@@ -222,6 +222,9 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           REPOSITORY: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
+          # The REST API host; $SERVER_URL/repos/... is a 404 page, which the
+          # silent curls took for "no other run" (cmuxterm-hq#1279).
+          API_URL: ${{ github.api_url }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -355,7 +358,7 @@ jobs:
             runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&per_page=100" \
+              "$API_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&per_page=100" \
               2>/dev/null || true)"
             if [[ -n "$runs_json" ]]; then
               while IFS=$'\t' read -r candidate_id candidate_sha; do
@@ -386,7 +389,7 @@ jobs:
             same_sha_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$SHA&event=push&per_page=100" \
+              "$API_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$SHA&event=push&per_page=100" \
               2>/dev/null || true)"
             if [[ -n "$same_sha_json" ]]; then
               while IFS=$'\t' read -r candidate_id candidate_branch; do
@@ -434,6 +437,9 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
           OWNER_RUN_ID: ${{ needs.tree-preflight.outputs.owner_run_id }}
           SERVER_URL: ${{ github.server_url }}
+          # The REST API host; $SERVER_URL/repos/... is a 404 page, which the
+          # silent curls took for "no other run" (cmuxterm-hq#1279).
+          API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -476,7 +482,7 @@ jobs:
               owner_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                 -u "x-access-token:$GH_TOKEN" \
                 -H 'Accept: application/vnd.github+json' \
-                "$SERVER_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
+                "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
                 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
                 2>/dev/null || echo unknown)"
               if [[ "$owner_state" == completed* || "$owner_state" == cancelled* || "$owner_state" == failure* ]]; then
