@@ -64,9 +64,9 @@ struct PasswordCSVFiles {
     /// file may be the only copy: it stays and the toast offers Move to Trash,
     /// as it does when the move fails.
     static func trash(_ url: URL, report: PasswordImportReport,
-                      window: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
+                      windowLookup: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
         let summary = summaryLines(report)
-        guard let window = window() else {
+        guard let window = windowLookup() else {
             logger.info("password CSV import done with no window; the file stays")
             return
         }
@@ -74,7 +74,7 @@ struct PasswordCSVFiles {
         NSWorkspace.shared.recycle([url]) { @Sendable moved, error in
             Task { @MainActor in
                 // Looked up again on the main actor: a window is not Sendable.
-                guard let window = window() else { return }
+                guard let window = windowLookup() else { return }
                 guard error == nil, let trashed = moved[url] else { return offerTrash(url, summary, in: window) }
                 let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
                                       action: .undo(), duration: .seconds(12))
