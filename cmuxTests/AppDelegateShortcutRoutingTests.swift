@@ -8418,16 +8418,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSubmitClipboardReadTimeoutRestoresPasteboard() throws {
 #if DEBUG
+        // EXPLORATION (not for merge): where does this test's time go?
+        let t0 = ProcessInfo.processInfo.systemUptime
+        func mark(_ label: String) {
+            print(String(format: "CLIPTIMING %@ %.3f", label, ProcessInfo.processInfo.systemUptime - t0))
+        }
         try withPreservedGeneralPasteboard {
+            mark("preserved")
             let surface = FakeTextBoxSubmitSurface()
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.declareTypes([.string], owner: nil)
             XCTAssertTrue(pasteboard.setString("user clipboard", forType: .string))
+            mark("set-string")
             TextBoxSubmit.debugWaitTimeoutSecondsOverride = 0
             defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
 
             let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+            mark("png")
+            if let probe = GhosttyApp.terminalPasteboard.reserveClipboardRead(from: GHOSTTY_CLIPBOARD_STANDARD) {
+                let ready = ClipTimingFlag()
+                Task { @MainActor in _ = await probe.waitUntilReady(); ready.value = true }
+                waitFor(timeout: 30.0, until: { ready.value })
+                probe.finish()
+                mark("lane-idle ready=\(ready.value)")
+            } else {
+                mark("lane-probe-rejected")
+            }
             var completed = false
             TextBoxSubmit.debugRunDispatchEvents(
                 [
@@ -8439,16 +8456,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ) { _ in
                 completed = true
             }
+            mark("dispatched")
 
             waitFor(timeout: 5.0, until: {
                 surface.sentKeys == ["paste_from_clipboard"]
             })
+            mark("sent-keys=\(surface.sentKeys)")
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
             waitFor(timeout: 5.0, until: { completed })
+            mark("completed=\(completed)")
 
             XCTAssertTrue(completed)
             XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
         }
+        mark("restored")
 #else
         throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
 #endif
@@ -12880,4 +12901,10 @@ private final class CommandPaletteMarkedTextFieldEditor: NSTextView {
     override func hasMarkedText() -> Bool {
         hasMarkedTextForTesting
     }
+}
+
+// EXPLORATION (not for merge): a main-actor flag the timing probe sets.
+@MainActor
+private final class ClipTimingFlag {
+    var value = false
 }
