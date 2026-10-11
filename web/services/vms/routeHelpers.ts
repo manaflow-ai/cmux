@@ -64,6 +64,9 @@ import {
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
+  vmProviderTimeoutCopy,
+  vmGuestUnresponsiveCopy,
+  vmNetworkRuleCapacityCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -73,10 +76,11 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
+import { reportError } from "../observability/report";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -554,7 +558,7 @@ export async function invalidVmDisplayNameResponse(request: Request): Promise<Re
 
 /**
  * A machine size the ladder offers but the caller's plan does not include
- * (today: 16, 24, and 32 GB, sold by Max). This is a paywall, so the response
+ * (today: 24, 32, and 64 GB, sold by Max). This is a paywall, so the response
  * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
  * plus the plan that unlocks the size, and it is never silently coerced.
  */
@@ -909,8 +913,17 @@ export const vmWorkflowErrorResponders = {
     if (providerMachineRecreateRequired(error.cause)) {
       return vmRecreateRequiredResponse(error, context.locale);
     }
+    if (providerCauseIs(error.cause, ProviderGuestUnresponsiveError)) {
+      return vmGuestUnresponsiveResponse(error, context.locale);
+    }
+    if (providerCauseIs(error.cause, ProviderReadDeadlineError)) {
+      return vmProviderTimeoutResponse(error, context.locale);
+    }
     if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
       return vmNetworkFullResponse(error);
+    }
+    if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
+      return vmNetworkRuleCapacityResponse(error, context.locale);
     }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
@@ -1139,6 +1152,29 @@ export const vmWorkflowErrorResponders = {
   VmAccountDeletionIdentityRevocationError: () => null,
 } as const satisfies VmWorkflowErrorResponders;
 
+/**
+ * A provider read did not answer within the route's budget and was aborted
+ * (routeDeadline.ts): a retryable provider timeout, not the generic outage.
+ * Not an operator fault per request (observability.ts); its rate is read from
+ * the `cmux.vm.error_code` span attribute.
+ */
+async function vmProviderTimeoutResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmProviderTimeoutCopy(locale);
+  return vmErrorResponse({
+    error: "vm_provider_timeout",
+    status: 504,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true },
+    diagnostics: { provider: error.provider },
+  });
+}
+
 /** Answer one typed workflow error: route overrides first, then the shared table. */
 export async function respondVmWorkflowError(
   error: VmWorkflowError,
@@ -1292,6 +1328,27 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
 }
 
 /**
+ * The guest did not run or finish a command the operation needed, so the
+ * provider's exec channel to that machine is stuck. A retry usually meets the
+ * same stuck guest, so the answer is non-retryable with a pause and resume
+ * action that restarts it. Provider diagnostics stay in server traces.
+ */
+async function vmGuestUnresponsiveResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmGuestUnresponsiveCopy(locale);
+  return vmErrorResponse({
+    error: "vm_guest_unresponsive",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
  * The owner's private network has no free address. It stays full until the
  * owner deletes machines or revokes Macs, so this is a permanent refusal: no
  * retryAfter, and an action that frees addresses instead of "retry".
@@ -1311,6 +1368,39 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     displayTitle: "Private network full",
     displayMessage: message,
     details: { operation: error.operation, retryable: false, providerCode: "provider_network_full" },
+  });
+}
+
+/**
+ * The provider account holds its maximum number of TLS rules. The cap is
+ * shared by every machine on the account, so the user cannot free it and an
+ * immediate retry cannot succeed: a non-retryable 503 with no retryAfter, and
+ * a deduplicated operator error. The vm-alerts cron pages on the same
+ * condition from the provider's own rule count.
+ */
+async function vmNetworkRuleCapacityResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  reportError(
+    new Error("Cloud VM provider TLS rule limit reached"),
+    {
+      subsystem: "cloud_vm_alerts",
+      code: "provider_tls_rule_limit",
+      provider: error.provider,
+      operation: error.operation,
+      operatorFault: true,
+    },
+    { fingerprint: ["cmux-vm-provider-tls-rule-limit", error.provider] },
+  );
+  const copy = await vmNetworkRuleCapacityCopy(locale);
+  return vmErrorResponse({
+    error: "vm_network_rule_capacity",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false, providerCode: "provider_tls_rule_limit" },
   });
 }
 

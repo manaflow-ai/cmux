@@ -55,6 +55,27 @@ extension CmuxSettingsFileStore {
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["multiplexer", "beta", "enabled"],
+            setting: beta.remoteTmuxMultiplexer,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "originColors", "enabled"],
+            setting: beta.remoteTmuxOriginColors,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "originHostTitles", "enabled"],
+            setting: beta.remoteTmuxOriginHostTitles,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
     }
 
     private func parseIntegrationsSection(

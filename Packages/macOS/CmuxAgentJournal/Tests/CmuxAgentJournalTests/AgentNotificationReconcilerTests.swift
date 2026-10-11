@@ -250,6 +250,26 @@ struct AgentNotificationReconcilerTests {
         #expect(reconciler.apply(event(6, .approvalRequested, source: source, turn: "next", request: "real", occurredAt: 10)).disposition == .accepted)
     }
 
+    @Test(arguments: ["grok", "claude"])
+    func structuredIdleReminderAfterCompletionDeliversWithoutReopeningAttention(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, notify: false))
+        let done = reconciler.apply(event(2, .turnCompleted, source: source))
+        var reminder = event(3, .idleObserved, source: source).draft
+        reminder.attention?.notification?.category = "idle-reminder"
+
+        let delivered = reconciler.apply(AgentJournalEvent(sequence: 3, committedAtMs: 1003, draft: reminder))
+        #expect(delivered.disposition == .accepted)
+        #expect(delivered.identity != done.identity)
+        #expect(!delivered.projectsLifecycle)
+        #expect(reconciler.lifecycleEvent(AgentJournalEvent(sequence: 3, committedAtMs: 1003, draft: reminder)).draft.declaredPhase == .idle)
+
+        _ = reconciler.apply(event(4, .sessionEnded, source: source, notify: false))
+        var lateReminder = event(5, .idleObserved, source: source).draft
+        lateReminder.attention?.notification?.category = "idle-reminder"
+        #expect(reconciler.apply(AgentJournalEvent(sequence: 5, committedAtMs: 1005, draft: lateReminder)).disposition == .delayed)
+    }
+
     @Test(arguments: ["claude", "codex"])
     func toolActivityReopensAContinuationWithoutPromptSubmit(source: String) {
         var reconciler = AgentNotificationReconciler()

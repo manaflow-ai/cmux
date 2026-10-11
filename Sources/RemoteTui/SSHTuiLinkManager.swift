@@ -104,7 +104,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     func adopt(_ replacement: SSHTuiConnection) async {
         guard replacement.id == connection.id,
               (replacement.configuration.sshOptions != connection.configuration.sshOptions
-               || replacement.configuration.agentSocketPath != connection.configuration.agentSocketPath),
+               || replacement.configuration.agentSocketPath != connection.configuration.agentSocketPath
+               || replacement.configuration.agentSocketPathOverrideIsSet != connection.configuration.agentSocketPathOverrideIsSet),
               connecting == nil else { return }
         let observed = current
         if let observed, await observed.isConnected { return }
@@ -138,7 +139,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         browser = proxy
         let task = Task {
             try await proxy.start(client: clientURL, arguments: connection.browserArguments(stateDirectory: paths.stateDir.path),
-                                  environment: connection.configuration.sshProcessEnvironment, releaseHub: {})
+                                  environment: connection.sshProcessEnvironment, releaseHub: {})
         }
         browserStarting = task
         defer { if browserStarting == task { browserStarting = nil } }

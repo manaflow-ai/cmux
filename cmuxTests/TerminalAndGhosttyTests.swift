@@ -2984,6 +2984,12 @@ final class GhosttyResponderResolutionTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
+        }
     }
 
     func testResolvesGhosttyViewFromDescendantResponder() {
@@ -3044,6 +3050,7 @@ final class GhosttyResponderResolutionTests: XCTestCase {
 
     func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        textView.resetDelegateReadCount()
 
         XCTAssertNil(textView.cmuxStrictOwningGhosttyView())
         XCTAssertEqual(

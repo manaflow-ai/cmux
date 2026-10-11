@@ -3,11 +3,16 @@ set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
 CMUX_CUA_PINNED_SHA="e0f738807dbff2f35fe67d7fbcc99c7082cffc23"
+CMUX_CUA_PATCH_RELATIVE_PATH="scripts/cmux-cua-codex-delivery-mode.patch"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CMUX_CUA_PATCH_FILE="$REPO_ROOT/$CMUX_CUA_PATCH_RELATIVE_PATH"
+CMUX_CUA_PATCH_DIGEST="$(shasum -a 256 "$CMUX_CUA_PATCH_FILE" | awk '{print $1}')"
+CMUX_CUA_BUILD_SOURCE_OWNER_FILE=".cmux-cua-managed-build-source"
+CMUX_CUA_BUILD_SOURCE_OWNER_VALUE="cmux-cua-build-source-v1 $CMUX_CUA_PINNED_SHA $CMUX_CUA_PATCH_DIGEST"
 
 # Xcode build phases do not inherit a login-shell PATH, so fall back to
 # rustup's conventional bin directory, then the standard Homebrew prefixes.
@@ -18,6 +23,7 @@ export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bi
 export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 
 OUTPUT=""
+HELPER_APP_OPTION=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
@@ -79,6 +85,9 @@ usage: scripts/build-cmux-cua.sh --output <path> [options]
 
 Options:
   --archs "<archs>"     architectures to build (default: "arm64 x86_64")
+  --helper-app <path>   package the engine as this cmux Computer Use.app
+                         (default: Contents/Library/cmux Computer Use.app when
+                         --output is <app>/Contents/Resources/bin/cmux-cua)
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
@@ -101,6 +110,11 @@ while (($#)); do
     --archs)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       ARCHS_RAW="$2"
+      shift 2
+      ;;
+    --helper-app)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      HELPER_APP_OPTION="$2"
       shift 2
       ;;
     --cache-dir)
@@ -156,19 +170,18 @@ command -v cargo >/dev/null 2>&1 || {
 
 mkdir -p "$CACHE_DIR"
 
-# One trap handles both the source lock (released early, before compile) and
-# the scratch build dir.
+# One trap handles both the source lock and the scratch build dir.
 SRC_LOCK_DIR=""
 TMPDIR_BUILD=""
 TMPDIR_CLONE=""
+TMPDIR_SNAPSHOT=""
 cleanup() {
   [[ -n "$TMPDIR_BUILD" ]] && rm -rf "$TMPDIR_BUILD"
   [[ -n "$TMPDIR_CLONE" ]] && rm -rf "$TMPDIR_CLONE"
+  [[ -n "$TMPDIR_SNAPSHOT" ]] && rm -rf "$TMPDIR_SNAPSHOT"
   [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
-  # The src lock is released (SRC_LOCK_DIR="") before compiling, so the test
-  # above normally fails last; without an explicit success status the EXIT
-  # trap propagates 1 under set -e and fails the Xcode phase script even
-  # though the build succeeded.
+  # Without an explicit success status the EXIT trap can propagate 1 under
+  # set -e and fail the Xcode phase script even though the build succeeded.
   return 0
 }
 trap cleanup EXIT
@@ -267,6 +280,41 @@ adopt_legacy_source_cache() {
   printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE"
 }
 
+prepare_cached_build_source() {
+  local snapshot="$1"
+  local owner_value
+
+  if [[ -L "$snapshot" ]]; then
+    echo "error: refusing symlinked cmux-cua build source cache: $snapshot" >&2
+    exit 1
+  fi
+  if [[ -e "$snapshot" ]]; then
+    if [[ ! -d "$snapshot" ]]; then
+      echo "error: refusing non-directory cmux-cua build source cache: $snapshot" >&2
+      exit 1
+    fi
+    owner_value="$(cat "$snapshot/$CMUX_CUA_BUILD_SOURCE_OWNER_FILE" 2>/dev/null || true)"
+    if [[ "$owner_value" != "$CMUX_CUA_BUILD_SOURCE_OWNER_VALUE" ]]; then
+      echo "error: refusing unmanaged cmux-cua build source cache: $snapshot" >&2
+      echo "  move it aside or remove it manually, then rerun the build" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  TMPDIR_SNAPSHOT="$(mktemp -d "$CACHE_DIR/.cmux-cua-build-source.XXXXXX")"
+  rsync -a --delete \
+    --exclude '.git' \
+    --exclude "$CMUX_CUA_SOURCE_OWNER_FILE" \
+    --exclude '.cmux-last-used' \
+    --exclude '.cmux-cargo-target' \
+    "$SRC_ROOT/" "$TMPDIR_SNAPSHOT/"
+  printf '%s\n' "$CMUX_CUA_BUILD_SOURCE_OWNER_VALUE" \
+    > "$TMPDIR_SNAPSHOT/$CMUX_CUA_BUILD_SOURCE_OWNER_FILE"
+  /bin/mv "$TMPDIR_SNAPSHOT" "$snapshot"
+  TMPDIR_SNAPSHOT=""
+}
+
 if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
   SRC_ROOT="$(cd "$CMUX_CUA_SRC" && pwd)"
   # rev-parse instead of testing .git's file type: linked git worktrees store
@@ -328,15 +376,39 @@ if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
   echo "error: cmux-cua checkout is at $ACTUAL_SHA, expected $CMUX_CUA_PINNED_SHA" >&2
   exit 1
 fi
+
+TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
+
+# The pinned engine already owns the native delivery ladder, but its Codex
+# compatibility adapter predates the public delivery_mode field. Apply the
+# small, reviewed compatibility patch after the SHA gate while the source
+# lock still protects the shared checkout.
+"$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$CMUX_CUA_PATCH_FILE"
+
+if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
+  # A caller-supplied checkout can contain intentional local edits, so keep
+  # its immutable build snapshot scoped to this invocation.
+  BUILD_SOURCE="$TMPDIR_BUILD/source"
+  mkdir -p "$BUILD_SOURCE"
+  rsync -a --delete \
+    --exclude '.git' \
+    --exclude "$CMUX_CUA_SOURCE_OWNER_FILE" \
+    --exclude '.cmux-last-used' \
+    --exclude '.cmux-cargo-target' \
+    "$SRC_ROOT/" "$BUILD_SOURCE/"
+else
+  # The managed source is pinned and the patch digest is part of this cache
+  # key, so the stable snapshot can retain Cargo's incremental target tree.
+  BUILD_SOURCE="$CACHE_DIR/build-src-$CMUX_CUA_PINNED_SHA-$CMUX_CUA_PATCH_DIGEST"
+  prepare_cached_build_source "$BUILD_SOURCE"
+fi
 release_src_lock
 
-CARGO_ROOT="$SRC_ROOT/libs/cmux-cua/rust"
+CARGO_ROOT="$BUILD_SOURCE/libs/cmux-cua/rust"
 if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
   echo "error: cmux-cua Cargo workspace not found at $CARGO_ROOT" >&2
   exit 1
 fi
-
-TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
 mkdir -p "$(dirname "$OUTPUT")"
 
@@ -367,14 +439,10 @@ for arch in "${ARCHS[@]}"; do
   esac
 
   ensure_rust_target "$target"
-  # The Cargo target dir lives INSIDE the per-revision source dir (excluded
-  # from `git clean`), never in a slot shared across revisions or source
-  # paths: `$target/release/cmux-cua` is a single uplift destination, and
-  # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
-  # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
-  # by source dir prevents cross-revision reuse. Concurrent builds of one
-  # revision serialize on Cargo's own lock.
-  target_dir="$SRC_ROOT/.cmux-cargo-target"
+  # Keep Cargo's target dir inside this immutable source snapshot. The managed
+  # pinned snapshot is stable across builds, so it retains Cargo's incremental
+  # artifacts without exposing the mutable checkout to Cargo.
+  target_dir="$BUILD_SOURCE/.cmux-cargo-target"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
     if CARGO_TARGET_DIR="$target_dir" \
@@ -422,7 +490,7 @@ chmod 0755 "$OUTPUT"
 # every redistributed copy of the cmux-cua engine. Take it from the pinned checkout so
 # the shipped notice always matches the code it covers, and fail loudly if it
 # ever disappears upstream rather than shipping unattributed.
-CUA_LICENSE_SRC="$SRC_ROOT/LICENSE.md"
+CUA_LICENSE_SRC="$BUILD_SOURCE/LICENSE.md"
 if [[ ! -f "$CUA_LICENSE_SRC" ]]; then
   echo "error: cmux-cua LICENSE.md not found at $CUA_LICENSE_SRC" >&2
   echo "  the bundled cmux-cua cannot ship without its MIT notice" >&2
@@ -433,10 +501,20 @@ cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-cua-LICENSE.md"
 # Package the cmux-cua engine into a branded helper with its own bundle identifier and
 # TCC identity. The helper is copied out of the host bundle before launch; that
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
-_cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
-_cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
-if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
-  HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+HELPER_APP=""
+if [[ -n "$HELPER_APP_OPTION" ]]; then
+  mkdir -p "$(dirname "$HELPER_APP_OPTION")"
+  HELPER_APP="$(cd "$(dirname "$HELPER_APP_OPTION")" && pwd -P)/$(basename "$HELPER_APP_OPTION")"
+  # <app>/Contents/Library/<helper>.app: the host's Contents directory.
+  _cua_contents="$(cd "$(dirname "$HELPER_APP")/.." && pwd -P)"
+else
+  _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
+  _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
+  if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
+    HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+  fi
+fi
+if [ -n "$HELPER_APP" ]; then
   HELPER_EXECUTABLE="cmux-cua"
   # This build phase runs before Xcode writes the processed host Info.plist.
   # Prefer exported build settings; reading a missing plist makes PlistBuddy

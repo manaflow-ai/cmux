@@ -32,6 +32,43 @@ async function rejection(promise: Promise<unknown>): Promise<TeamApiError> {
   throw new Error("expected a TeamApiError");
 }
 
+describe("role change response", () => {
+  // The macOS client decodes this reply into `CloudTeamMember`, whose
+  // `isViewer: Bool` is not optional, so a reply of just `{ userId, role }`
+  // fails the whole decode and every successful role change looks like an
+  // error. The shape has to match the roster's members.
+  test("returns the full member, not just the id and role", async () => {
+    const stack = standardTeam();
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    const member = await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "admin", deps);
+    expect(member.userId).toBe(MEMBER_ID);
+    expect(member.role).toBe("admin");
+    expect(member.isViewer).toBe(false);
+    expect(member.displayName).toBe("Name bbbb");
+    expect(member).toHaveProperty("email");
+    expect(member).toHaveProperty("profileImageUrl");
+  });
+
+  test("marks the caller as the viewer when they change their own role", async () => {
+    const stack = standardTeam();
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "admin", deps);
+    const self = await changeMemberRole(await accessFor(stack, ADMIN_ID), ADMIN_ID, "member", deps);
+    expect(self.userId).toBe(ADMIN_ID);
+    expect(self.role).toBe("member");
+    expect(self.isViewer).toBe(true);
+  });
+
+  test("a no-op role change returns the same full shape", async () => {
+    const stack = standardTeam();
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    const member = await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "member", deps);
+    expect(member.role).toBe("member");
+    expect(member.isViewer).toBe(false);
+    expect(member.displayName).toBe("Name bbbb");
+  });
+});
+
 describe("last-admin guard", () => {
   test("the sole admin cannot demote themself", async () => {
     const stack = standardTeam();

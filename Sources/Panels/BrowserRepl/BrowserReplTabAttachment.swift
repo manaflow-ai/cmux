@@ -134,6 +134,8 @@ final class BrowserReplTabAttachment {
     private weak var occlusionDisabledWebView: WKWebView?
     /// Watches the pane's window becoming key while a mirror stands in for the page.
     private var keyObserver: NSObjectProtocol?
+    /// Watches the portal slot becoming visible while a mirror stands in for the page.
+    private var portalPresentabilityObserver: NSObjectProtocol?
     private var mirrorCaptureInFlight = false
     private var mirrorNeedsCapture = false
 
@@ -385,7 +387,16 @@ final class BrowserReplTabAttachment {
         }
         let shown = panel.isWebViewVisibleInPane
         let paneWindow = renderHostWebView === webView ? renderHost?.paneWindow : webView.window
-        if shown, paneWindow?.isKeyWindow == true {
+        // The pane flag can lead the hierarchy while a workspace is changing.
+        // The portal owns the original pane container even while the WebView
+        // is temporarily reparented into the render window.
+        let paneHierarchyIsVisible = BrowserWindowPortalRegistry.paneHierarchyIsVisible(for: webView)
+            ?? webView.cmuxBrowserViewportAttachmentSuperview.map {
+                !$0.isHiddenOrHasHiddenAncestor
+            }
+        if shown,
+           paneHierarchyIsVisible == true,
+           paneWindow?.isKeyWindow == true {
             releaseRenderHost()
             return
         }
@@ -418,7 +429,14 @@ final class BrowserReplTabAttachment {
                 object: window,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.releaseRenderHost() }
+                Task { @MainActor [weak self] in self?.keepRendering() }
+            }
+            portalPresentabilityObserver = NotificationCenter.default.addObserver(
+                forName: .browserPortalDidBecomePresentable,
+                object: webView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.keepRendering() }
             }
             pageDidChange()
         }
@@ -436,10 +454,11 @@ final class BrowserReplTabAttachment {
     }
 
     /// Called by the panel when a pane starts or stops showing this tab. A
-    /// shown tab leaves the render window at once, so the pane is never blank.
+    /// shown tab leaves the render window once its portal hierarchy is ready,
+    /// so a logical visibility update cannot restore it into a hidden pane.
     func paneVisibilityDidChange(visible: Bool) {
         guard visible else { return }
-        releaseRenderHost()
+        keepRendering()
     }
 
     /// Refreshes the pane's mirror after a driver call may have changed the
@@ -483,6 +502,10 @@ final class BrowserReplTabAttachment {
         if let keyObserver {
             NotificationCenter.default.removeObserver(keyObserver)
             self.keyObserver = nil
+        }
+        if let portalPresentabilityObserver {
+            NotificationCenter.default.removeObserver(portalPresentabilityObserver)
+            self.portalPresentabilityObserver = nil
         }
         guard let host = renderHost else { return }
         renderHost = nil

@@ -46,6 +46,7 @@ import {
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VmMemoryPlanError,
   VmResizeInProgressError,
   VmResourcePoolExceededError,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
@@ -403,6 +404,9 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    /** Per-machine CPU/RAM ceilings for a newly inserted row. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
@@ -416,7 +420,12 @@ export type VmRepositoryShape = {
     readonly resourcePool?: VmResourcePoolPolicy | null;
     /** How a pool refusal names this operation. Defaults to `create`. */
     readonly resourcePoolPhase?: "create" | "fork";
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
+  /** Read an idempotent create row before validating a new request shape. */
+  readonly findCreateByIdempotencyKey?: (input: {
+    readonly billingTeamId: string;
+    readonly idempotencyKey: string;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -428,8 +437,11 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly resourceReservation?: VmResourceReservation;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly resourcePool?: VmResourcePoolPolicy | null;
-  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -442,8 +454,11 @@ export type VmRepositoryShape = {
     readonly baseName?: string;
     readonly reason?: string | null;
     readonly resourceReservation?: VmResourceReservation;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly resourcePool?: VmResourcePoolPolicy | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -499,6 +514,8 @@ export type VmRepositoryShape = {
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
     readonly maxActiveVms: number | null;
+    /** Existing grandfathered rows may resume above the current count. */
+    readonly skipActiveLimit?: boolean;
     /** The plan's shared vCPU/memory pool; absent or null when the plan has none. */
     readonly resourcePool?: VmResourcePoolPolicy | null;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
@@ -1068,6 +1085,23 @@ function idempotencyScopeWhere(input: {
   );
 }
 
+/** Reject a newly allocated machine shape that exceeds its plan's ceilings. */
+function assertCreateReservationFitsPlan(input: {
+  readonly planId: string;
+  readonly resourceReservation?: VmResourceReservation;
+  readonly planMaxMemoryMb?: number;
+  readonly planMaxVcpus?: number;
+}): void {
+  const reservation = input.resourceReservation;
+  if (!reservation || input.planMaxMemoryMb === undefined || input.planMaxVcpus === undefined ||
+    (reservation.memoryMb <= input.planMaxMemoryMb && reservation.vcpus <= input.planMaxVcpus)) return;
+  throw new VmMemoryPlanError({
+    planId: input.planId,
+    memoryMb: Math.max(reservation.memoryMb, reservation.vcpus * 2 * 1024),
+    maxMemoryMb: input.planMaxMemoryMb,
+  });
+}
+
 function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -1124,7 +1158,8 @@ function reservationMetadataForInput(
 /**
  * One pooled dimension of a live row's reservation. A row without a complete,
  * bounded marker (legacy rows, or a malformed marker) draws from the pool at
- * the plan's default machine size, never at a quota-sized historical default.
+ * the plan's conservative legacy claim until provider reconciliation records
+ * its actual shape.
  */
 function pooledResourceFieldSql(key: "vcpus" | "memoryMb", fallback: number) {
   const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
@@ -1197,7 +1232,7 @@ async function assertResourcePoolFits(
   });
 }
 
-/** A row's pooled share: its valid marker, or the plan default for a legacy row. */
+/** A row's pooled share: its valid marker, or the plan's conservative legacy claim. */
 function pooledReservationForRow(
   row: Pick<CloudVmRow, "providerMetadata">,
   legacy: VmComputeResources,
@@ -1978,6 +2013,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               }
             }
 
+            // Idempotent replays return above before this check. A request
+            // that wins the insert race must still be checked atomically so a
+            // plan change cannot turn a new row into an entitlement bypass.
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)
@@ -2037,9 +2082,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
+    }),
+
+  findCreateByIdempotencyKey: (input) =>
+    dbEffect("findCreateByIdempotencyKey", async () => {
+      const [existing] = await cloudDb()
+        .select()
+        .from(cloudVms)
+        .where(idempotencyScopeWhere(input))
+        .limit(1);
+      return existing ?? null;
     }),
 
   beginBaseOpen: (input) =>
@@ -2098,6 +2153,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 vm: existing.vm,
               };
             }
+
+            // Existing Base machines are grandfathered. Apply the current
+            // per-machine entitlement only when this transaction is about to
+            // allocate a new generation.
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
 
             const [active] = await tx
               .select({ total: count() })
@@ -2257,7 +2322,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -2314,6 +2379,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 `base:${scope.scopeType}:${scope.scopeId}:${name}:g${existing?.base.activeGeneration ?? 0}`,
             });
           }
+          assertCreateReservationFitsPlan({
+            planId: input.billingPlanId,
+            resourceReservation: input.resourceReservation,
+            planMaxMemoryMb: input.planMaxMemoryMb,
+            planMaxVcpus: input.planMaxVcpus,
+          });
           const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [
@@ -2437,7 +2508,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           };
         });
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmCreateInProgressError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmCreateInProgressError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),
@@ -2772,7 +2843,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
-          if (limit !== null && activeCount >= limit) {
+          if (!input.skipActiveLimit && limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId ?? input.userId,

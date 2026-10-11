@@ -90,11 +90,10 @@ enum SidebarFooterPresentationPolicy {
     }
 
     static func isUpgradeVisible(
-        featureFlagEnabled: Bool,
         isProActive: Bool,
         isProStatusKnown: Bool = true
     ) -> Bool {
-        featureFlagEnabled && isProStatusKnown && !isProActive
+        isProStatusKnown && !isProActive
     }
 }
 
@@ -317,7 +316,7 @@ struct SidebarMobileConnectButton: View {
                 height: SidebarFooterButtonMetrics.buttonSize
             )
             .safeHelp(title)
-            .accessibilityLabel(title)
+            .hintableAccessibilityLabel(title)
             .accessibilityIdentifier("SidebarMobileConnectButton")
         }
     }

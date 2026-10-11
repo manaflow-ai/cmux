@@ -832,6 +832,7 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
+        .windowHintTarget(accessibilityLabel, isEnabled: isEnabled)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
@@ -1990,7 +1991,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let newTab = {
             guard let appDelegate = AppDelegate.shared,
                   let context = prepareOriginatingAction() else { return }
-            _ = appDelegate.performNewWorkspaceAction(
+            _ = appDelegate.performNewLocalWorkspaceAction(
                 tabManager: context.tabManager,
                 debugSource: "titlebar.accessoryNewWorkspace"
             )

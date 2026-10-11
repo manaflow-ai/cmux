@@ -7,6 +7,7 @@ import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxSidebar
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -314,6 +315,9 @@ class GhosttyApp {
                     result.cleanupTransferredTemporaryFiles(
                         using: pasteboardService
                     )
+                },
+                fastOperation: { request in
+                    try await client.prepareFastPath(request)
                 }
             )
             return TerminalSurfaceViewFactory(
@@ -3318,6 +3322,50 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
+            return true
+        case GHOSTTY_ACTION_PROGRAM_STATUS:
+            let status = action.action.program_status
+            let copyCString: (UnsafePointer<CChar>?) -> String? = { pointer in
+                guard let pointer else { return nil }
+                return String(cString: pointer)
+            }
+            let state: ProgramStatusState
+            switch status.state {
+            case GHOSTTY_PROGRAM_STATUS_WORKING: state = .working
+            case GHOSTTY_PROGRAM_STATUS_DONE: state = .done
+            case GHOSTTY_PROGRAM_STATUS_BLOCKED: state = .blocked
+            case GHOSTTY_PROGRAM_STATUS_ERROR: state = .error
+            case GHOSTTY_PROGRAM_STATUS_CLEAR: state = .clear
+            default: state = .idle
+            }
+            let kind: ProgramStatusKind
+            switch status.kind {
+            case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: kind = .permission
+            case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: kind = .question
+            case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: kind = .auth
+            default: kind = .none
+            }
+            let report = ProgramStatusReport(
+                event: status.event == GHOSTTY_PROGRAM_STATUS_EVENT_PROMPT_START ? ProgramStatusEvent.promptStart : .report,
+                state: state,
+                kind: kind,
+                progress: status.progress >= 0 ? Int(status.progress) : nil,
+                id: copyCString(status.id),
+                app: copyCString(status.app),
+                title: copyCString(status.title),
+                message: copyCString(status.msg)
+            )
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { [weak callbackContext] in
+                guard surfaceView.terminalSurface === terminalSurface,
+                      let callbackContext,
+                      let terminalSurface,
+                      terminalSurface.isActiveRuntimeCallbackContext(callbackContext),
+                      let tabId = callbackContext.tabId,
+                      let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+                workspace.applyProgramStatus(report, panelId: callbackContext.surfaceId)
+            }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split
@@ -6702,6 +6750,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
+    /// The AppKit Copy action runs before a fullscreen TUI can receive Cmd+C.
+    /// If cmux could not copy a native terminal selection, forward the same
+    /// semantic key only while an alternate-screen application owns the view.
+    /// A primary-screen shell with no selection remains a harmless no-op.
+    static func shouldForwardMenuCopyToAlternateScreen(
+        copiedNativeSelection: Bool,
+        isAlternateScreenActive: Bool
+    ) -> Bool {
+        !copiedNativeSelection && isAlternateScreenActive
+    }
+
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
             _ = performBindingActionImmediately(
@@ -6709,11 +6768,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             return
         }
+        let copied: Bool
         if keyboardCopyModeActive {
-            _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+            copied = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
         } else {
-            _ = copyCurrentGhosttySelectionToClipboard(surface: surface)
+            copied = copyCurrentGhosttySelectionToClipboard(surface: surface)
         }
+
+        guard Self.shouldForwardMenuCopyToAlternateScreen(
+            copiedNativeSelection: copied,
+            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true
+        ) else {
+            return
+        }
+
+        // AppKit has already consumed the menu key equivalent. Re-inject the
+        // semantic Cmd+C through Ghostty so Kitty-aware TUIs such as Codex can
+        // copy their own selection without changing the shell's Ctrl+C path.
+        _ = terminalSurface?.sendNamedKey("super+c")
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -7918,6 +7990,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateCodexActionCommandHover(at: eventPoint, surface: surface)
     }
 
+    /// Re-sends the pointer with the live modifiers so Ghostty asks the link
+    /// filter again once its answer for the text under the pointer changed.
+    func refreshLinkHover() {
+        guard let surface, let point = currentMousePointInView(), pointIsUsableForWordResolution(point) else { return }
+        let flags = NSEvent.modifierFlags
+        ghostty_surface_mouse_pos(
+            surface,
+            point.x,
+            bounds.height - point.y,
+            hoverModsFromFlags(flags, suppressCommandPathHover: shouldSuppressCommandPathHover(for: flags))
+        )
+    }
+
     private func shouldSuppressCommandPathHover(for flags: NSEvent.ModifierFlags) -> Bool {
         guard flags.contains(.command), let surface else { return false }
         return ghostty_surface_has_selection(surface)
@@ -8619,6 +8704,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
+        if TerminalFolderOpener.isFolder(resolution.path) {
+            TerminalFolderOpener.open(resolution.path)
+            return
+        }
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
     }
 
@@ -9223,7 +9312,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         var payload: [String: Any] = [
             "hoverActive": wordPathHoverActive ? "1" : "0",
-            "suppressed": suppressCommandPathHover ? "1" : "0"
+            "suppressed": suppressCommandPathHover ? "1" : "0",
+            // Ghostty's mouse-over-link arrives on a later main-queue turn, so
+            // this is the link the previous hover reported.
+            "linkHoverURL": terminalSurface?.hostedView.linkHoverIndicatorView.url ?? ""
         ]
         if let resolution {
             payload["resolvedPath"] = resolution.path
@@ -10493,6 +10585,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
+    /// Agent turn rail for Claude Code and Codex sessions in this surface.
+    var agentTurnRailHost: AgentTurnRailHost?
+    /// The terminal scroll view, which receives scrolling over the turn rail.
+    var agentTurnRailScrollTarget: NSView { scrollView }
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -11242,7 +11338,8 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        let contentFrame = sessionContentFrame
+        let contentFrame = agentTurnRailHost?.layout(sessionFrame: sessionPresentationFrame, bounds: bounds)
+            ?? sessionPresentationFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
         // Resolve the clip view after scroller tiling and layout. Reading the
         // scroll view's bounds can include a legacy scroller gutter while the
@@ -11294,6 +11391,7 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
+        agentTurnRailHost?.bringToFront(in: self)
         bringPaneDropTargetToFrontIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
@@ -11314,8 +11412,16 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private var sessionContentFrame: CGRect {
+    /// Frame of the session content before the agent turn rail gutter.
+    private var sessionPresentationFrame: CGRect {
         sessionContentWidthPresentation.contentFrame(in: bounds)
+    }
+
+    /// Frame the terminal content occupies; overlays that cover the terminal
+    /// (find, reconnect) use it so they never cover the agent turn rail.
+    private var sessionContentFrame: CGRect {
+        let frame = sessionPresentationFrame
+        return agentTurnRailHost?.contentFrame(sessionFrame: frame, bounds: bounds) ?? frame
     }
 
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
@@ -11515,11 +11621,19 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        // An idle agent pane shown again resolves the turns it deferred while
+        // hidden, even without a layout pass or new output.
+        agentTurnRailHost?.model.resumeDeferredResolve()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
+        agentTurnRailHost?.model.resumeDeferredResolve()
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -12343,7 +12457,7 @@ final class GhosttySurfaceScrollView: NSView {
             // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
-            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: surfaceView.terminalSurface?.hasPresentedFrame == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
+            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: surfaceView.terminalSurface?.isRendererPresented == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
@@ -13991,6 +14105,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
+        defer {
+            installAgentTurnRailIfNeeded()
+            agentTurnRailHost?.model.viewportDidChange()
+        }
         let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
             ? max(scrollView.contentView.bounds.origin.y, 0)
             : nil

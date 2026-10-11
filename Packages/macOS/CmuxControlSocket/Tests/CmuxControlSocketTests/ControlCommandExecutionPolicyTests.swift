@@ -55,7 +55,7 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect", "debug.mobile.transport.reconnect_loop",
-            "debug.window.screenshot", "mobile.attach_ticket.create",
+            "debug.window.screenshot", "debug.window_hints", "debug.global_search.query", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
             "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
             "terminal.size_counts.set", "terminal.participant.disconnect",
@@ -109,7 +109,7 @@ struct ControlCommandExecutionPolicyTests {
             "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
-            "surface.focus", "workspace.select", "pane.focus", "window.focus",
+            "surface.focus", "surface.jump_to_last_prompt", "workspace.select", "pane.focus", "window.focus",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")

@@ -19,7 +19,8 @@ refuses anything below the .xcode-version major. This guard keeps jobs on it:
 2. No macOS job chooses an Xcode itself (DEVELOPER_DIR into GITHUB_ENV,
    xcode-select --switch, a literal CMUX_CI_XCODE_APP path) outside EXEMPT.
 3. Only the SDK 15 Ghostty CLI helper step lifts the pool pin and the floor.
-4. Every pool pin has the .xcode-version major, and check-pbxproj.sh knows it.
+4. Every pool pin is at least the .xcode-version floor, and check-pbxproj.sh
+   knows the floor.
 """
 
 from __future__ import annotations
@@ -171,6 +172,11 @@ def check_workflow(name: str, text: str) -> list[str]:
     return errors
 
 
+def pin_below_floor(version: str, floor: str) -> bool:
+    """Return whether an Xcode pin is below the repository's minimum major."""
+    return floor.isdigit() and int(version.split(".")[0]) < int(floor)
+
+
 def check_repository() -> list[str]:
     errors = []
     texts = {path.name: path.read_text() for path in sorted(WORKFLOWS.glob("*.yml"))}
@@ -203,12 +209,12 @@ def check_repository() -> list[str]:
         if fields[0] in pins:
             errors.append(f"scripts/ci/xcode-pins.txt pins macOS {fields[0]} twice")
         pins[fields[0]] = fields[1]
-        if fields[1].split(".")[0] != floor:
+        if pin_below_floor(fields[1], floor):
             errors.append(
                 f"scripts/ci/xcode-pins.txt pins Xcode {fields[1]} for macOS {fields[0]}, "
-                f"outside the .xcode-version major {floor}"
+                f"below the .xcode-version floor {floor}"
             )
-    for pool in ("15", "26"):
+    for pool in ("15", "26", "27"):
         if pool not in pins:
             errors.append(f"scripts/ci/xcode-pins.txt has no pin for the macOS {pool} pool CI runs on")
     if not re.search(rf"^\s*{floor}\)\s+EXPECTED_OBJECT_VERSION=", (ROOT / "scripts/check-pbxproj.sh").read_text(), re.M):
@@ -218,6 +224,10 @@ def check_repository() -> list[str]:
 
 def check_detects_regressions() -> list[str]:
     """The checker must flag each way a job can slip off the selector."""
+    floor = (ROOT / ".xcode-version").read_text().strip().split(".")[0]
+    if pin_below_floor("27.0", floor):
+        return ["self-test newer-major Xcode pin was rejected"]
+
     base = """jobs:
   build:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
