@@ -163,11 +163,13 @@ def latest_commits(bucket, keys: set[str]) -> set[str]:
     for key in LATEST:
         if key not in keys:
             continue
-        data = read_json(bucket, key)
-        commit = (data or {}).get("commit", "")
+        data = read_json(bucket, key) or {}
+        # cmux-tui and cmux-relay write `commit`, chatmux-relay only `sourceCommit`; keep every
+        # commit the manifest mentions, its dependency URLs included.
+        commit = data.get("commit") or data.get("sourceCommit") or ""
         if not SHA.fullmatch(commit):
             raise RuntimeError(f"{key} names no commit; refusing to prune")
-        commits.add(commit)
+        commits.update(SHA.findall(json.dumps(data)))
     return commits
 
 
