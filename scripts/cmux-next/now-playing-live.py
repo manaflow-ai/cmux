@@ -2,15 +2,16 @@
 """Live check: the playing browser tab in macOS Now Playing and on the media keys, and
 picture-in-picture, in both engines (cx-6qwm.3).
 
-  scripts/cmux-next/now-playing-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit] [--activate]
+  scripts/cmux-next/now-playing-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit]
   scripts/cmux-next/now-playing-live.py --socket PATH   (an app already running, e.g. a capture slot)
 
-Launches the tagged app (no activation unless --activate, automation socket,
-empty config) and serves a page with a looping tone, a canvas video and
-`navigator.mediaSession` metadata and actions. Playback runs with a user
-gesture: in Chromium through DevTools (`Runtime.evaluate` with `userGesture`),
-in WebKit through the page (cmux lets WebKit pages play without one). macOS's
-Now Playing is read through MediaRemote. For each engine:
+Launches the tagged app (no activation, automation socket, empty config) and
+serves a page with a looping tone, a video it records from a canvas, and
+`navigator.mediaSession` metadata and actions. Playback and
+picture-in-picture run with a user gesture: in Chromium through DevTools
+(`Runtime.evaluate` with `userGesture`), in WebKit through the page (WebKit
+runs the app's scripts as a gesture). macOS's Now Playing is read through
+MediaRemote. For each engine:
 
   1. the tone plays and macOS Now Playing shows the page's metadata, playing:
      for Chromium as this app, published by cmux (`debug.now_playing`); for
@@ -20,8 +21,7 @@ Now Playing is read through MediaRemote. For each engine:
      page's `nexttrack` and `previoustrack` handlers. A posted play/pause key
      is tried in both engines, as a note: posting needs the posting process
      to be allowed to post events;
-  3. the video enters picture-in-picture (WebKit only with --activate: it
-     needs a real click, `debug.mouse`);
+  3. the video enters picture-in-picture;
   4. closing the tab clears Now Playing.
 
 GUI host only (a capture mini). An app it launched is quit and the tag's
@@ -39,8 +39,6 @@ parser.add_argument("--socket", help="attach to the app serving this automation 
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="now-playing-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--engines", default="chromium,webkit")
-parser.add_argument("--activate", action="store_true",
-                    help="let the app activate (a dedicated GUI host): WebKit's picture-in-picture needs a real click")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -56,7 +54,7 @@ video { position: fixed; right: 8px; bottom: 8px; width: 160px; height: 90px; }<
 <audio id="a" src="tone.wav" loop></audio>
 <video id="v" muted playsinline></video>
 <script>
-window.log = { clicks: 0, next: 0, previous: 0, pip: null };
+window.log = { clicks: 0, next: 0, previous: 0, pip: null, videoReady: false };
 window.mode = 'play';
 const a = document.getElementById('a'), v = document.getElementById('v');
 const canvas = document.createElement('canvas');
@@ -64,7 +62,17 @@ canvas.width = 320; canvas.height = 180;
 const paint = canvas.getContext('2d');
 let hue = 0;
 setInterval(() => { paint.fillStyle = `hsl(${hue++ % 360}, 70%, 50%)`; paint.fillRect(0, 0, 320, 180); }, 50);
-v.srcObject = canvas.captureStream(20);
+// A recorded video (a file, as sites play): WebKit offers no picture-in-picture for a MediaStream.
+const recorder = new MediaRecorder(canvas.captureStream(20));
+const chunks = [];
+recorder.ondataavailable = (event) => chunks.push(event.data);
+recorder.onstop = () => {
+  v.src = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType }));
+  v.loop = true;
+  v.onloadedmetadata = () => { log.videoReady = true; };
+};
+recorder.start();
+setTimeout(() => recorder.stop(), 1500);
 navigator.mediaSession.metadata = new MediaMetadata({ title: 'cmux tone', artist: 'cmux live test', album: 'cx-6qwm.3' });
 navigator.mediaSession.setActionHandler('nexttrack', () => { log.next++; });
 navigator.mediaSession.setActionHandler('previoustrack', () => { log.previous++; });
@@ -73,7 +81,12 @@ document.getElementById('b').onclick = async () => {
   log.clicks++;
   try {
     if (mode === 'play') await a.play();
-    else if (mode === 'pip') { await v.play(); await v.requestPictureInPicture(); }
+    else if (mode === 'pip') {
+      // Synchronously, in the gesture: WebKit's ends at the first await.
+      const entering = v.requestPictureInPicture();
+      v.play();
+      await entering;
+    }
   } catch (error) { log.pip = log.pip || String(error); }
 };
 </script>
@@ -136,9 +149,12 @@ def focused_pane(window):
     return ((entry or {}).get("model") or {}).get("pane")
 
 
+TAB = None
+
+
 def page(script):
-    """The focused tab's value of `script`, or None."""
-    reply = rpc("browser.page.eval", {"script": script}) or {}
+    """The test tab's value of `script` (the focused tab before it exists), or None."""
+    reply = rpc("browser.page.eval", {"script": script, **({"tab": TAB} if TAB else {})}) or {}
     return reply.get("value") if isinstance(reply, dict) else None
 
 
@@ -244,24 +260,26 @@ def gesture(engine, window, mode):
     return quiet_wait(lambda: (page("log.clicks") or 0) > clicks, 10)
 
 
-def click(window, mode):
-    """A real click on the page's button."""
-    page(f"window.mode = {json.dumps(mode)}; true")
-    clicks = page("log.clicks") or 0
-    print("click", mode, rpc("debug.mouse", {"window": window, "pane": focused_pane(window)}), flush=True)
-    return quiet_wait(lambda: (page("log.clicks") or 0) > clicks, 10)
-
-
 def system_shows_tone():
     now = system()
     return now if now.get("title") == "cmux tone" and now.get("playing") else None
 
 
 def run_engine(engine, window, url):
+    global TAB
     print(f"== {engine}", flush=True)
     action = "openBrowser.chromium" if engine == "chromium" else "openBrowser.webkit"
-    print("open", rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}), flush=True)
-    if not wait_for(lambda: page("document.readyState === 'complete' && !!window.log"), f"{engine}: the page loads", 60):
+    opened = rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}) or {}
+    print("open", opened, flush=True)
+    TAB = ((opened.get("created") or [None]) if isinstance(opened, dict) else [None])[0]
+    loaded = lambda: page("document.readyState === 'complete' && !!window.log")  # noqa: E731
+    if not quiet_wait(loaded, 60):
+        # Seen once right after launch: the new tab was "not a browser tab of this app".
+        print("note: the page did not load:", rpc("browser.page.eval", {"script": "location.href", "tab": TAB}), flush=True)
+        rpc("action.run", {"action": "closeTab", "origin": "script"})
+        opened = rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}) or {}
+        TAB = ((opened.get("created") or [None]) if isinstance(opened, dict) else [None])[0]
+    if not wait_for(loaded, f"{engine}: the page loads", 60):
         return
     time.sleep(1)
 
@@ -316,20 +334,18 @@ def run_engine(engine, window, url):
         print("previous", now_playing({"command": "previous"}).get("handled"), flush=True)
         wait_for(lambda: page("log.previous") == 1, f"{engine}: previous reaches the page's previoustrack handler")
 
-    # 3. Picture-in-picture: in WebKit only a real click counts as the activation it needs.
-    if engine == "webkit" and not opts.activate:
-        print(f"note: {engine}: picture-in-picture not checked (it needs a real click: pass --activate)", flush=True)
-    else:
-        if engine == "webkit":
-            click(window, "pip")
-        else:
-            gesture(engine, window, "pip")
-        entered = quiet_wait(lambda: page("log.pip"), 10)
-        print(f"{engine}: pip {entered}, windows {now_playing().get('windows')}", flush=True)
-        check(entered == "entered" and page("document.pictureInPictureElement === document.getElementById('v')"),
-              f"{engine}: the video enters picture-in-picture ({entered})")
-        page("document.pictureInPictureElement && document.exitPictureInPicture(); true")
-        time.sleep(1)
+    # 3. Picture-in-picture, of a recorded video (WebKit offers none for a MediaStream).
+    wait_for(lambda: page("log.videoReady"), f"{engine}: the page recorded its video")
+    gesture(engine, window, "pip")
+    entered = quiet_wait(lambda: page("log.pip"), 10)
+    support = page("JSON.stringify({ enabled: document.pictureInPictureEnabled, presentation: typeof document.getElementById('v')"
+                   ".webkitSupportsPresentationMode === 'function' ? document.getElementById('v')"
+                   ".webkitSupportsPresentationMode('picture-in-picture') : null })")
+    print(f"{engine}: pip {entered} (support {support}), windows {now_playing().get('windows')}", flush=True)
+    check(entered == "entered" and page("document.pictureInPictureElement === document.getElementById('v')"),
+          f"{engine}: the video enters picture-in-picture ({entered})")
+    page("document.pictureInPictureElement && document.exitPictureInPicture(); true")
+    time.sleep(1)
 
     # 4. Closing the tab clears Now Playing.
     print("close", rpc("action.run", {"action": "closeTab", "origin": "script"}), flush=True)
@@ -360,7 +376,7 @@ if not opts.socket:
         "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **({} if opts.activate else {"CMUX_NEXT_NO_ACTIVATE": "1"})},
+        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "CMUX_NEXT_NO_ACTIVATE": "1"},
         stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
@@ -368,6 +384,9 @@ try:
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     window = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
+    if not quiet_wait(lambda: focused_pane(window), 15):
+        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+    wait_for(lambda: focused_pane(window), "a focused pane", 60)
     url = serve()
     print("page", url, flush=True)
     for engine in opts.engines.split(","):
