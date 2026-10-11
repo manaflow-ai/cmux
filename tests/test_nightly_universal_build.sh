@@ -705,7 +705,7 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
-    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
     /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
     END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
   ' "$workflow"; then

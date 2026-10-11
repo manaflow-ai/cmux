@@ -92,6 +92,7 @@ enum KeyboardShortcutSettings {
         case quit
         // Titlebar / primary UI
         case toggleSidebar
+        case focusSidebar
         case newTab
         case newBrowserWorkspace
         case newCloudWorkspace
@@ -153,6 +154,8 @@ enum KeyboardShortcutSettings {
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
+        case previousAgentTurn
+        case nextAgentTurn
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
         case pasteLastScreenshot
@@ -164,9 +167,8 @@ enum KeyboardShortcutSettings {
         case focusUp
         case focusDown
         case focusPreviousPane
-        case focusNextPane
-        case splitRight
-        case splitDown, toggleSplitZoom, newPaneAutoLayout
+        case focusNextPane, focusPaneByNumber
+        case splitRight, splitDown, toggleSplitZoom, newPaneAutoLayout
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -249,6 +251,7 @@ enum KeyboardShortcutSettings {
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
+            case .focusSidebar: return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .newCloudWorkspace: return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
@@ -317,6 +320,8 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
+            case .previousAgentTurn: return String(localized: "shortcut.previousAgentTurn.label", defaultValue: "Previous Agent Turn")
+            case .nextAgentTurn: return String(localized: "shortcut.nextAgentTurn.label", defaultValue: "Next Agent Turn")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
@@ -330,6 +335,7 @@ enum KeyboardShortcutSettings {
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
             case .focusPreviousPane: return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
             case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+            case .focusPaneByNumber: return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .newPaneAutoLayout: return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
@@ -444,6 +450,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            case .focusSidebar:
+                return StoredShortcut(key: "e", command: true, shift: false, option: false, control: true)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newBrowserWorkspace:
@@ -569,8 +577,8 @@ enum KeyboardShortcutSettings {
             // now that ⌘[ / ⌘] reach global focus history.
             case .focusPreviousPane, .focusNextPane:
                 return .unbound
-            case .splitRight:
-                return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+            case .focusPaneByNumber: return StoredShortcut(key: "1", command: true, shift: false, option: false, control: true)
+            case .splitRight: return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
@@ -638,6 +646,13 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .previousAgentTurn:
+                // Only consumed while the focused terminal shows an agent turn rail;
+                // otherwise the keystroke reaches the terminal (Ghostty's default
+                // jump_to_prompt binding on the same keys).
+                return StoredShortcut(key: "↑", command: true, shift: true, option: false, control: false)
+            case .nextAgentTurn:
+                return StoredShortcut(key: "↓", command: true, shift: true, option: false, control: false)
             case .focusTextBoxInput: return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .cycleTextBoxSubmitAction: return StoredShortcut(key: "\t", command: false, shift: true, option: false, control: false)
             case .attachTextBoxFile: return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
@@ -854,7 +869,7 @@ enum KeyboardShortcutSettings {
                 )
             case .globalSearch:
                 return .accepted(shortcut)
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
                 return .accepted(shortcut)

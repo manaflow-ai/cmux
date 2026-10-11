@@ -251,6 +251,10 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("|| true", pins_step["run"])
         self.assertIn("windows.txt", pins_step["run"])
         self.assertIn("nightly-next", pins_step["run"])
+        # A shipped classic nightly also downloads its bundled cmux-tui build's
+        # Linux SSH payloads at runtime, so its builds get the same window.
+        self.assertIn("for release in nightly-next nightly", pins_step["run"])
+        self.assertIn("cmux-nightly(-next)?-macos-", pins_step["run"])
         # The presigned deletes leave the runner only encrypted to the host's certificate.
         publish = next(step for step in job["steps"] if step.get("name") == "Publish the cold queue")
         script = publish["run"]
@@ -261,6 +265,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("always()", publish["if"])
         self.assertIn('"groups": []', script)
         self.assertIn("vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
+        # A dispatch decides by its input alone: delete=false is a dry run even when the variable is on.
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.delete", condition)
+        self.assertIn("github.event_name == 'schedule' && vars.R2_BINARIES_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
 

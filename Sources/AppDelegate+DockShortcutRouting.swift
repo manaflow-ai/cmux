@@ -99,7 +99,7 @@ extension KeyboardShortcutSettings.Action {
         case .openSettings, .openTeamPicker, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
-             .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
+             .toggleSidebar, .focusSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .sendFeedback,
@@ -137,8 +137,10 @@ extension KeyboardShortcutSettings.Action {
              .canvasDistributeHorizontally,
              .canvasDistributeVertically,
              .toggleRightSidebar,
+             .focusPaneByNumber,
              .findInDirectory,
-             .openDiffViewer:
+             .openDiffViewer,
+             .previousAgentTurn, .nextAgentTurn:
             .mainContainer
         }
     }

@@ -4956,7 +4956,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
-
     @discardableResult
     private func saveSessionSnapshotUsingCachedProcessDetectedIndexes(
         includeScrollback: Bool,
@@ -6451,6 +6450,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         guard let responder else { return true }
         if isRightSidebarFocusResponder(responder, in: window) {
+            return false
+        }
+        // Focus Sidebar hands the workspace list the keyboard on purpose.
+        if let table = responder as? SidebarWorkspaceTableViewImpl, table.window === window {
             return false
         }
         return focusedTerminalKeyRepairNeeded(
@@ -15607,6 +15610,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .focusSidebar) {
+            _ = focusSidebarForKeyboard(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .newTab) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
@@ -15792,6 +15800,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Otherwise allow the event to continue through the responder chain.
             return handled
         }
+
+        if handleAgentTurnNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
             if performFocusedDockShortcut(
@@ -16112,6 +16122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handlePaneNumberShortcut(event) { return true }
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
         if matchConfiguredDirectionalShortcut(
             event: event,
@@ -17885,7 +17896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
+    func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
