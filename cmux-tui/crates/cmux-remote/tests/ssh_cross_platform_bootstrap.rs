@@ -316,6 +316,61 @@ async fn ssh_on_demand_payload_prunes_month_old_builds_of_other_versions() {
     assert!(recent.exists());
 }
 
+/// A Mac that reaches the internet only through its configured proxy (here a
+/// PAC script, as System Settings would serve it) downloads through that proxy.
+/// The published host does not resolve, so a direct download cannot succeed.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn ssh_on_demand_payload_downloads_through_the_pac_proxy() {
+    use std::io::{BufRead, BufReader, Write};
+
+    let fixture = OnDemandFixture::new();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let proxy_port = listener.local_addr().unwrap().port();
+    let payload = fixture.payload;
+    let proxy = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line).unwrap();
+        loop {
+            let mut header = String::new();
+            reader.read_line(&mut header).unwrap();
+            if header == "\r\n" || header.is_empty() {
+                break;
+            }
+        }
+        let mut stream = stream;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        )
+        .unwrap();
+        stream.write_all(payload).unwrap();
+        request_line
+    });
+
+    let (mut config, installed, _) = fixture.host("proxied");
+    config.payload_base_url = "http://files.cmux-proxy-test.invalid/cmux-tui".into();
+    config.payload_proxy_pac = Some(format!(
+        "function FindProxyForURL(url, host) {{ return \"PROXY 127.0.0.1:{proxy_port}; DIRECT\"; }}"
+    ));
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&installed).unwrap(), fixture.payload);
+    let request_line = proxy.join().unwrap();
+    assert!(
+        request_line.starts_with(&format!(
+            "GET http://files.cmux-proxy-test.invalid/cmux-tui/{BUILD_IDENTITY}/{}",
+            fixture.target
+        )),
+        "{request_line}"
+    );
+}
+
 #[tokio::test]
 async fn ssh_on_demand_payload_rejects_a_tampered_download_before_upload() {
     let fixture = OnDemandFixture::new();

@@ -61,6 +61,10 @@ pub struct SshBootstrapConfig {
     /// Local cache for those downloads, keyed by checksum, so every host of a
     /// platform reuses one download. `None` when no cache directory is known.
     pub payload_cache: Option<PathBuf>,
+    /// Tests only: a PAC script evaluated instead of the system proxy settings.
+    /// `None` uses the macOS system proxy and PAC configuration, like URLSession.
+    #[doc(hidden)]
+    pub payload_proxy_pac: Option<String>,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -80,6 +84,7 @@ impl SshBootstrapConfig {
             local_binary: std::env::current_exe().ok(),
             payload_base_url: "https://files.cmux.com/cmux-tui".into(),
             payload_cache: crate::ssh_artifacts::default_payload_cache(),
+            payload_proxy_pac: None,
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
