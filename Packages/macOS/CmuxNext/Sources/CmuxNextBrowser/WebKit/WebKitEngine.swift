@@ -159,7 +159,8 @@ public final class WebKitEngine: BrowserEngine {
         // Private preference: a page's video may enter picture-in-picture
         // (`requestPictureInPicture`, the controls' button); off, WebKit
         // refuses it with NotSupportedError.
-        if configuration.preferences.responds(to: NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")) {
+        // crash-allow: guarded by responds(to:) on the private setter the KVC key resolves to; absent on older WebKit, skipped.
+        if configuration.preferences.responds(to: NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")) { // crash-allow: same guard
             configuration.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
         }
         // Every tab gets its own controller. A page-opened configuration is a

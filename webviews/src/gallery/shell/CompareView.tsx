@@ -476,7 +476,7 @@ function CompareCell({
             here, last step: {fmt(stats)} · {stats.durationMs} ms ·{" "}
             {settle?.count
               ? `settle p50 ${settle.p50} · p95 ${settle.p95} · max ${settle.max} ms (${settle.count})`
-              : "no click, key or press-drag samples"}{" "}
+              : "no click, context-menu, key or press-drag samples"}{" "}
             · plan {stats.planMs} ms
           </div>
         )}

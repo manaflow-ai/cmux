@@ -127,6 +127,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The quick panel's page (Start Agent's Return): its chat started;
     /// hand the session to the sidebar in the background and hide the panel.
     case quickStartInBackground(AgentPaneQuickStart)
+    /// The floating chat's page (cx-b9qi): `quick.setOnTop {onTop}` floats the
+    /// panel over other windows or not; `quick.setCollapsed {collapsed}` folds it
+    /// to its compact bar or opens it again.
+    case quickSetOnTop(Bool)
+    case quickSetCollapsed(Bool)
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)

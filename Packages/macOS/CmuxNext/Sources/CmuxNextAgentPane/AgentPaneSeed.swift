@@ -52,6 +52,15 @@ public final class AgentPaneSeedSource {
         self.limit = limit
     }
 
+    /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
+    /// that takes its folder from its New Tab context can stand in for it.
+    public var holdsOnlyFolder: Bool {
+        guard read == nil else { return false }
+        guard let value else { return true }
+        return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
+            && value.harness == nil && value.folderNeeded == nil
+    }
+
     public init(_ seed: AgentPaneSeed) {
         value = seed
         limit = .zero
