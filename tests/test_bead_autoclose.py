@@ -22,6 +22,12 @@ MERGED = [
      "mergeCommit": {"oid": "b" * 40}, "baseRefName": "feat-cmux-next"},
     {"number": 3, "title": "fix: c part 1 (cx-multi)", "mergedAt": "2026-10-10T03:00:00Z",
      "mergeCommit": {"oid": "c" * 40}, "baseRefName": "main"},
+    {"number": 4, "title": "fix: d part 1 (cx-slice)", "mergedAt": "2026-10-10T04:00:00Z",
+     "mergeCommit": {"oid": "d" * 40}, "baseRefName": "feat-cmux-next", "body": "First slice."},
+    {"number": 5, "title": "feat: e", "mergedAt": "2026-10-10T05:00:00Z", "mergeCommit": {"oid": "e" * 40},
+     "baseRefName": "feat-cmux-next", "body": "The last piece.\n\nCloses cx-body1"},
+    {"number": 6, "title": "fix: f (cx-slice2) 2/3", "mergedAt": "2026-10-10T06:00:00Z",
+     "mergeCommit": {"oid": "f" * 40}, "baseRefName": "feat-cmux-next", "body": "Also see cx-other."},
 ]
 OPEN = [{"number": 9, "title": "fix: c part 2 (cx-multi)", "baseRefName": "feat-cmux-next"}]
 BEADS = {
@@ -29,6 +35,10 @@ BEADS = {
     "cx-epic1": {"status": "open", "issue_type": "epic", "assignee": ""},
     "cx-done1": {"status": "closed", "issue_type": "task", "assignee": "op-lane"},
     "cx-multi": {"status": "open", "issue_type": "bug", "assignee": "unassigned"},
+    "cx-slice": {"status": "open", "issue_type": "task", "assignee": "op-lane"},
+    "cx-body1": {"status": "open", "issue_type": "task", "assignee": "op-lane"},
+    "cx-slice2": {"status": "open", "issue_type": "task", "assignee": "op-lane"},
+    "cx-other": {"status": "open", "issue_type": "task", "assignee": "op-lane"},
 }
 
 FAKE_GH = """#!/usr/bin/env python3
@@ -91,15 +101,31 @@ class BeadAutocloseTests(unittest.TestCase):
         result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
         self.assertEqual(result.returncode, 0, result.stderr)
         closes = self.bd_calls("close")
-        self.assertEqual(len(closes), 1, closes)
+        self.assertEqual([call[3] for call in closes], ["cx-task1", "cx-body1"], closes)
         self.assertEqual(closes[0][:4], ["--actor", "op-lane", "close", "cx-task1"])
         self.assertIn(f"landed {'a' * 12} (#1): fix: a (cx-task1)", closes[0][5])
         comments = {call[3]: call for call in self.bd_calls("comment")}
-        self.assertEqual(sorted(comments), ["cx-epic1", "cx-multi"])
+        # A part or slice marker in the title is a partial landing: a comment
+        # with the pull request link, never a close. A bead the body merely
+        # mentions is not touched.
+        self.assertEqual(sorted(comments), ["cx-epic1", "cx-multi", "cx-slice", "cx-slice2"])
+        self.assertIn("https://github.com/manaflow-ai/cmux/pull/4", comments["cx-slice"][4])
+        self.assertIn("https://github.com/manaflow-ai/cmux/pull/6", comments["cx-slice2"][4])
         self.assertEqual(comments["cx-epic1"][1], "leo")
         self.assertEqual(comments["cx-multi"][1], "leo")  # "unassigned" acts as leo
-        self.assertIn("#9", comments["cx-multi"][4])
+        self.assertIn("not closed", comments["cx-multi"][4])
         self.assertFalse(self.ssh_log.exists(), "the test reached ssh")
+
+    def test_an_explicit_closes_line_closes_despite_other_open_pull_requests(self):
+        root = Path(self.temporary.name)
+        merged = [{"number": 7, "title": "fix: c part 2 (cx-multi)", "mergedAt": "2026-10-10T07:00:00Z",
+                   "mergeCommit": {"oid": "7" * 40}, "baseRefName": "feat-cmux-next",
+                   "body": "Fixes cx-multi."}]
+        (root / "merged.json").write_text(json.dumps(merged))
+        result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-multi"], result.stdout)
+        self.assertEqual(self.bd_calls("comment"), [])
 
     def test_a_second_run_does_not_repeat_comments_or_closes(self):
         # The search starts at (or before) the last merge handled, so it sees that merge again.
@@ -118,7 +144,7 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertNotIn("not on the board", result.stdout)
         later = self.run_script(BEADS_BD_COMMAND=str(self.fake_bd))
         self.assertEqual(later.returncode, 0, later.stderr)
-        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-task1"], later.stdout)
+        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-task1", "cx-body1"], later.stdout)
 
     def test_dry_run_changes_nothing(self):
         result = self.run_script("--dry-run", "--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
