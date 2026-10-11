@@ -167,10 +167,14 @@ def main():
     h, m = disclosure(header), disclosure(member)
     row("An open group header points down", f"icon {DOWN}", f"icon {h.get('icon')}", h.get("icon") == DOWN)
     row("An open workspace row points down", f"icon {DOWN}", f"icon {m.get('icon')}", m.get("icon") == DOWN)
-    hf, mf = h.get("frame") or {}, m.get("frame") or {}
-    same = all(abs((hf.get(k) or 0) - (mf.get(k) or -99)) < 0.5 for k in ("x", "width", "height"))
-    row("The header and row chevrons share a size and place", "equal x, width and height in the row",
-        f"header {hf}; row {mf}", bool(hf) and bool(mf) and same)
+    # In list points: a member row's view starts right of its group's line.
+    def placed(r, d):
+        frame, view = d.get("frame") or {}, (r or {}).get("view_frame") or {}
+        return {"x": (view.get("x") or 0) + (frame.get("x") or 0), "width": frame.get("width"), "height": frame.get("height")} if frame and view else {}
+    hf, mf = placed(header, h), placed(member, m)
+    same = bool(hf) and bool(mf) and all(abs((hf[k] or 0) - (mf[k] or -99)) < 0.5 for k in ("x", "width", "height"))
+    row("The header and row chevrons share a size and place", "equal list x, width and height",
+        f"header {hf}; row {mf}", same)
 
     other = row_of(second)
     row("An unhovered, unselected workspace hides its chevron", "disclosure shown false",
