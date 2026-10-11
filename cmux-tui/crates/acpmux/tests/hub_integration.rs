@@ -18,6 +18,8 @@ mod drafts;
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/seen.rs"]
+mod seen;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]

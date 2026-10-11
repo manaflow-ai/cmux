@@ -35,6 +35,7 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod seen;
 mod session;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
@@ -567,6 +568,7 @@ impl Hub {
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
+            hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
@@ -709,35 +711,6 @@ impl Hub {
             remote: None,
         });
         (record, stored)
-    }
-
-    /// A client attached or detached. Attaching clears the unread bit.
-    pub fn attach_count(&self, session: &Session, delta: i32) {
-        // A client letting go starts the idle period; one arriving resets it.
-        self.touch(session);
-        use std::sync::atomic::AtomicUsize;
-        let _ = AtomicUsize::new(0);
-        if delta > 0 {
-            session.attached.fetch_add(delta as usize, Ordering::SeqCst);
-            let was_unread = {
-                let mut m = session.meta.lock().unwrap();
-                std::mem::replace(&mut m.unread, false)
-            };
-            if was_unread {
-                self.save_meta(session);
-                self.append(
-                    session,
-                    "mux",
-                    "status",
-                    json!({"status": session.status().to_string(), "read": true}),
-                );
-            }
-        } else {
-            let d = (-delta) as usize;
-            let _ = session
-                .attached
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(d)));
-        }
     }
 
     /// Orchestrator tags with optional expiry.
