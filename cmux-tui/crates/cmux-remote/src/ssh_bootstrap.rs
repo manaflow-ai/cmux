@@ -334,12 +334,22 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        let artifact = crate::ssh_artifacts::payload(
+        let artifact = match crate::ssh_artifacts::payload(
             source,
             &self.config.build_identity,
             &remote.os,
             &remote.arch,
-        )?;
+            &crate::ssh_artifacts::PayloadSource {
+                base_url: &self.config.payload_base_url,
+                cache: self.config.payload_cache.as_deref(),
+            },
+        )? {
+            Some(crate::ssh_artifacts::Payload::Bundled(path)) => Some(path),
+            Some(crate::ssh_artifacts::Payload::Published(published)) => {
+                Some(crate::ssh_artifacts::fetch_published(&published).await?)
+            }
+            None => None,
+        };
         if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
@@ -990,6 +1000,7 @@ pub enum BootstrapError {
     WindowsRequiresWsl,
     Incompatible { version: String, protocol: u8 },
     ChecksumMismatch { package: String },
+    PayloadDownload(String),
 }
 
 impl fmt::Display for BootstrapError {
@@ -1028,6 +1039,10 @@ impl fmt::Display for BootstrapError {
             Self::Incompatible { version, protocol } => write!(
                 formatter,
                 "remote cmux-tui {version} uses remote protocol {protocol}, expected {REMOTE_PROTOCOL_VERSION}"
+            ),
+            Self::PayloadDownload(message) => write!(
+                formatter,
+                "could not download the cmux-tui build for the remote platform: {message}"
             ),
         }
     }
