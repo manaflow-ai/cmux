@@ -7327,6 +7327,12 @@ struct ContentView: View {
                 mainAreaPanelIsTerminal: focusedPanelContext?.panel.panelType == .terminal
             )
         )
+        // Agent turn navigation acts on the main-area terminal, so it has no
+        // target while the Dock owns keyboard focus.
+        snapshot.setBool(
+            Self.commandPaletteAgentTurnsAvailableKey,
+            focusedDock == nil && tabManager.focusedAgentTurnRailModel != nil
+        )
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -10292,6 +10298,9 @@ struct ContentView: View {
             return .terminal(.textBoxInput)
         case "palette.toggleTerminalCopyMode":
             // Copy mode reads keys from the terminal surface.
+            return .terminal(.surface)
+        case "palette.previousAgentTurn", "palette.nextAgentTurn":
+            // Keep the terminal focused so repeated jumps stay on the keyboard.
             return .terminal(.surface)
         default:
             return nil
@@ -15762,12 +15771,12 @@ struct SidebarFooterButtons: View {
                 .buttonStyle(SidebarFooterIconButtonStyle())
                 .frame(width: 22, height: 22, alignment: .center)
                 .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
+                .hintableAccessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
                 .accessibilityIdentifier("SidebarExtensionMenuButton")
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost)
+                UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost).windowHintTarget(updateViewModel.text)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -15859,7 +15868,7 @@ private struct SidebarHelpMenuButton: View {
         })
         .accessibilityElement(children: .ignore)
         .safeHelp(helpTitle)
-        .accessibilityLabel(helpTitle)
+        .hintableAccessibilityLabel(helpTitle)
         .accessibilityIdentifier("SidebarHelpMenuButton")
     }
 

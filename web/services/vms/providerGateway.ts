@@ -1,6 +1,8 @@
 import type { NetworkRulePlan } from "./networkPolicy";
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as FiberRef from "effect/FiberRef";
 import * as Layer from "effect/Layer";
 import {
   getProvider,
@@ -41,6 +43,8 @@ import {
   vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
+import { VmProviderReadDeadline } from "./routeDeadline";
+import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/types";
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
@@ -212,6 +216,39 @@ function privateNetworking(provider: ProviderId) {
   return impl;
 }
 
+/**
+ * A provider read a route may bound (routeDeadline.ts). Outside a bounded
+ * route it is a plain provider call. Inside one, it gets the time left
+ * before the route's answer; at that point the call is interrupted, which
+ * aborts the signal the driver passed to every request, and the read fails
+ * with ProviderReadDeadlineError (504 vm_provider_timeout).
+ */
+function boundedProviderRead<A>(
+  provider: ProviderId,
+  operation: string,
+  run: (options: ProviderReadOptions) => Promise<A>,
+): Effect.Effect<A, VmProviderOperationError> {
+  return Effect.flatMap(FiberRef.get(VmProviderReadDeadline), (deadlineAtMs) => {
+    if (deadlineAtMs === null) return providerEffect(provider, operation, () => run({}));
+    return Effect.flatMap(Clock.currentTimeMillis, (nowMs) => {
+      const remainingMs = Math.max(0, deadlineAtMs - nowMs);
+      return Effect.tryPromise({
+        try: (signal) => run({ signal }),
+        catch: (cause) => new VmProviderOperationError({ provider, operation, cause }),
+      }).pipe(
+        Effect.timeoutFail({
+          duration: remainingMs,
+          onTimeout: () => new VmProviderOperationError({
+            provider,
+            operation,
+            cause: new ProviderReadDeadlineError(provider, operation, remainingMs),
+          }),
+        }),
+      );
+    });
+  });
+}
+
 function providerEffect<A>(
   provider: ProviderId,
   operation: string,
@@ -247,10 +284,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       return await impl.listVolumes(options);
     }),
   getStatus: (provider, vmId) =>
-    providerEffect(provider, "getStatus", async () => {
+    boundedProviderRead(provider, "getStatus", async (options) => {
       const driver = getProvider(provider);
       if (!driver.getStatus) return "running" as const;
-      return await driver.getStatus(vmId);
+      return await driver.getStatus(vmId, options);
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
@@ -267,13 +304,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
   capabilities: (provider) => vmCapabilitiesFor(provider),
   listSnapshots: (provider, vmId) =>
-    providerEffect(provider, "listSnapshots", async () => {
+    boundedProviderRead(provider, "listSnapshots", async (options) => {
       const impl = getProvider(provider);
       if (!impl.listSnapshots) {
         // Typed, so the route answers 501 (cannot) rather than a retryable 502.
         throw new VmOperationUnsupportedError({ provider, operation: "listSnapshots" });
       }
-      return await impl.listSnapshots(vmId);
+      return await impl.listSnapshots(vmId, options);
     }),
   deleteSnapshot: (provider, vmId, snapshotId) =>
     providerEffect(provider, "deleteSnapshot", async () => {
@@ -293,15 +330,15 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
-  listFiles: (provider, vmId, path) => providerEffect(provider, "listFiles", async () => {
+  listFiles: (provider, vmId, path) => boundedProviderRead(provider, "listFiles", async (options) => {
     const impl = getProvider(provider);
     if (!impl.listFiles) throw new VmOperationUnsupportedError({ provider, operation: "listFiles" });
-    return impl.listFiles(vmId, path);
+    return impl.listFiles(vmId, path, options);
   }),
-  readFile: (provider, vmId, path) => providerEffect(provider, "readFile", async () => {
+  readFile: (provider, vmId, path) => boundedProviderRead(provider, "readFile", async (options) => {
     const impl = getProvider(provider);
     if (!impl.readFile) throw new VmOperationUnsupportedError({ provider, operation: "readFile" });
-    return impl.readFile(vmId, path);
+    return impl.readFile(vmId, path, options);
   }),
   writeFile: (provider, vmId, path, data, mode) => providerEffect(provider, "writeFile", async () => {
     const impl = getProvider(provider);
@@ -318,10 +355,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     if (!impl.removeFile) throw new VmOperationUnsupportedError({ provider, operation: "removeFile" });
     return impl.removeFile(vmId, path);
   }),
-  statFile: (provider, vmId, path) => providerEffect(provider, "statFile", async () => {
+  statFile: (provider, vmId, path) => boundedProviderRead(provider, "statFile", async (options) => {
     const impl = getProvider(provider);
     if (!impl.statFile) throw new VmOperationUnsupportedError({ provider, operation: "statFile" });
-    return impl.statFile(vmId, path);
+    return impl.statFile(vmId, path, options);
   }),
   openPort: (provider, vmId, port) =>
     providerEffect(provider, "openPort", async () => {
@@ -332,14 +369,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       return await impl.openPort(vmId, port);
     }),
   getStats: (provider, vmId) =>
-    providerEffect(provider, "getStats", async () => {
+    boundedProviderRead(provider, "getStats", async (options) => {
       const impl = getProvider(provider);
       if (!impl.getStats) {
         // Typed, so the route answers "unsupported" (non-retryable) instead of
         // a retryable 502 the activity panel would poll forever.
         throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
       }
-      return await impl.getStats(vmId);
+      return await impl.getStats(vmId, options);
     }),
   getResourceStats: (provider, vmId) => providerEffect(provider, "getResourceStats", async () => {
     const impl = getProvider(provider);

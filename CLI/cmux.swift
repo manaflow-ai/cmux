@@ -5458,6 +5458,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if command == "vpn" {
+            _ = try Self.validatedVPNSubcommand(commandArgs)
+        }
         if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
             try validateNotificationCommandArguments(command: command, args: commandArgs)
         }

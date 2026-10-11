@@ -561,6 +561,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Swift package result reuse
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_result_reuse.py
+
       - name: Validate the package test lane's GhosttyKit revision on a fleet worktree
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_ghostty_sha.py
@@ -644,6 +648,10 @@ jobs:
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate Python test lane shards
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_python_test_lane_shards.py
 
       - name: Validate spread-first compile admission placement
         if: ${{ matrix.group == 'ci' }}
@@ -788,6 +796,16 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate release DMG LZMA encoding
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_release_dmg_lzma.sh
+
+      - name: Validate per-architecture stable release
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_ci_release_per_arch_stable.py
+          python3 tests/test_compose_stable_appcast.py
 
       - name: Validate Homebrew cask macOS dependency syntax
         if: ${{ matrix.group == 'release-notary' }}
@@ -1073,7 +1091,8 @@ jobs:
 
       - name: Initialize Ghostty for Zig version guard
         if: ${{ matrix.group == 'release-tooling' }}
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1389,6 +1408,9 @@ jobs:
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
+      - name: Validate CLI package graph
+        run: python3 tests/test_cli_package_graph.py
+
   workflow-guard-cli-scripts:
     if: ${{ inputs.linux_guard_cli == 'true' }}
     name: workflow-guard-cli-scripts / ${{ matrix.group }}
@@ -1461,7 +1483,8 @@ jobs:
 
       - name: Initialize Bonsplit for deferred-work ownership guard
         if: ${{ matrix.group == 'dispatch-ownership' }}
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh vendor/bonsplit
 
       - name: Validate stored DispatchWorkItem ownership
         if: ${{ matrix.group == 'dispatch-ownership' }}

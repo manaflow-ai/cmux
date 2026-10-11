@@ -142,7 +142,7 @@ final class SSHTuiWorkspaceCoordinator {
             hasExistingProjections: !initialExisting.isEmpty,
             hasRemoteBinding: hasRemoteBinding
         ) {
-            guard await provider.refreshCurrentGraph(force: false) else {
+            guard await provider.refreshCurrentGraphResolvingEqualCursorConflict() else {
                 throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
             }
         }

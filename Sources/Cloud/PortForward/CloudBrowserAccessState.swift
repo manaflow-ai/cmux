@@ -295,8 +295,13 @@ final class CloudBrowserAccessState {
             trace("rfb_retry")
             desktopRetry.schedule(after: delay) { [weak self] in
                 guard let self, self.isDesktop, !self.desktopConnected, self.failureMessage == nil else { return }
-                // Reissue the same route: nextRequest() skips an unchanged URL.
+                // Retain the listener being replaced before clearing the
+                // navigation identity. nextRequest() uses that history to
+                // recognize stale WebKit commits after a forward restart.
+                let retiredURL = self.navigationURL
                 self.navigationURL = nil
+                self.rememberRetiredListener(retiredURL)
+                // Reissue the same route: nextRequest() skips an unchanged URL.
                 if let request = self.nextRequest() {
                     if let navigateRequest = self.navigateRequest { navigateRequest(request) }
                     else if let url = request.url { self.navigate?(url) }

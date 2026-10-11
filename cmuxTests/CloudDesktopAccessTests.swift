@@ -209,6 +209,7 @@ struct CloudDesktopAccessTests {
         #expect(!state.showsFailureAlert)
         try #require(await wait(timeout: 10) { navigations.count == 2 })
         #expect(navigations[1] == url, "The retry reloads the same display")
+        #expect(state.isRetiredListener(url), "A forward restart must retain the old listener identity")
         state.didCommit(url: url)
         state.desktopConnectionDidChange(url: url, isConnected: true)
         #expect(state.desktopConnected && !state.showsFailureAlert)
