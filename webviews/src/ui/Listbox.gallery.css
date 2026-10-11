@@ -1,0 +1,56 @@
+.listbox-gallery-stage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 280px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.listbox-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 13px;
+}
+
+.listbox-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.listbox-gallery-list {
+  display: grid;
+  gap: 2px;
+  width: min(100%, 280px);
+  padding: 6px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
+  border-radius: 10px;
+  background: var(--cmux-elevated-background, Canvas);
+}
+
+.listbox-gallery-row {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--cmux-text, CanvasText);
+  font-size: 13px;
+}
+
+.listbox-gallery-row[aria-selected="true"] {
+  background: var(--cmux-selection, color-mix(in srgb, CanvasText 11%, transparent));
+}
+
+.listbox-gallery-row:hover {
+  background: var(--cmux-hover, color-mix(in srgb, CanvasText 7%, transparent));
+}
+
+.listbox-gallery-receipt {
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 12px;
+}
