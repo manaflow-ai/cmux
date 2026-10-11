@@ -110,6 +110,10 @@ export type AcpmuxCatalogModel = {
   contextWindow?: number;
 };
 
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
+/// send it now.
+export type QueueEdit = { op: "update"; text: string } | { op: "move"; index: number } | { op: "send_now" };
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
