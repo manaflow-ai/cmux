@@ -35,7 +35,8 @@ class HeadlessDebugDaemon(unittest.TestCase):
     def setUp(self) -> None:
         self.producer_doc = load("cmux-tui-headless-debug.yml")
         self.producer = self.producer_doc["jobs"]["build"]
-        self.consumer = load("cmux-tui-sdks.yml")["jobs"]["conformance"]
+        self.consumer_doc = load("cmux-tui-sdks.yml")
+        self.consumer = self.consumer_doc["jobs"]["conformance"]
 
     def test_the_key_and_path_match_conformance(self) -> None:
         key = "Key the headless cmux-tui build"
@@ -52,6 +53,10 @@ class HeadlessDebugDaemon(unittest.TestCase):
         # Ghostty's zig is the first one conformance installs; the second is the SDKs'.
         self.assertEqual(zig_versions(self.producer), zig_versions(self.consumer)[:1])
         self.assertEqual(self.producer["env"]["GHOSTTY_ZIG_SOURCE"], self.consumer["env"]["GHOSTTY_ZIG_SOURCE"])
+        # An inherited CMUX_GHOSTTY_SRC would build another libghostty-vt
+        # source under the gitlink-derived key.
+        self.assertEqual(self.producer_doc["env"]["CMUX_GHOSTTY_SRC"], "")
+        self.assertEqual(self.consumer_doc["env"]["CMUX_GHOSTTY_SRC"], "")
         self.assertIn("./.github/actions/setup-cmux-tui-rust", [s.get("uses") for s in self.producer["steps"]])
 
     def test_it_runs_on_the_runner_a_same_repository_pull_request_uses(self) -> None:
