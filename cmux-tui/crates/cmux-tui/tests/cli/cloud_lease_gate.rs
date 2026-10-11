@@ -71,8 +71,8 @@ impl Daemon {
     /// A connection proven as the cmux app (the `frontend` actor).
     fn app(&self) -> Client {
         let mut client = self.plain();
-        let challenge = client
-            .rpc(json!({"cmd": "client-hello", "role": "main", "install_id": INSTALL}));
+        let challenge =
+            client.rpc(json!({"cmd": "client-hello", "role": "main", "install_id": INSTALL}));
         let nonce = unhex::<NONCE_LEN>(challenge["data"]["nonce"].as_str().unwrap()).unwrap();
         let proof = hello_proof(&unhex::<32>(KEY_HEX).unwrap(), INSTALL, &nonce);
         let proved =
