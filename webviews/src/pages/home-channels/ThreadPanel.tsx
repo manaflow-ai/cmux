@@ -1,18 +1,26 @@
 // The thread side panel: a header ("Thread" over the channel's name), the root message, an
-// "N replies" line, the replies and a reply composer. Escape (or the close button) closes it.
+// "N replies" line, the replies and a reply composer. Escape (or the close button) closes it. The
+// replies come from the owner's thread read in pages ("Show More Replies"); the count is the
+// owner's (every reply), plus replies that arrived after it.
 import { useMemo } from "react";
 import type { Strings } from "../shared/i18n";
 import { Composer } from "./Composer";
 import { HomeIcon } from "./icons";
-import { threadMessages, type TimelineRow } from "./model";
+import { replyCount, threadMessages, type TimelineRow } from "./model";
 import { Timeline } from "./Timeline";
-import type { HomeMessage, HomeParticipant } from "./types";
+import type { HomeMessage, HomeParticipant, HomeThreadStats } from "./types";
 
 export interface ThreadPanelProps {
   root: string;
   /** The conversation's name as the header shows it ("#release", "Builder"). */
   place: string;
   messages: readonly HomeMessage[];
+  /** The owner's stats of this thread (absent from a host without them). */
+  stats?: HomeThreadStats;
+  /** More replies follow the loaded ones. */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?(): void;
   people: ReadonlyMap<string, HomeParticipant>;
   mentionable: readonly HomeParticipant[];
   me?: string;
@@ -32,6 +40,10 @@ export function ThreadPanel({
   root,
   place,
   messages,
+  stats,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
   people,
   mentionable,
   me,
@@ -51,7 +63,8 @@ export function ThreadPanel({
     const thread = threadMessages(messages, root);
     const list: TimelineRow[] = [];
     if (thread.root) list.push({ kind: "message", key: thread.root.id, message: thread.root, head: true });
-    if (thread.replies.length > 0) list.push({ kind: "replies", key: `replies-${root}`, count: thread.replies.length });
+    const count = replyCount(thread.replies, stats);
+    if (count > 0) list.push({ kind: "replies", key: `replies-${root}`, count });
     thread.replies.forEach((message, index) =>
       list.push({
         kind: "message",
@@ -61,7 +74,7 @@ export function ThreadPanel({
       }),
     );
     return list;
-  }, [messages, root]);
+  }, [messages, root, stats]);
   return (
     <aside className="hc-thread" aria-label={t("thread.title")}>
       <header className="hc-thread-header">
@@ -95,6 +108,11 @@ export function ThreadPanel({
         onRetract={onRetract}
         className="in-thread"
       />
+      {hasMore && (
+        <button type="button" className="hc-thread-more" disabled={loadingMore} onClick={onLoadMore}>
+          {t("thread.more")}
+        </button>
+      )}
       <Composer
         strings={strings}
         placeholder={t("composer.thread")}

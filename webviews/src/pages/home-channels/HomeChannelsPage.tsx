@@ -7,7 +7,16 @@ import type { Strings } from "../shared/i18n";
 import { AddChannel } from "./AddChannel";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
-import { channelIds, conversationName, lastEditable, others, railSections, timelineRows, withDraft } from "./model";
+import {
+  channelIds,
+  conversationName,
+  lastEditable,
+  mergeMessages,
+  others,
+  railSections,
+  timelineRows,
+  withDraft,
+} from "./model";
 import { Rail } from "./Rail";
 import type { HomeChannelsStore } from "./store";
 import { Switcher } from "./Switcher";
@@ -26,9 +35,18 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const me = snap.me?.id;
   const open = snap.selected ? snap.conversations.get(snap.selected) : undefined;
   const rows = useMemo(
-    () => withDraft(timelineRows(snap.messages, snap.unseen, me, snap.threadsSeen), snap.draft),
-    [snap.messages, snap.unseen, me, snap.threadsSeen, snap.draft],
+    () => withDraft(timelineRows(snap.messages, snap.unseen, me, snap.threadsSeen, snap.threadStats), snap.draft),
+    [snap.messages, snap.unseen, me, snap.threadsSeen, snap.threadStats, snap.draft],
   );
+  // The open thread: the owner's thread pages with the window's copies (newer edits, live replies).
+  // While more pages follow, only window copies inside the loaded pages show, so no gap opens.
+  const threadSource = useMemo(() => {
+    const view = snap.threadView;
+    if (!view) return snap.messages;
+    const through = view.hasMore ? (view.messages.at(-1)?.seq ?? 0) : Number.MAX_SAFE_INTEGER;
+    const window = snap.messages.filter((m) => m.seq <= through);
+    return mergeMessages(view.messages, window, Number.MAX_SAFE_INTEGER);
+  }, [snap.threadView, snap.messages]);
   const people = useMemo(() => {
     const map = new Map<string, HomeParticipant>();
     for (const conversation of snap.conversations.values()) for (const p of conversation.participants) map.set(p.id, p);
@@ -175,7 +193,11 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           key={snap.thread}
           root={snap.thread}
           place={place}
-          messages={snap.messages}
+          messages={threadSource}
+          stats={snap.threadStats.get(snap.thread)}
+          hasMore={snap.threadView?.hasMore}
+          loadingMore={snap.threadView?.loading}
+          onLoadMore={() => store.loadMoreReplies()}
           people={people}
           mentionable={mentionable}
           me={me}
