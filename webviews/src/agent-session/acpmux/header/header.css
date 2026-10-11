@@ -49,3 +49,22 @@
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-warning,#d29922)}
 .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-danger)}
+/* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
+   check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
+.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
+@media (prefers-reduced-motion:no-preference){.acpmux-pr-status{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+.acpmux-pr-title{display:block;padding:0 6px;color:var(--agent-text);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
+.acpmux-pr-title:hover{text-decoration:underline}
+.acpmux-pr-facts{display:flex;flex-wrap:wrap;gap:4px 8px;padding:2px 6px 6px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-pr-state[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-state[data-state=merged]{color:var(--agent-ansi-5,#a371f7)}
+.acpmux-pr-state[data-state=closed],.acpmux-pr-conflicts,.acpmux-pr-review[data-review=changes_requested]{color:var(--agent-danger)}
+.acpmux-pr-review[data-review=approved]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-checks{margin:0;padding:4px 0 0;list-style:none;border-top:.5px solid var(--acpmux-composer-edge)}
+.acpmux-pr-check{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 6px;border-radius:6px}
+.acpmux-pr-check::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-check[data-state=pending]::before{background:var(--agent-warning,#d29922)}
+.acpmux-pr-check[data-state=failed]::before{background:var(--agent-danger)}
+.acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
+.acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}

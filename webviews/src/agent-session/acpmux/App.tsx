@@ -3244,6 +3244,19 @@ function AcpmuxPane() {
     if (!quick) void readTabState().catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
+  // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
+  // created it or pushed to it, and the chip should not wait for its next read.
+  // Only the same chat going idle counts; switching away from a working chat is no turn end.
+  const wasWorking = useRef({ session: snapshot.sessionId, working: snapshot.isWorking });
+  useEffect(() => {
+    const last = wasWorking.current;
+    const ended = last.session === snapshot.sessionId && last.working && !snapshot.isWorking;
+    wasWorking.current = { session: snapshot.sessionId, working: snapshot.isWorking };
+    if (ended && !quick)
+      void callNative("pane.tabState", { refresh: true })
+        .then(setHeaderState)
+        .catch(() => undefined);
+  }, [snapshot.sessionId, snapshot.isWorking, quick]);
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.
   useEffect(() => {
