@@ -191,6 +191,8 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APP_PATH: ${{ steps.unpack.outputs.app }}
+          # cmux-next embeds no command palette Nucleo FFI (it was removed).
+          CMUX_SIGN_SKIP_NUCLEO_FFI: "1"
         run: |
           set -euo pipefail
           [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }

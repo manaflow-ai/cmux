@@ -12,6 +12,32 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Link filter: the embedder vetoes hover regex links
+
+- Branch: `link-filter`
+  ([manaflow-ai/ghostty#267](https://github.com/manaflow-ai/ghostty/pull/267)),
+  based on the cmux pin `7e880f6b6`.
+- Commits: `210d333c9` (regression test and API), `a53c76d06` (fix).
+- Summary: `ghostty_surface_set_link_filter(surface, cb, userdata)` lets the
+  embedder reject a regex link before Ghostty underlines it, changes the
+  pointer, reports mouse-over-link or opens it on click. The callback gets the
+  matched text and runs on the renderer thread, or on the app thread with the
+  terminal lock held, so it answers from what it already knows. OSC 8 links and
+  `always` / `always_mods` highlights are not asked. cmux answers per surface
+  so a Cmd-hovered path that names no file is not a link (cx-do47.1).
+- Coverage: `resolveAtFiltered: the link a filter rejects is no link` runs in
+  the `build-ghosttykit.yml` "Test Ghostty link filter" step. It failed on
+  `210d333c9` in
+  [run 38150926546](https://github.com/manaflow-ai/cmux/actions/runs/38150926546)
+  and passed on `a53c76d06` in
+  [run 38151479998](https://github.com/manaflow-ai/cmux/actions/runs/38151479998),
+  which published
+  [GhosttyKit a53c76d06](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a53c76d06b14c84b4ff5e159b02835ed167901e8-crashsubdir-cmux-crash-sentry-off-noi18n-v2).
+  The archive SHA-256 is `e037a1579a0d3b507dce1d917b0822bdbd0a77c638a9f8fc82d97bc2fe200d5d`.
+- Conflict notes: `link.resolveAt` keeps its signature and calls
+  `resolveAtFiltered` with no filter; the renderer's hover path and
+  `Surface.linkAtPos` pass the filter stored in the renderer state.
+
 ### OSC 7501 program status protocol
 
 - Branch: `feat-osc7501-program-status`, based on cmux pin `76f5f8c7c`.

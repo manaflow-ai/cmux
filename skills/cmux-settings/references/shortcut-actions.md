@@ -66,6 +66,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusHistoryLast`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusNextPane`
+- `shortcuts.bindings.focusPaneByNumber`
 - `shortcuts.bindings.focusPreviousPane`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusTextBoxInput`
@@ -80,8 +81,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.moveSurfaceToPaneUp`
 - `shortcuts.bindings.moveSurfaceToPreviousPane`
 - `shortcuts.bindings.newSurface`
+- `shortcuts.bindings.nextAgentTurn`
 - `shortcuts.bindings.nextSurface`
 - `shortcuts.bindings.prevSurface`
+- `shortcuts.bindings.previousAgentTurn`
 - `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.resize-pane-down`
 - `shortcuts.bindings.resize-pane-left`
@@ -138,6 +141,8 @@ Values for `shortcuts.bindings.<action>`:
 ## Right sidebar
 
 - `shortcuts.bindings.focusRightSidebar`
+- `shortcuts.bindings.focusSidebar`
+- `shortcuts.bindings.showWindowHints`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`
 - `shortcuts.bindings.prevSidebarTab`

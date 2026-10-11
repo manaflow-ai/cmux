@@ -1983,6 +1983,25 @@ class TerminalController {
                 "styles": CloudTreeStyle.presets.map(\.id),
                 "selected": selected,
             ])
+        case "debug.window_hints":
+            // Hint mode's labels while they show (`active`, what is typed, each label's target).
+            let payload: [String: Any] = v2MainSync {
+                guard let shown = WindowHintController.shared.shown else {
+                    // Why nothing shows: the flag, or no controls in the key window.
+                    let candidates = (NSApp.keyWindow?.contentView).map { WindowHintTargets.collect(in: $0).count }
+                    return [
+                        "active": false,
+                        "enabled": CmuxFeatureFlags.shared.isWindowHintsEnabled,
+                        "candidates": candidates ?? -1,
+                    ]
+                }
+                return [
+                    "active": true,
+                    "typed": shown.typed,
+                    "hints": shown.hints.map { ["label": $0.label, "role": $0.target.role, "title": $0.target.title] },
+                ]
+            }
+            return v2Ok(id: request.id, result: payload)
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)
@@ -2127,7 +2146,8 @@ class TerminalController {
                 || request.method == "debug.global_search.query"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
-                || request.method == "debug.cloudtree.gallery" {
+                || request.method == "debug.cloudtree.gallery"
+                || request.method == "debug.window_hints" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif

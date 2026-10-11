@@ -122,7 +122,7 @@ final class SSHTuiWorkspaceCoordinator {
         if restoring, let sshLinks = provider.links as? SSHTuiLinkManager {
             _ = try await sshLinks.connected(machineID: connection.id, preflight: false, upgrade: true)
         }
-        guard await provider.refreshCurrentGraph(force: false) else {
+        guard await provider.refreshCurrentGraphResolvingEqualCursorConflict() else {
             throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
         }
         try requireCurrent(workspace: workspace, attemptID: attemptID)
