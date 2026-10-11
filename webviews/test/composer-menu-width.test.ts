@@ -48,11 +48,12 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
   const PAGE = `<!doctype html><html><head><style>
 :root{--agent-text:rgb(205,214,244);--agent-accent-text:rgb(30,30,46);--agent-page-bg:rgb(30,30,46);--agent-muted:rgb(166,173,200)}
 ${css}
+.flex{display:flex}
 </style></head><body>
 <div class="acpmux-shell"><div class="acpmux-composer" style="margin-top:320px;padding:0">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
-    <div class="ui-popup ui-picker-popup acpmux-mp" style="${ANCHORED}">
+    <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
       <div class="acpmux-mp-rail-scroll w-11 flex-none">
         <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
           <div class="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5">

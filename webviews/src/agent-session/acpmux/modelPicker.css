@@ -4,7 +4,6 @@
 .acpmux-mp {
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
-  display: flex;
   width: min(310px, calc(100vw - 24px));
   box-sizing: border-box;
 }
