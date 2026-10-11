@@ -85,6 +85,20 @@ def rows():
     return [r for w in (rpc("debug.sidebar_rows") or {}).get("windows", []) for r in w.get("rows", [])]
 
 
+def surface_count():
+    reply = rpc("debug.surfaces") or {}
+    for key in ("surfaces", "tabs", "targets"):
+        if isinstance(reply.get(key), list):
+            return len(reply[key])
+    return json.dumps(reply).count('"surface')
+
+
+def no_dialog_after(seconds=1.5):
+    """A question is decided in a task after the run: give it time to show."""
+    time.sleep(seconds)  # test harness: the confirmation presenter is async
+    return not dialogs()
+
+
 def machines():
     reply = rpc("remote.machines") or {}
     return [m.get("id") for m in (reply.get("machines") if isinstance(reply, dict) else reply) or []]
@@ -128,7 +142,7 @@ try:
     if machine:
         reply = rpc("debug.toast", {"perform": "remote.forget", "target_kind": "machine", "target_id": machine})
         check("forget-ran", reply.get("performed"), reply)
-        check("forget-no-dialog", not dialogs(), dialogs())
+        check("forget-no-dialog", no_dialog_after(), dialogs())
         check("forget-toast", wait(lambda: any(t["id"] == "remote-forgot" for t in toasts()), 5), toasts())
         check("forget-hides-machine", wait(lambda: machine not in machines(), 5), machines())
         reply = rpc("debug.toast", {"undo": True})
@@ -150,7 +164,7 @@ try:
             reply = rpc("debug.toast", {"perform": "workspaceGroup.closeWorkspaces", "target_kind": "workspace-group",
                                         "target_id": grouped["group"]})
             check("group-close-ran", reply.get("performed"), reply)
-            check("group-close-no-dialog", not dialogs(), dialogs())
+            check("group-close-no-dialog", no_dialog_after(), dialogs())
             check("group-close-toast", wait(lambda: any(t["id"] == "workspace-group-closed" for t in toasts()), 10), toasts())
             check("group-close-closes", wait(lambda: not any(r.get("title") == "dlg-g" for r in rows()), 10),
                   [r.get("title") for r in rows()])
@@ -158,17 +172,22 @@ try:
             check("group-undo-ran", reply.get("undone"), reply)
             check("group-undo-reopens", wait(lambda: any(r.get("title") == "dlg-g" for r in rows()), 15),
                   "%d rows before, now %s" % (before, [(r.get("title"), r.get("group")) for r in rows()]))
+            check("group-undo-regroups", wait(lambda: any(r.get("title") == "dlg-g" and r.get("group") for r in rows()), 10),
+                  [(r.get("title"), r.get("group")) for r in rows()])
 
     # tab group -----------------------------------------------------------------
     reply = rpc("debug.toast", {"perform": "tabGroup.create", "arguments": {"name": "DlgTabs"}})
     check("tabgroup-setup", reply.get("performed"), reply)
     time.sleep(1)  # test harness: the group reaches the store
+    tabs_before = surface_count()
     reply = rpc("debug.toast", {"perform": "tabGroup.close"})
     check("tabgroup-close-ran", reply.get("performed"), reply)
-    check("tabgroup-close-no-dialog", not dialogs(), dialogs())
+    check("tabgroup-close-no-dialog", no_dialog_after(), dialogs())
+    check("tabgroup-close-closes", wait(lambda: surface_count() < tabs_before, 10), (tabs_before, surface_count()))
     check("tabgroup-close-toast", wait(lambda: any(t["id"] == "tab-closed" for t in toasts()), 10), toasts())
     reply = rpc("debug.toast", {"undo": True})
     check("tabgroup-undo-ran", reply.get("undone"), reply)
+    check("tabgroup-undo-restores", wait(lambda: surface_count() >= tabs_before, 10), (tabs_before, surface_count()))
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "after-undo.png")}, timeout=60)
 
     # quit ----------------------------------------------------------------------

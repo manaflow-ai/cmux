@@ -229,6 +229,8 @@ final class SSHService {
     /// Writes a hidden Forget: the saved list entry and the home session's
     /// record with its personal organization go.
     func commitForget(_ pending: PendingForget) async {
+        // A connect to the same machine while the toast showed took it back.
+        guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
         forgetSavedHost(pending.machineID)
         guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapabilities.shared.profiles),
               let home = machines.local.connection else { return }
