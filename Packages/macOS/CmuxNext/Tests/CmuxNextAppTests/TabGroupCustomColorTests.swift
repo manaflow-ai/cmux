@@ -20,6 +20,7 @@ struct TabGroupCustomColorTests {
         let groups = ScreenBarMapping.shared.snapshot(workspace, untitled: { "Screen \($0)" }, emojiIcon: { _ in .none }).groups
         #expect(groups.count == 2)
         #expect(groups.first { $0.id == "custom" } != TabGroupItem(id: "custom", name: "Mine", colorToken: .grey))
+        #expect(groups.first { $0.id == "custom" }?.tint.wire == GroupTint(wire: "#AA5500")?.wire)
         #expect(groups.first { $0.id == "token" } == TabGroupItem(id: "token", name: "Red", colorToken: .red))
     }
 }
