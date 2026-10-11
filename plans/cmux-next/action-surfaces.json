@@ -30988,19 +30988,6 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "duplicateTab",
-          "kind" : "action",
-          "order" : 2,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "children" : [
             {
               "enabled_when" : "can_perform",
@@ -31040,18 +31027,31 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "duplicateTab",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "new",
           "kind" : "folder",
-          "order" : 3,
+          "order" : 2,
           "title" : "New",
           "title_key" : "menu.folder.new",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 4
+          "order" : 3
         },
         {
           "children" : [
@@ -31097,20 +31097,20 @@
           ],
           "folder" : "openIn",
           "kind" : "folder",
-          "order" : 5,
+          "order" : 4,
           "title" : "Open In",
           "title_key" : "menu.folder.openIn",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 6
+          "order" : 5
         },
         {
           "enabled_when" : "can_perform",
           "id" : "renameTab",
           "kind" : "action",
-          "order" : 7,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31123,7 +31123,7 @@
           "enabled_when" : "can_perform",
           "id" : "palette.toggleTabPin",
           "kind" : "action",
-          "order" : 8,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31409,14 +31409,14 @@
           ],
           "folder" : "options",
           "kind" : "folder",
-          "order" : 9,
+          "order" : 8,
           "title" : "Options",
           "title_key" : "menu.folder.options",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 9
         },
         {
           "children" : [
@@ -31462,14 +31462,14 @@
           ],
           "folder" : "group",
           "kind" : "folder",
-          "order" : 11,
+          "order" : 10,
           "title" : "Group",
           "title_key" : "menu.folder.group",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 11
         },
         {
           "children" : [
@@ -31658,14 +31658,14 @@
           ],
           "folder" : "move",
           "kind" : "folder",
-          "order" : 13,
+          "order" : 12,
           "title" : "Move",
           "title_key" : "menu.folder.move",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 14
+          "order" : 13
         },
         {
           "children" : [
@@ -31737,20 +31737,20 @@
           ],
           "folder" : "copy",
           "kind" : "folder",
-          "order" : 15,
+          "order" : 14,
           "title" : "Copy",
           "title_key" : "menu.folder.copy",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 16
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeTab",
           "kind" : "action",
-          "order" : 17,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31803,7 +31803,7 @@
           ],
           "folder" : "close",
           "kind" : "folder",
-          "order" : 18,
+          "order" : 17,
           "title" : "Close",
           "title_key" : "menu.folder.close",
           "title_table" : "Localizable"

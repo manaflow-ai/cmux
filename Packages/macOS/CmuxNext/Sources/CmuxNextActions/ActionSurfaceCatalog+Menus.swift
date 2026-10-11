@@ -173,7 +173,7 @@ nonisolated extension ActionSurfaceCatalog {
         "tab.clearIcon": [p(.tab, .identity, 208, folder: .options, label: IconMenuLabels.removeIcon)],
         "palette.toggleTabUnread": [p(.tab, .identity, 203, folder: .options)],
         "palette.toggleFullWidthTab": [p(.tab, .layout, 408, folder: .options)],
-        "duplicateTab": [p(.tab, .create, 3)],
+        "duplicateTab": [p(.tab, .create, 3, folder: .new)],
         "reloadTab": [p(.tab, .create, 4, folder: .options)],
         "toggleTabAudioMute": [p(.tab, .identity, 204, folder: .options)],
         "disconnectRemoteTab": [p(.tab, .connection, 2, folder: .options)],
