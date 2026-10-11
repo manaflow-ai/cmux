@@ -287,10 +287,7 @@ export function Composer({
       event.preventDefault();
       void attach.current(files);
     };
-    const removeFileDropLifecycle = installFileDropLifecycle(
-      (files) => void attach.current(files),
-      setDropping,
-    );
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files), setDropping);
     document.addEventListener("paste", paste);
     return () => {
       removeFileDropLifecycle();
