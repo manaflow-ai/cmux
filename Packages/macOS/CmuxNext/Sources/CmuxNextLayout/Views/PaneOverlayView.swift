@@ -202,15 +202,16 @@ final class PaneOverlayView: NSView {
             (ring, style == .ring ? 1 : 0), (glowClip, style == .glow ? 1 : 0),
             (border, showsBorder && style == .none && !marksAttention ? 1 : 0),
         ]
-        let leavesAtOnce = { [border] (layer: CALayer, value: Float) in layer === border ? value > layer.opacity : value < layer.opacity }
+        // Split before either write: once a leaving layer is set, it no longer reads as leaving.
+        let leaving = targets.map { layer, value in layer === border ? value > layer.opacity : value < layer.opacity }
         Motion.transaction(nil) {
-            for (layer, value) in targets where leavesAtOnce(layer, value) {
+            for ((layer, value), leaves) in zip(targets, leaving) where leaves {
                 layer.removeAnimation(forKey: "opacity")
                 layer.opacity = value
             }
         }
         Motion.transaction(animated ? .focus : nil) {
-            for (layer, value) in targets where !leavesAtOnce(layer, value) { layer.opacity = value }
+            for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
             dimLayer.opacity = Float(dim)
         }
         applyAttention(mark, animated: animated)
