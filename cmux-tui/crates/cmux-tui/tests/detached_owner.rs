@@ -262,7 +262,12 @@ impl Drop for EnsureRun {
 }
 
 fn spawn_ensure(fixture: &EnsureFixture) -> EnsureRun {
+    spawn_ensure_with(fixture, &[])
+}
+
+fn spawn_ensure_with(fixture: &EnsureFixture, args: &[&str]) -> EnsureRun {
     let mut command = fixture.command("ensure");
+    command.args(args);
     command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     EnsureRun(Some(command.spawn().unwrap()))
 }
@@ -276,18 +281,18 @@ fn ensure_waits_for_a_restoring_owner_and_never_starts_a_second() {
     let fixture = EnsureFixture::new("restoring");
     let restore = SlowRestore::hold(&fixture);
     let started_at = std::time::Instant::now();
-    let first = spawn_ensure(&fixture);
+    let first = spawn_ensure_with(&fixture, &["--progress"]);
 
     let during = restoring_identity(&fixture);
-    let second = spawn_ensure(&fixture);
+    let second = spawn_ensure_with(&fixture, &["--progress"]);
     // Keep the restore going well past the 10 s contact bound of both
     // ensures, measured from their spawns.
     let hold = std::time::Duration::from_secs(14);
     std::thread::sleep(hold.saturating_sub(started_at.elapsed()));
     drop(restore);
 
-    let first = parse_success("ensure", &first.output());
-    let second = parse_success("ensure", &second.output());
+    let (first, first_progress) = progress_and_result(&first.output());
+    let (second, second_progress) = progress_and_result(&second.output());
     assert_eq!(first["status"], "started", "{first}");
     assert_eq!(second["status"], "running", "{second}");
     let pid = first["pid"].as_u64().expect("owner pid");
@@ -298,6 +303,37 @@ fn ensure_waits_for_a_restoring_owner_and_never_starts_a_second() {
     assert_eq!(during["restoring"], true, "{during}");
     assert_eq!(during["session"], fixture.session.as_str(), "{during}");
     assert_eq!(during["pid"].as_u64(), Some(pid), "{during}");
+
+    // `--progress`: both ensures reported the restoring owner while they
+    // waited (the app bounds its wait by these lines), each line before the
+    // result line.
+    for (name, lines) in [("first", &first_progress), ("second", &second_progress)] {
+        assert!(!lines.is_empty(), "the {name} ensure reported no restore progress");
+        for line in lines {
+            assert_eq!(line["progress"], "restoring", "{line}");
+            assert_eq!(line["session"], fixture.session.as_str(), "{line}");
+            assert_eq!(line["pid"].as_u64(), Some(pid), "{line}");
+        }
+    }
+}
+
+/// `server ensure --progress` output: the progress lines, then the result as
+/// the last line.
+fn progress_and_result(output: &Output) -> (serde_json::Value, Vec<serde_json::Value>) {
+    assert!(
+        output.status.success(),
+        "server ensure failed: {:?}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let mut lines = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let result = lines.pop().expect("a result line");
+    (result, lines)
 }
 
 /// cx-n3bs: an owner that answered "restoring" and then died ends the ensure
