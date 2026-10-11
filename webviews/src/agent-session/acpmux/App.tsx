@@ -122,7 +122,8 @@ import {
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
-import { ArtifactContext, artifactVersions, type Artifact } from "./conversation/artifactPreview";
+import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
+import { artifactVersions } from "./conversation/artifactVersions";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";

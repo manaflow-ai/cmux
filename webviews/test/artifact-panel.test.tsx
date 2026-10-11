@@ -203,11 +203,13 @@ test("Save hands the document to the host's save panel under its title, and says
 // A document's versions (cx-ncc.64, Claude parity): a reply that rewrites a document the chat already
 // has (same kind, same title) is its next version; the panel steps between them.
 test("a document's versions are the chat's documents of its kind and title, oldest first", async () => {
-  const { artifactVersions } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
+  const { artifactVersions } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
   const replies = [
     "Here it is:\n\n```html\n<title>Pricing</title><p>One plan</p>\n```\n",
     "And notes:\n\n```md\n# Pricing\n\nNot HTML.\n```\n\n```html\n<title>Signup</title>\n```",
-    "Updated:\n\n~~~html\n<title>Pricing</title><p>Two plans</p>\n~~~\n",
+    "Updated, quoted:\n\n> ```html\n> <title>Pricing</title><p>Two plans</p>\n> ```\n",
+    // The transcript draws a `~~~` fence as text, with no Open: not a version.
+    "~~~html\n<title>Pricing</title><p>Draft</p>\n~~~",
   ];
   const opened = { kind: "html" as const, lang: "html", code: "<title>Pricing</title><p>Two plans</p>" };
   expect(artifactVersions(replies, opened).map((version) => version.code)).toEqual([
@@ -242,6 +244,19 @@ test("the panel steps between a document's versions, starting on the one opened"
   expect(count()).toBe("1/3");
   expect(body()).toBe("First.");
   expect(button("Previous version")!.disabled).toBe(true);
+
+  // The list moves under the panel (the reply it was opened from finished): it keeps the shown one.
+  act(() =>
+    root!.render(
+      <ArtifactPanel artifact={versions[1]!} versions={[version("Zero."), ...versions]} onClose={() => {}} />,
+    ),
+  );
+  expect(count()).toBe("2/4");
+  expect(body()).toBe("First.");
+  // A list without the shown one: only the opened one, no arrows.
+  act(() => root!.render(<ArtifactPanel artifact={versions[1]!} versions={[versions[2]!]} onClose={() => {}} />));
+  expect(body()).toBe("Second.");
+  expect(button("Next version")).toBeUndefined();
 
   // One version: no arrows.
   act(() => root!.render(<ArtifactPanel artifact={versions[0]!} versions={[versions[0]!]} onClose={() => {}} />));
