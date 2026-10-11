@@ -63,6 +63,7 @@ await requireBrowserLane("row-focus.test.ts", async () => {
           return {
             outline: computed.outlineStyle,
             background: computed.backgroundColor,
+            image: computed.backgroundImage,
             shadow: computed.boxShadow,
           };
         });
@@ -77,10 +78,12 @@ await requireBrowserLane("row-focus.test.ts", async () => {
         expect(await page.evaluate(() => document.activeElement?.id)).toBe("row");
         const row = await style(page, "row");
         expect(row.outline).toBe("none");
-        expect(row.background).not.toBe("rgba(0, 0, 0, 0)");
-        // The same tint as a highlighted row, not the accent's selection tint.
-        expect((await style(page, "pointed")).background).toBe(row.background);
-        expect(row.background).not.toContain("196");
+        // The tint is laid over the row's fill: the same color a highlighted row is painted, not
+        // the accent's selection tint.
+        const pointed = (await style(page, "pointed")).background;
+        expect(pointed).not.toBe("rgba(0, 0, 0, 0)");
+        expect(row.image).toContain(pointed);
+        expect(row.image).not.toContain("196");
         // The bar is off: no shadow, or one whose every length is zero.
         expect(row.shadow === "none" || !/[1-9]/.test(row.shadow.replace(/rgba?\([^)]*\)/g, ""))).toBe(true);
         await page.close();
