@@ -19,6 +19,9 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     public nonisolated enum Status: Hashable, Sendable {
         case connected
         case connecting
+        /// The link to the machine dropped (sleep, a network drop or
+        /// change) and redials on its own; its programs keep running.
+        case reconnecting
         case offline
         /// Connected, but the machine's cmux-tui lacks features this app
         /// uses; they stay off until the machine is updated.
@@ -44,7 +47,7 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         public var needsAttention: Bool {
             switch self {
             case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true
-            case .connected, .connecting, .offline, .updateAvailable, .installing: false
+            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing: false
             }
         }
     }
