@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// Hint mode (Show Hints, Cmd-J; cx-zjtn.5, ported from cmux-next): every
 /// clickable control in the window gets a one or two letter label and
@@ -141,6 +142,7 @@ final class WindowHintController {
     /// The labels that start with `prefix`, in the overlay.
     private func draw(prefix: String) {
         guard let current = session, let view = current.overlay.contentView as? WindowHintOverlayView else { return }
+        view.typed = prefix
         view.hints = current.hints.filter { $0.label.hasPrefix(prefix) }
     }
 
@@ -184,12 +186,20 @@ private final class WindowHintOverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-/// One small chip per label at its control's top-left corner.
+/// One small chip per label at its control's top-left corner, in the
+/// Cmd-hold shortcut hints' palette (``ShortcutHintPalette``) for the
+/// window's light or dark appearance. The typed part of a label is dimmed.
 private final class WindowHintOverlayView: NSView {
-    private static let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+    private static let font: NSFont = {
+        let base = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        return base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 10) } ?? base
+    }()
 
     var hints: [WindowHintController.Hint] = [] {
         didSet { if hints != oldValue { needsDisplay = true } }
+    }
+    var typed = "" {
+        didSet { if typed != oldValue { needsDisplay = true } }
     }
 
     override var isFlipped: Bool { false }
@@ -197,17 +207,32 @@ private final class WindowHintOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        let attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: NSColor.black]
+        let appearance = window?.parent?.effectiveAppearance ?? effectiveAppearance
+        let scheme: ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        let foreground = ShortcutHintPalette.foreground(for: scheme)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.22)
+        shadow.shadowBlurRadius = 2
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
         for hint in hints {
-            let text = hint.label.uppercased() as NSString
-            let size = text.size(withAttributes: attributes)
-            let chip = NSRect(x: hint.target.rect.minX, y: hint.target.rect.maxY - size.height - 2,
-                              width: size.width + 8, height: size.height + 2).integral
-            NSColor.systemYellow.setFill()
-            NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3).fill()
-            NSColor.black.withAlphaComponent(0.35).setStroke()
-            NSBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3).stroke()
-            text.draw(at: NSPoint(x: chip.minX + 4, y: chip.minY + 1), withAttributes: attributes)
+            let label = hint.label.uppercased()
+            let done = min(typed.count, label.count)
+            let text = NSMutableAttributedString(string: label, attributes: [.font: Self.font, .foregroundColor: foreground])
+            text.addAttribute(.foregroundColor, value: foreground.withAlphaComponent(0.4), range: NSRange(location: 0, length: done))
+            let size = text.size()
+            let chip = NSRect(x: hint.target.rect.minX, y: hint.target.rect.maxY - size.height - 3,
+                              width: size.width + 8, height: size.height + 3).integral
+            let shape = NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3)
+            NSGraphicsContext.saveGraphicsState()
+            shadow.set()
+            ShortcutHintPalette.background(for: scheme).setFill()
+            shape.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            ShortcutHintPalette.border(for: scheme).setStroke()
+            let rim = NSBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), xRadius: 2.5, yRadius: 2.5)
+            rim.lineWidth = 1
+            rim.stroke()
+            text.draw(at: NSPoint(x: chip.minX + 4, y: chip.minY + 1.5))
         }
     }
 }
