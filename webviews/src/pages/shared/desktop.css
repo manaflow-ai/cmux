@@ -19,7 +19,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
-  accent-color: var(--cmux-accent, AccentColor);
+  accent-color: var(--cmux-accent, currentColor);
   /* Keyboard focus stays visible without competing with the content. The host theme supplies
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
@@ -125,6 +125,12 @@ input[type="submit"] {
   box-shadow: none !important;
 }
 
+/* Text selection takes the theme accent's tint (the text color under the default neutral
+   accent), never the system highlight blue. A page with its own selection color sets it later. */
+::selection {
+  background-color: color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent);
+}
+
 /* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a
    selected or checked row still changes when it takes focus, and the accent bar when it is on. A
    row that marks its highlight itself (`data-highlighted`, the menus' and pickers' keyboard row)
@@ -164,7 +170,9 @@ input[type="submit"] {
     --cmux-diff-text-muted: var(--cmux-diff-fg, CanvasText) !important;
     --cmux-diff-text-subtle: var(--cmux-diff-fg, CanvasText) !important;
     --cmux-focus-ring-width: 2px;
-    --cmux-focus-ring-color: currentColor;
+    /* The theme accent at full strength: the host fits it to 3:1 or better on the page's own
+       surfaces (the text color under the default neutral accent), never the system blue. */
+    --cmux-focus-ring-color: var(--cmux-accent, var(--cmux-app-focus-ring, CanvasText));
   }
 
   :root:not([data-borders="none"]) {
@@ -185,7 +193,7 @@ input[type="submit"] {
   }
 
   :focus-visible {
-    outline: var(--cmux-focus-ring-width) solid currentColor !important;
+    outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color) !important;
     outline-offset: 2px;
   }
 }
