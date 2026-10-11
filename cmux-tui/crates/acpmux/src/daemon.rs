@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod lock;
+use lock::{acquire_lock, wait_for_lock_release};
+
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
@@ -357,6 +360,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
+    #[cfg(all(unix, debug_assertions))]
+    lock::fork_a_child_for_tests();
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
     {
@@ -679,27 +684,6 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(unix)]
-fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
-    use std::os::unix::io::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    if rc != 0 {
-        return Err(anyhow!("another acpmux daemon holds {}", path.display()));
-    }
-    Ok(file)
-}
-/// Windows port: the daemon lock is `LockFileEx` there (a later landing).
-#[cfg(not(unix))]
-fn acquire_lock(_path: &PathBuf) -> Result<std::fs::File> {
-    Err(crate::platform::unsupported("the acpmux daemon"))
-}
-
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
 
 /// Arguments placed before `daemon run` when a client starts the daemon, for
@@ -723,37 +707,6 @@ pub async fn wait_for_exit() -> bool {
     // The agents' budget, the router's stop and kill waits, and a margin.
     wait_for_lock_release(home().join("daemon.lock"), SHUTDOWN_BUDGET + Duration::from_secs(8))
         .await
-}
-
-/// Polls a non-blocking `flock`, so the deadline always ends the wait: a
-/// blocking `flock` on a worker thread would outlive the timeout and hold
-/// up runtime teardown.
-#[cfg(unix)]
-async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    use std::os::unix::io::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
-        return true;
-    };
-    let deadline = tokio::time::Instant::now() + budget;
-    loop {
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return true;
-        }
-        let kind = std::io::Error::last_os_error().kind();
-        if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
-            return false;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-/// Windows port: no daemon runs there yet, so no lock is held.
-#[cfg(not(unix))]
-async fn wait_for_lock_release(_lock: PathBuf, _budget: Duration) -> bool {
-    true
 }
 
 /// Connect to the daemon, starting one if needed.

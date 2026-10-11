@@ -185,7 +185,7 @@
 .nt-open-tab:hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-tools{display:flex;flex-wrap:wrap;gap:2px;margin-top:-2px}
-.nt-tool-host{display:contents}
+.nt-tool-host,.nt-card-host,.nt-row-host{display:contents}
 .nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-tool-icon{display:inline-grid;place-items:center;width:16px}
