@@ -27,8 +27,10 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
+            // The group forms last in its section in one write, where the store lists a new
+            // group, not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
             try create(context, invocation, anchorFree: nil) { id, bridge in
-                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser)
+                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser, index: .max)
             }
         })
         registry.bind("workspace.newOnMachine", run: { invocation in

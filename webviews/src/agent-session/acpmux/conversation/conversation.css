@@ -213,6 +213,7 @@
   min-height: 0;
   border: 0;
   background: transparent;
+}
 /* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
    reached them, as Claude's. */
 .cv-user__actions {

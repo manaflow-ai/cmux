@@ -12,8 +12,8 @@
   --ve-hover: color-mix(in srgb, var(--ve-fg) 5%, transparent);
   --ve-selected: var(--cmux-selection, color-mix(in srgb, var(--ve-fg) 10%, transparent));
   --ve-surface: var(--cmux-diff-solid-bg, var(--cmux-elevated-background, Canvas));
-  --ve-error: light-dark(#b42318, #ff8a80);
-  --ve-git: light-dark(#c4501b, #f0884f);
+  --ve-error: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
+  --ve-git: var(--cmux-app-warning, light-dark(#c4501b, #f0884f));
   --ve-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   color-scheme: light dark;
 }

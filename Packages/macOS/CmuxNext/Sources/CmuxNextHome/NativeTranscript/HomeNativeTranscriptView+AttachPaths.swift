@@ -84,6 +84,12 @@ extension HomeNativeTranscriptView {
     public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
+    /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
+    public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
+    /// The open thread's root (the transcript's id), nil when none is open.
+    public var debugOpenThread: String? { transcript.debugOpenThread }
+    /// Esc through the field's path.
+    public func debugEscape() { transcript.debugEscape() }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

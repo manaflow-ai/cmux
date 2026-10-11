@@ -344,3 +344,26 @@ fn cloud_lease_another_clients_lease_is_never_the_apps_and_names_a_known_origin(
     let status = app.rpc(json!({"cmd":"cloud-session-status"}));
     assert_eq!(status["data"]["state"], "active", "{status}");
 }
+
+/// cx-59n8.17: the brain's `cloud-mux-ack` (optchat-chief brain/mux_ack.rs)
+/// must reach the Worker as a valid op. The Worker's `origin` schema takes
+/// only user, cli, mcp, script and remote (backend protocol schemas.ts), so
+/// an ack sent with `origin: "agent"` was refused before the op ran.
+#[test]
+fn cloud_mux_ack_reaches_the_cloud_with_a_valid_origin() {
+    const VALID: [&str; 5] = ["user", "cli", "mcp", "script", "remote"];
+    let daemon = Daemon::start("muxack");
+    let cloud = FakeCloud::start();
+    // A headless brain's daemon: no app lease, the chief token (JWT `agt`) leased by the brain's connection.
+    let mut brain = daemon.plain();
+    let chief_token = "e30.eyJzdWIiOiJ1c2VyXzEiLCJhZ3QiOiJhZ2VudF9sZWFzZTEifQ.sig";
+    assert_eq!(brain.rpc(set(&cloud.base, chief_token))["ok"], true);
+    let conv = "conv_0123456789ABCDEFGHJKMNPQRS";
+    brain.rpc(json!({"cmd":"cloud-mux-ack","conversation":conv,"seq":3}));
+    let bodies = cloud.bodies();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert_eq!(bodies[0]["op"], "mux.ack", "{bodies:?}");
+    assert_eq!(bodies[0]["params"], json!({"agent":"agent_lease1","conversation":conv,"seq":3}));
+    let origin = bodies[0].get("origin").and_then(Value::as_str);
+    assert!(origin.is_none_or(|o| VALID.contains(&o)), "invalid origin {origin:?} for mux.ack");
+}

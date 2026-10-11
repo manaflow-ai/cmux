@@ -12,7 +12,9 @@ is staged (downloaded and verified, delta when the feed has one), then:
      relaunch (its agent host kept the agent) and finishes in the same
      session. The agent is the acpmux test agent (no account, no network);
      it streams "before-gate", waits on a FIFO the script writes after the
-     relaunch, then streams "after-gate";
+     relaunch, then streams "after-gate"; two prompts queued behind that turn
+     run after it in order, each prompt reaches the agent exactly once, and
+     the chat's unsent draft is kept;
   2. (--click) a second older build, staged the same way, installs with the
      one-click action and Sparkle relaunches it by itself.
 
@@ -436,6 +438,39 @@ def stage_update(app, label):
     return s, log
 
 
+DRAFT = "DRAFT survives update"
+
+
+def prompts_sent(acp, session):
+    """How many times each prompt text went to the agent (outbound session/prompt)."""
+    import collections
+    try:
+        page = acp.call("_acpmux/events", {"sessionId": session}) or {}
+    except RuntimeError:
+        return {}
+    sent = collections.Counter()
+    for event in page.get("events", []):
+        if event.get("kind") == "session/prompt" and event.get("dir") == "out":
+            prompt = ((event.get("msg") or {}).get("params") or {}).get("prompt") or [{}]
+            sent[(prompt[0].get("text") or "")[:40]] += 1
+    return dict(sent)
+
+
+def queued_count(acp, session):
+    try:
+        page = acp.call("_acpmux/events", {"sessionId": session, "kinds": ["queued"]}) or {}
+    except RuntimeError:
+        return 0
+    return len(page.get("events", []))
+
+
+def draft(acp, session):
+    try:
+        return (acp.call("_acpmux/draft_get", {"sessionId": session}) or {}).get("draft")
+    except RuntimeError as error:
+        return f"error: {error}"
+
+
 def main():
     preflight()
     before = snapshot()
@@ -470,6 +505,18 @@ def main():
         agent_session, gate, agent_pid = start_agent_turn(work)
         record("agent turn running before the update", bool(agent_session and agent_pid),
                f"session {agent_session}, agent pid {agent_pid}")
+        if agent_session:
+            acp = Acpmux()
+            acp.prompt(agent_session, "queued one")
+            wait(lambda: queued_count(acp, agent_session) >= 1, 15)
+            acp.prompt(agent_session, "queued two")
+            try:
+                acp.call("_acpmux/draft_set", {"sessionId": agent_session, "text": DRAFT})
+            except RuntimeError as error:
+                print(f"draft_set: {error}")
+            record("two prompts queued behind the running turn", bool(wait(lambda: queued_count(acp, agent_session) >= 2, 15)),
+                   f"queued events {queued_count(acp, agent_session)}")
+            record("draft set before the update", draft(acp, agent_session) == DRAFT, repr(draft(acp, agent_session)))
 
         s, sparkle_log = stage_update(app, "quit path")
         if to_item["deltas"].get(from_item["build"]):
@@ -500,6 +547,14 @@ def main():
             finished = released and wait(lambda: "after-gate" in acp.text(agent_session) and acp.status(agent_session) != "running", 60)
             record("agent turn finished in the same session after the update", bool(finished),
                    f"streamed {acp.text(agent_session)!r}, status {acp.status(agent_session)}")
+            drained = wait(lambda: "echo: queued two" in acp.text(agent_session) and acp.status(agent_session) != "running", 60)
+            streamed = acp.text(agent_session)
+            first, second = streamed.find("echo: queued one"), streamed.find("echo: queued two")
+            record("queued prompts ran after the update, in order", bool(drained) and 0 <= first < second, f"streamed {streamed!r}")
+            sent = prompts_sent(acp, agent_session)
+            expected = {f"gate: {gate}"[:40], "queued one", "queued two"}
+            record("each prompt reached the agent exactly once", expected <= set(sent) and all(sent[k] == 1 for k in expected), str(sent))
+            record("draft kept across the update", draft(acp, agent_session) == DRAFT, repr(draft(acp, agent_session)))
 
         if opts.click and len(items) > 2:
             app.quit()

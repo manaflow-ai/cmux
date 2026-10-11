@@ -23,7 +23,8 @@ and render-server field animation, blurred header and native scrolling.
   - appkit-native: Compose, Materials, LabGlass (system glass on macOS 26
     and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
     HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
-    owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
+    owner can take a reply: `ChatIntents.canReply`; Home sends the reply as
+    `HomeOp.sendMessage(threadRoot:)`, the thread view's Esc and clicks are `Cmux/PaneHost+Thread.swift`),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
     frame, never Release or RC).
@@ -136,7 +137,7 @@ grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
 track click, compose hover only over the field) except SwipeReply at 0c8147b and TranscriptAccess at bd65bbf (d5d6a18's rewrite needs
 unvendored drivers: SelectionCheck, MarkdownAccess, the pager; a `cmux:` line speaks custom parts)
-(not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
+(installed when the owner can take a reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.
 

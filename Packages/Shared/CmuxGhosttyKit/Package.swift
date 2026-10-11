@@ -23,6 +23,8 @@ import PackageDescription
 // non-Darwin builds localize compiler-rt's libSystem symbols (PR 31).
 // Since c41410256 the app can veto a hover regex link
 // (ghostty_surface_set_link_filter; PR 33).
+// Since 89dc50175 ghostty_config_get reads a plain TerminalColor
+// (cursor-color, cursor-text, selection-*) as a color (PR 34).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -47,8 +49,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c41410256701346ae93a9c6378a564f12a8bbc40-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "711f5afe28d65d60b17e63b191ca340a55193dfb871ff48069d5ee7c2be1b8e2"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-89dc50175b2f6bcd95ee93611bbd70130d6ed4e2-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "985669d5323fa1d076415893ae395955af070cdfe1970900a44207ec6d84a3fc"
         ),
     ]
 )

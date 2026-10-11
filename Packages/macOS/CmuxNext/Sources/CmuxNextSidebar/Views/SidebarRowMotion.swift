@@ -85,8 +85,10 @@ struct RowMotion {
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
         // A dragged row is hidden under its lifted card, which already draws
         // above the list: no row passes under it, so none hides (cx-ikxz).
-        guard let key = list.selectedRowKey, !list.suppressed.contains(key), let before = old.row(for: key)?.y,
-              let after = layout.row(for: key)?.y, before != after else { return }
+        // A row still opening (listed, then placed: New Workspace in New Group) draws nothing yet
+        // to pass over with: the rows it crosses stay as they are.
+        guard let key = list.selectedRowKey, !list.suppressed.contains(key), !appearing.contains(where: { $0.0.key == key }),
+              let before = old.row(for: key)?.y, let after = layout.row(for: key)?.y, before != after else { return }
         let block = Self.block(of: key)
         let passed = targets.map(\.0).filter { view in
             guard !block(view.key), let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y else { return false }
