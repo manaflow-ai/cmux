@@ -71,7 +71,7 @@
   border: 0;
   background: transparent;
   outline: none;
-  caret-color: var(--page-text);
+  caret-color: var(--cmux-caret, var(--page-text));
   -webkit-appearance: none;
   appearance: none;
 }

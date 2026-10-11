@@ -281,7 +281,7 @@ final class PaletteContentView: NSView {
     private func applyEditorColors(_ editor: NSTextView) {
         performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill]
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
         }
     }
 

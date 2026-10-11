@@ -37,6 +37,7 @@ enum ThemeBridge {
             palette: colors.palette.map(rgb),
             selectionBackground: colors.selectionBackground.map(rgb),
             selectionForeground: colors.selectionForeground.map(rgb),
+            cursor: colors.cursor.map(rgb),
             backgroundOpacity: resolved.backgroundOpacity,
             backgroundBlur: resolved.backgroundBlur
         )
