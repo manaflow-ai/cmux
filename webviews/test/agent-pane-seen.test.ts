@@ -6,6 +6,8 @@
 // - The chat attaches with `visible` from the page's visibility.
 // - Hiding the page (a tab in a background workspace, an occluded window) sends
 //   `_acpmux/view` visible false; showing it again sends true.
+// - acpmux handles each request on its own task, so a view sent while the attach is in flight
+//   could overtake it and be refused; the pane sends it once the attach is answered.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -35,6 +37,9 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
     updatedAt: Date.now(),
   };
   const sent: { method: string; params: Record<string, unknown> }[] = [];
+  /// While set, the stand-in holds the attach's reply until `releaseAttach` runs.
+  let holdAttach = false;
+  let releaseAttach: (() => void) | undefined;
 
   function answer(method: string): unknown {
     switch (method) {
@@ -66,7 +71,10 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
           sent.push({ method: message.method, params: message.params ?? {} });
           const result = answer(message.method);
-          if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          const reply = () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          if (message.id === undefined) return;
+          if (holdAttach && message.method === "_acpmux/attach") releaseAttach = reply;
+          else reply();
         },
       },
     });
@@ -92,8 +100,9 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     }, state);
 
-  const views = () =>
+  const views = (from = 0) =>
     sent
+      .slice(from)
       .filter((m) => m.method === "_acpmux/view")
       .map((m) => ({ sessionId: m.params.sessionId, visible: m.params.visible }));
 
@@ -106,12 +115,17 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   /// Waits until the pane has sent `count` `_acpmux/view` requests.
   const sentViews = (count: number) => until(() => views().length >= count);
 
+  async function openPane(): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+    return page;
+  }
+
   describe("seen", () => {
     test("the pane tells acpmux whether it shows its chat", async () => {
-      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
-      const { port } = vite!.httpServer!.address() as { port: number };
-      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+      const page = await openPane();
       const attached = () => sent.find((m) => m.method === "_acpmux/attach" && m.params.sessionId === SESSION);
       await until(() => attached() !== undefined);
       const attach = attached();
@@ -124,6 +138,24 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         { sessionId: SESSION, visible: false },
         { sessionId: SESSION, visible: true },
       ]);
+      await page.close();
+    });
+
+    test("a pane hidden while its attach is in flight tells acpmux once the attach is answered", async () => {
+      const from = sent.length;
+      holdAttach = true;
+      releaseAttach = undefined;
+      const page = await openPane();
+      await until(() => releaseAttach !== undefined);
+      expect(releaseAttach).toBeDefined();
+      await setVisibility(page, "hidden");
+      await Bun.sleep(500);
+      // acpmux would refuse a view for a chat it has not attached yet.
+      expect(views(from)).toEqual([]);
+      holdAttach = false;
+      releaseAttach!();
+      await until(() => views(from).length >= 1);
+      expect(views(from)).toEqual([{ sessionId: SESSION, visible: false }]);
       await page.close();
     });
   });
