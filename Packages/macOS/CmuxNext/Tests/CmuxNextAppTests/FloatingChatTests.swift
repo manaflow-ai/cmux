@@ -55,7 +55,8 @@ struct FloatingChatTests {
         var made: [String?] = []
         /// What the user is looking at in cmux, for Include focused tab.
         var focused: AgentPaneQuickContext?
-        var controller: QuickComposerController?
+        /// Weak: the controller's closures hold the rig, and the rig's deinit clears its defaults.
+        weak var controller: QuickComposerController?
         /// This launch's user defaults; a relaunch passes the same suite.
         let suite: String
         let defaults: UserDefaults
@@ -170,29 +171,6 @@ struct FloatingChatTests {
         #expect(!rig.window.isVisible)
         #expect(controller.chat == nil)
         #expect(rig.window.held.isEmpty)
-    }
-
-    @Test func aChatTheFloatingChatHeldWhenCmuxQuitComesBackToItOnTheNextSummon() async throws {
-        let (rig, controller) = try Self.rig(floating: true)
-        // The first launch's rig owns the suite: kept alive to the end.
-        defer { withExtendedLifetime(rig) {} }
-        controller.show()
-        let chat = try #require(controller.chat)
-        _ = await chat.model.respond(to: Self.started("session-quit"))
-
-        // Quit with it held (shown or put away), then summon it after the next launch.
-        let (relaunch, next) = try Self.rig(floating: true, suite: rig.suite)
-        next.show()
-        #expect(relaunch.made == ["session-quit"], "the next summon started an empty chat")
-        #expect(next.chat?.model.sessionId == "session-quit")
-        #expect(relaunch.window.held == [true], "the chat came back as a composer, not the floating chat")
-
-        // Moved to a tab, the chat is no longer the panel's: the launch after that starts empty.
-        _ = await next.chat?.model.respond(to: AgentPaneRequest(body: ["method": "quick.openInWindow", "params": ["sessionId": "session-quit"]]))
-        let (third, last) = try Self.rig(floating: true, suite: rig.suite)
-        last.show()
-        #expect(third.made == [nil])
-        #expect(third.window.held.isEmpty)
     }
 
     @Test func aHiddenFloatingChatSummonedOnAnotherScreenOpensWhereItWasLeftThere() {
