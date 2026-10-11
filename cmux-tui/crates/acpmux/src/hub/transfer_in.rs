@@ -171,7 +171,11 @@ impl Hub {
         }
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         if let Some(g) = &guard {
-            self.guard_session(&bundle, g, text("cwd"), &from).await?;
+            let meta = self.guard_session(&bundle, g, text("cwd"), &from).await?;
+            // The chat it imports is the one the receive was refused or allowed for.
+            if Some(meta.id.as_str()) != manifest["sessionId"].as_str() {
+                return Err(transfer_error("schema", "session.json names another chat"));
+            }
         }
         // Its folder may have another path here (a remote machine's checkout).
         if guard.is_none()
