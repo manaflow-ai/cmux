@@ -1553,7 +1553,6 @@
 		C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */; };
 		C5B6A10000000000000000A3 /* CmuxSidebarGit in Frameworks */ = {isa = PBXBuildFile; productRef = C5B6A10000000000000000A2 /* CmuxSidebarGit */; };
 		C5A1FED200000000000000E1 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
-		C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
 		C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE4A000000000000000002 /* CmuxSidebarProviderKit */; };
 		C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE4A000000000000000004 /* CmuxSidebarProviderKit */; };
 		C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */; };
@@ -1577,9 +1576,7 @@
 		C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */; };
 		C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */; };
 		C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
-		C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
 		C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
-		C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		C01E00AA00000000000000A3 /* CmuxSyntaxHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */; };
 		C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */; };
 		0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */; };
@@ -9181,12 +9178,9 @@
 				CE57E10000000000000000B4 /* CmuxSentryReporting in Frameworks */,
 				CE57E10000000000000000A4 /* CmuxSentryScrubbing in Frameworks */,
 				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
-				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				C51A700000000000000000A5 /* CmuxSimulator in Frameworks */,
 				D96970000000000000000002 /* CmuxSudoBroker in Frameworks */,
 				5CA7A1060000000000000006 /* CmuxSurfaceCatalogModel in Frameworks */,
-				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
-				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
 				C85390090000000000000001 /* CmuxTerminalCore in Frameworks */,
 				7E1A1A0000000000000000A3 /* CmuxTerminalImport in Frameworks */,
 			);
@@ -13962,10 +13956,7 @@
 				7E1A1A0000000000000000A2 /* CmuxTerminalImport */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
-				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
-				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				D96973000000000000000001 /* CmuxSudoBroker */,
-				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
 				C51A700000000000000000A2 /* CmuxSimulator */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
