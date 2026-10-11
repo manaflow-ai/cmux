@@ -42,6 +42,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
+    /// `browser.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
+    public var terminalLinkRouting: TerminalLinkRouting = .fallback
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.

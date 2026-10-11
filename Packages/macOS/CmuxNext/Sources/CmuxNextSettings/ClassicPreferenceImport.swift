@@ -1,0 +1,56 @@
+public import Foundation
+
+/// Classic cmux settings its Settings window kept only in its preferences
+/// (UserDefaults), never in `cmux.json`, so adopting the classic file misses
+/// them (hq#1870 parity audit). Next ships under classic's bundle IDs, so the
+/// app's defaults are classic's preferences on the same channel.
+nonisolated enum ClassicPreferenceImport {
+    struct Entry: Sendable {
+        let next: [String]
+        let read: @Sendable (UserDefaults) -> JSONValue?
+    }
+
+    /// The `cmux.json` paths already imported, so each is read once and a
+    /// value the person later removes from `cmux.json` stays removed.
+    static let importedKey = "classicPreferencesImported"
+
+    static let entries: [Entry] = []
+
+    /// Classic's one-per-line text, or the array older releases left.
+    static func lines(defaults: UserDefaults, key: String) -> JSONValue? {
+        let raw: JSONValue
+        switch defaults.object(forKey: key) {
+        case let text as String: raw = .string(text)
+        case let items as [String]: raw = .array(items.map(JSONValue.string))
+        default: return nil
+        }
+        return TerminalLinkRouting.lines(raw).map { .array($0.map(JSONValue.string)) }
+    }
+}
+
+extension SettingsController {
+    /// Writes each `ClassicPreferenceImport` value `defaults` holds to
+    /// `cmux.json`, once per key (`defaults` records it). A value `cmux.json`
+    /// already has wins, and a value equal to next's default isn't written.
+    /// Returns whether it wrote.
+    @discardableResult
+    public func importClassicPreferences(from defaults: UserDefaults) async throws -> Bool {
+        var done = Set(defaults.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
+        var edits: [(path: [String], value: JSONValue?)] = []
+        for entry in ClassicPreferenceImport.entries {
+            let id = entry.next.joined(separator: ".")
+            guard !done.contains(id) else { continue }
+            done.insert(id)
+            guard let value = entry.read(defaults), try await file.value(at: entry.next) == nil,
+                  let descriptor = SettingsSchema.all.first(where: { $0.path == entry.next }),
+                  descriptor.accepts(value), value != descriptor.defaultValue else { continue }
+            edits.append((entry.next, value))
+        }
+        if !edits.isEmpty {
+            try await file.apply(edits)
+            await reloadAfterWrite()
+        }
+        defaults.set(done.sorted(), forKey: ClassicPreferenceImport.importedKey)
+        return !edits.isEmpty
+    }
+}

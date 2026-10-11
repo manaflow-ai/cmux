@@ -130,6 +130,8 @@ extension SettingsSchema {
         "browser.hibernation",
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",
+        // Where a terminal link the person clicks opens: cmux or their default browser.
+        "browser.openTerminalLinksInCmuxBrowser", "browser.hostsToOpenInEmbeddedBrowser", "browser.urlsToAlwaysOpenExternally",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
