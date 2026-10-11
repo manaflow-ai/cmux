@@ -227,6 +227,14 @@ enum Springs {
     static let typingFade = simple("typing.fade", delay: 0.05, duration: 0.12)
     static let typingOut = simple("typing.out", delay: 0.02, duration: 0.2)
     static let receivedFade = simple("received.fade", delay: 0.2, duration: 0.2)
+    /// Reply arrival, macOS (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1;
+    /// tools/evidence/ANIMATIONS.md section 3). A received text that is not a thread reply cross-fades
+    /// with the typing bubble from the first frame; a thread reply first draws its connector at full
+    /// opacity while the typing bubble fades (the same fade in both), then fades its bubble in.
+    static var receivedTextFade: SpringElement { element("received.textFade") }
+    static var typingOutOnReceive: SpringElement { element("typing.outOnReceive") }
+    static var connectorDrawOnReceive: SpringElement { element("connector.drawOnReceive") }
+    static var receivedThreadFade: SpringElement { element("received.threadFade") }
     static let receiptIn = simple("receipt.in", delay: 0.085, duration: 0.15)
     static let receiptPop = simple("receipt.pop", delay: 0.085, duration: 0.251)
     static let receiptOldOut = simple("receipt.oldOut", delay: 0.042, duration: 0.163)   // fitted on luma, 6.55-7.25 s
