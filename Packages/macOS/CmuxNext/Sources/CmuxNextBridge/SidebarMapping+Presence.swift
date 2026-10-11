@@ -1,5 +1,5 @@
 import CmuxAgentBrands
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
 
@@ -19,6 +19,13 @@ extension SidebarMapping {
                 target: Self.target(path: presence.path, line: presence.line)
             )
         }
+    }
+
+    /// The color key of the agent acting in `tab` (its session, else its
+    /// surface), the key every presence mark of that agent is colored by.
+    /// Callers check the presence toggle themselves.
+    public func presenceColorKey(_ tab: TabModel) -> String? {
+        presence([tab], enabled: true).first?.id
     }
 
     /// The brand catalog's name for an adapter id, else the id capitalized.
