@@ -12730,6 +12730,33 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-print",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserPrint",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Print…",
+      "title_key" : "action.browserPrint",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "browser screenshot-page",
       "context_menu" : "offered",
@@ -26930,7 +26957,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.addPage",
+          "id" : "browserPrint",
           "kind" : "action",
           "order" : 10,
           "visible_when" : {
@@ -26947,9 +26974,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "toggleBrowserDeveloperTools",
+          "id" : "bookmark.addPage",
           "kind" : "action",
           "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "browserFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 13
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "toggleBrowserDeveloperTools",
+          "kind" : "action",
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27258,7 +27302,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 13,
+          "order" : 15,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
