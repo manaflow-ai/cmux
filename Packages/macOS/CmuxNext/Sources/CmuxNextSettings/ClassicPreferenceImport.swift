@@ -14,7 +14,15 @@ nonisolated enum ClassicPreferenceImport {
     /// value the person later removes from `cmux.json` stays removed.
     static let importedKey = "classicPreferencesImported"
 
-    static let entries: [Entry] = []
+    static let entries: [Entry] = [
+        // Classic's effective value: a disabled browser opened every link outside.
+        Entry(next: TerminalLinkRouting.openPath) { defaults in
+            if defaults.bool(forKey: "browserDisabledOverride") { return .bool(false) }
+            return (defaults.object(forKey: "browserOpenTerminalLinksInCmuxBrowser") as? Bool).map(JSONValue.bool)
+        },
+        Entry(next: TerminalLinkRouting.hostsPath) { lines(defaults: $0, key: "browserHostWhitelist") },
+        Entry(next: TerminalLinkRouting.rulesPath) { lines(defaults: $0, key: "browserExternalOpenPatterns") },
+    ]
 
     /// Classic's one-per-line text, or the array older releases left.
     static func lines(defaults: UserDefaults, key: String) -> JSONValue? {

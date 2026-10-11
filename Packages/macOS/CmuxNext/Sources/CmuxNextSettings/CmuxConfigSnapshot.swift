@@ -218,6 +218,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
         snapshot.browserLinkClicks = linkClicks
         snapshot.diagnostics += linkClickDiagnostics
+        let (linkRouting, linkRoutingDiagnostics) = TerminalLinkRouting.parse(root)
+        snapshot.terminalLinkRouting = linkRouting
+        snapshot.diagnostics += linkRoutingDiagnostics
         let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
         snapshot.remoteLocalhost = remoteLocalhost
         snapshot.diagnostics += remoteLocalhostDiagnostics
