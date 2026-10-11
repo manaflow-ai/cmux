@@ -119,7 +119,12 @@ public final class CloudAuth {
             callbackRouter: callbackRouter,
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
-            openExternalURL: { NSWorkspace.shared.openInBackground($0) }
+            openExternalURL: { url in
+                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
+                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
+                NSWorkspace.shared.openInBackground(url)
+                return true
+            }
         )
     }
 
