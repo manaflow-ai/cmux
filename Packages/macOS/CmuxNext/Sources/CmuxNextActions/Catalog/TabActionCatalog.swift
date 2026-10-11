@@ -169,6 +169,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
             ),
+            // Hint mode (cx-zjtn.1): label every clickable control in the
+            // window, type a label to click it. A preview feature for now.
+            ActionDescriptor(
+                id: "hints.show",
+                title: String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module),
+                keywords: ["hint", "vimium", "keyboard", "click", "jump", "label"],
+                defaultShortcut: Shortcut("j", modifiers: [.command]),
+                category: .window, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard]
+            ),
             ActionDescriptor(
                 id: "nextSurface",
                 title: String(localized: "action.nextSurface.inPane", defaultValue: "Next Tab in Pane", bundle: .module),
