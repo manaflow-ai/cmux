@@ -945,7 +945,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 meta.insert("personDecision".into(), Value::String(proof));
             }
             if let Some(by) = answered_by {
-                meta.insert("answeredBy".into(), json!({"device": by.device, "feedItem": by.feed_item}));
+                meta.insert(
+                    "answeredBy".into(),
+                    json!({"device": by.device, "feedItem": by.feed_item}),
+                );
             }
             if !meta.is_empty() {
                 params["_meta"] = json!({"acpmux": meta});
