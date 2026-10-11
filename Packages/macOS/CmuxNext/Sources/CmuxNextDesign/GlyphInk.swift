@@ -70,6 +70,16 @@ extension ThemeTokens {
 }
 
 extension Palette {
+    /// The opaque background a sidebar row shows: `fill` (a translucent row
+    /// fill token, nil for none) over the sidebar as it paints (the person's
+    /// sidebar background when set). The workspace row's action fade ends here.
+    @MainActor public static func sidebarRowBackground(fill: KeyPath<ThemeTokens, ThemeRGB>? = nil) -> NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let ground = ThemeScope.app.surfaceBackgrounds.opaqueFill(for: .sidebar, tokens: tokens,
+                                                                  base: tokens.sidebarBackground.withAlpha(1))
+        return (fill.map { tokens[keyPath: $0].composited(over: ground) } ?? ground).nsColor
+    }
+
     /// ``CmuxTheme/ThemeTokens/glyphInk(over:base:)`` in the active theme
     /// scope for a sidebar glyph, for a fill named by its token (nil: no
     /// fill). The ground is the sidebar as it paints: the person's sidebar
