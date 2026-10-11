@@ -4,7 +4,7 @@
 // from these two colors. Code tokens follow the palette in every mode (syntax-theme.test.ts).
 import { beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../src/appearance";
+import { applyDiffViewerAppearance, resolveDiffViewerAppearance, setDiffChangeColors } from "../src/appearance";
 import { contrastBetween } from "../src/syntax-colors";
 import { pageSyntaxVariable } from "../src/syntax-theme";
 import { sanitizeViewerPrefs } from "../src/viewer-prefs";
@@ -45,12 +45,11 @@ test("Theme, the default, takes additions and deletions from the palette", () =>
   applyDiffViewerAppearance(appearance);
   expect(variable("--cmux-diff-addition-fg-dark")).toBe("#72f1b8");
   expect(variable("--cmux-diff-deletion-fg-dark")).toBe("#ff6b7a");
-  applyDiffViewerAppearance(appearance, { colors: "theme" });
-  expect(variable("--cmux-diff-addition-fg-dark")).toBe("#72f1b8");
 });
 
 test("Standard keeps the fixed light and dark colors in any theme", () => {
-  applyDiffViewerAppearance(appearance, { colors: "standard" });
+  // Picking a mode recolors the page already showing a diff.
+  setDiffChangeColors("standard");
   expect(variable("--cmux-diff-addition-fg-light")).toBe("#257a3e");
   expect(variable("--cmux-diff-addition-fg-dark")).toBe("#8fd88f");
   expect(variable("--cmux-diff-deletion-fg-light")).toBe("#b42318");
@@ -63,9 +62,9 @@ test("Muted keeps the theme's hues, less saturated and still readable", () => {
   const names = ["addition", "deletion"].flatMap((kind) =>
     (["light", "dark"] as const).map((type) => [`--cmux-diff-${kind}-fg-${type}`, type] as const),
   );
-  applyDiffViewerAppearance(appearance, { colors: "theme" });
+  setDiffChangeColors("theme");
   const themed = new Map(names.map(([name]) => [name, variable(name)]));
-  applyDiffViewerAppearance(appearance, { colors: "muted" });
+  setDiffChangeColors("muted");
   for (const [name, type] of names) {
     const muted = variable(name);
     expect(muted).toMatch(/^#[0-9a-f]{6}$/);
@@ -74,6 +73,8 @@ test("Muted keeps the theme's hues, less saturated and still readable", () => {
     expect(contrastBetween(muted, background) ?? 0).toBeGreaterThanOrEqual(4.5);
   }
   expect(variable(pageSyntaxVariable("dark", "string"))).toBe("#72f1b8");
+  setDiffChangeColors(undefined);
+  expect(variable("--cmux-diff-addition-fg-dark")).toBe("#72f1b8");
 });
 
 test("the diff prefs keep a known Diff Colors choice and drop others", () => {
