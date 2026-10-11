@@ -40,9 +40,18 @@ public final class AgentPresenceTagView: NSView {
 
     /// The tag's size for its text, at most `maxWidth` wide.
     public func fittingSize(maxWidth: CGFloat) -> NSSize {
-        let text = label.intrinsicContentSize
+        let text = labelSize
         let pad = Metrics.space2
-        return NSSize(width: min(maxWidth, ceil(text.width) + 2 * pad), height: ceil(text.height) + Metrics.space1)
+        return NSSize(width: min(maxWidth, text.width + 2 * pad), height: text.height + Metrics.space1)
+    }
+
+    /// The label frame that draws the whole text. Not `intrinsicContentSize`:
+    /// that is the alignment rect, 4 pt narrower than the cell draws in, and
+    /// the cell cut 3-4 characters at that width. The cell needs its
+    /// `cellSize` plus about a point (measured on macOS 26).
+    private var labelSize: NSSize {
+        let cell = label.cell?.cellSize ?? label.intrinsicContentSize
+        return NSSize(width: ceil(cell.width) + 1, height: ceil(label.intrinsicContentSize.height))
     }
 
     override public func layout() {
