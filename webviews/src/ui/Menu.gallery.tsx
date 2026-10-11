@@ -144,6 +144,7 @@ export default componentEntry<Props>({
     "ui/Menu.tsx#MenuSeparator",
     "ui/Menu.tsx#Submenu",
   ],
+  anchors: [{ selector: ".menu-gallery-trigger" }],
   load: async () => MenuGallery,
   styles: () => Promise.all([import("./ui.css"), import("./popupSurface.css"), import("./Menu.gallery.css")]),
   checks: {
