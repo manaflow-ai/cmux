@@ -1,0 +1,69 @@
+name: R2 storage census
+
+# Read-only: lists every R2 bucket each CI key can see and reports bytes by key
+# family and age (scripts/ci/r2_storage_census.py), so keep and prune rules are
+# chosen against measured storage. It never writes or deletes. Each key runs in
+# the environment that already guards it; the cmux-nightly-next bucket's key is
+# limited to the nightly-next branch and is not read here.
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: r2-storage-census
+  cancel-in-progress: false
+
+jobs:
+  census:
+    name: Census (${{ matrix.key }})
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: binaries
+            environment: artifacts
+            secret: CF_R2
+            buckets: cmux-binaries cmux-fleet-artifacts
+          - key: cef
+            environment: ""
+            secret: CMUX_CEF_R2
+            buckets: cmux-cef
+          - key: ci-cache
+            environment: ci-cache-writer
+            secret: CI_CACHE_R2
+            buckets: cmux-ci-cache
+    environment: ${{ matrix.environment }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Census
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets[format('{0}_ACCESS_KEY_ID', matrix.secret)] }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets[format('{0}_SECRET_ACCESS_KEY', matrix.secret)] }}
+          R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets[format('{0}_ACCOUNT_ID', matrix.secret)]) }}
+          BUCKETS: ${{ matrix.buckets }}
+          KEY: ${{ matrix.key }}
+        run: |
+          set -euo pipefail
+          args=(--endpoint-url "$R2_ENDPOINT" --json-out "$RUNNER_TEMP/r2-census-$KEY.json")
+          for bucket in $BUCKETS; do args+=(--bucket "$bucket"); done
+          python3 scripts/ci/r2_storage_census.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload census
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: r2-census-${{ matrix.key }}
+          path: ${{ runner.temp }}/r2-census-${{ matrix.key }}.json
+          if-no-files-found: ignore
+          retention-days: 30
