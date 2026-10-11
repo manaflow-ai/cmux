@@ -6,6 +6,12 @@ extension UpdaterService {
     public var releaseNotes: ReleaseNotesStore? {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes", directoryHint: .isDirectory)
+        #if DEBUG
+        // The update harness signs its own notes next to its loopback feed.
+        if let harness = UpdateHarness.current, let key = harness.contentKey {
+            return ReleaseNotesStore(feedURL: harness.feedURL, cache: cache.appending(path: "harness", directoryHint: .isDirectory), publicKey: key)
+        }
+        #endif
         return ReleaseNotesStore(feedURL: testFeedURL ?? identity.feed().url, cache: cache)
     }
 

@@ -31,8 +31,8 @@
     --cmux-selection,
     var(--app-accent-soft, light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.13)))
   );
-  --danger: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
-  --warning: var(--app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
+  --danger: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+  --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
   --motion-hover: 120ms;
   --motion-focus: 120ms;
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
