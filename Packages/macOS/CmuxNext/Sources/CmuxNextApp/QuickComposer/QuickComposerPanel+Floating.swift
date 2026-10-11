@@ -9,6 +9,8 @@ extension QuickComposerPanel {
         holdsChat = holds
         grip.isHidden = !holds
         if holds {
+            // A material rebuild (Reduce Transparency) re-adds the glass on top; the grip goes back over it.
+            grip.superview?.addSubview(grip, positioned: .above, relativeTo: nil)
             styleMask.insert(.resizable)
             minSize = FloatingChatFrames.minimumSize
             guard let screen = screen ?? Self.screenUnderPointer() else { return }

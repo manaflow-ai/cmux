@@ -75,7 +75,6 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         orderOut(nil)
     }
 
-
     /// Horizontally centered, its top a quarter of the way down `visible`,
     /// kept inside it.
     static func placement(size: CGSize, in visible: CGRect) -> CGRect {
@@ -96,7 +95,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     /// window; the page never sees that press.
     override func sendEvent(_ event: NSEvent) {
         if holdsChat, event.type == .leftMouseDown,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function]) == .command {
             performDrag(with: event)
             return
         }
