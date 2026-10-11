@@ -33,11 +33,12 @@ SPEC.loader.exec_module(soak_module)
 SOAK_BUNDLE = "com.cmuxterm.app.debug.soak"
 
 
-def write_report(directory, name, header, pid, mtime):
+def write_report(directory, name, header, pid, mtime, parent=1, body=None):
     path = os.path.join(directory, name)
     with open(path, "w") as handle:
         handle.write(json.dumps(header) + "\n")
-        handle.write(json.dumps({"pid": pid, "procPath": "/Users/USER/*/x", "threads": []}))
+        handle.write(body if body is not None else json.dumps(
+            {"pid": pid, "parentPid": parent, "procPath": "/Users/USER/*/x", "threads": []}))
     os.utime(path, (mtime, mtime))
     return path
 
@@ -60,15 +61,24 @@ class CrashReportTests(unittest.TestCase):
             ours_app = write_report(reports, "cmux DEV-2026-10-11-120000.ips",
                                     {"bundleID": SOAK_BUNDLE, "app_name": "cmux DEV"}, 56604, after)
             ours_daemon = write_report(reports, "cmux-tui-2026-10-11-130000.ips", {"app_name": "cmux-tui"}, 56650, after)
+            # One of the soak's terminal hosts (a cmux-tui process the soak saw).
+            ours_host = write_report(reports, "cmux-tui-2026-10-11-140000.ips", {"app_name": "cmux-tui"}, 56700, after)
+            # A helper the app started and that crashed before any sample saw it.
+            ours_helper = write_report(reports, "cmux DEV Helper-2026-10-11-150000.ips",
+                                       {"bundleID": "com.cmuxterm.app.debug.soak.helper"}, 60001, after, parent=56604)
+            # This copy's report whose body is not JSON: the header alone says whose it is.
+            ours_header_only = write_report(reports, "cmux DEV-2026-10-11-160000.ips", {"bundleID": SOAK_BUNDLE},
+                                            0, after, body="not json")
             # This copy's report from an earlier run.
             write_report(reports, "cmux DEV-2026-10-09-120000.ips", {"bundleID": SOAK_BUNDLE}, 100, started - 3600)
 
             soak = soak_module.Soak.__new__(soak_module.Soak)
             soak.started = started
             soak.bundle_id = SOAK_BUNDLE
-            soak.seen_pids = {56604, 56650}
+            soak.seen_pids = {56604, 56650, 56700}
+            soak.app_pid = 56604
             with mock.patch.dict(os.environ, {"HOME": home}):
-                self.assertEqual(soak.crash_reports(), sorted([ours_app, ours_daemon]))
+                self.assertEqual(soak.crash_reports(), sorted([ours_app, ours_daemon, ours_host, ours_helper, ours_header_only]))
 
 
 if __name__ == "__main__":
