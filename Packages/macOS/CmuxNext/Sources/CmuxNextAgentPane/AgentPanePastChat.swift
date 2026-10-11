@@ -29,7 +29,8 @@ public nonisolated struct AgentPanePastTurn: Codable, Sendable, Equatable {
 }
 
 /// The app's reader of a device-wide chat's past turns (cx-khns1).
-public enum AgentPanePastChat {
+public struct AgentPanePastChat {
+    public init() {}
     /// Reads a chat's past turns by its index key (`harness:id`); set at launch. Empty when the
     /// daemon cannot read them.
     @MainActor public static var reader: (@MainActor (_ chat: String) async -> [AgentPanePastTurn])?
