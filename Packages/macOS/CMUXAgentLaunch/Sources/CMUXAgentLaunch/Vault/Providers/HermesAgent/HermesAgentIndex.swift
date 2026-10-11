@@ -103,22 +103,11 @@ public enum HermesAgentIndex {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
 
-        let snapshot: HermesAgentDatabaseSnapshot
         do {
-            guard let madeSnapshot = try makeSnapshot(stateDBPath: stateDBPath, prefix: "cmux-hermes-agent-search") else {
-                return HermesAgentIndexResult(sessions: [], errors: [])
-            }
-            snapshot = madeSnapshot
-        } catch {
-            return HermesAgentIndexResult(
-                sessions: [],
-                errors: ["Hermes Agent: cannot snapshot state.db (\(error.localizedDescription))"]
-            )
-        }
-        defer { snapshot.remove() }
-
-        do {
-            return try withDatabase(snapshot.databaseURL.path) { db in
+            let result = try withStateDatabase(
+                stateDBPath: stateDBPath,
+                snapshotPrefix: "cmux-hermes-agent-search"
+            ) { db in
                 try loadSessions(
                     db: db,
                     needle: needle,
@@ -127,6 +116,7 @@ public enum HermesAgentIndex {
                     limit: limit
                 )
             }
+            return result ?? HermesAgentIndexResult(sessions: [], errors: [])
         } catch {
             return HermesAgentIndexResult(
                 sessions: [],
@@ -141,14 +131,14 @@ public enum HermesAgentIndex {
         stateDBPath: String = Self.defaultStateDBPath()
     ) throws -> [HermesAgentTranscriptTurn] {
         guard limit > 0 else { return [] }
-        guard let snapshot = try makeSnapshot(stateDBPath: stateDBPath, prefix: "cmux-hermes-agent-preview") else {
-            throw HermesAgentIndexError.missingDatabase
-        }
-        defer { snapshot.remove() }
-
-        return try withDatabase(snapshot.databaseURL.path) { db in
+        let turns = try withStateDatabase(
+            stateDBPath: stateDBPath,
+            snapshotPrefix: "cmux-hermes-agent-preview"
+        ) { db in
             try loadTranscript(db: db, sessionId: sessionId, limit: limit)
         }
+        guard let turns else { throw HermesAgentIndexError.missingDatabase }
+        return turns
     }
 
     private static func loadSessions(
@@ -319,12 +309,36 @@ public enum HermesAgentIndex {
         return turns
     }
 
+    /// Runs a synchronous read against Hermes's `state.db`.
+    ///
+    /// - Returns: The body's result, or `nil` when the database doesn't exist.
+    static func withStateDatabase<T>(
+        stateDBPath: String,
+        snapshotPrefix: String,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        _ body: (OpaquePointer) throws -> T
+    ) throws -> T? {
+        guard let snapshot = try makeSnapshot(
+            stateDBPath: stateDBPath,
+            prefix: snapshotPrefix,
+            in: temporaryDirectory
+        ) else {
+            return nil
+        }
+        defer { snapshot.remove() }
+        return try withDatabase(snapshot.databaseURL.path, body)
+    }
+
     /// Copies a Hermes database and any WAL sidecars into a private directory.
-    static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
+    static func makeSnapshot(
+        stateDBPath: String,
+        prefix: String,
+        in temporaryDirectory: URL
+    ) throws -> HermesAgentDatabaseSnapshot? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
 
-        let snapshotDir = fileManager.temporaryDirectory
+        let snapshotDir = temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
 
