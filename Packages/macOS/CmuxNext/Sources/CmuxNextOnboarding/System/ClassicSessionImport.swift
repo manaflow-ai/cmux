@@ -97,7 +97,9 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         let cwd = Self.directory(value)
         let panels = (value["panels"] as? [[String: Any]]) ?? []
         let panelEntries = panels.compactMap { panel -> (String, ClassicSessionTab)? in
-            guard let id = panel["id"] as? String else { return nil }
+            // Only terminals come over: a browser or markdown panel has nothing
+            // a terminal could stand in for. Old snapshots name no type.
+            guard let id = panel["id"] as? String, (panel["type"] as? String ?? "terminal") == "terminal" else { return nil }
             let terminal = panel["terminal"] as? [String: Any]
             return (id, ClassicSessionTab(workingDirectory: terminal?["workingDirectory"] as? String
                                           ?? terminal?["working_directory"] as? String
@@ -168,6 +170,9 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             let ratio = max(0.05, min(0.95, split["dividerPosition"] as? Double ?? split["ratio"] as? Double ?? 0.5))
             let first = layout(split["first"] as? [String: Any] ?? [:], panels: panels)
             let second = layout(split["second"] as? [String: Any] ?? [:], panels: panels)
+            // A side with no terminal left closes up; the other takes its space.
+            if case .pane(let pane) = second, pane.tabs.isEmpty { return first }
+            if case .pane(let pane) = first, pane.tabs.isEmpty { return second }
             return .split(orientation: orientation, ratio: ratio, first: first, second: second)
         }
         let pane = value["pane"] as? [String: Any] ?? value

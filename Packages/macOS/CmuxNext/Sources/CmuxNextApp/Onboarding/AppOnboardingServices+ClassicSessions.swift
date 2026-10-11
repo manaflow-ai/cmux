@@ -18,7 +18,8 @@ extension AppOnboardingServices {
         let machines = services.machines, logger = services.daemon.logger
         var opened = 0
         var lastError: (any Error)?
-        for saved in workspaces {
+        // A workspace that held only browsers has no terminal to bring.
+        for saved in workspaces where !classicTabs(saved.layout).isEmpty {
             do {
                 // Recreated in their saved order: each one after the last loose row. An
                 // explicit slot, because the daemon itself puts a new workspace at the
