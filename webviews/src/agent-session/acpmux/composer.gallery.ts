@@ -428,6 +428,42 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "slash-menu-keyboard": {
+      note: "Play: ArrowDown moves the slash-command highlight, Enter picks it, and focus stays in the prompt.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => {
+          const active = ctx.find(prompt).getAttribute("aria-activedescendant");
+          return Boolean(active && ctx.document.getElementById(active));
+        });
+        const before = ctx.find(prompt).getAttribute("aria-activedescendant");
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => {
+          const active = ctx.find(prompt).getAttribute("aria-activedescendant");
+          const option = active ? ctx.document.getElementById(active) : null;
+          return Boolean(active && active !== before && option?.getAttribute("aria-selected") === "true");
+        });
+        const active = ctx.find(prompt).getAttribute("aria-activedescendant");
+        const selected = active ? ctx.document.getElementById(active)?.querySelector(".acpmux-slash-name") : null;
+        const command = selected?.textContent?.trim();
+        if (!command) throw new Error("slash command highlight has no command label");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("slash command pick lost prompt focus");
+        if (!ctx.find(prompt).textContent?.includes(`${command} `))
+          throw new Error("slash command pick did not update prompt");
+      },
+    },
     "slash-fork": {
       note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
