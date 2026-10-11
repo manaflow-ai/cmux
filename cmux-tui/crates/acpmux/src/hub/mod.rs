@@ -61,6 +61,7 @@ pub mod rules;
 mod transfer;
 mod transfer_in;
 mod transfer_out;
+mod transfer_watch;
 mod turns;
 mod warm;
 mod xai;
@@ -271,6 +272,8 @@ pub struct Hub {
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// How long a move may go without its client (`transfer_watch.rs`).
+    pub(super) transfer_lease: StdMutex<std::time::Duration>,
 }
 
 impl Hub {
@@ -321,6 +324,7 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
