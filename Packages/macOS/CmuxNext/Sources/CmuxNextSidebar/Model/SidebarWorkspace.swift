@@ -116,6 +116,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []
+    /// What agents and scripts reported (`cmux workspace status|log|progress`)
+    /// beyond the ports and pr entries: the row's status block. Nil when
+    /// nothing is reported.
+    public var reported: SidebarWorkspaceStatus?
 
     public init(
         id: WorkspaceID,
