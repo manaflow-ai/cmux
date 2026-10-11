@@ -12,12 +12,14 @@
   display: grid;
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 
 .disclosure-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
-  font-size: 14px;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
   font-weight: 600;
 }
 
@@ -37,7 +39,8 @@
   min-height: 36px;
   padding: 0 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   font-weight: 600;
   text-align: start;
 }
@@ -65,7 +68,8 @@
   gap: 12px;
   padding: 2px 12px 14px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 
 .disclosure-gallery-panel p {
@@ -79,11 +83,13 @@
   border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
   border-radius: 6px;
   color: var(--cmux-text, CanvasText);
-  font-size: 12px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 
 .disclosure-gallery-receipt {
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 12px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
