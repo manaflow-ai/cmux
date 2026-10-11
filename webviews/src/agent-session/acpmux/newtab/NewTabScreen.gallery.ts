@@ -104,6 +104,22 @@ export default agentPaneEntry({
           const row = ctx.document.querySelector(".nt-all-item:not(.is-loader)")?.getBoundingClientRect();
           return !!list && !!box && !!row && row.top >= list.top - 1 && row.top >= box.bottom;
         });
+        // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
+        // within the scroller, below the field. The scroll is a measured step, so the play reports.
+        await ctx.scroll({ selector: ".nt-all-scroll" }, "bottom");
+        const list = ctx.document.querySelector(".nt-all-scroll")!.getBoundingClientRect();
+        const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
+        if (rows.length === 0) throw new Error("All chats drew no rows");
+        // A row outside the scroller's box must be clipped: the point at its center shows
+        // something else (the field, a card), never a row.
+        const outside = rows.filter((row) => {
+          const rect = row.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const within = y >= list.top && y <= list.bottom && x >= list.left && x <= list.right;
+          return !within && !!ctx.document.elementFromPoint(x, y)?.closest(".nt-all-item");
+        });
+        if (outside.length) throw new Error(`${outside.length} All chats rows draw outside the list`);
       },
     },
     "long-title": {
