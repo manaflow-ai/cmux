@@ -1019,6 +1019,7 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
             client_msg_id: key.to_owned(),
             parts: vec![Part::Text { text, runs: None }],
             reply_to: None,
+            thread_root: None,
         },
         rate_retried: false,
         not_before: None,
