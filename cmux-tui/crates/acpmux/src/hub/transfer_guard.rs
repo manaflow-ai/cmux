@@ -29,6 +29,14 @@ fn guard_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
+/// A guarded import (`transfer.rs` `import_into`): the guard, and whether the chat's agent file
+/// replaces its moved-away copy's.
+#[derive(Clone, Copy)]
+pub(super) struct GuardedImport<'a> {
+    pub(super) guard: &'a Guard,
+    pub(super) replace_native: bool,
+}
+
 /// A receive's guard.
 pub(super) struct Guard {
     pub(super) control: Control,
@@ -255,14 +263,18 @@ impl Hub {
     /// family from this daemon's profile; no policy is `ask`, and under `web` its policy,
     /// rules, mode and options asking; no preset, session env, store roots, argv or tags, and a remote origin (no
     /// preset args, no cmux MCP servers); a model only when the profile declares it; a Claude
-    /// profile only when configured; and its agent store files exactly its session's.
+    /// profile only when configured; and its agent store files exactly its session's. It keeps
+    /// its agent session only with its file, which must not be here already unless it is the
+    /// session of the chat's own moved-away copy (`replaceable`). Answers the chat and whether
+    /// its file replaces that copy's.
     pub(super) async fn guard_session(
         &self,
         bundle: &Path,
         guard: &Guard,
         cwd: Option<&str>,
         from: &Value,
-    ) -> Result<SessionMeta, RpcError> {
+        replaceable: Option<&str>,
+    ) -> Result<(SessionMeta, bool), RpcError> {
         if !serde_json::to_vec(from).is_ok_and(|f| f.len() <= MAX_FROM) {
             return Err(guard_error("from", format!("from is over {MAX_FROM} bytes")));
         }
@@ -326,24 +338,46 @@ impl Hub {
                 format!("agent session id {sid:?} is not a plain id"),
             ));
         }
-        crate::native::guarded_plan(bundle, &meta).map_err(|e| guard_error("native", e))?;
+        let plan =
+            crate::native::guarded_plan(bundle, &meta).map_err(|e| guard_error("native", e))?;
+        // The chat resumes only an agent session it brings: with no file of it, its agent starts
+        // fresh (with its acpmux history), never on a session that happens to be here.
+        if plan.is_empty() {
+            meta.agent_session_id = None;
+        }
+        // One that is here already is another chat's, or this chat's from before it moved away:
+        // only the latter gives way.
+        let home = dirs::home_dir().unwrap_or_default();
+        let taken = plan.iter().any(|(_, rel)| std::fs::symlink_metadata(home.join(rel)).is_ok());
+        let own = replaceable.is_some() && replaceable == meta.agent_session_id.as_deref();
+        if taken && !own {
+            return Err(guard_error(
+                "session",
+                "the chat's agent session is here already and is not this chat's",
+            ));
+        }
         let written = serde_json::to_vec_pretty(&meta)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| Ok(std::fs::write(&path, bytes)?));
         written.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
-        Ok(meta)
+        Ok((meta, taken))
     }
 
     /// A web-guarded chat's mode, and every option that is not a model or effort choice, must be
     /// one this daemon's table lists as asking for its family, never of a family the Web does not
-    /// drive.
+    /// drive. A chat of a family with asking modes must have a recorded mode: a Web prompt for a
+    /// chat with none passes dispatch on its policy (`session_asks_now`), and its agent could
+    /// start in a mode that does not ask.
     fn web_guard_modes(&self, meta: &SessionMeta) -> Result<(), RpcError> {
         let table = self.web_modes();
         let family = crate::web_modes::family_of(meta);
         let listed = |mode: &str| table.modes(&family).iter().any(|m| m == mode);
         let mode = crate::web_modes::mode_of(meta);
         let refused = table.refused().contains(&family);
-        if refused || mode.as_deref().is_some_and(|m| !listed(m)) {
+        // Dispatch takes a Web prompt for a chat with no recorded mode on its policy alone
+        // (`remote_floor.rs` `session_asks_now`), so a family with asking modes must name one.
+        let unnamed = table.modes(&family).is_empty();
+        if refused || mode.as_deref().map_or(!unnamed, |m| !listed(m)) {
             let shown = mode.as_deref().unwrap_or("(none)");
             return Err(guard_error(
                 "mode",

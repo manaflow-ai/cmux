@@ -170,8 +170,16 @@ impl Hub {
             }
         }
         let from = params.get("from").cloned().unwrap_or(Value::Null);
+        // Back where it once moved from: its closed copy gives way (below).
+        let id = manifest["sessionId"].as_str().unwrap_or("");
+        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let old = old.filter(|s| self.moved_away(s));
+        let mut replace_native = false;
         if let Some(g) = &guard {
-            let meta = self.guard_session(&bundle, g, text("cwd"), &from).await?;
+            let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
+            let (meta, replace) =
+                self.guard_session(&bundle, g, text("cwd"), &from, replaceable.as_deref()).await?;
+            replace_native = replace;
             // The chat it imports is the one the receive was refused or allowed for.
             if Some(meta.id.as_str()) != manifest["sessionId"].as_str() {
                 return Err(transfer_error("schema", "session.json names another chat"));
@@ -189,10 +197,7 @@ impl Hub {
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
-        // Back where it once moved from: its closed copy gives way.
-        let id = manifest["sessionId"].as_str().unwrap_or("");
-        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
-        if let Some(old) = old.filter(|s| self.moved_away(s)) {
+        if let Some(old) = old {
             // A guarded move never replaces a copy from a folder outside its roots.
             if let Some(g) = &guard
                 && g.folder(&old.meta().cwd.to_string_lossy()).await.is_none()
@@ -214,7 +219,10 @@ impl Hub {
             self.kill(&old, true).await?;
         }
         let name = text("name").map(str::to_owned);
-        let session = self.import_into(&bundle, name, true, guard.as_ref()).await?;
+        let guarded = guard
+            .as_ref()
+            .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
+        let session = self.import_into(&bundle, name, true, guarded).await?;
         if let Some(g) = &guard {
             self.append(&session, "mux", "transfer_guarded", g.to_value());
         }

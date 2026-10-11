@@ -220,35 +220,62 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
     }
 }
 
-/// Copies a [`guarded_plan`] under the home directory, never over an existing file, without
-/// the records that set the agent's permission mode ([`without_mode`]). Returns the number of
-/// files restored.
-pub fn restore_guarded(plan: &[(PathBuf, PathBuf)]) -> Result<usize> {
-    use std::io::Write;
+/// Copies a [`guarded_plan`] under the home directory without the records that set the agent's
+/// permission mode ([`without_mode`]). Each file is written to a part file beside its target and
+/// then put in place: linked, so an existing file is never overwritten, or with `replace` (the
+/// chat's own moved-away copy, `hub/transfer_guard.rs`) renamed over it. Any failure removes the
+/// part file and the files this call created, and is returned. Returns the number restored.
+pub fn restore_guarded(plan: &[(PathBuf, PathBuf)], replace: bool) -> Result<usize> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home directory"))?;
-    let mut n = 0;
+    let mut created: Vec<PathBuf> = Vec::new();
     for (src, rel) in plan {
         let target = home.join(rel);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let text = std::fs::read(src)?;
-        let file = match std::fs::OpenOptions::new().write(true).create_new(true).open(&target) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.into()),
-        };
-        let mut out = std::io::BufWriter::new(file);
-        for line in text.split(|b| *b == b'\n') {
-            if let Some(kept) = without_mode(line) {
-                out.write_all(&kept)?;
-                out.write_all(b"\n")?;
+        if let Err(e) = restore_one(src, &target, replace) {
+            if !replace {
+                for done in &created {
+                    let _ = std::fs::remove_file(done);
+                }
             }
+            return Err(e.context(format!("restore {}", rel.display())));
         }
-        out.flush()?;
-        n += 1;
+        created.push(target);
     }
-    Ok(n)
+    Ok(created.len())
+}
+
+fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
+    let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    std::fs::create_dir_all(parent)?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
+    let placed = write_without_mode(src, &part).and_then(|()| {
+        if replace {
+            std::fs::rename(&part, target)?;
+        } else {
+            std::fs::hard_link(&part, target)?;
+            std::fs::remove_file(&part)?;
+        }
+        Ok(())
+    });
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    placed
+}
+
+fn write_without_mode(src: &Path, dest: &Path) -> Result<()> {
+    use std::io::Write;
+    let text = std::fs::read(src)?;
+    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+    let mut out = std::io::BufWriter::new(file);
+    for line in text.split(|b| *b == b'\n') {
+        if let Some(kept) = without_mode(line) {
+            out.write_all(&kept)?;
+            out.write_all(b"\n")?;
+        }
+    }
+    out.flush()?;
+    Ok(())
 }
 
 /// One agent store line as a guarded move restores it. A resumed agent can take its permission

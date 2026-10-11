@@ -97,7 +97,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
         live: bool,
-        guard: Option<&super::transfer_guard::Guard>,
+        guarded: Option<super::transfer_guard::GuardedImport<'_>>,
     ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -151,19 +151,30 @@ impl Hub {
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
-        let last = match self.copy_bundle_events(bundle, &meta.id, guard.map(|g| g.control)) {
+        let last = match self.copy_bundle_events(bundle, &meta.id, guarded.map(|g| g.guard.control))
+        {
             Ok(last) => last,
             Err(e) => {
                 let _ = self.store.delete(&meta.id);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
-        let restored = match guard {
+        let restored = match guarded {
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
-            Some(_) => crate::native::guarded_plan(bundle, &meta)
-                .map_err(anyhow::Error::msg)
-                .and_then(|plan| crate::native::restore_guarded(&plan))
-                .unwrap_or_default(),
+            // A guarded chat keeps its agent session only with its file: a failed restore fails
+            // the import, like its events.
+            Some(g) => {
+                let restored = crate::native::guarded_plan(bundle, &meta)
+                    .map_err(anyhow::Error::msg)
+                    .and_then(|plan| crate::native::restore_guarded(&plan, g.replace_native));
+                match restored {
+                    Ok(n) => n,
+                    Err(e) => {
+                        let _ = self.store.delete(&meta.id);
+                        return Err(RpcError::new(-32000, format!("transfer.native: {e:#}")));
+                    }
+                }
+            }
         };
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
