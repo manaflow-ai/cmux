@@ -36,6 +36,8 @@ public struct SidebarDebugRow: Sendable {
     public var disclosureIcon: String? = nil
     public var disclosureFrame: CGRect? = nil
     public var disclosureShown: Bool = false
+    /// The row's second line as its content draws it (`WorkspaceRowContent.detail`).
+    public var detail: String? = nil
 
     /// The row with what its view draws now: its fill, hover and disclosure.
     func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
@@ -136,7 +138,8 @@ extension SidebarView {
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue).drawn(by: view)
+                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
+                                   detail: row.content?.detail).drawn(by: view)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

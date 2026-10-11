@@ -61,6 +61,11 @@ enum ClassicSettingRename {
         Entry(classic: ["sidebar", "showBranchDirectory"], next: ["sidebar", "workspaceRow", "directory"], transform: identity),
         Entry(classic: ["sidebar", "showBranchDirectory"], next: ["sidebar", "workspaceRow", "branch"], transform: identity),
         Entry(classic: ["sidebar", "showAgentActivity"], next: ["sidebar", "workspaceRow", "working"], transform: identity),
+        Entry(classic: ["sidebar", "showNotificationMessage"], next: ["sidebar", "workspaceRow", "notification"], transform: identity),
+        // Next moves a workspace only for a notification; agentActivity's extra moves are not ported.
+        Entry(classic: ["app", "reorderOnNotification"], next: ["notifications", "attention", "moveToTop"],
+              transform: map(["true": .bool(true), "false": .bool(false), "off": .bool(false),
+                              "notifications": .bool(true), "agentActivity": .bool(true)])),
     ]
 }
 

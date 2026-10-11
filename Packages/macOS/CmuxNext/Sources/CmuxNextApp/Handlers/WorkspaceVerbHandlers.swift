@@ -137,11 +137,19 @@ enum WorkspaceVerbHandlers {
     /// the sidebar's optimistic update.
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
         let workspace = try context.workspace(invocation).model
-        let bridge = try sidebar(showing: workspace, context)
-        guard let machine = context.services.machines.daemon(forWorkspace: workspace.id)?.machineID,
-              let position = slot(workspace).position(moving: [workspace.id], section: .machine(MachineID(machine)), in: bridge.model.sections)
+        guard place(workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
         else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
+    }
+
+    /// Moves `workspace` to `slot` in `bridge`'s sidebar, as the Move
+    /// Workspace verbs do; false when that sidebar does not list it.
+    @discardableResult
+    static func place(_ workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge, services: AppServices) -> Bool {
+        guard let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID,
+              let position = slot.position(moving: [workspace.id], section: .machine(MachineID(machine)), in: bridge.model.sections)
+        else { return false }
         bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position))
+        return true
     }
 
     /// The sidebar of the window that lists `workspace`, else the active one.

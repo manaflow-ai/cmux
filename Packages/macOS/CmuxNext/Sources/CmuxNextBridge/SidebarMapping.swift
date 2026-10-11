@@ -39,7 +39,8 @@ public struct SidebarMapping {
                                 statusLine: (String) -> String? = { _ in nil },
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
-                                pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil }) -> [SidebarRowSection] {
+                                pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                                notificationText: (TabModel) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -47,7 +48,8 @@ public struct SidebarMapping {
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
                 .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
-                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace) }
+                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace,
+                           notificationText: notificationText) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -71,10 +73,12 @@ public struct SidebarMapping {
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
     /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page,
     /// listed as `newTabTitle` when it is not empty.
-    /// `muted`: the workspace is in `notifications.mutedWorkspaces`.
+    /// `muted`: the workspace is in `notifications.mutedWorkspaces`. `notificationText` is the
+    /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
-                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil }) -> SidebarWorkspace {
+                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                    notificationText: (TabModel) -> String? = { _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
@@ -122,6 +126,7 @@ public struct SidebarMapping {
         )
         row.presence = presence(tabs)
         row.lastMessage = lastMessage(front, tabs)
+        if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status)
         return row
     }
@@ -147,6 +152,11 @@ public struct SidebarMapping {
     /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
         agentTab(tabs)?.agentBrand
+    }
+
+    /// The tab whose unread notification is the newest (daemon ids grow).
+    func newestUnread(_ tabs: [TabModel]) -> TabModel? {
+        tabs.filter(\.hasUnread).max { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }
     }
 
     /// The last message of the row's agent chat: the front tab's, else the first chat tab's.
