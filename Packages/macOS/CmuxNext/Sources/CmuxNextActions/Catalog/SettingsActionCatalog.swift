@@ -87,7 +87,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 // Another app's `cmux` at /usr/local/bin is never replaced
                 // silently: `--replace` replaces it, `--cmux_next` installs
                 // /usr/local/bin/cmux-next beside it; without either the app
-                // asks.
+                // installs cmux-next beside it and its toast offers Replace.
                 arguments: [
                     ActionArgument(name: "replace",
                                    title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
