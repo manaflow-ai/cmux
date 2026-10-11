@@ -150,8 +150,8 @@ enum NewTabPage {
 
     /// The page a new tab shows beside `selected`: its folder inherited and
     /// the location bar's suggestions, with the field empty.
-    /// `window` is where the page shows (the active one when nil): its dots' last pick comes
-    /// first, then the saved `tabs.newTabTemplate` (cx-l1jv).
+    /// `window` is where the page shows (the active one when nil; a panel counts as the window
+    /// that owns it): its dots' last pick comes first, then the saved `tabs.newTabTemplate` (cx-l1jv).
     static func page(_ services: AppServices, selected: TabModel?, window: NSWindow? = nil) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
@@ -168,7 +168,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
             home: machine.home, tools: tools(services, targetID: selected?.id),
-            template: (services.newTabChoices.template(in: window ?? services.windows.active?.window)
+            template: (services.newTabChoices.template(in: (window.flatMap(services.windows.owner(of:)) ?? services.windows.active)?.window)
                 ?? services.settings?.snapshot.newTabTemplate)?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
