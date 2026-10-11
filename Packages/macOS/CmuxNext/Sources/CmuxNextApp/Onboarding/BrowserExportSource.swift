@@ -18,6 +18,8 @@ nonisolated struct BrowserExportSource: Decodable, Equatable, Sendable {
     let passwords: String?
     /// The page that exports bookmarks (Chromium browsers).
     let bookmarks: String?
+    /// Where its history exports (Chrome: Google Takeout).
+    let history: String?
 
     /// The bundled rows, in the order the picker lists them; empty when the file is missing.
     static let all: [BrowserExportSource] = {
