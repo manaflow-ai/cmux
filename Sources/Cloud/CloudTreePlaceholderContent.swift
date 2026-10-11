@@ -50,9 +50,5 @@ struct CloudTreePlaceholderContent: View {
             Spacer(minLength: 0)
         }
         .padding(.trailing, style.rowGrid.trailingPadding)
-        // An empty section's line ("No cloud machines yet") hugs its header
-        // like "No devices yet" does; its smaller text otherwise reads as a
-        // gap under the header.
-        .offset(y: placeholder.style == .empty ? -GlobalFontMagnification.scaledSize(5, percent: magnification) : 0)
     }
 }

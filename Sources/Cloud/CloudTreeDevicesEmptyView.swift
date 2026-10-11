@@ -12,15 +12,9 @@ struct CloudTreeDevicesEmptyView: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @State private var hoveredAction: String?
 
-    /// The empty title sits this much closer to the My Devices header: its
-    /// line is shorter and skips the inset above, since its smaller text
-    /// otherwise reads as a gap under the header.
-    static let emptyTitleLift: CGFloat = 4
-
-    /// One row height per inline row, plus the 2 pt inset above and below,
-    /// less the lift when the empty title leads.
+    /// One row height per inline row, plus the 2 pt inset above and below.
     static func rowHeight(for section: CloudTreeDevicesSection, style: CloudTreeStyle) -> CGFloat {
-        CGFloat(section.inlineRowCount) * style.rowHeight + 4 - (section.count == 0 ? emptyTitleLift : 0)
+        CGFloat(section.inlineRowCount) * style.rowHeight + 4
     }
 
     var body: some View {
@@ -31,9 +25,7 @@ struct CloudTreeDevicesEmptyView: View {
                     .foregroundStyle(.secondary)
                     .padding(.leading, scaled(textInset))
                     .padding(.trailing, scaled(style.rowGrid.trailingPadding))
-                    .frame(height: scaled(style.rowHeight - (Self.emptyTitleLift - 2)))
-                    // Its smaller text still reads low in the shortened line.
-                    .offset(y: -scaled(2))
+                    .frame(height: scaled(style.rowHeight))
             }
             actionRow(
                 section.discoveryControl,
@@ -51,8 +43,7 @@ struct CloudTreeDevicesEmptyView: View {
             }
         }
         .lineLimit(1)
-        .padding(.top, scaled(section.count == 0 ? 0 : 2))
-        .padding(.bottom, scaled(2))
+        .padding(.vertical, scaled(2))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
