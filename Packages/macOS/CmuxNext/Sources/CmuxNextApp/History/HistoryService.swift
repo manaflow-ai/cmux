@@ -38,8 +38,6 @@ final class HistoryService {
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
-        // Closed workspaces are seen only from now on: start watching.
-        _ = services.closedWorkspaces
     }
 
     // MARK: Pages
@@ -124,24 +122,9 @@ final class HistoryService {
         }
     }
 
+    /// Closed tabs, screens and workspaces, as the daemons record them
+    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9).
     func closedEntries() -> [HistoryEntry] {
-        closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries() + daemonClosedEntries()
-    }
-
-    /// A daemon closed item's title and detail line. A page tab (a diff,
-    /// Settings) is named by its page and has no address to show: its
-    /// `url` is the `about:blank` placeholder (cx-h7y9).
-    static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
-        let tab = item.tabs.first
-        let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
-        let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? item.name ?? tab?.name ?? page ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
-        return (title, page == nil ? tab?.url ?? tab?.cwd : nil)
-    }
-
-    /// Closed tabs, screens and workspaces a daemon records
-    /// (`closed-history-v1`); the app's own trackers skip those daemons.
-    private func daemonClosedEntries() -> [HistoryEntry] {
         DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services).map { entry in
             let item = entry.item, tab = item.tabs.first
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
@@ -160,39 +143,15 @@ final class HistoryService {
         }
     }
 
-    private func closedScreenEntries() -> [HistoryEntry] {
-        services.closedScreens.records.map { record in
-            let title = record.spec.name.flatMap { $0.isEmpty ? nil : $0 } ?? HistoryAppStrings.screenTitle(record.index + 1)
-            let item = ClosedItem(id: record.id, kind: .screen, title: title, machine: "", workspace: record.workspaceTitle,
-                                  cwd: record.cwd)
-            return HistoryEntry(id: "closed:screen:\(record.id)", kind: .closed, time: record.closedAt, title: title,
-                                detail: record.workspaceTitle, isAvailable: services.workspace(id: record.workspaceID) != nil,
-                                payload: .closed(item))
-        }
-    }
-
-    private func closedWorkspaceEntries() -> [HistoryEntry] {
-        services.closedWorkspaces.records.map { record in
-            let item = ClosedItem(id: record.id, kind: .workspace, title: record.name, machine: record.machine, cwd: record.cwd)
-            let local = record.machine == MachineRegistry.localID
-            return HistoryEntry(id: "closed:workspace:\(record.id)", kind: .closed, time: record.closedAt, title: record.name,
-                                detail: record.cwd, machineName: local ? nil : record.machine,
-                                isAvailable: services.machines.daemons.contains { $0.machineID == record.machine }, payload: .closed(item))
-        }
-    }
-
-    private func closedTabEntries() -> [HistoryEntry] {
-        guard let closed = services.closedTabs else { return [] }
-        return closed.records.map { record in
-            let split = ClosedTabTracker.split(record.tabID)
-            let item = ClosedItem(id: record.tabID, kind: record.kind == .browser ? .browserTab : .terminalTab,
-                                  title: record.title ?? record.url ?? record.cwd ?? Strings.untitledTerminal,
-                                  machine: split?.machine ?? "", workspace: ClosedTabTracker.split(record.workspaceID)?.id,
-                                  cwd: record.cwd, url: record.url)
-            return HistoryEntry(id: "closed:\(record.tabID)", kind: .closed, time: record.closedAt ?? .distantPast, title: item.title,
-                                detail: record.url ?? record.cwd,
-                                machineName: split?.machine == MachineRegistry.localID ? nil : split?.machine, payload: .closed(item))
-        }
+    /// A daemon closed item's title and detail line. A page tab (a diff,
+    /// Settings) is named by its page and has no address to show: its
+    /// `url` is the `about:blank` placeholder (cx-h7y9).
+    static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
+        let tab = item.tabs.first
+        let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
+        let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
+            ?? item.name ?? tab?.name ?? page ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+        return (title, page == nil ? tab?.url ?? tab?.cwd : nil)
     }
 
     // MARK: Clearing
@@ -209,11 +168,7 @@ final class HistoryService {
             }
         }
         if wants(.location) { services.locationTrail.clear(since: since) }
-        if wants(.closed) {
-            services.closedTabs?.clear(since: since)
-            services.closedScreens.clear(since: since)
-            services.closedWorkspaces.clear(since: since)
-        }
+        if wants(.closed) { DaemonClosedHistory.clear(since: since, services: services) }
         if wants(.agent) { agents.hide(since: since) }
         if wants(.command) { commands.hide(since: since) }
         onChange?()
@@ -236,13 +191,10 @@ final class HistoryService {
         case .location(let location, _):
             services.locationTrail.remove(location.key)
         case .closed(let item):
-            // The daemon owns its closed history; the entry ages out there.
-            guard DaemonClosedHistory.daemonID(fromHistoryID: item.id) == nil else { break }
-            switch item.kind {
-            case .terminalTab, .browserTab: _ = services.closedTabs?.take(item.id)
-            case .screen: _ = services.closedScreens.take(id: item.id)
-            case .workspace: services.closedWorkspaces.discard(item.id)
-            }
+            // Delete Permanently on the daemon that owns it.
+            guard let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id),
+                  let entry = DaemonClosedHistory.entry(id, in: services) else { break }
+            DaemonClosedHistory.delete(entry, services: services)
         case .agent(let session):
             agents.hide(session)
         case .command(let command):

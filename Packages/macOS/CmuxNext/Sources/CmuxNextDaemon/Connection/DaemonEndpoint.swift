@@ -271,6 +271,13 @@ public struct DaemonCapabilities: Sendable {
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
     public let terminalClipboardRead = "terminal-clipboard-read-v1"
+    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
+    /// `ClientHello.originClaimCapability`).
+    public let originClaim = "origin-claim-v1"
+    /// `read-session-journal` for agent history (`AgentHistory`).
+    public let sessionJournal = "session-journal-v1"
+    /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
+    public let terminalResources = "terminal-resources-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -289,7 +296,8 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
+                                            originClaim, sessionJournal, terminalResources] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
