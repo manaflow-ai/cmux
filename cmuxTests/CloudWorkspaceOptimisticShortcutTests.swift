@@ -119,7 +119,10 @@ struct CloudWorkspaceOptimisticShortcutTests {
                 && !$0.cloudPendingCreations.isEmpty
         })
         let reservation = try #require(pending.cloudPendingCreations.values.first)
-        let shouldSelect = navigation == "stay" || navigation == "afterAdmission"
+        // The reservation is admitted and selected before provider lookup, so
+        // a slow provider with no navigation behaves like "stay".
+        let keepsSelection = navigation == "stay" || navigation == "providerDelay"
+        let shouldSelect = keepsSelection || navigation == "afterAdmission"
         let previous = navigation == "beforeResolution" || navigation == "beforeProvider" ? other.id : original.id
         #expect(fixture.provider.createdWorkspaces.isEmpty, "The remote response is still held open")
         #expect(manager.selectedTabId == (shouldSelect ? pending.id : previous))
@@ -143,7 +146,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
         #expect(manager.tabs.count == 3, "Reconciliation adopts the same workspace")
         #expect(manager.selectedTabId == (navigation == "afterAdmission" ? other.id : shouldSelect ? pending.id : previous))
         let reveal = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager))
-        #expect(reveal.isWithdrawn == (navigation != "stay"))
+        #expect(reveal.isWithdrawn == !keepsSelection)
     }
 
     @Test("An optimistic Cmd-Y failure retains a retry pane; cancellation removes its reservation",
