@@ -59,6 +59,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        do {
+            nonisolated(unsafe) var turn = 0
+            let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, activity in
+                guard turn < 60 else { return }
+                turn += 1
+                DebugTimings.markLaunch("diag.rl.\(turn).\(activity == .beforeWaiting ? "sleep" : "wake")")
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
