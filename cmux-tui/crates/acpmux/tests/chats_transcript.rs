@@ -1,0 +1,251 @@
+//! A chat with no ACP resume shows its past (cx-5esm): `_acpmux/chat_transcript {key}` reads the
+//! person's prompts and the assistant's answers from the harness's own store, on the local
+//! socket only (`chats.rs` websocket_origins_never_get_chats). Synthetic temp homes only.
+
+use acpmux::chats::ChatSources;
+use acpmux::config::{Config, StoreMode};
+use acpmux::hub::Hub;
+use acpmux::rpc::{Message, method};
+use acpmux::server::{Origin, serve_connection_with};
+use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+const DROID_ID: &str = "4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b";
+const CONTINUE_ID: &str = "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d";
+const AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+const CLAUDE_ID: &str = "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e";
+const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
+const BROKEN_AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d";
+
+struct Home(PathBuf);
+
+impl Drop for Home {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn home() -> Home {
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-transcript-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).expect("home");
+    Home(std::fs::canonicalize(&base).expect("canonical home"))
+}
+
+fn write(path: &Path, text: &str) {
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+    std::fs::write(path, text).expect("write");
+}
+
+/// A Droid chat: a tool round trip and an injected reminder inside it.
+fn droid(h: &Path, project: &Path) {
+    let lines = [
+        json!({"type": "session_start", "id": DROID_ID, "title": "Droid chat", "cwd": project}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:00:01Z", "message": {"role": "user", "content": [{"type": "text", "text": "Fix the build"}]}}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:00:05Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Looking."}, {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]}}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:00:06Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:00:09Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Fixed it."}]}}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:01:00Z", "message": {"role": "user", "content": "<system-reminder>context</system-reminder>"}}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:01:01Z", "message": {"role": "user", "content": "Thanks"}}),
+        json!({"type": "message", "timestamp": "2026-10-02T09:01:02Z", "message": {"role": "assistant", "content": "You're welcome."}}),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    write(&h.join(format!(".factory/sessions/-work-api/{DROID_ID}.jsonl")), &text);
+}
+
+fn continue_dev(h: &Path, project: &Path) {
+    let session = json!({"sessionId": CONTINUE_ID, "title": "Continue chat", "workspaceDirectory": project, "history": [
+        {"message": {"role": "user", "content": "Add a test"}},
+        {"message": {"role": "assistant", "content": "Added one."}},
+        {"message": {"role": "user", "content": "<div> renders wrong"}},
+        {"message": {"role": "assistant", "content": "Fixed the div."}},
+    ]});
+    write(&h.join(format!(".continue/sessions/{CONTINUE_ID}.json")), &session.to_string());
+}
+
+fn amp(h: &Path, project: &Path) {
+    let thread = json!({"v": 1, "id": AMP_ID, "created": 1_790_000_000_000_i64, "title": "Amp chat",
+    "env": {"initial": {"trees": [{"uri": format!("file://{}", project.display())}]}},
+    "messages": [
+        {"role": "user", "content": [{"type": "text", "text": "Rename x"}]},
+        {"role": "assistant", "content": [{"type": "thinking", "thinking": "hm"}, {"type": "text", "text": "Renamed."}]},
+    ]});
+    write(&h.join(format!(".local/share/amp/threads/{AMP_ID}.json")), &thread.to_string());
+}
+
+/// An Amp thread cut short mid-write: still listed (untitled), but not JSON.
+fn amp_broken(h: &Path) {
+    let text =
+        r#"{"v": 1, "id": "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d", "messages": [{"role": "us"#;
+    write(&h.join(format!(".local/share/amp/threads/{BROKEN_AMP_ID}.json")), text);
+}
+
+/// A Claude Code chat (one a client shows read-only before its first send when it cannot adopt).
+fn claude(h: &Path, project: &Path) {
+    let line = |kind: &str, content: Value, at: &str| {
+        json!({"type": kind, "isSidechain": false, "cwd": project, "sessionId": CLAUDE_ID,
+               "timestamp": at, "message": {"role": kind, "content": content}})
+    };
+    let lines = [
+        line("user", json!("Explain the parser"), "2026-10-02T09:00:00.000Z"),
+        line(
+            "assistant",
+            json!([{"type": "text", "text": "It reads lines."}]),
+            "2026-10-02T09:00:02.000Z",
+        ),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    write(&h.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl")), &text);
+}
+
+fn codex(h: &Path, project: &Path) {
+    let lines = [
+        json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": project, "timestamp": "2026-10-02T09:00:00Z"}}),
+        json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Bump the version"}}),
+        json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:03Z", "payload": {"type": "agent_message", "message": "Bumped to 1.2."}}),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    let name = format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl");
+    write(&h.join(".codex").join(name), &text);
+}
+
+async fn hub_on(h: &Path) -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({"harnesses": {}})).expect("config");
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).expect("store");
+    let hub = Hub::new(cfg, store);
+    let sources = ChatSources {
+        home: h.to_path_buf(),
+        acpmux_home: h.join(".acpmux"),
+        env: Arc::new(|_| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    };
+    hub.start_chats(sources).await.expect("chat index");
+    hub
+}
+
+/// A connection of `origin`; returns a call function's channel pair.
+async fn connect(hub: &Arc<Hub>, origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
+    let (tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
+    call(&tx, &mut rx, 1, method::INITIALIZE, hello).await;
+    (tx, rx)
+}
+
+async fn call(
+    tx: &mpsc::Sender<String>,
+    rx: &mut mpsc::Receiver<String>,
+    id: i64,
+    m: &str,
+    params: Value,
+) -> Value {
+    tx.send(Message::request(id, m, params).to_line()).await.expect("send");
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(20), rx.recv())
+            .await
+            .expect("answer in time")
+            .expect("connection open");
+        let v: Value = serde_json::from_str(&line).expect("json");
+        if v.get("id") == Some(&json!(id)) {
+            return v;
+        }
+    }
+}
+
+fn turns(answer: &Value) -> Vec<(String, String)> {
+    let rows = answer["result"]["turns"].as_array().unwrap_or_else(|| panic!("{answer}"));
+    rows.iter()
+        .map(|t| {
+            (t["prompt"].as_str().unwrap_or("").into(), t["answer"].as_str().unwrap_or("").into())
+        })
+        .collect()
+}
+
+fn pair(prompt: &str, answer: &str) -> (String, String) {
+    (prompt.into(), answer.into())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_socket_only() {
+    let h = home();
+    let project = h.0.join("work/api");
+    std::fs::create_dir_all(&project).expect("project");
+    droid(&h.0, &project);
+    continue_dev(&h.0, &project);
+    amp(&h.0, &project);
+    claude(&h.0, &project);
+    codex(&h.0, &project);
+    amp_broken(&h.0);
+    let hub = hub_on(&h.0).await;
+    let (tx, mut rx) = connect(&hub, Origin::Local).await;
+
+    // Tool calls, tool results and injected context are not the conversation.
+    let droid = call(
+        &tx,
+        &mut rx,
+        2,
+        "_acpmux/chat_transcript",
+        json!({"key": format!("droid:{DROID_ID}")}),
+    )
+    .await;
+    assert_eq!(
+        turns(&droid),
+        [pair("Fix the build", "Looking.\n\nFixed it."), pair("Thanks", "You're welcome.")]
+    );
+    assert_eq!(droid["result"]["title"], "Droid chat", "{droid}");
+    assert_eq!(droid["result"]["harness"], "droid");
+    assert!(droid["result"]["turns"][0]["promptAt"].is_u64(), "{droid}");
+
+    let cont = call(
+        &tx,
+        &mut rx,
+        3,
+        "_acpmux/chat_transcript",
+        json!({"key": format!("continue:{CONTINUE_ID}")}),
+    )
+    .await;
+    // A prompt that starts with markup is the person's own (only whole tag blocks are context).
+    assert_eq!(
+        turns(&cont),
+        [pair("Add a test", "Added one."), pair("<div> renders wrong", "Fixed the div.")]
+    );
+    let amp =
+        call(&tx, &mut rx, 4, "_acpmux/chat_transcript", json!({"key": format!("amp:{AMP_ID}")}))
+            .await;
+    assert_eq!(turns(&amp), [pair("Rename x", "Renamed.")]);
+
+    // Claude Code and Codex chats too (a chat that cannot adopt shows them before its first send).
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let claude = call(&tx, &mut rx, 6, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(turns(&claude), [pair("Explain the parser", "It reads lines.")]);
+    let key = format!("codex:{CODEX_ID}");
+    let codex = call(&tx, &mut rx, 7, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(turns(&codex), [pair("Bump the version", "Bumped to 1.2.")]);
+
+    // A chat whose file went bad or went away says so, never "no turns" or "too large".
+    let key = format!("amp:{BROKEN_AMP_ID}");
+    let broken = call(&tx, &mut rx, 8, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(broken["error"]["data"]["reason"], "transcript_unreadable", "{broken}");
+    std::fs::remove_file(h.0.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl")))
+        .expect("remove the claude chat");
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let gone = call(&tx, &mut rx, 9, "_acpmux/chat_transcript", json!({"key": key})).await;
+    // Unreadable, or not found once the index saw the file go.
+    let reason = &gone["error"]["data"]["reason"];
+    assert!(
+        gone["error"].is_object() && (reason.is_null() || reason == "transcript_unreadable"),
+        "{gone}"
+    );
+
+    let unknown =
+        call(&tx, &mut rx, 5, "_acpmux/chat_transcript", json!({"key": "droid:nope"})).await;
+    assert!(unknown["error"].is_object(), "{unknown}");
+    // Remote origins never read a chat's text (`chats.rs` websocket_origins_never_get_chats).
+}

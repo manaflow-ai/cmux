@@ -179,6 +179,11 @@ export function HarnessesCard() {
           {t("settingsWindow.harnesses.empty")}
         </div>
       )}
+      {harnesses?.loading && !harnesses.problem && harnesses.harnesses.length === 0 && (
+        <div className="row-help" data-harnesses-checking="">
+          {t("settingsPage.agents.checking")}
+        </div>
+      )}
       {harnesses && harnesses.harnesses.length > 0 && (
         <div className="rows">
           {harnesses.harnesses.map((row) => (

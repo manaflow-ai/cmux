@@ -93,7 +93,9 @@ impl Client {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn five_thousand_chats_one_change_is_one_numbered_delta() {
-    let base = std::env::temp_dir().join(format!("acpmux-deltas-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-deltas-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     let home = Home(std::fs::canonicalize(&base).unwrap());
     let projects = home.0.join(".claude/projects");

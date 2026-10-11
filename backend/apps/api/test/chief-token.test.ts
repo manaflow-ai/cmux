@@ -140,8 +140,23 @@ describe("chief tokens", { timeout: 60_000 }, () => {
       return answer()
     }
     expect(await firstFrame(`/v1/wire/conv/${conversation}`)).toMatchObject({ t: "snapshot" })
-    // Its wake queue socket (mux.ack needs a placed brain: chief-brain-socket-recheck.test.ts covers it).
+    // Its wake queue socket.
     expect(await firstFrame(`/v1/wire/mux/${chief.id}`)).toMatchObject({ t: "snapshot" })
     expect(seq).toBeGreaterThan(0)
+    // The brain acks its wakes with this token (optchat-chief brain/mux_ack.rs -> daemon cloud-mux-ack -> mux.ack, no origin).
+    // The MuxDO binding lands on UserDO's alarm; until then a refusal is expected, so retry with a fresh key (cx-59n8.17).
+    const ack = () => call("/v1/ops", tok, { op: "mux.ack", params: { agent: chief.id, conversation, seq }, idempotency_key: crypto.randomUUID() })
+    let acked = await ack()
+    for (let i = 0; i < 20 && !acked.json.ok; i++) {
+      await fireAlarm(userDO)
+      acked = await ack()
+    }
+    expect(acked.json.ok, JSON.stringify(acked.json)).toBe(true)
+    // Another user's install token that names this chief is never minted (auth); a token for another chief is refused here.
+    const b = await installFor("chief-tok-own-other")
+    const otherChief = (await op(b.session, "chief.create", { display_name: "Other" })).json.value
+    const otherTok = (await b.mint(otherChief.id)).json.access_token as string
+    const foreign = await call("/v1/ops", otherTok, { op: "mux.ack", params: { agent: chief.id, conversation, seq }, idempotency_key: crypto.randomUUID() })
+    expect(foreign.json.ok, JSON.stringify(foreign.json)).toBe(false)
   })
 })

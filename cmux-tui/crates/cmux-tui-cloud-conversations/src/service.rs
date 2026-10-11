@@ -444,6 +444,8 @@ impl CloudConversations {
     /// `cloud-mux-ack`: the brain handled the wakes of `conversation` up to
     /// `seq`. `mux.ack` for the lease's own chief; the idempotency key names
     /// the wake row (`<conversation>:<seq>`), so a repeated ack is a replay.
+    /// No `origin`: the Worker's origin schema has no agent value, and the
+    /// chief is the token's `agt` claim (cx-59n8.17).
     pub fn mux_ack(&self, conversation: &str, seq: u64) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         let agent = self.lease_agent()?;
@@ -451,7 +453,6 @@ impl CloudConversations {
             "op": "mux.ack",
             "params": {"agent": agent, "conversation": conversation, "seq": seq},
             "idempotency_key": format!("mux-ack:{conversation}:{seq}"),
-            "origin": "agent",
         });
         mutation_data(self.post("/v1/ops", &body)?)
     }
