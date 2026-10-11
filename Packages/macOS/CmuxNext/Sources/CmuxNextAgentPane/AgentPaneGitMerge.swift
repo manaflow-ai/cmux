@@ -29,7 +29,7 @@ extension AgentPaneGitPullRequest {
               local.status == 0, local.text.trimmingCharacters(in: .whitespacesAndNewlines) == head else {
             return .refused(mergeHeadMessage)
         }
-        let how = await method(cli, url: url)
+        let how = await method(gh: gh, in: folder, url: url)
         // By its url, so gh merges the pull request it just viewed and not another with that number.
         let merged = await cli(["pr", "merge", url, "--\(how)", "--match-head-commit", head])
         guard merged.status == 0 else { return .refused(message(merged)) }
@@ -41,10 +41,11 @@ extension AgentPaneGitPullRequest {
 
     /// The user's default merge method for the repository (`merge`, `squash` or `rebase`); `merge`
     /// when gh can't say.
-    private static func method(_ cli: ([String]) async -> AgentPaneGitProcess.Outcome, url: String) async -> String {
+    @concurrent private static func method(gh: String, in folder: String, url: String) async -> String {
         let parts = URL(string: url)?.path.split(separator: "/").map(String.init) ?? []
         guard let host = URL(string: url)?.host, parts.count >= 2 else { return "merge" }
-        let view = await cli(["repo", "view", "\(host)/\(parts[0])/\(parts[1])", "--json", "viewerDefaultMergeMethod"])
+        let view = await AgentPaneGitProcess.output(["repo", "view", "\(host)/\(parts[0])/\(parts[1])", "--json", "viewerDefaultMergeMethod"],
+                                                    executable: gh, directory: folder, timeout: networkTimeout, network: true)
         let method = (AgentPaneGitReviewThread.object(in: view.text)?["viewerDefaultMergeMethod"] as? String)?.lowercased()
         guard view.status == 0, let method, ["merge", "squash", "rebase"].contains(method) else { return "merge" }
         return method
