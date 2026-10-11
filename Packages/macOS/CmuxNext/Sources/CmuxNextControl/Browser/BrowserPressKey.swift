@@ -15,7 +15,7 @@ struct BrowserPressKey: Equatable, Sendable {
         if let named = Self.namedKeys[raw] {
             self = named
         } else if raw.utf16.count == 1, let unit = raw.utf16.first {
-            self.init(key: raw, code: "", legacyKeyCode: Int(unit))
+            self.init(key: raw, code: "", legacyKeyCode: Int(truncatingIfNeeded: unit))
         } else {
             self.init(key: raw, code: raw, legacyKeyCode: 0)
         }
@@ -176,14 +176,14 @@ struct BrowserPressKey: Equatable, Sendable {
             let event = BrowserPressKey(
                 key: lowercase,
                 code: "Key\(uppercase)",
-                legacyKeyCode: Int(scalar)
+                legacyKeyCode: Int(truncatingIfNeeded: scalar)
             )
             keys["Key\(uppercase)"] = event
             keys[lowercase] = event
             keys[uppercase] = .init(
                 key: uppercase,
                 code: "Key\(uppercase)",
-                legacyKeyCode: Int(scalar)
+                legacyKeyCode: Int(truncatingIfNeeded: scalar)
             )
         }
 
