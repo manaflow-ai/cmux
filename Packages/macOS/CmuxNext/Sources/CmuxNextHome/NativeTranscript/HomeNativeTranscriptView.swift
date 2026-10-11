@@ -142,6 +142,12 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarText = newValue }
     }
 
+    /// The header avatar's picture, over its text; nil shows the text.
+    public var avatarPicture: NSImage? {
+        get { transcript.avatarPicture }
+        set { transcript.avatarPicture = newValue }
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
