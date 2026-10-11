@@ -109,6 +109,8 @@ public final class AgentPaneModel {
     /// The workspace's agent-home folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a root once it
     /// exists, and where a new chat starts when the workspace has no folder (no other root).
     @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
+    /// Where this pane's new chat starts: the store's answer and its rules (cx-9aps).
+    @ObservationIgnored public let startFolders = AgentPaneStartFolders()
     /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
@@ -149,7 +151,7 @@ public final class AgentPaneModel {
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
-        transport.agentHome = { [weak self] in self?.workspaceAgentHome?() }
+        transport.agentHome = { [weak self] in self?.startFolders.answer?.agentHomeFill ?? self?.workspaceAgentHome?() }
         if let sessionId { transport.sessions.add(sessionId) }
         transport.requestModeConfirmation = { [weak self] asked, answer in
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
@@ -233,18 +235,13 @@ public final class AgentPaneModel {
                 // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
                 // available", never another chat (P1 2026-10-09).
                 if sessionId != nil { handshake.sessionMustExist = true }
-                // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
-                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
-                // A new chat with no folder starts in agent-home; the page offers Choose Folder….
-                if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
-                   workspaceAgentHome?() != nil {
-                    handshake.chooseFolder = true
-                }
+                let filled = await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
                 handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
-                if let cwd = handshake.cwd { handshakeCwd = cwd }
+                // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
+                if let cwd = handshake.cwd, !filled { handshakeCwd = cwd }
                 if let session = handshake.sessionId { transport.sessions.add(session) }
                 // The connection stays here; the reply never encodes it.
                 pendingConnection = handshake.connection
@@ -300,6 +297,7 @@ public final class AgentPaneModel {
         case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
+        case .useFolder(let cwd, let confirm): return await startFolders.use(cwd, confirm: confirm, transport: transport)
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
