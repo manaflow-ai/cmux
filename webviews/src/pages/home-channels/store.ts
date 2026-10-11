@@ -6,21 +6,35 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { mergeMessages } from "./model";
+import { mergeMessages, threadOf } from "./model";
 import {
   HomeOps,
   type HomeConversation,
   type HomeEventBatch,
+  type HomeHistory,
   type HomeInbox,
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomeThreadPage,
+  type HomeThreadStats,
 } from "./types";
 
 export const PAGE = 100;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
+
+/** The open thread as the owner's thread read returned it (`cmux.home.thread`), kept current by
+ * events. Absent on a host without the read: the panel shows the window's replies. */
+export interface ThreadView {
+  root: string;
+  /** The root and the loaded replies, ascending by seq. */
+  messages: readonly HomeMessage[];
+  /** More replies follow the last loaded one. */
+  hasMore: boolean;
+  loading: boolean;
+}
 
 export interface HomeSnapshot {
   connection: Connection;
@@ -34,6 +48,10 @@ export interface HomeSnapshot {
   hasOlder: boolean;
   loadingOlder: boolean;
   thread?: string;
+  /** The open thread's owner read (root and every reply page loaded so far). */
+  threadView?: ThreadView;
+  /** The owner's stats of thread roots (from pages, history and thread reads), by root id. */
+  threadStats: ReadonlyMap<string, HomeThreadStats>;
   /** Participant ids typing in the open conversation. */
   typing: readonly string[];
   /** What showed as new when the conversation opened: messages after my read cursor (`after`) up
@@ -69,6 +87,7 @@ export class HomeChannelsStore {
       loadingOlder: false,
       typing: [],
       threadsSeen: new Set(),
+      threadStats: new Map(),
     };
   }
 
@@ -137,6 +156,8 @@ export class HomeChannelsStore {
       messages: [],
       hasOlder: false,
       thread: undefined,
+      threadView: undefined,
+      threadStats: new Map(),
       typing: [],
       unseen: undefined,
       threadsSeen: new Set(),
@@ -174,6 +195,7 @@ export class HomeChannelsStore {
         hasOlder: (messages[0]?.seq ?? 1) > 1,
         unseen,
         draft: this.drafts.draft(id),
+        threadStats: withStats(this.snapshot.threadStats, page.threads),
       });
       this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
@@ -188,14 +210,18 @@ export class HomeChannelsStore {
     const before = messages[0]?.seq ?? 1;
     this.set({ loadingOlder: true });
     try {
-      const older = await this.client.call<{ messages: HomeMessage[] }>(HomeOps.history, {
+      const older = await this.client.call<HomeHistory>(HomeOps.history, {
         conversation: selected,
         beforeSeq: before,
         limit: PAGE,
       });
       if (this.snapshot.selected !== selected) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
-      this.set({ messages: merged, hasOlder: older.messages.length === PAGE && (merged[0]?.seq ?? 1) > 1 });
+      this.set({
+        messages: merged,
+        hasOlder: older.messages.length === PAGE && (merged[0]?.seq ?? 1) > 1,
+        threadStats: withStats(this.snapshot.threadStats, older.threads),
+      });
     } catch (error) {
       this.set({ error: describe(error) });
     } finally {
@@ -204,8 +230,44 @@ export class HomeChannelsStore {
   }
 
   openThread(root: string | undefined): void {
-    if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root });
-    else this.set({ thread: root, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
+    const threadView = root ? { root, messages: [], hasMore: false, loading: true } : undefined;
+    if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root, threadView });
+    else this.set({ thread: root, threadView, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
+    if (root) void this.loadThread(root, 0);
+  }
+
+  /** The next page of the open thread's replies (the owner's thread read). */
+  loadMoreReplies(): void {
+    const view = this.snapshot.threadView;
+    if (!view || view.loading || !view.hasMore) return;
+    this.set({ threadView: { ...view, loading: true } });
+    void this.loadThread(view.root, view.messages.at(-1)?.seq ?? 0);
+  }
+
+  private async loadThread(root: string, afterSeq: number): Promise<void> {
+    const conversation = this.snapshot.selected;
+    if (!this.client || !conversation) return;
+    const current = () => this.snapshot.selected === conversation && this.snapshot.threadView?.root === root;
+    try {
+      const page = await this.client.call<HomeThreadPage>(HomeOps.thread, {
+        conversation,
+        root,
+        afterSeq,
+        limit: PAGE,
+      });
+      if (!current()) return;
+      const view = this.snapshot.threadView!;
+      const messages = mergeMessages(view.messages, [page.root, ...page.replies], Number.MAX_SAFE_INTEGER);
+      this.set({
+        threadView: { root, messages, hasMore: page.hasMore, loading: false },
+        threadStats: withStats(this.snapshot.threadStats, [page.thread]),
+      });
+    } catch (error) {
+      if (!current()) return;
+      // A host without the read: the panel shows the window's replies (no view).
+      const unknown = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      this.set({ threadView: undefined, ...(unknown ? {} : { error: describe(error) }) });
+    }
   }
 
   /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
@@ -338,6 +400,14 @@ export class HomeChannelsStore {
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
     if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
+    // The open thread's view takes its root and replies from events too (a reply, an edit).
+    const view = this.snapshot.threadView;
+    const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
+    if (view && threadIncoming.length > 0) {
+      // Only what follows the loaded pages: a reply between pages comes with the next page.
+      const tail = view.hasMore ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq)) : threadIncoming;
+      patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
+    }
     if (batch.typing && selected) {
       const typing = new Set(this.snapshot.typing);
       for (const entry of batch.typing) {
@@ -368,6 +438,17 @@ export class HomeChannelsStore {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** The stats map with these owner stats replacing the roots they name. */
+function withStats(
+  current: ReadonlyMap<string, HomeThreadStats>,
+  stats: readonly HomeThreadStats[] | undefined,
+): ReadonlyMap<string, HomeThreadStats> {
+  if (!stats || stats.length === 0) return current;
+  const next = new Map(current);
+  for (const entry of stats) next.set(entry.root, entry);
+  return next;
 }
 
 /** The Chief DM first, else the newest conversation. */
