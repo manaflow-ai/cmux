@@ -229,7 +229,6 @@ export type AcpmuxSnapshot = {
   liveChat?: { canFork: boolean; command?: string };
 };
 
-
 export type PreparedRow = {
   text: string;
   /// The row's markdown blocks, as the estimator measures them (conversation/Markdown.tsx draws them).

@@ -683,6 +683,7 @@ function RowFrame({
   copyable: boolean;
   children: React.ReactNode;
 }) {
+  acpmuxPerf.span("row.renders", 1);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
@@ -891,6 +892,7 @@ export function VirtualTranscript({
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
+  acpmuxPerf.span("vt.renders", 1);
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
@@ -939,11 +941,12 @@ export function VirtualTranscript({
       pendingFocus.current = undefined;
       return;
     }
-    const ids = new Set(rows.map((row) => row.id));
-    setActiveRowId((current) => (current && ids.has(current) ? current : rows[0]?.id));
+    // Two ids to look up: a scan, not a set of a long chat's every row on each snapshot.
+    const has = (id: string) => rows.some((row) => row.id === id);
+    setActiveRowId((current) => (current && has(current) ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
-      return ids.has(current.anchorId) && ids.has(current.focusId) ? current : undefined;
+      return has(current.anchorId) && has(current.focusId) ? current : undefined;
     });
   }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
@@ -1017,12 +1020,14 @@ export function VirtualTranscript({
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
-  const previousRowIds = useRef<Set<string> | undefined>(undefined);
+  const previousRowList = useRef<AcpmuxRow[] | undefined>(undefined);
   useEffect(() => {
+    const previous = previousRowList.current;
+    previousRowList.current = rows;
+    // Rows that only grew below the ones there (a streaming turn) left none behind.
+    if (previous && previous.length <= rows.length && previous.every((row, index) => row.id === rows[index]!.id))
+      return;
     const ids = new Set(rows.map((row) => row.id));
-    const previous = previousRowIds.current;
-    previousRowIds.current = ids;
-    if (previous && previous.size === ids.size && [...ids].every((id) => previous.has(id))) return;
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
     setDrawn((current) => {
@@ -1425,6 +1430,7 @@ export function VirtualTranscript({
     };
   }, []);
   const behind = !following && layout.totalHeight - height - scroll.top > JUMP_LATEST_DISTANCE;
+  if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
       <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
@@ -1600,6 +1606,8 @@ export function AcpmuxApp() {
 }
 
 function AcpmuxPane() {
+  // Debug measurement (acpmuxPerf): the pane's own render, before its children.
+  const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
@@ -4028,6 +4036,7 @@ function AcpmuxPane() {
         </section>
       </ShortcutsContext.Provider>
     );
+  if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   return (
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
