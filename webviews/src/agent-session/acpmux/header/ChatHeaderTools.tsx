@@ -124,6 +124,8 @@ export function ChatHeaderTools({
   /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
+  onMergePullRequest?: (number: number) => Promise<unknown>;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
