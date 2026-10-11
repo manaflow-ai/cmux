@@ -37,6 +37,7 @@ public final class DaemonPrestart: Sendable {
             do {
                 let identity = try await connection.start()
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
+                await connection.prefetchSnapshot()
                 return .success((connection, identity))
             } catch {
                 await connection.close()
