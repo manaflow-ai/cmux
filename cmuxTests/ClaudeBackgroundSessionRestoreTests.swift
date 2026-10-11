@@ -440,6 +440,10 @@ struct ClaudeBackgroundSessionRestoreTests {
         } else {
             let input = try #require(restored.input)
             #expect(input == " cmux restore claude \(sessionID)\n", Comment(rawValue: input))
+            let record = try #require(restored.record)
+            #expect(record.preparedArguments == [
+                "claude", "--resume", sessionID, "--permission-mode", "auto"
+            ])
         }
     }
 
