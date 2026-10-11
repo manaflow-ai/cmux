@@ -29,6 +29,7 @@ impl Hub {
         &self,
         family: &str,
         agent_session_id: &str,
+        remote: bool,
     ) -> Result<Option<String>, RpcError> {
         if family.is_empty() {
             return Ok(None);
@@ -36,7 +37,7 @@ impl Hub {
         let homes = self.harness_homes.lock().unwrap().clone();
         let family = family.to_owned();
         let id = agent_session_id.to_owned();
-        let index = self.chats.get().cloned();
+        let index = self.chats.get().filter(|_| !remote).cloned();
         let (found, _) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &family, &id);
             crate::adopt::find_any(&family, &id, &homes, &others)

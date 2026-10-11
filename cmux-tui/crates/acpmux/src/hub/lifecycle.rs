@@ -995,7 +995,7 @@ fn claude_resume_refusal(
     let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
     if ran_elsewhere {
         let mut env = profile.env.clone();
-        env.extend(meta.chat_store_env().map(|(var, dir)| (var.to_owned(), dir)));
+        meta.apply_chat_store(&mut env);
         let store = crate::adopt::HarnessHomes::from_env().with_env(&[&env]).claude;
         if !crate::adopt::claude_session_exists(&store, sid) {
             return Some("is not in this profile's Claude store");

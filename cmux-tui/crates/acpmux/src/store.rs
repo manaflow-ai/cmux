@@ -160,7 +160,7 @@ pub struct SessionMeta {
     /// The harness store of an adopted chat that no profile's store holds
     /// (a subrouter account home, a root the person added; cx-vx54). acpmux
     /// found it in its own chat index, never in a request; every spawn runs
-    /// the harness on it (``SessionMeta::chat_store_env``).
+    /// the harness on it (``SessionMeta::apply_chat_store``).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_store: Option<PathBuf>,
     /// Chat store roots the harness's launch env named at its last spawn
@@ -174,15 +174,24 @@ pub struct SessionMeta {
 
 impl SessionMeta {
     /// `chat_store` as the harness's store variable (`CLAUDE_CONFIG_DIR` or
-    /// `CODEX_HOME`), set over the profile's at every spawn.
-    pub fn chat_store_env(&self) -> Option<(&'static str, String)> {
-        let dir = self.chat_store.as_ref()?;
-        let var = match self.family.as_deref() {
-            Some("claude") => "CLAUDE_CONFIG_DIR",
-            Some("codex") => "CODEX_HOME",
-            _ => return None,
+    /// `CODEX_HOME`) over `env` (a spawn's, or the env a store is read
+    /// with). The harness's default home (`~/.claude`, `~/.codex`) removes
+    /// the variable instead: setting `CLAUDE_CONFIG_DIR=~/.claude` moves
+    /// Claude's own config file, and with it the person's login.
+    pub fn apply_chat_store(&self, env: &mut BTreeMap<String, String>) {
+        let Some(dir) = &self.chat_store else { return };
+        let (var, default) = match self.family.as_deref() {
+            Some("claude") => ("CLAUDE_CONFIG_DIR", ".claude"),
+            Some("codex") => ("CODEX_HOME", ".codex"),
+            _ => return,
         };
-        Some((var, dir.to_string_lossy().into_owned()))
+        let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let default = dirs::home_dir().map(|home| real(&home.join(default)));
+        if default.is_some_and(|default| default == real(dir)) {
+            env.remove(var);
+        } else {
+            env.insert(var.to_owned(), dir.to_string_lossy().into_owned());
+        }
     }
 }
 

@@ -95,9 +95,7 @@ impl Hub {
             *a = expand_env_value(a, &meta.cwd, &home, &model);
         }
         // An adopted chat that no profile's store holds runs on its own store.
-        if let Some((var, dir)) = meta.chat_store_env() {
-            p.env.insert(var.to_owned(), dir);
-        }
+        meta.apply_chat_store(&mut p.env);
         // The session's own env last, over the preset, never expanded: its
         // values were checked as given (session_env.rs).
         for (k, v) in &meta.session_env {

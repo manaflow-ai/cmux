@@ -101,6 +101,8 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // A store comes from this machine's chat index, never from a bundle.
+        meta.chat_store = None;
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {
             return Err(RpcError::invalid_params(format!(

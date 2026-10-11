@@ -19,9 +19,7 @@ impl Hub {
         if let Some(preset) = meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
             env.extend(preset.env.clone());
         }
-        if let Some((var, dir)) = meta.chat_store_env() {
-            env.insert(var.to_owned(), dir);
-        }
+        meta.apply_chat_store(&mut env);
         (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
     }
 
