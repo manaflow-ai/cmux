@@ -48,5 +48,12 @@ cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation-sys = "0.8"
 
+[features]
+# Only the tests' in-process fake acpmux daemons: a socket peer that is this
+# process passes the peer check (acpmux_peer). Never in a shipped build; the
+# tests turn it on through the self dev-dependency below.
+test-in-process-peer = []
+
 [dev-dependencies]
+optchat-chief = { path = ".", features = ["test-in-process-peer"] }
 tempfile = "3"

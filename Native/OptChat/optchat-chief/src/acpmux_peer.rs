@@ -11,8 +11,8 @@
 //! - when this host is Team-signed (macOS), the peer's code, named by its
 //!   audit token, is Apple-anchored and signed by the same team.
 //!
-//! A peer that is this process itself (an in-process server) passes. Any
-//! other peer is refused: nothing is written, and the caller gets a
+//! With the tests' feature `test-in-process-peer` only, a peer that is this
+//! process itself (an in-process fake daemon) passes. Any other peer is refused: nothing is written, and the caller gets a
 //! `PermissionDenied` error naming the reason.
 
 use std::io;
@@ -41,20 +41,22 @@ pub fn connect(
 
 /// The acpmux executable this host runs, symlinks resolved.
 pub fn expected() -> Option<PathBuf> {
-    let configured = crate::cli::env("ACPMUX_BIN")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()?
-                .parent()
-                .map(|dir| dir.join("acpmux"))
-        })?;
+    let configured = match crate::cli::env("ACPMUX_BIN") {
+        Some(bin) => PathBuf::from(bin),
+        // The bundled layout: acpmux beside this executable, symlinks resolved first.
+        None => std::fs::canonicalize(std::env::current_exe().ok()?)
+            .ok()?
+            .parent()?
+            .join("acpmux"),
+    };
     std::fs::canonicalize(configured).ok()
 }
 
 /// Checks the server peer of `stream` against `expected` (None: refused).
 pub fn check(stream: &UnixStream, expected: Option<&Path>) -> Result<(), String> {
     let peer = peer(stream)?;
+    // Tests only (feature test-in-process-peer): an in-process fake daemon.
+    #[cfg(feature = "test-in-process-peer")]
     if peer.pid == std::process::id() as i32 {
         return Ok(());
     }
@@ -313,6 +315,9 @@ mod codesign {
             }
             let data =
                 Owned(CFDataCreate(kCFAllocatorDefault, token.as_ptr(), token.len() as _).cast());
+            if data.0.is_null() {
+                return refused();
+            }
             let keys = [kSecGuestAttributeAudit as *const c_void];
             let values = [data.0];
             let attributes = Owned(
@@ -326,6 +331,9 @@ mod codesign {
                 )
                 .cast(),
             );
+            if attributes.0.is_null() {
+                return refused();
+            }
             let mut code: SecCodeRef = std::ptr::null();
             if SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.0.cast(), 0, &mut code)
                 != 0
@@ -346,6 +354,9 @@ mod codesign {
                 )
                 .cast(),
             );
+            if string.0.is_null() {
+                return refused();
+            }
             let mut requirement: SecRequirementRef = std::ptr::null();
             if SecRequirementCreateWithString(string.0.cast(), 0, &mut requirement) != 0
                 || requirement.is_null()

@@ -78,7 +78,7 @@ fn serve(dir: &Path, socket: &Path) -> Server {
         .spawn()
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
-    while !std::os::unix::net::UnixStream::connect(socket).is_ok() {
+    while std::os::unix::net::UnixStream::connect(socket).is_err() {
         assert!(Instant::now() < deadline, "the server never listened");
         std::thread::sleep(Duration::from_millis(50));
     }
