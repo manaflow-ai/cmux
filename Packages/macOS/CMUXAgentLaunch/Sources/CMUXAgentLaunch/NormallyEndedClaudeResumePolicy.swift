@@ -2,9 +2,10 @@ import Foundation
 
 /// Decides when a completed Claude session may enter automatic restore.
 ///
-/// Claude hook snapshots carry an explicit prompt-turn marker. Only an explicit
-/// `false` proves that no deferred tool continuation is waiting; a missing value
-/// is legacy data and remains on the conservative restore path.
+/// Claude hook snapshots carry an explicit prompt-turn marker. An explicit
+/// `false` proves that no deferred tool continuation is waiting. A missing
+/// marker is admitted only when persisted process state independently proves
+/// that the agent had already stopped.
 public struct NormallyEndedClaudeResumePolicy: Sendable {
     /// The normalized kind used by Claude Code hook bindings.
     public static let claudeKind = "claude"
@@ -20,6 +21,10 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
         public var agentSessionID: String
         /// Whether the captured session still had an active prompt turn.
         public var hadActivePromptTurn: Bool?
+        /// Whether the agent process was running when the snapshot was saved.
+        /// A value of `false` is the only process-state evidence that can
+        /// disambiguate a missing prompt-turn marker.
+        public var wasAgentRunning: Bool?
         /// The binding's persisted agent kind.
         public var bindingKind: String?
         /// The binding's checkpoint identity.
@@ -35,6 +40,7 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
         ///   - agentKind: The persisted agent kind.
         ///   - agentSessionID: The persisted agent checkpoint identity.
         ///   - hadActivePromptTurn: The explicit prompt-turn marker, when present.
+        ///   - wasAgentRunning: Persisted process liveness at snapshot time.
         ///   - bindingKind: The binding's persisted agent kind.
         ///   - bindingSessionID: The binding's checkpoint identity.
         ///   - bindingSource: The binding publisher source.
@@ -43,6 +49,7 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
             agentKind: String,
             agentSessionID: String,
             hadActivePromptTurn: Bool?,
+            wasAgentRunning: Bool? = nil,
             bindingKind: String?,
             bindingSessionID: String?,
             bindingSource: String?,
@@ -51,6 +58,7 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
             self.agentKind = agentKind
             self.agentSessionID = agentSessionID
             self.hadActivePromptTurn = hadActivePromptTurn
+            self.wasAgentRunning = wasAgentRunning
             self.bindingKind = bindingKind
             self.bindingSessionID = bindingSessionID
             self.bindingSource = bindingSource
@@ -73,7 +81,8 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
     public func admits(_ evidence: AdmissionEvidence) -> Bool {
         guard isNormallyEndedClaude(
                   agentKind: evidence.agentKind,
-                  hadActivePromptTurn: evidence.hadActivePromptTurn
+                  hadActivePromptTurn: evidence.hadActivePromptTurn,
+                  wasAgentRunning: evidence.wasAgentRunning
               ),
               normalized(evidence.bindingKind) == Self.claudeKind,
               evidence.bindingSource == Self.agentHookSource,
@@ -87,9 +96,12 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
 
     private func isNormallyEndedClaude(
         agentKind: String,
-        hadActivePromptTurn: Bool?
+        hadActivePromptTurn: Bool?,
+        wasAgentRunning: Bool?
     ) -> Bool {
-        normalized(agentKind) == Self.claudeKind && hadActivePromptTurn == false
+        guard normalized(agentKind) == Self.claudeKind else { return false }
+        return hadActivePromptTurn == false ||
+            (hadActivePromptTurn == nil && wasAgentRunning == false)
     }
 
     private func normalized(_ value: String?) -> String? {

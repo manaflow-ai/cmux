@@ -321,7 +321,8 @@ extension DockSplitStore {
             terminalSnapshot.isRemoteTerminal != true &&
             SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
                 restorableAgent: restorableAgent,
-                resumeBinding: resumeBinding
+                resumeBinding: resumeBinding,
+                wasAgentRunning: terminalSnapshot.wasAgentRunning
             )
         // Match workspace restore: keep the cmux restore execution boundary.
         let shouldAutoResumeAgent = autoResumeAgentSessions &&

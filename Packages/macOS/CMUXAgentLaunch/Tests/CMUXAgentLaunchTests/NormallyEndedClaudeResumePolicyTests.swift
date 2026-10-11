@@ -20,7 +20,12 @@ struct NormallyEndedClaudeResumePolicyTests {
 
     @Test("A stopped binding-only session admits when the completion marker is absent")
     func stoppedBindingWithoutCompletionMarkerAdmits() {
-        #expect(policy.admits(evidence(hadActivePromptTurn: nil)))
+        #expect(policy.admits(evidence(hadActivePromptTurn: nil, wasAgentRunning: false)))
+    }
+
+    @Test("An unknown or running process keeps a missing marker fail closed", arguments: [nil, true])
+    func missingMarkerNeedsStoppedProcess(wasAgentRunning: Bool?) {
+        #expect(!policy.admits(evidence(hadActivePromptTurn: nil, wasAgentRunning: wasAgentRunning)))
     }
 
     @Test("Missing or stale bindings fail closed")
@@ -41,6 +46,7 @@ struct NormallyEndedClaudeResumePolicyTests {
         agentKind: String = "claude",
         agentSessionID: String = "session-123",
         hadActivePromptTurn: Bool? = false,
+        wasAgentRunning: Bool? = nil,
         bindingKind: String? = "claude",
         bindingSessionID: String? = "session-123",
         bindingSource: String? = "agent-hook",
@@ -50,6 +56,7 @@ struct NormallyEndedClaudeResumePolicyTests {
             agentKind: agentKind,
             agentSessionID: agentSessionID,
             hadActivePromptTurn: hadActivePromptTurn,
+            wasAgentRunning: wasAgentRunning,
             bindingKind: bindingKind,
             bindingSessionID: bindingSessionID,
             bindingSource: bindingSource,

@@ -1658,7 +1658,8 @@ extension Workspace {
                 snapshot.terminal?.isRemoteTerminal != true &&
                 SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
                     restorableAgent: restorableAgent,
-                    resumeBinding: resumeBinding
+                    resumeBinding: resumeBinding,
+                    wasAgentRunning: snapshot.terminal?.wasAgentRunning
                 )
             // All local resumes enter cmux restore, which validates ownership
             // immediately before launching the native agent resume command.

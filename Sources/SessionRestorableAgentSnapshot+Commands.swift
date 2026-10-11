@@ -48,7 +48,8 @@ extension SessionRestorableAgentSnapshot {
     /// conversation. Other agents retain the persisted process-liveness gate.
     static func shouldAutoResumeNormallyEndedClaude(
         restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        wasAgentRunning: Bool?
     ) -> Bool {
         let policy = NormallyEndedClaudeResumePolicy()
         guard let restorableAgent,
@@ -61,6 +62,7 @@ extension SessionRestorableAgentSnapshot {
             agentKind: restorableAgent.kind.rawValue,
             agentSessionID: restorableAgent.sessionId,
             hadActivePromptTurn: restorableAgent.hadActivePromptTurn,
+            wasAgentRunning: wasAgentRunning,
             bindingKind: resumeBinding.kind,
             bindingSessionID: resumeBinding.checkpointId,
             bindingSource: resumeBinding.source,

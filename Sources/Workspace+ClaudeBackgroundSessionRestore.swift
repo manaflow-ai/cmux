@@ -130,7 +130,8 @@ extension Workspace {
             let normallyEndedClaude = SessionRestorableAgentSnapshot
                 .shouldAutoResumeNormallyEndedClaude(
                     restorableAgent: restorableAgent,
-                    resumeBinding: resumeBinding
+                    resumeBinding: resumeBinding,
+                    wasAgentRunning: terminal.wasAgentRunning
                 )
             let viewer = terminal.claudeBackgroundViewer
             let hookSession = viewer != nil || terminal.wasAgentRunning != false || normallyEndedClaude

@@ -438,7 +438,8 @@ struct ClaudeBackgroundSessionRestoreTests {
             #expect(input.contains(" restore claude "), Comment(rawValue: input))
             #expect(!input.contains("--resume"), Comment(rawValue: input))
         } else {
-            #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+            let input = try #require(restored.input)
+            #expect(input == " cmux restore claude \(sessionID)\n", Comment(rawValue: input))
         }
     }
 
