@@ -42,6 +42,7 @@ enum AgentHarnessHandlers {
             }
             track(registry) { try await center.restore(backup: backup) }
         })
+        registry.bind("agent.harness.updateAll", run: { _ in track(registry) { try await updateAll(context, center) } })
         registry.bind("agent.harness.doctor", run: { invocation in
             guard let id = nonEmpty(invocation.arguments["id"]?.stringValue) else {
                 guard invocation.origin == .user else { throw ActionFailure(message: AgentHarnessStrings.needsAgent) }
@@ -59,6 +60,18 @@ enum AgentHarnessHandlers {
                 return answer
             }
         })
+    }
+
+    /// Update Agent CLIs: the daemon's health rows, every outdated one's update typed into a new
+    /// terminal tab of the focused pane (`AgentCLIUpdates`, shared with Settings > Agents).
+    private static func updateAll(_ context: AppActionContext, _ center: AgentHarnessCenter) async throws -> JSONValue {
+        guard let line = AgentCLIUpdates.allLine(try await center.health()),
+              let pane = context.services.windows.active?.focusedPane else {
+            try openSettings(context, panel: nil)
+            return .null
+        }
+        pane.newTerminalTab(typing: line + "\r")
+        return .null
     }
 
     /// Settings > Agents, with its Add panel (`add`) or registry list (`registry`) open.
