@@ -168,7 +168,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
             home: machine.home, tools: tools(services, targetID: selected?.id),
-            template: (services.newTabChoices.template(in: (window.flatMap(services.windows.owner(of:)) ?? services.windows.active)?.window)
+            template: (services.newTabChoices.template(in: (window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active)?.window)
                 ?? services.settings?.snapshot.newTabTemplate)?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
