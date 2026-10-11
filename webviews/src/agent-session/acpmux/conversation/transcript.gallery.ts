@@ -395,6 +395,41 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
       },
     },
+    "thought-find": {
+      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      snapshot: chat([
+        user(prompt, 2),
+        activity(
+          [
+            thought(
+              "Check how the helper parses errors first.\n\nOn second thought, the retry wrapper swallows the status.",
+            ),
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+          ],
+          1.5,
+        ),
+        assistant("Retries now stop on a 4xx.", 1),
+        summary(0.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("find");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.type("thought");
+        const active = () => {
+          const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
+            .CSS.highlights;
+          return [...(highlights?.get("acpmux-find-active") ?? [])][0];
+        };
+        await ctx.waitFor(() => active() !== undefined);
+        const at = active()!.startContainer.parentElement;
+        if (!at?.closest(".cv-thought__body"))
+          throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
+      },
+    },
     "working-tools": {
       note: "Tool calls running in a live turn.",
       snapshot: chat(
