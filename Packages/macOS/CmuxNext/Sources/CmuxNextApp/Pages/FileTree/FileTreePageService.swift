@@ -23,8 +23,8 @@ final class FileTreePageService: InternalPageProvider {
         var page: PageWebView?
     }
 
-    // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    private unowned let services: AppServices
+    /// Weak: AppServices owns this service (ViewerService's lazy page services); after it is gone every entry point returns.
+    private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
 
     init(services: AppServices) {
@@ -42,7 +42,7 @@ final class FileTreePageService: InternalPageProvider {
     /// chat tab `chat`: selected in tab `target`'s column, or with no target in a new column right of
     /// the chat. `link` reads the folder on the chat's own machine.
     func openBeside(folder: URL, chat: String, target: String?, link: AgentPaneGitLink?) {
-        guard let pane = pane(showing: target ?? chat) else { return }
+        guard let services, let pane = pane(showing: target ?? chat) else { return }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? chat), origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
@@ -60,6 +60,7 @@ final class FileTreePageService: InternalPageProvider {
 
     /// The pane of any window whose strip holds tab `id`.
     private func pane(showing id: String) -> PaneController? {
+        guard let services else { return nil }
         for window in services.windows.controllers {
             if let pane = window.content?.panes.values.first(where: { $0.stripModel.tab(StripTabID(id)) != nil }) { return pane }
         }
@@ -69,6 +70,7 @@ final class FileTreePageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         var tab = tabs[key] ?? Tab()
         let provider = FileTreePageProvider(folder: tab.folder, link: tab.link) { [weak self] file in
             self?.open(file, from: key)
@@ -89,6 +91,7 @@ final class FileTreePageService: InternalPageProvider {
     /// Opens `file` from tab `key`'s tree in the file pages (FilePageOpener), in the tree's pane. Nil,
     /// or why it did not open.
     private func open(_ file: URL, from key: String) -> String? {
-        services.viewers.fileOpener.open(file, in: services.paneController(showingTab: key))
+        guard let services else { return FileTreeStrings.unavailable }
+        return services.viewers.fileOpener.open(file, in: services.paneController(showingTab: key))
     }
 }

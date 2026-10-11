@@ -47,7 +47,7 @@ public struct ControlPeerClient {
         guard descriptor >= 0 else { throw Failure.socket(String(cString: strerror(errno))) }
         defer { close(descriptor) }
         var timeout = timeval(tv_sec: timeoutMilliseconds / 1_000,
-                              tv_usec: Int32((timeoutMilliseconds % 1_000) * 1_000))
+                              tv_usec: Int32(clamping: (timeoutMilliseconds % 1_000) * 1_000))
         guard setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
               setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
             throw Failure.socket(String(cString: strerror(errno)))
@@ -56,8 +56,9 @@ public struct ControlPeerClient {
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { throw Failure.socket("path too long") }
         withUnsafeMutableBytes(of: &address.sun_path) { bytes in
+            // sockaddr_un() is zero-filled and the path is shorter than sun_path (checked above),
+            // so the byte after it is already the NUL terminator.
             bytes.copyBytes(from: path.utf8)
-            bytes[path.utf8.count] = 0
         }
         let connected = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
