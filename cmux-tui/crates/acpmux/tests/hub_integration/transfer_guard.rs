@@ -568,6 +568,21 @@ async fn a_guard_is_checked_kept_by_the_receive_and_taken_only_on_the_local_sock
     let r = finish(&mut dst, &rid, json!({"from": from})).await;
     assert!(r.as_ref().is_err_and(|e| e.contains("transfer.from")), "{r:?}");
 
+    // The bundle's session.json must be the chat the receive was checked for.
+    let m = meta(root.path(), json!({}));
+    let (mut manifest, all) = bundle_manifest(&m, &[]);
+    manifest["sessionId"] = json!(uuid::Uuid::now_v7().to_string());
+    let params = json!({"manifest": manifest, "guard": guard("peer", &[root.path()])});
+    let r = dst.request("_acpmux/transfer_receive", params).await.unwrap();
+    let rid = r["receiveId"].as_str().unwrap().to_owned();
+    for (path, data) in &all {
+        let page =
+            json!({"receiveId": rid, "path": path, "offset": 0, "data": BASE64.encode(data)});
+        dst.request("_acpmux/transfer_write", page).await.unwrap();
+    }
+    let r = finish(&mut dst, &rid, json!({})).await;
+    assert!(r.as_ref().is_err_and(|e| e.contains("transfer.schema")), "{r:?}");
+
     // Only the local socket moves a chat, guarded or not.
     for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
         let mut c = remote_client(&hub, origin);
