@@ -45,6 +45,8 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
+#[cfg(test)]
+mod claude_worktree_tests;
 mod message_hooks;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 
