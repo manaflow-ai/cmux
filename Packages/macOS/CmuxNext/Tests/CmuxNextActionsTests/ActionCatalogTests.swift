@@ -105,6 +105,23 @@ import Testing
         }
     }
 
+    /// Palette and menu titles use title case (HIG): every word is capitalized except
+    /// short articles, conjunctions and prepositions, and names spelled in lowercase.
+    @Test func titlesUseTitleCase() {
+        let minor: Set<String> = ["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at",
+                                  "by", "in", "of", "on", "to", "up", "via", "vs", "from", "into", "with", "onto", "over", "than"]
+        for descriptor in ActionCatalog.all {
+            let words = descriptor.title.split(whereSeparator: { $0 == " " || $0 == "/" }).map {
+                $0.trimmingCharacters(in: CharacterSet.letters.inverted)
+            }
+            for (index, word) in words.enumerated() {
+                guard let first = word.first, first.isLowercase else { continue }
+                if word.hasPrefix("cmux") || word.contains(".") { continue }
+                #expect(index > 0 && minor.contains(word), "\(descriptor.id): \"\(descriptor.title)\"")
+            }
+        }
+    }
+
     @Test func cloudMachineIOActionsAreTerminalAndReachable() throws {
         let ssh = try #require(ActionCatalog.all.first { $0.id == "cloudSSH" })
         #expect(ssh.startsTerminal)
