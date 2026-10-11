@@ -24,20 +24,27 @@ struct PasswordCSVFiles {
     /// The guided steps (source, the source's export steps, the open panel), then the import of
     /// the picked file and its move to the Trash.
     func chooseImport(profile: String) throws {
-        let cef = services.cache.cef
         let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter())
         services.registry.track(Task { @MainActor in
             guard let url = await guide.run() else { return nil }
-            guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
-            let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
-            do {
-                let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
-                Self.trash(url, report: report)
-                return nil
-            } catch {
-                return ActionWorkFailure(PasswordCSVStrings.failure(error))
-            }
+            return await importFile(url, profile: profile)
         })
+    }
+
+    /// Imports a CSV the person picked, then moves it to the Trash; the failure, if any.
+    func importFile(_ url: URL, profile: String) async -> ActionWorkFailure? {
+        let cef = services.cache.cef
+        guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
+        let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
+        do {
+            let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
+            // The app window, not the key window: after the cmux picker that is the palette's panel.
+            let windows = services.windows
+            Self.trash(url, report: report) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+            return nil
+        } catch {
+            return ActionWorkFailure(PasswordCSVStrings.failure(error))
+        }
     }
 
     /// Counts only. Sign-ins saved with another password get their own line:
@@ -56,9 +63,10 @@ struct PasswordCSVFiles {
     /// not go in (a conflict keeps the saved password, a rejected row), the
     /// file may be the only copy: it stays and the toast offers Move to Trash,
     /// as it does when the move fails.
-    static func trash(_ url: URL, report: PasswordImportReport) {
+    static func trash(_ url: URL, report: PasswordImportReport,
+                      windowLookup: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
         let summary = summaryLines(report)
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+        guard let window = windowLookup() else {
             logger.info("password CSV import done with no window; the file stays")
             return
         }
@@ -66,7 +74,7 @@ struct PasswordCSVFiles {
         NSWorkspace.shared.recycle([url]) { @Sendable moved, error in
             Task { @MainActor in
                 // Looked up again on the main actor: a window is not Sendable.
-                guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                guard let window = windowLookup() else { return }
                 guard error == nil, let trashed = moved[url] else { return offerTrash(url, summary, in: window) }
                 let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
                                       action: .undo(), duration: .seconds(12))

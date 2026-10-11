@@ -16,6 +16,9 @@ enum OnboardingHandlers {
         registry.bind("password.importCSV", run: { invocation in
             try PasswordCSVFiles(services: services).chooseImport(profile: BookmarkResolver(services: services).profile(invocation))
         })
+        registry.bind("browser.importFromFiles", run: { invocation in
+            BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
+        })
         // A toast, never a sheet: the person can keep working while it runs.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow

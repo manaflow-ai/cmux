@@ -54,6 +54,26 @@ function Row({ row }: { row: HarnessRow }) {
               </code>
             </div>
           )}
+          {row.update && !row.update.elevated && (
+            <label className="row-help harness-auto">
+              <input
+                type="checkbox"
+                data-harness-auto=""
+                aria-label={t("settingsWindow.harnesses.autoUpdate")}
+                checked={row.autoUpdate ?? false}
+                aria-describedby={titleId}
+                onChange={(event) =>
+                  void store.runHarnesses({ action: "autoUpdate", id: row.id, on: event.currentTarget.checked })
+                }
+              />{" "}
+              {t("settingsWindow.harnesses.autoUpdate")}
+            </label>
+          )}
+          {row.lastAutoUpdate && !row.lastAutoUpdate.ok && (
+            <div className="row-error" data-harness-auto-failed="">
+              {t("settingsWindow.harnesses.autoUpdateFailed", row.lastAutoUpdate.detail)}
+            </div>
+          )}
           {row.auth === "signedOut" && (
             <div className="row-error" data-harness-auth="signedOut">
               {t("settingsWindow.harnesses.signedOut")}

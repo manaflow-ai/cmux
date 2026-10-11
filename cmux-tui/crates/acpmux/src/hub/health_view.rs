@@ -32,17 +32,47 @@ impl Hub {
             .collect()
     }
 
-    /// `_acpmux/harness/health {refresh?, checkLatest?}`: the last check, or a
-    /// new one with `refresh` (after an update) or when none ran yet;
-    /// `checkLatest` also asks every channel for its newest version again.
-    pub async fn harness_health(&self, params: &Value) -> Value {
+    /// `_acpmux/harness/health {refresh?, checkLatest?, autoUpdate?}`: the last
+    /// check, or a new one with `refresh` (after an update) or when none ran
+    /// yet; `checkLatest` also asks every channel for its newest version again.
+    /// `autoUpdate: {id, on}` turns auto-update on or off for a configured
+    /// harness first (`harness_health/auto.rs`). Turning it on, `refresh` and
+    /// `checkLatest` then run auto-update in the background.
+    pub async fn harness_health(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let flag = |key: &str| params.get(key).and_then(Value::as_bool).unwrap_or(false);
         let check_latest = flag("checkLatest");
-        let mut rows = self.health.rows();
-        if rows.is_empty() || flag("refresh") || check_latest {
-            rows = self.health.check(self.health_subjects().await, check_latest).await;
+        let mut update = flag("refresh") || check_latest;
+        if let Some(choice) = params.get("autoUpdate") {
+            let id = choice.get("id").and_then(Value::as_str).unwrap_or("");
+            let on = choice.get("on").and_then(Value::as_bool);
+            let (Some(on), true) = (on, self.config.read().await.harnesses.contains_key(id)) else {
+                return Err(RpcError::invalid_params(
+                    "autoUpdate needs a configured harness id and on",
+                ));
+            };
+            self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
+            update |= on;
         }
-        json!({"harnesses": rows})
+        let mut rows = self.health.rows();
+        if flag("refresh") || check_latest {
+            rows = self.health.check(self.health_subjects().await, check_latest).await;
+        } else if rows.is_empty() {
+            rows = self.health.first_check(self.health_subjects().await).await;
+        }
+        if update {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.auto_update_harnesses().await });
+        }
+        Ok(json!({"harnesses": rows}))
+    }
+
+    /// Runs auto-update for the harnesses that want it, and checks again after any ran.
+    pub async fn auto_update_harnesses(&self) -> Vec<String> {
+        let ran = self.health.run_auto_updates().await;
+        if !ran.is_empty() {
+            self.health.check(self.health_subjects().await, false).await;
+        }
+        ran
     }
 
     /// The daemon's background harness checks.
@@ -83,6 +113,7 @@ impl Hub {
         self.health.attach(crate::harness_health::Settings {
             sources: fetch_latest.then(crate::harness_health::latest::Sources::public),
             cache: Some(crate::config::home().join("harness-health.json")),
+            auto_update: Some(crate::config::home().join("harness-auto-update.json")),
             home: dirs::home_dir().unwrap_or_default(),
         });
         tokio::spawn(self.clone().run_health());
@@ -97,6 +128,7 @@ impl Hub {
         loop {
             every.tick().await;
             self.health.check(self.health_subjects().await, false).await;
+            self.auto_update_harnesses().await;
         }
     }
 }
