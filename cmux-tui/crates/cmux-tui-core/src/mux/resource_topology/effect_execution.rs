@@ -694,7 +694,7 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
+        let cwd = self.new_terminal_cwd(cwd, Some(target), None);
         let reservation = self.effect_terminal_reservation(
             intent,
             &workspace_key,

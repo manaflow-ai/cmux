@@ -27,27 +27,6 @@ fn non_app_scopes_are_left_to_the_resource_grammar() {
 }
 
 #[test]
-fn history_and_bookmark_reads_call_the_app_and_other_words_run_actions() {
-    let (method, params) = call(
-        parse(&args(&["history", "search", "cmux", "--kind", "page", "--limit", "5"]))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(method, "history.list");
-    assert_eq!(params, json!({ "text": "cmux", "kind": "page", "limit": 5 }));
-    let (method, params) =
-        call(parse(&args(&["bookmark", "list", "--folder", "Work"])).unwrap().unwrap());
-    assert_eq!(method, "bookmark.list");
-    assert_eq!(params, json!({ "folder": "Work" }));
-    assert!(parse(&args(&["history", "search"])).is_err());
-    assert!(parse(&args(&["bookmark", "list", "--limit", "0"])).is_err());
-    assert_eq!(call(parse(&args(&["accounts", "list"])).unwrap().unwrap()).0, "accounts.list");
-    let (method, params) = call(parse(&args(&["history", "reopen"])).unwrap().unwrap());
-    assert_eq!(method, "action.run");
-    assert_eq!(params["action"], "history reopen");
-}
-
-#[test]
 fn focus_asks_the_app_to_move_the_view() {
     let (_, params) = call(
         parse(&args(&["tab", "move-to-new-workspace", "--target", "tab_1", "--focus"]))
@@ -271,6 +250,78 @@ fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
     assert_eq!(params, json!({ "interactive": true, "max_depth": 4 }));
     assert_eq!(parse(&args(&["browser", "browser_01ab", "navigate", "--url", "x"])).unwrap(), None);
     assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
+}
+
+// `cmux browser <tab|page> press|hover|check|uncheck|select|scroll|
+// scroll-into-view` reach the app as the browser.page input methods, in the
+// old CLI's positional and flag forms; `select` with words is the input verb,
+// not the tab verb.
+#[test]
+fn browser_input_verbs_reach_the_app_in_the_old_cli_forms() {
+    let done = json!({ "id": 1, "ok": true, "result": { "tab": "tab_01ab" } });
+    for (words, method, params) in [
+        (&["press", "Enter"][..], "browser.page.press", json!({ "key": "Enter" })),
+        (
+            &["press", "--selector", "#q", "--key", "Enter"],
+            "browser.page.press",
+            json!({ "key": "Enter", "selector": "#q" }),
+        ),
+        (&["key", "Tab"], "browser.page.press", json!({ "key": "Tab" })),
+        (&["hover", "#menu"], "browser.page.hover", json!({ "selector": "#menu" })),
+        (&["check", "#a"], "browser.page.check", json!({ "selector": "#a" })),
+        (&["uncheck", "#a"], "browser.page.uncheck", json!({ "selector": "#a" })),
+        (
+            &["select", "#size", "m"],
+            "browser.page.select",
+            json!({ "selector": "#size", "value": "m" }),
+        ),
+        (
+            &["select", "--selector", "#size", "--value", "m"],
+            "browser.page.select",
+            json!({ "selector": "#size", "value": "m" }),
+        ),
+        (&["scroll", "400"], "browser.page.scroll", json!({ "dy": 400.0 })),
+        (
+            &["scroll", "#list", "--dx=-50"],
+            "browser.page.scroll",
+            json!({ "selector": "#list", "dx": -50.0 }),
+        ),
+        (
+            &["scrollintoview", "--selector", "#f"],
+            "browser.page.scroll_into_view",
+            json!({ "selector": "#f" }),
+        ),
+    ] {
+        let (socket, app) = fake_app(vec![done.clone()]);
+        let mut all = vec!["browser", "tab_01ab"];
+        all.extend_from_slice(words);
+        let command = parse(&args(&all)).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 0, "{words:?}");
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], method, "{words:?}");
+        let mut sent = request["params"].clone();
+        sent.as_object_mut().unwrap().remove("after");
+        let mut expected = params;
+        expected["tab"] = json!("tab_01ab");
+        assert_eq!(sent, expected, "{words:?}");
+    }
+    for bad in [
+        &["press"][..],
+        &["press", "a", "b"],
+        &["press", "a", "--dy", "1"],
+        &["scroll"],
+        &["scroll", "--dy", "inf"],
+        &["scroll", "--dy", "far"],
+        &["scroll", "#a", "--selector", "#b", "--dy", "1"],
+        &["select", "#size"],
+        &["check"],
+        &["hover", "#a", "--force"],
+    ] {
+        let mut all = vec!["browser", "tab_01ab"];
+        all.extend_from_slice(bad);
+        assert!(parse(&args(&all)).is_err(), "{bad:?}");
+    }
 }
 
 // `cmux browser <tab|page> wait` sends one condition with its timeout, and

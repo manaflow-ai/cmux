@@ -252,6 +252,65 @@ body,
   background: var(--page-hover);
 }
 
+.hc-rail-extra {
+  color: var(--page-text-3);
+  font-weight: 400;
+  font-size: var(--text-caption);
+}
+.hc-rail-add {
+  color: var(--page-text-3);
+}
+.hc-rail-add-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--hc-fill-strong);
+  color: var(--page-text-2);
+  font-weight: 600;
+  line-height: 1;
+}
+.hc-add-channel.ui-popover {
+  width: 300px;
+  padding: 14px;
+}
+.hc-add-channel form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hc-add-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+.hc-add-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+.hc-add-members {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.hc-add-members .hc-pick-row input {
+  margin: 0;
+}
+.hc-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* ---------- Avatar ---------- */
 .hc-avatar {
   font-size: var(--text-caption);
