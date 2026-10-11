@@ -5,8 +5,11 @@ import WebKit
 /// wraps `Notification`: each one the page makes posts to `cmuxWebNotification`,
 /// and the tab asks its host to show a banner when the frame's site has
 /// notifications allowed (the prompt bar's stored answer). A page that
-/// posts without permission gets nothing. A banner click dispatches `click`
-/// on the page's notification object.
+/// posts without permission gets nothing, and so does a frame (Chrome
+/// refuses cross-origin frames; a banner names the frame's site but opens the
+/// embedding tab). A banner click dispatches `click` on the page's
+/// notification object; ids are unique per document, so a banner from an
+/// earlier document reaches nothing.
 final class WebKitNotificationBridge: NSObject, WKScriptMessageHandler {
     static let channel = "cmuxWebNotification"
     private weak var tab: WebKitTab?
@@ -24,6 +27,7 @@ final class WebKitNotificationBridge: NSObject, WKScriptMessageHandler {
               let title = body["title"] as? String else { return }
         let text = body["body"] as? String ?? ""
         let frame = message.frameInfo
+        guard frame.isMainFrame else { return }
         let origin = WebKitTab.displayOrigin(frame.securityOrigin)
         let store = tab.sitePermissions
         Task { @MainActor [weak tab] in
@@ -45,11 +49,12 @@ final class WebKitNotificationBridge: NSObject, WKScriptMessageHandler {
       const channel = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(channel);
       if (typeof Native !== "function" || !channel) return;
       const shown = new Map();
+      const doc = Math.random().toString(36).slice(2);
       let next = 0;
       class Notification extends Native {
         constructor(title, options) {
           super(title, options);
-          const id = String(++next);
+          const id = doc + "-" + (++next);
           shown.set(id, this);
           if (shown.size > 32) shown.delete(shown.keys().next().value);
           const body = options && options.body != null ? String(options.body) : "";
