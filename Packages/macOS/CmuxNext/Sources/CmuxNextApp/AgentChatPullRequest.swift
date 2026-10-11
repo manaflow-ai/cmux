@@ -60,7 +60,8 @@ nonisolated struct AgentChatPullRequestReader: Sendable {
 
 /// The chat header's pull request chip, per chat (cx-tcwj): the header state reads ``badge(cwd:)``
 /// while its watch observes it, so the answer is pushed to the page when it lands. A folder is
-/// asked again only when the header is read after its answer is older than `freshness`; nothing polls.
+/// asked again when the header is read after its answer is older than `freshness`, and on its own
+/// after `freshness` while its checks run, so the dot turns when they finish; nothing else polls.
 @MainActor @Observable
 final class AgentChatPullRequest {
     private struct Answer {
@@ -74,6 +75,8 @@ final class AgentChatPullRequest {
     @ObservationIgnored private let freshness: Duration
     /// The folder being asked now.
     @ObservationIgnored private var asking: String?
+    /// Asks again while the answer's checks run.
+    @ObservationIgnored private let refresh = DemandTimer(owner: "header-pull-request-checks")
 
     init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
         self.reader = reader
@@ -85,17 +88,25 @@ final class AgentChatPullRequest {
     func badge(cwd: String?) -> AgentPanePullRequest? {
         guard let cwd else { return nil }
         let known = answer?.cwd == cwd ? answer : nil
-        if asking != cwd, known.map({ ContinuousClock.now - $0.at > freshness }) ?? true {
-            asking = cwd
-            let reader = reader
-            // task-owner: one gh read per stale folder; its answer lands on this chat's state.
-            Task { [weak self] in
-                let badge = await reader.read(in: cwd)
-                guard let self, asking == cwd else { return }
-                asking = nil
-                answer = Answer(cwd: cwd, badge: badge, at: .now)
+        if asking != cwd, known.map({ ContinuousClock.now - $0.at > freshness }) ?? true { ask(cwd) }
+        return known?.badge
+    }
+
+    private func ask(_ cwd: String) {
+        asking = cwd
+        refresh.cancel()
+        let reader = reader
+        // task-owner: one gh read per stale folder; its answer lands on this chat's state.
+        Task { [weak self] in
+            let badge = await reader.read(in: cwd)
+            guard let self, asking == cwd else { return }
+            asking = nil
+            answer = Answer(cwd: cwd, badge: badge, at: .now)
+            guard badge?.checks.state == "pending" else { return }
+            refresh.schedule(after: freshness) { @MainActor [weak self] in
+                guard let self, answer?.cwd == cwd, asking == nil else { return }
+                ask(cwd)
             }
         }
-        return known?.badge
     }
 }

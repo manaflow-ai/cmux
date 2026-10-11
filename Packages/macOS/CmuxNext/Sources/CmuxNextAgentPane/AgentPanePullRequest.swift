@@ -51,7 +51,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
             if let status, status != "COMPLETED" { return "pending" }
             switch conclusion {
             case "SUCCESS", "SKIPPED", "NEUTRAL": return "passed"
-            case "PENDING", "EXPECTED", "": return "pending"
+            // A stale check run was superseded by one not reported yet, as `gh pr checks` reads it.
+            case "PENDING", "EXPECTED", "STALE", "": return "pending"
             default: return "failed"
             }
         }
