@@ -14,7 +14,6 @@ import {
   isAcpmuxNonce,
   redactGuestLine
 } from "./cloud-acpmux-guest.ts"
-import { personalTeamIdFor } from "./domains/user.ts"
 import type { MachineRow } from "./domains/cloud.ts"
 
 /**
@@ -24,8 +23,8 @@ import type { MachineRow } from "./domains/cloud.ts"
  * audit row per call holds {action, machine, who, at, outcome}.
  *
  * Only the machine's single owner may do either (hq-84 rule): the caller's session created the
- * machine, and the team is the creator's personal team or a team whose one member is the creator
- * (a TeamDO lookup; a failed lookup refuses). Team VMs (TeamVmDO) are a different object, never
+ * machine, and the team (personal or shared) has exactly one member, the creator (a TeamDO lookup;
+ * a failed lookup refuses). Team VMs (TeamVmDO) are a different object, never
  * reached from here; a team machine marker on the guest refuses too.
  *
  * No outcome carries a provider error, the command, its stdin or the guest's raw output: a code,
@@ -69,11 +68,10 @@ const singleOwnerRunning = async (host: AcpmuxHost, principal: Principal, machin
   const row = host.machine(machine)
   if (!row) return "not_found"
   if (row.creator !== principal.user) return "not_single_owner"
-  if (host.team !== personalTeamIdFor(row.creator)) {
-    const m = await host.members(host.team, row.creator).catch(() => null)
-    if (!m) return "owner_unconfirmed"
-    if (m.count !== 1 || m.users.length !== 1 || m.users[0] !== row.creator) return "not_single_owner"
-  }
+  // Every team, the creator's personal team too: exactly one member, the creator (TeamDO; a failed lookup refuses).
+  const m = await host.members(host.team, row.creator).catch(() => null)
+  if (!m) return "owner_unconfirmed"
+  if (m.count !== 1 || m.users.length !== 1 || m.users[0] !== row.creator) return "not_single_owner"
   if (row.status !== "running") return "not_running"
   return row
 }

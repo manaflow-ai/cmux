@@ -154,10 +154,11 @@ own prompts. Delivery paths:
   own session, never through the local daemon, `apps-run` or a Cloud op (ops
   and their params are recorded). The team's Cloud object passes it on only as
   the stdin of the same provider exec, records no op and keeps one audit row
-  without it. The Worker refuses a request with a key-like value in the URL, a
-  query or a header, because its invocation logs record those; the app sends
-  only the session, content type, length and team headers. Single owner as
-  above.
+  without it. The Worker's invocation logs record the URL and every header but
+  the session, so the app puts the key only in the body, and staging and
+  production run with invocation logs off. The Worker also refuses (does not
+  use) a request with a key-like value in the URL, a query or a header. Single
+  owner as above.
 
 Accepted residuals:
 

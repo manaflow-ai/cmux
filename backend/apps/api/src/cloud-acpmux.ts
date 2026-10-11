@@ -17,8 +17,11 @@ import { principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
  * NON-LOGGABLE: the Worker reads it from the body only, hands it to the team's CloudDO as an RPC
  * argument (never an op, so no op-log row, ledger or audit param holds it), and zeroes its own
  * copy after the call. A request that carries a 64-hex run anywhere but the body (the URL, a
- * query, any header) is refused before the body is read, so K can never reach the invocation log,
- * which records URLs and headers. The keyed-start body must be application/octet-stream with a
+ * query, any header) is refused before the body is read, so a key there is never used. That
+ * refusal does not keep it out of the invocation log, which records the URL and every header but
+ * Authorization: the controls for the log are that the cmux app never puts a key outside the body
+ * (CloudOwnerAPIClient) and that staging and production run with invocation logs off
+ * (development keeps them on). The keyed-start body must be application/octet-stream with a
  * declared Content-Length of exactly 65 (411 without one): 64 lowercase hex characters and a
  * newline. No console line, error or answer here holds any part of a body. No Idempotency-Key and
  * no retry: a call that did not answer is sent again by the person, with a new key.

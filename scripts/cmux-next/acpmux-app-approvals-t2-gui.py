@@ -16,7 +16,7 @@ harness `fake`, no real model). Checks, as a person does them:
 The app is started by its executable from this job and ended by exact pid; it never touches
 another cmux window.
 
-  acpmux-app-approvals-t2-gui.py --app <cmux DEV tag.app> --tag <tag> --machine vm_... --creds <file> [--account <email>]
+  acpmux-app-approvals-t2-gui.py --app <cmux DEV tag.app> --tag <tag> --machine vm_... [--creds <0600 file>] [--account <email>]
 Writes NX_ARTIFACTS/t2.json, app.log and window snapshots.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, time
@@ -25,10 +25,13 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--app", required=True)
 ap.add_argument("--tag", required=True)
 ap.add_argument("--machine", required=True)
-ap.add_argument("--creds", required=True)
+ap.add_argument("--creds", default=os.path.expanduser("~/.secrets/cmuxterm-dev.env"), help="a 0600 file with CMUX_UITEST_STACK_* (default: the host's ~/.secrets/cmuxterm-dev.env)")
 ap.add_argument("--account", help="the agent account email (default: CMUX_UITEST_STACK_EMAIL of --creds)")
 ap.add_argument("--worker", default="https://cmux-api-development.debussy.workers.dev")
 opts = ap.parse_args()
+_creds = os.lstat(opts.creds)
+if not __import__("stat").S_ISREG(_creds.st_mode) or _creds.st_uid != os.getuid() or _creds.st_mode & 0o077:
+    sys.exit(f"refusing {opts.creds}: the credentials file must be a regular file of this user with no group or other access")
 if not opts.account:
     opts.account = next((l.split("=", 1)[1].strip().strip("'\"") for l in open(opts.creds) if l.strip().removeprefix("export ").startswith("CMUX_UITEST_STACK_EMAIL=")), "")
 if opts.worker != "https://cmux-api-development.debussy.workers.dev":
@@ -125,7 +128,8 @@ if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
 # Short: acpmux puts unix sockets under its home, and a socket path over 104 bytes traps NWConnection.
 HOME_ACP = f"/tmp/kvmz-acp-home-{os.getpid()}"
 ACP_SOCKET = f"/tmp/kvmz-acp-{os.getpid()}.sock"
-os.makedirs(HOME_ACP, exist_ok=True)
+os.makedirs(HOME_ACP, mode=0o700, exist_ok=True)
+os.chmod(HOME_ACP, 0o700)
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     info = plistlib.load(f)
 BINARY = os.path.join(opts.app, "Contents/MacOS", info["CFBundleExecutable"])

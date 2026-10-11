@@ -39,6 +39,8 @@ export const freestyleExecStdin = async (
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({ command, timeoutMs, linuxUser: "root", ...(stdin ? { stdin: b64(stdin) } : {}) }),
+      // A 3xx is not followed: it fails as not-200, so the stdin is never sent to a Location host.
+      redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs + 10_000)
     })
   } catch {

@@ -38,6 +38,7 @@ extension AgentPaneView {
         remoteApprovalsNotice = notice
     }
 
+    #if DEBUG
     /// Debug socket (cx-kvmz T2): the notice's text lines and whether it offers the restart; nil
     /// without a notice. Reads the views a person sees, nothing else.
     public var remoteApprovalsNoticeLines: (lines: [String], restart: Bool)? {
@@ -53,6 +54,7 @@ extension AgentPaneView {
         button.performClick(nil)
         return true
     }
+    #endif
 
     func hideRemoteApprovalsOff() {
         remoteApprovalsNotice?.removeFromSuperview()

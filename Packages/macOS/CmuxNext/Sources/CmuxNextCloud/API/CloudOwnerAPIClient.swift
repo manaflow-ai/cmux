@@ -5,10 +5,12 @@ public import Foundation
 /// on a Cloud machine of the app server link: `POST /v1/cloud/machines/{machine}/acpmux/...`.
 ///
 /// The person key never goes through `apps-run`, the local daemon or a Cloud op (those record
-/// their params). Every request carries only `Authorization` (the Stack session, which the
-/// Worker's logs mask), `Content-Type`, `Content-Length` and `x-cmux-team`: the Worker's
-/// invocation logs record every other header and the URL, so nothing else may hold a key. No
-/// cache, no cookies, no redirect is followed, and nothing is retried.
+/// their params). Every header this client sets is `Authorization` (the Stack session, which the
+/// Worker's logs mask), `Content-Type`, `Content-Length` and `x-cmux-team`; URLSession adds
+/// `User-Agent`, `Accept`, `Accept-Language`, `Accept-Encoding` and `Host`, none of which holds a
+/// credential. The Worker's invocation logs (on in development) record the URL and every header
+/// but Authorization, so nothing outside the body may hold a key. No cache, no cookies, no
+/// redirect is followed, and nothing is retried.
 public struct CloudOwnerAPIClient: Sendable {
     public typealias AccessToken = @Sendable () async throws -> String
     /// The cmux team (`team_…`) whose machine this is: the install token's team claim.
@@ -72,9 +74,10 @@ public struct CloudOwnerAPIClient: Sendable {
         }
         var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
         request.httpMethod = "POST"
-        // RULE (cx-kvmz, hq-84): only these four headers: Authorization (the Worker's invocation log
-        // masks it), Content-Type, Content-Length and x-cmux-team. The log records every other
-        // header and the URL, so no other header, no query and no path part may ever be added here.
+        // RULE (cx-kvmz, hq-84): this client sets only these four headers: Authorization (the
+        // Worker's invocation log masks it), Content-Type, Content-Length and x-cmux-team. The log
+        // records every other header and the URL, so no other header, no query and no path part
+        // that could hold a key may ever be added here.
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         switch body {
