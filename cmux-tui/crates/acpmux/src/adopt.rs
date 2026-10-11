@@ -134,7 +134,7 @@ pub fn claude_session_exists(root: &Path, id: &str) -> bool {
 }
 
 /// `<claude>/projects/<project>/<id>.jsonl`.
-fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
+pub(crate) fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");
     std::fs::read_dir(root.join("projects"))
         .ok()?
