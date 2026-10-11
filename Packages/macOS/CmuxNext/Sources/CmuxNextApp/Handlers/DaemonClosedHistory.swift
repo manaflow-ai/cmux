@@ -153,6 +153,9 @@ enum DaemonClosedHistory {
             do {
                 try await connection.state.deleteClosed(id)
                 return nil
+            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+                // Already gone (a second Remove, or a reopen that ran first): the goal holds.
+                return nil
             } catch {
                 daemon.logger.error("closed.delete failed: \(String(describing: error), privacy: .public)")
                 return "closed.delete: \(error)"
@@ -161,7 +164,9 @@ enum DaemonClosedHistory {
     }
 
     /// Clears every connected daemon's closed history: the groups closed at
-    /// or after `since`, every group for nil (Clear History).
+    /// or after `since`, every group for nil (Clear History). `since` is this
+    /// Mac's clock; a remote daemon with a skewed clock clears a range off by
+    /// that skew.
     static func clear(since: Date?, services: AppServices) {
         let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
         for daemon in services.machines.daemons where daemon.store.servesStateResources {
