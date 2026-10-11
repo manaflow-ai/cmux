@@ -7,6 +7,7 @@ import CmuxTerminalCore
 import CmuxSettings
 import AppKit
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 import WebKit
 import CMUXMobileCore
@@ -5641,6 +5642,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         var originalSelectedTabId: UUID?
         var workspace: Workspace?
         var mainWindowPanel: TerminalPanel?
+        var closeStack: AnyCancellable?
+        var closedFrom: String?
         defer {
             mainWindowPanel?.searchState = nil
             if let manager, let workspace, manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -5660,7 +5663,12 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             workspace = manager?.addWorkspace(select: true)
             mainWindowPanel = manager?.selectedTerminalPanel
             mainWindowPanel?.searchState = TerminalSurface.SearchState(needle: "")
+            closeStack = mainWindowPanel?.$searchState.dropFirst().sink { state in
+                if state == nil { closedFrom = Thread.callStackSymbols.prefix(40).joined(separator: "\n") }
+            }
         })
+        print("ESCDIAG closedFrom:\n\(closedFrom ?? "not closed")\nESCDIAG end keyWindow=\(String(describing: NSApp.keyWindow)) mainWindow=\(String(describing: NSApp.mainWindow))")
+        _ = closeStack
 
         XCTAssertNotNil(mainWindowPanel, "Expected the main window's new terminal to be selected")
         XCTAssertNotNil(
