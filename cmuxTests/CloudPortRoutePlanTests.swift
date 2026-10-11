@@ -227,6 +227,25 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("The omnibar and session history show the SSH service, not its forward listener")
+    func panelLiveURLReadersShowLogicalSSHService() async throws {
+        let model = makeModel(port: 3500, forward: { _ in 50_604 }, route: .loopback)
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        // A terminal link printed by `python3 -m http.server 3500`.
+        panel.cloudAccess.configure(model: model, url: URL(string: "http://[::]:3500/")!)
+        model.connect()
+        #expect(await wait { model.phase == .forwarded(50_604) })
+        _ = try #require(panel.cloudAccess.nextRequest())
+
+        // WebKit's live URL is the local listener. Every chrome reader of it
+        // (omnibar text, focus/edit buffer, reload, session history) must keep
+        // the stable service origin the user would see on the SSH host.
+        let listener = URL(string: "http://127.0.0.1:50604/docs/?q=1")!
+        #expect(panel.restorableDisplayURLForCurrentErrorPage(liveURL: listener)?.absoluteString
+            == "http://localhost:3500/docs/?q=1")
+        await model.retire()
+    }
+
     @Test("HTTP stays on the authenticated hub across every system VPN state",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func httpIsIndependentOfVPN(state: CloudTunnelState) async {
