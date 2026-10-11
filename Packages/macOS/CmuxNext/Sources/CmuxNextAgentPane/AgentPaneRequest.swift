@@ -77,6 +77,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// `harness.health {id, refresh?}` (cx-ny85): this Mac's acpmux health row for the chat's
+    /// agent CLI; `refresh` checks again (after its Log In or Update).
+    case harnessHealth(String, refresh: Bool)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -154,6 +157,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.stage` / `git.unstage`: the Changes view's Stage and Unstage (AgentPaneGitStage.swift);
     /// nil when its params break the contract, and nothing runs.
     case gitStage(AgentPaneGitStage?)
+    /// `git.pullRequest`: the Changes view's Create PR (AgentPaneGitPullRequest.swift); nil when its
+    /// params break the contract, and nothing runs.
+    case gitPullRequest(AgentPaneGitPullRequest?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen

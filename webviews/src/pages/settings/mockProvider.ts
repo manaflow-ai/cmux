@@ -150,7 +150,7 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
         if (
-          (run.action === "signIn" || run.action === "check") &&
+          (run.action === "signIn" || run.action === "check" || run.action === "autoUpdate") &&
           !this.harnesses.harnesses.some((h) => h.id === run.id)
         ) {
           throw new ProtocolError("cmux.settings.invalid", "id must be a listed harness");

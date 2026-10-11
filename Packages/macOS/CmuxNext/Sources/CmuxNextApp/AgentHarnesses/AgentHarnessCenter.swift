@@ -145,8 +145,8 @@ final class AgentHarnessCenter {
     }
 
     /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.
-    func health() async throws -> [JSONValue] {
-        try await call(.health)["harnesses"]?.arrayValue ?? []
+    func health(refresh: Bool = false) async throws -> [JSONValue] {
+        try await call(.health, refresh ? ["refresh": true] : [:])["harnesses"]?.arrayValue ?? []
     }
 
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {

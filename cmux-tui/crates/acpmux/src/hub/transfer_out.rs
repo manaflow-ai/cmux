@@ -3,10 +3,11 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?}`: the chat stops taking prompts and
-//!    starting queued ones (a running turn refuses the move, or stops with `interrupt`), and its
-//!    bundle (`transfer.rs` export) is made. Answers `{schema, transferId, sessionId, files:
-//!    [{path, size}], session}`: the manifest the target takes.
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket}}`: the chat stops
+//!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
+//!    `interrupt`), and its bundle (`transfer.rs` export) is made. Answers `{schema, transferId,
+//!    sessionId, files: [{path, size}], session}`: the manifest the target takes. `to` names the
+//!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`).
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -19,7 +20,8 @@
 //! aborts: each queued prompt runs once, on one daemon. While it is frozen its queue and draft
 //! do not change either. A client aborts only a move the target does not have: one whose
 //! `transfer_finish` answer was lost is committed when the target's log has the move's
-//! `transferred_in {transferId}` (a chat with the same id there may be another copy).
+//! `transferred_in {transferId}` (a chat with the same id there may be another copy). A move
+//! whose client goes away ends on its own (`transfer_watch.rs`).
 //!
 //! Only the local socket moves a chat: a bundle holds the whole chat, and its queue runs on the
 //! target under the rules it was sent with. A remote daemon takes one through its own guarded
@@ -107,7 +109,8 @@ impl Hub {
             "begin" => {
                 let session = self.resolve(text("sessionId"))?;
                 let interrupt = params.get("interrupt").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt).await
+                let to = params.get("to").and_then(|to| to.get("socket")).and_then(Value::as_str);
+                self.transfer_begin(&session, interrupt, to).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -121,11 +124,12 @@ impl Hub {
             }
             "abort" => {
                 let session = self.resolve(text("sessionId"))?;
-                self.transfer_abort(&session, text("transferId"))
+                self.transfer_abort(&session, text("transferId"), None)
             }
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
+            "forget" => self.transfer_forget(params).await,
             _ => Err(RpcError::method_not_found(m)),
         }
     }
@@ -135,6 +139,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         interrupt: bool,
+        to: Option<&str>,
     ) -> Result<Value, RpcError> {
         if session.status() == SessionStatus::Closed {
             return Err(transfer_error("closed", "this chat is closed"));
@@ -182,6 +187,11 @@ impl Hub {
                 return Err(unfreeze(RpcError::internal(format!("transfer: bundle: {e}"))));
             }
         };
+        if let Some(socket) = to {
+            let _ = std::fs::write(dir.join("to"), socket);
+        }
+        super::transfer_watch::note_activity(&dir, None);
+        self.watch_transfer(session, &transfer_id);
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         Ok(json!({
@@ -213,8 +223,15 @@ impl Hub {
             f.read_exact(&mut data)?;
             Ok((data, start, len))
         };
+        let dir = transfers_dir().join(transfer_id);
+        let _pages = super::transfer_watch::PAGES.lock().unwrap_or_else(|e| e.into_inner());
+        // The watch may have aborted the move since `transfer_bundle` found it.
+        if !dir.is_dir() {
+            return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
+        }
         let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
         let next = start + data.len() as u64;
+        super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
 
@@ -231,12 +248,13 @@ impl Hub {
             return Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}")));
         }
         let dir = inside(&transfers_dir(), transfer_id)?;
-        let mut entries = std::fs::read_dir(&dir).map_err(|_| {
+        let entries = std::fs::read_dir(&dir).map_err(|_| {
             RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?} here"))
         })?;
-        match entries.next() {
-            Some(Ok(entry)) => Ok(entry.path()),
-            _ => Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}"))),
+        // The bundle is its one directory; beside it, `transfer_watch.rs`'s files.
+        match entries.flatten().find(|entry| entry.path().is_dir()) {
+            Some(entry) => Ok(entry.path()),
+            None => Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}"))),
         }
     }
 
@@ -251,13 +269,19 @@ impl Hub {
 
     /// The chat lives on the target now: its queue is withdrawn here (the target runs it), its
     /// draft cleared, and it closes.
-    async fn transfer_commit(
+    pub(super) async fn transfer_commit(
         &self,
         session: &Arc<Session>,
         transfer_id: &str,
         to: Value,
     ) -> Result<Value, RpcError> {
         Self::moving_as(session, transfer_id)?;
+        // Committed already (by the source's own watch, or a retried commit).
+        if session.status() == SessionStatus::Closed {
+            return Ok(
+                json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}),
+            );
+        }
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
         }
@@ -281,8 +305,14 @@ impl Hub {
         Ok(())
     }
 
-    /// The move did not happen: the chat takes prompts and runs its queue again.
-    fn transfer_abort(&self, session: &Arc<Session>, transfer_id: &str) -> Result<Value, RpcError> {
+    /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says
+    /// why when the source ended it itself (`transfer_watch.rs`).
+    pub(super) fn transfer_abort(
+        &self,
+        session: &Arc<Session>,
+        transfer_id: &str,
+        reason: Option<&str>,
+    ) -> Result<Value, RpcError> {
         Self::moving_as(session, transfer_id)?;
         if session.status() == SessionStatus::Closed {
             return Err(transfer_error(
@@ -291,7 +321,11 @@ impl Hub {
             ));
         }
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
+        let mut record = json!({"transferId": transfer_id});
+        if let Some(reason) = reason {
+            record["reason"] = json!(reason);
+        }
+        self.append(session, "mux", "transfer_aborted", record);
         session.queue_moved.notify_waiters();
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
