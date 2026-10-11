@@ -31,7 +31,10 @@ struct LinkExportTests {
         return url.appendingPathComponent("plans/cmux-next/\(name)")
     }
 
-    @Test func linksJSONIsFresh() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func linksJSONIsFresh() throws {
         let url = Self.planURL("links.json")
         let current = Self.export.json()
         #expect(!current.isEmpty)

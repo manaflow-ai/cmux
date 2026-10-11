@@ -1613,6 +1613,9 @@ function AcpmuxPane() {
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
   const [pastTurns, setPastTurns] = useState<PastTurn[]>();
+  /// The past turns are an adopted chat's own, replayed once its folder's trust question is
+  /// answered: they show only while that question is up, so a trusted folder never flashes them.
+  const [pastWaitsForTrust, setPastWaitsForTrust] = useState(false);
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
   /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
@@ -2693,6 +2696,7 @@ function AcpmuxPane() {
             : undefined,
         );
         setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
+        setPastWaitsForTrust(host.adopt !== undefined && host.adopt !== null);
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -3240,6 +3244,19 @@ function AcpmuxPane() {
     if (!quick) void readTabState().catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
+  // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
+  // created it or pushed to it, and the chip should not wait for its next read.
+  // Only the same chat going idle counts; switching away from a working chat is no turn end.
+  const wasWorking = useRef({ session: snapshot.sessionId, working: snapshot.isWorking });
+  useEffect(() => {
+    const last = wasWorking.current;
+    const ended = last.session === snapshot.sessionId && last.working && !snapshot.isWorking;
+    wasWorking.current = { session: snapshot.sessionId, working: snapshot.isWorking };
+    if (ended && !quick)
+      void callNative("pane.tabState", { refresh: true })
+        .then(setHeaderState)
+        .catch(() => undefined);
+  }, [snapshot.sessionId, snapshot.isWorking, quick]);
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.
   useEffect(() => {
@@ -4208,7 +4225,7 @@ function AcpmuxPane() {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
-                ) : freshView && pastTurns ? (
+                ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />

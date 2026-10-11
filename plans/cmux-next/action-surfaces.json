@@ -4893,7 +4893,8 @@
       "cli_name" : "workspace set-theme",
       "context_menu" : "offered",
       "context_menus" : [
-        "workspaceRow"
+        "workspaceRow",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -11395,9 +11396,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "terminal find",
-      "context_menu" : "liveInput",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -21795,9 +21796,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings increase-interface-size",
-      "context_menu" : "offered",
+      "context_menu" : "stepAdjust",
       "context_menus" : [
-        "agentChat"
+
       ],
       "default_aliases" : [
 
@@ -21822,9 +21823,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings decrease-interface-size",
-      "context_menu" : "offered",
+      "context_menu" : "stepAdjust",
       "context_menus" : [
-        "agentChat"
+
       ],
       "default_aliases" : [
 
@@ -21849,9 +21850,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings reset-interface-size",
-      "context_menu" : "offered",
+      "context_menu" : "stepAdjust",
       "context_menus" : [
-        "agentChat"
+
       ],
       "default_aliases" : [
 
@@ -26558,53 +26559,101 @@
           }
         },
         {
+          "choices" : {
+            "argument" : "theme",
+            "more_opens_palette" : true,
+            "values" : [
+              {
+                "title" : "Use Ghostty Config",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "config"
+              },
+              {
+                "title" : "Rose Pine",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Rose Pine"
+              },
+              {
+                "title" : "Rose Pine Moon",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Rose Pine Moon"
+              },
+              {
+                "title" : "Catppuccin Mocha",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Catppuccin Mocha"
+              },
+              {
+                "title" : "TokyoNight",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "TokyoNight"
+              },
+              {
+                "title" : "Gruvbox Dark",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Gruvbox Dark"
+              },
+              {
+                "title" : "Nord",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Nord"
+              },
+              {
+                "title" : "Vesper",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Vesper"
+              },
+              {
+                "title" : "Rose Pine Dawn",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Rose Pine Dawn"
+              },
+              {
+                "title" : "Catppuccin Latte",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Catppuccin Latte"
+              },
+              {
+                "title" : "GitHub Light Default",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "GitHub Light Default"
+              }
+            ]
+          },
+          "enabled_when" : "can_perform",
+          "id" : "workspace.setTheme",
+          "kind" : "choices",
+          "label" : "Theme",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 1
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "appearance.interfaceSize.increase",
-          "kind" : "action",
-          "order" : 2,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "appearance.interfaceSize.decrease",
-          "kind" : "action",
-          "order" : 3,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "appearance.interfaceSize.reset",
-          "kind" : "action",
-          "order" : 4,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "order" : 2
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
-          "order" : 5,
+          "label" : "Zoom In",
+          "order" : 3,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26617,7 +26666,8 @@
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomOut",
           "kind" : "action",
-          "order" : 6,
+          "label" : "Zoom Out",
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26630,12 +26680,31 @@
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomReset",
           "kind" : "action",
-          "order" : 7,
+          "label" : "Actual Size",
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
             "requires" : [
               "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "find",
+          "kind" : "action",
+          "label" : "Find in Chat…",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
             ]
           }
         },
