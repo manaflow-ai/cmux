@@ -663,6 +663,76 @@
    "replaces": [
     "equal.circle"
    ]
+  },
+  {
+   "name": "media.play",
+   "meaning": "Play media",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 5.5v13l10.5-6.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 5.5v13l10.5-6.5Z'/></g></svg>",
+   "replaces": [
+    "play.fill"
+   ],
+   "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "media.pause",
+   "meaning": "Pause media",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='6.5' y='5' width='4' height='14' rx='1'/><rect x='13.5' y='5' width='4' height='14' rx='1'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='6.5' y='5' width='4' height='14' rx='1'/><rect x='13.5' y='5' width='4' height='14' rx='1'/></g></svg>",
+   "replaces": [
+    "pause.fill"
+   ],
+   "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "media.next",
+   "meaning": "Next track",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 6.5v11l8.5-5.5Z'/><path d='M18 6.5v11'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 6.5v11l8.5-5.5Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M18 6.5v11'/></g></svg>",
+   "replaces": [
+    "forward.end.fill"
+   ],
+   "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "media.previous",
+   "meaning": "Previous track",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 6.5v11L10 12Z'/><path d='M6 6.5v11'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 6.5v11L10 12Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M6 6.5v11'/></g></svg>",
+   "replaces": [
+    "backward.end.fill"
+   ],
+   "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "media.hub",
+   "meaning": "Media playing in the browser (media hub)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='9' cy='17' r='2.75'/><path d='M11.75 17V5l7 2v3.5l-7-2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='9' cy='17' r='2.75'/><path d='M11.75 5l7 2v3.5l-7-2Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'><path d='M11.75 17V5'/></g></svg>",
+   "replaces": [
+    "music.note"
+   ],
+   "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "media.audio",
+   "meaning": "Tab is playing sound",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></g></svg>",
+   "replaces": [
+    "speaker.wave.2"
+   ],
+   "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "media.muted",
+   "meaning": "Tab sound muted",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/><path d='M15.5 9.5l5 5M20.5 9.5l-5 5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M15.5 9.5l5 5M20.5 9.5l-5 5'/></g></svg>",
+   "replaces": [
+    "speaker.slash.fill"
+   ],
+   "note": "cx-6qwm.2 media hub"
   }
  ]
 }

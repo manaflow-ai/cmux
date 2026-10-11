@@ -318,6 +318,20 @@ extension Motion {
         return flash
     }
 
+    /// Keeps a layer hidden while a `token` move is still more than 3% from
+    /// its target, then fades it in: a row another row passes over shows
+    /// again once they no longer overlap (cx-ai79). Nil when moves snap.
+    public static func passOverAnimation(_ token: MotionSpring) -> CAAnimation? {
+        guard animatesMovement else { return nil }
+        let settle = spring(token).settlingTime(within: 0.03)
+        let total = settle + duration(MotionFade.fadeIn)
+        let hide = CAKeyframeAnimation(keyPath: "opacity")
+        hide.values = [0, 0, 1]
+        hide.keyTimes = [0, NSNumber(value: settle / total), 1]
+        hide.duration = total
+        return hide
+    }
+
     /// A crossfade layer action for swapped contents (`CALayer.actions`).
     /// Its duration is 0, so it takes the enclosing `transaction(_:_:)`'s token.
     public static var crossfadeAction: CATransition {

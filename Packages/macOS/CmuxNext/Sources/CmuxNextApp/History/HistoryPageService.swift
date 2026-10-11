@@ -106,15 +106,23 @@ extension TabContentCache {
     /// restart) or a page this process made for the tab before (hibernation
     /// wake, engine switch). A tab created later, by anyone, records its
     /// first visit. Typing an app page address (`cmux://history`,
-    /// `cmux://bookmarks`) into the address bar shows that page.
+    /// `cmux://bookmarks`, or `chrome://history`, `chrome://bookmarks`:
+    /// `routedChromiumPage`) into the address bar shows that page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
         if let tab = tabModel(key), installedBefore || services.machines.daemon(forTab: tab).store.restoredTabIDs.contains(key) {
             entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
         }
-        entry.chrome.loadOverride = { [weak self] url in
-            guard Self.isAppPage(url), let self, let tab = tabModel(key) else { return false }
+        entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
+            // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
+            guard let url = services.routedChromiumPage(typed) else {
+                chrome?.addressBar.showPageURL()
+                return true
+            }
+            guard Self.isAppPage(url) else { return false }
+            // Never load a cmux page address in the engine (WebKit cancels it without a word).
+            guard let self, let tab = tabModel(key) else { return true }
             // Typed in the address bar (or a bookmark a person opened).
             if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
             showAppPage(url, in: tab)

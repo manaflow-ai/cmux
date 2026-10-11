@@ -3,8 +3,11 @@
 //! to an existing pane without making it the active tab
 //! (`frontend-browser-activate-v1`); `after` puts it right after another tab
 //! of that pane, as Chrome places a link's tab next to its opener
-//! (`frontend-browser-insert-after-v1`).
+//! (`frontend-browser-insert-after-v1`). A tab put after a grouped tab
+//! joins that tab group in its slot, as Chrome groups a link's tab with its
+//! opener (cx-d0d.55).
 
+use super::tab_strip::StripRequest;
 use super::*;
 use crate::resource::BrowserPublicId;
 
@@ -58,9 +61,25 @@ pub(crate) fn frontend_fields(
     fields
 }
 
+/// The tab group `after` belongs to in `pane`, and the index inside the
+/// group right after it: where a tab put after it joins.
+fn joined_group(
+    state: &State,
+    presentation: &crate::workspace_registry::PresentationSnapshot,
+    pane: PaneId,
+    after: Option<SurfaceId>,
+) -> Option<(String, usize)> {
+    let after = after?;
+    pane_tab_groups(state, presentation, pane).into_iter().find_map(|run| {
+        let index = run.members.iter().position(|member| *member == after)?;
+        Some((run.group.id, index + 1))
+    })
+}
+
 /// The index of `pane`'s strip a new tab takes: right after `after` when it
 /// is a tab of the pane, else the end. A slot inside a tab group's run moves
-/// to the end of that run, so the new (ungrouped) tab never splits a group.
+/// to the end of that run, so the still ungrouped tab never splits a group;
+/// one that joins the group then moves into its slot.
 fn insertion_index(
     state: &State,
     presentation: &crate::workspace_registry::PresentationSnapshot,
@@ -322,8 +341,10 @@ impl Mux {
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
         let mut active_index_moved = false;
+        let joins;
         let attached = {
             let mut state = self.state.lock().unwrap();
+            joins = joined_group(&state, &notifications.presentation, target, after);
             let slot = insertion_index(&state, &notifications.presentation, target, after);
             match state.panes.get_mut(&target) {
                 Some(pane) => {
@@ -374,6 +395,17 @@ impl Mux {
         // A background tab changes no pane's selection; one inserted before
         // the active tab moves its index, so index-based clients resync.
         self.emit_tree_delta(delta, activate || active_index_moved);
+        if let Some((group, index)) = joins {
+            let added = surface.id;
+            let request = StripRequest::local(&Actor::Daemon, "tab.group.add");
+            match self.tab_group_add(request, &group, move |_| Ok(vec![added]), Some(index)) {
+                Ok(_) => self.emit_tab_group_members(&[added], None),
+                // The tab stays, ungrouped after the group's run.
+                Err(error) => {
+                    eprintln!("cmux-tui: browser tab {added} did not join {group}: {error:#}");
+                }
+            }
+        }
         self.reap_if_dead(&surface);
         Ok(surface)
     }

@@ -9,6 +9,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
+import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
@@ -28,6 +29,7 @@ import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
+import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -94,6 +96,7 @@ import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
   latestForkSeq,
@@ -114,7 +117,8 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
-import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
+import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -178,8 +182,11 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      applyHeaderState?(state: unknown): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
       applyDeviceChats?(chats: unknown): void;
+      /// The newest recently closed items for the New Tab page (newtab/recentlyClosed.ts).
+      applyRecentlyClosed?(items: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -298,10 +305,19 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
-    if (row.kind === "user")
+    if (row.kind === "user") {
+      // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
+      // the message (the session keeps the whole text).
+      const envelope = chiefEnvelope(row.text);
       return (
         <div className="cv-user">
-          <div className="cv-user__bubble selectable">{row.text ?? ""}</div>
+          {envelope && (
+            <details className="cv-user__context">
+              <summary>{t("transcript.chiefContext", { count: envelope.lines })}</summary>
+              <pre className="cv-user__context-text selectable">{envelope.context}</pre>
+            </details>
+          )}
+          <div className="cv-user__bubble selectable">{envelope ? envelope.task : (row.text ?? "")}</div>
           <FailedPrompt row={row} />
           {row.status && (
             <div className="cv-user__status">
@@ -321,6 +337,7 @@ const MessageRow = memo(
           )}
         </div>
       );
+    }
     return (
       <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
     );
@@ -377,6 +394,8 @@ const WorkingRow = memo(
     a.row.durationMs === b.row.durationMs,
 );
 
+/// How many turns back the header's Preview looks for a page.
+const PREVIEW_TURNS = 8;
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
 /// panel) refuses, and the card's address still opens outside the pane.
 const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
@@ -1707,6 +1726,29 @@ function AcpmuxPane() {
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
     [lastEditTurn, turnCountsFor],
   );
+  // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
+  // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
+  const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());
+  const previewUrl = useMemo(() => {
+    const rows = snapshot.rows;
+    const seen = new Map<string, { key: string; url: string | undefined }>();
+    let found: string | undefined;
+    let end = rows.length;
+    for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
+      const user = rows[index];
+      if (user.kind !== "user") continue;
+      const turn = rows.slice(index + 1, end);
+      const key = [user, ...turn].map((row) => `${row.id}:${row.version}`).join("|");
+      const cached = previewTurns.current.get(user.id);
+      const entry = cached?.key === key ? cached : { key, url: turnPreviewUrl(user, turn) };
+      seen.set(user.id, entry);
+      found = entry.url;
+      end = index;
+      turns += 1;
+    }
+    previewTurns.current = seen;
+    return found;
+  }, [snapshot.rows]);
   const toggleLastChanges = () => {
     if (diffView && diffOpen) return closeDiff();
     if (lastEditTurn) openDiff(lastEditTurn.rowId);
@@ -1955,8 +1997,14 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
       },
+      applyHeaderState(state) {
+        setHeaderState(state);
+      },
       applyDeviceChats(chats) {
         setDeviceChats(chats);
+      },
+      applyRecentlyClosed(items) {
+        setRecentlyClosed(items);
       },
       revealTurn(turnId) {
         void revealTurnWhenShown(turnId);
@@ -2525,14 +2573,14 @@ function AcpmuxPane() {
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
-  const tabPinned = useRef(false);
-  // Whether the panes beside the chat show ([+] New tab reads Hide tabs): the App's answer to the
-  // click, and the tab state it reports.
-  const [sideTabs, setSideTabs] = useState(false);
+  // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
+  // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
+  // follows the App's answer to the click.
+  const { sideTabs } = useHeaderState();
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
-        setSideTabs(result?.shown === true),
+        setHeaderState({ sideTabs: result?.shown === true }),
       ),
     );
   const archive = archiveRow(
@@ -2544,11 +2592,7 @@ function AcpmuxPane() {
     (archived) => ignoreFailure(callNative("chat.archive", { archived })),
     t,
   );
-  const readTabState = () =>
-    callNative<{ pinned?: boolean; sideTabs?: boolean }>("pane.tabState").then((state) => {
-      tabPinned.current = state?.pinned === true;
-      setSideTabs(state?.sideTabs === true);
-    });
+  const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
@@ -2634,7 +2678,7 @@ function AcpmuxPane() {
         },
         {
           key: "pin",
-          label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
+          label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
           icon: "action.pin",
           shortcutAction: HEADER_ACTIONS.pin,
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
@@ -3230,9 +3274,28 @@ function AcpmuxPane() {
                       tabTools={!quick}
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
+                      // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
+                      hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
+                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      previewUrl={previewUrl}
+                      onPreview={(url, mode) => {
+                        ignoreFailure(
+                          callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode }),
+                        );
+                        window.setTimeout(refreshTabState, 400);
+                      }}
                       sideTabs={sideTabs}
                       onSideTabs={toggleSideTabs}
                       onPointerEnter={quick ? undefined : refreshTabState}
+                      onCustomize={(list) => {
+                        // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
+                        // A save the App refused (layout.json mid-edit) puts the buttons back.
+                        const before = quickActions();
+                        configureQuickActions({ quickActions: list });
+                        callNative("pane.setQuickActions", { quickActions: list }).catch(() =>
+                          configureQuickActions({ quickActions: before }),
+                        );
+                      }}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.

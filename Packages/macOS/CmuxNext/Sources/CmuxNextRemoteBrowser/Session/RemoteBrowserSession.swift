@@ -54,12 +54,14 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     /// `session(of:)?.start()`.
     public static func makeTab(
         record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil,
-        carrier: (any RemoteRdByteCarrier)? = nil
+        carrier: (any RemoteRdByteCarrier)? = nil, machineName: String? = nil
     ) -> RemoteBrowserTab? {
         let carrier = carrier ?? RemoteRdLoopbackCarrier(endpoint: record.endpoint)
-        guard let session = RemoteBrowserSession(carrier: carrier, address: record.address, tabKey: id.rawValue, viewer: viewer,
-                                                 initialURL: record.initialURL, token: token) else { return nil }
-        let tab = RemoteBrowserTab(id: id, profile: profile, url: record.initialURL ?? record.url, pane: session.pane, channel: session)
+        // A machine's tab names the machine and shows only page addresses, never its record.
+        guard let session = RemoteBrowserSession(carrier: carrier, address: machineName ?? record.address, tabKey: id.rawValue,
+                                                 viewer: viewer, initialURL: record.initialURL, token: token) else { return nil }
+        let shown = machineName == nil ? record.initialURL ?? record.url : record.initialURL
+        let tab = RemoteBrowserTab(id: id, profile: profile, url: shown, pane: session.pane, channel: session)
         session.tab = tab
         return tab
     }

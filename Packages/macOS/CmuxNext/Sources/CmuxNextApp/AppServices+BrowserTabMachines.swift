@@ -71,6 +71,9 @@ extension AppServices {
         // Built now so it reads each machine's browser status when the machine connects.
         let hosts = machineBrowserHosts
         browserTabs.browserHostAvailable = { [weak hosts] machine in hosts?.available(machine) ?? false }
+        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
+        let localhost = remoteLocalhost
+        machines.onDaemonRemoved = { [weak localhost] daemon in localhost?.closeClient(of: daemon) }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

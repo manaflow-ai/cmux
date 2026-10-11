@@ -173,6 +173,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// 1 set, 0 not modifiable or not allowed, -1 refused.
     let prefSetBool: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let prefWatch: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
+    /// The chrome.bookmarks bridge: profile cache path, tree JSON; 1, 0 not loaded, -1 refused.
+    let bookmarksSync: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// cmux-page://<id>/ from a folder: id, resource root, CSP (NULL = default).
     let pageSchemeAdd: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same for reserved (`cmux.`) ids only: the first-party path (`CEFPageSchemes`).
@@ -326,6 +328,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         prefGet = try r("cmux_shim_pref_get")
         prefSetBool = try r("cmux_shim_pref_set_bool")
         prefWatch = try r("cmux_shim_pref_watch")
+        bookmarksSync = try r("cmux_shim_bookmarks_sync")
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")

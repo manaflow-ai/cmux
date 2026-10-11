@@ -167,14 +167,18 @@ final class HomeHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    isolated deinit {
-        availability?.cancel()
-        engineWatch?.cancel()
-        slideClient?.deactivate()
-        if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
-        if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
-        firstPage?.cancel()
-        transcript.stop()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            availability?.cancel()
+            engineWatch?.cancel()
+            slideClient?.deactivate()
+            if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
+            if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
+            firstPage?.cancel()
+            transcript.stop()
+        }
     }
 
     override var wantsUpdateLayer: Bool { true }

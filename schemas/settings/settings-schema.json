@@ -29,6 +29,7 @@
             "rows" : [
               "tabs.newTabKind",
               "tabs.newTabTemplate",
+              "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
@@ -188,7 +189,8 @@
             "key" : "settings.group.appTheme",
             "rows" : [
               "appearance.theme",
-              "appearance.appTheme"
+              "appearance.appTheme",
+              "appearance.accent"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -1483,6 +1485,72 @@
       "title" : {
         "key" : "settings.tabs.newTabTemplate",
         "text" : "New Tab Template"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "end",
+        "afterCurrent"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionEnd",
+            "text" : "At the End"
+          },
+          "value" : "end"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "end",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabPosition.help",
+        "text" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabPosition",
+      "keywords" : [
+        "new tab",
+        "cmd-t",
+        "position",
+        "order",
+        "right",
+        "end",
+        "after",
+        "insert"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.newTabPosition",
+        "text" : "New Tab Position"
       },
       "validation" : "portable"
     },
@@ -5255,6 +5323,120 @@
         "text" : "App Theme"
       },
       "validation" : "domain:theme"
+    },
+    {
+      "accepts" : [
+        "neutral",
+        "theme",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.accent.neutral",
+            "text" : "Neutral"
+          },
+          "value" : "neutral"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.theme",
+            "text" : "Theme Color"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.red",
+            "text" : "Red"
+          },
+          "value" : "red"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.green",
+            "text" : "Green"
+          },
+          "value" : "green"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.yellow",
+            "text" : "Yellow"
+          },
+          "value" : "yellow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.blue",
+            "text" : "Blue"
+          },
+          "value" : "blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.magenta",
+            "text" : "Magenta"
+          },
+          "value" : "magenta"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.cyan",
+            "text" : "Cyan"
+          },
+          "value" : "cyan"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "neutral",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.accent.help",
+        "text" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.accent",
+      "keywords" : [
+        "accent",
+        "color",
+        "colour",
+        "highlight",
+        "selection",
+        "personality",
+        "rose pine",
+        "ansi"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "accent"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.accent",
+        "text" : "Accent"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -17875,7 +18057,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b80a715624cf80085c07f7db99bea69f7b0f51b5e51fd1ff273e6bc37355f8d7",
+  "schema_hash" : "74e23d5cc8add4f69a0abcedb32b0b814d3d053c3434378d01b408e591c6bba5",
   "sections" : [
     {
       "id" : "general",

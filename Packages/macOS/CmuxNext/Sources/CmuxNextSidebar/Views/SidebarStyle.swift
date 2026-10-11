@@ -85,9 +85,9 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// Muted tint for a user color, shared with tab groups (`GroupColor`).
+    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
-        color.swatch
+        color.markColor
     }
 
 }

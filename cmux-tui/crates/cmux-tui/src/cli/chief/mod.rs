@@ -14,6 +14,7 @@ mod chat;
 mod control;
 mod editor;
 mod home;
+mod hyperlink;
 mod launch;
 mod link;
 mod messages;

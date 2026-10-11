@@ -244,7 +244,8 @@ extension PaneController {
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
         let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
-        if let item = menu.items.first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
+        let items = menu.items + menu.items.compactMap(\.submenu).flatMap(\.items)  // it sits in the New submenu
+        if let item = items.first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
            let title = registry.title(for: sameKind.newActionID) {
             item.title = title
         }
@@ -257,7 +258,7 @@ extension PaneController {
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab"]))
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.

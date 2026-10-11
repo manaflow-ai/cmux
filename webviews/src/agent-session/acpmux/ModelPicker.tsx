@@ -61,8 +61,9 @@ type ModelChoice = {
   fast?: boolean;
 };
 
-/// A harness's models, each once, newest first: the default and each family's newest models
-/// (`latest`), then every older version (`older`, folded in the list). A catalog model names
+/// A harness's models, each once, newest first: each family's newest models (`latest`), then
+/// every older version (`older`, folded in the list). The agent-owned default sentinel is not a
+/// user-selectable model row. A catalog model names
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
@@ -72,12 +73,13 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   if (cached) return cached;
   const seen = new Set<string>();
   const choices = entry.models.flatMap((model): ModelChoice[] => {
+    if (isDefaultChoice(model)) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
       {
         id: model.id,
-        name: isDefaultChoice(model) ? "Default" : model.shortName || model.name || model.id,
+        name: model.shortName || model.name || model.id,
         ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
         efforts: model.efforts,

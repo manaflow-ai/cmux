@@ -148,6 +148,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.appTheme`: the theme cmux's own chrome and pages take their tokens from, apart
     /// from the terminal theme. Nil follows the terminal theme (`followTerminal`, the default).
     public var chromeTheme: String?
+    /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
+    public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -280,7 +282,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
-        if let newTabTemplateDiagnostic = NewTabTemplate.parse(root).1 { snapshot.diagnostics.append(newTabTemplateDiagnostic) }
+        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
@@ -290,7 +292,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
-        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarSetting.parse(root)
+        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarDefaults.parse(root)
         snapshot.paneTabBars = paneTabBars
         snapshot.diagnostics += paneTabBarDiagnostics
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
@@ -317,6 +319,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
         snapshot.chromeTheme = chromeTheme
         if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
+        let (accent, accentDiagnostic) = AccentSetting().parse(root)
+        snapshot.accent = accent
+        if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }
         let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }

@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The trailing toolbar buttons (`BrowserToolbarButton`): zoom level,
+/// The trailing toolbar buttons (`BrowserToolbarButton`): media hub, zoom level,
 /// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
@@ -17,16 +17,13 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The App's downloads, read while rendering so an observable list
     /// redraws the button as downloads start and end. Set after `bind`, so
     /// it re-arms the observation to track the list.
-    public var downloads: (() -> BrowserToolbarDownloads)? {
-        didSet {
-            guard let tab else { return render() }
-            bind(tab)
-        }
-    }
+    public var downloads: (() -> BrowserToolbarDownloads)? { didSet { rebind() } }
+    /// Every tab's media, read the same way.
+    public var media: (() -> BrowserToolbarMedia)? { didSet { rebind() } }
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
-    /// zoom, Favorites, Downloads, profile and theme (`BrowserToolbarButton.collapseLevel`).
+    /// media, zoom, Favorites, Downloads, profile and theme (`BrowserToolbarButton.collapseLevel`).
     /// More lists the hidden ones.
     public private(set) var collapse = 0
 
@@ -73,6 +70,12 @@ public final class BrowserToolbarButtonsView: NSStackView {
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
+    /// An App closure changed after `bind`: observe again so its reads count.
+    private func rebind() {
+        guard let tab else { return render() }
+        bind(tab)
+    }
+
     /// Reads the states again, WebKit's inspector visibility included
     /// (`WebKitInspectorWatch` misses an inspector hidden without a view or
     /// window change): on a press, a menu, and when the toolbar is shown.
@@ -94,6 +97,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// The button's view, the anchor for its menu.
     public func button(_ button: BrowserToolbarButton) -> NSView? { buttons[button] }
+
+    /// Whether `button` has anything to show, collapsed or not (the media
+    /// hub only while a tab has media).
+    public func hasContent(_ button: BrowserToolbarButton) -> Bool { button.isShown(at: 0, facts) }
 
     /// What `button` shows now (tests, `debug.extensions.toolbar`).
     public func state(_ button: BrowserToolbarButton) -> BrowserToolbarButtonState? { states[button] }
@@ -172,8 +179,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     private func currentFacts() -> BrowserToolbarFacts {
         let downloads = downloads?() ?? BrowserToolbarDownloads()
+        let media = media?() ?? BrowserToolbarMedia()
         guard let tab else {
-            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads)
+            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads, media: media)
         }
         let url = tab.state.url
         if url != pageURL {
@@ -186,7 +194,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             engine: tab.engineKind, hostsDevTools: hosting != nil || webKit != nil,
             devToolsOpen: hosting?.devTools.isOpen ?? webKit?.isInspectorVisible ?? false,
             designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom,
-            downloads: downloads
+            downloads: downloads, media: media
         )
     }
 }

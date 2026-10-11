@@ -63,6 +63,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// No column is right of the chat: the target is the chat, and the new
     /// tab moves into a new column right of it.
     public var newColumnBeside = false
+    /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
+    /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
+    public var opensTerminal = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

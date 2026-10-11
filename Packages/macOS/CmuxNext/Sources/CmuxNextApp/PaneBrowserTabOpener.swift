@@ -52,7 +52,14 @@ struct PaneBrowserTabOpener {
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
               then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
-        if child == nil, then == nil, let url, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
+        var target = url
+        // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
+        // and no tab (false, so a New Tab page that asked stays in place).
+        if child == nil, let typed = target {
+            guard let routed = services.routedChromiumPage(typed, focus: !background) else { return false }
+            target = routed
+        }
+        if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
             return true
         }
         let daemon = controller.daemon
@@ -62,7 +69,7 @@ struct PaneBrowserTabOpener {
         let placement = child == nil && inherited == nil
             ? BrowserPlacement.resolve(isLocal: daemon.isLocal, machine: daemon.machineID,
                                        hostAvailable: services.cache.browserTabs.browserHostAvailable(daemon.machineID)) : .local
-        let url = placement.address(for: url)
+        let url = placement.address(for: target)
         let onMachine = MachineBrowserRecord.matches(url)
         let requested = onMachine ? nil : requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
         let browserTabs = services.cache.browserTabs

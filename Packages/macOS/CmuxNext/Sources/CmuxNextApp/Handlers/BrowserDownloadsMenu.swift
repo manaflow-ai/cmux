@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// The toolbar's Downloads menu (`browser.downloads.show`, Edge's downloads
 /// flyout, cx-6qwm.1): the newest downloads first, each with its progress
@@ -44,8 +45,8 @@ enum BrowserDownloadsMenu {
         let submenu = NSMenu(title: download.filename)
         let file = download.status == .finished ? download.destination : nil
         if let file {
-            submenu.addItem(closure(BrowserHitStrings.downloadOpen) { NSWorkspace.shared.open(file) })
-            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder) { NSWorkspace.shared.activateFileViewerSelecting([file]) })
+            submenu.addItem(closure(BrowserHitStrings.downloadOpen) { NSWorkspace.shared.openInBackground(file) })
+            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder) { NSWorkspace.shared.revealInBackground([file]) })
         }
         if download.canPause {
             let title = download.isPaused ? BrowserHitStrings.downloadResume : BrowserHitStrings.downloadPause

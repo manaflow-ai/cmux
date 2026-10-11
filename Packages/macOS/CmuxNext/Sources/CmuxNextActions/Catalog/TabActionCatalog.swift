@@ -23,6 +23,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square.on.square", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.tab]
             ),
+            // Chrome's New Tab to the Right (cx-d0d.58): Cmd-T's tab, right after this tab
+            // whatever `tabs.newTabPosition` says.
+            ActionDescriptor(
+                id: "newTab.toRight",
+                title: String(localized: "action.newTab.toRight", defaultValue: "New Tab to the Right", bundle: .module),
+                keywords: ["tab", "new", "right", "after", "next to", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
+                targets: [.tab]
+            ),
             ActionDescriptor(
                 id: "newTab.page",
                 title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),
@@ -159,6 +168,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "workspace", "switch", "previous", "sidebar"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
+            ),
+            // Hint mode (cx-zjtn.1): label every clickable control in the
+            // window, type a label to click it. A preview feature for now;
+            // its key is the leader chord Cmd-J F (LeaderLayer).
+            ActionDescriptor(
+                id: "hints.show",
+                title: String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module),
+                keywords: ["hint", "vimium", "keyboard", "click", "jump", "label"],
+                category: .window, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard]
             ),
             ActionDescriptor(
                 id: "nextSurface",

@@ -33,6 +33,11 @@ extension GroupColor {
     /// one): the member bar and the editor's dot. Nil for grey (none).
     public var themed: NSColor? { themeRGB(ThemeContext.active ?? ThemeScope.app.tokens)?.nsColor }
 
+    /// The color where it marks content (tab tints, space avatars and dots, profile dots): the
+    /// theme's palette color, and for grey a visible mid grey (`swatch`), since a grey screen,
+    /// space or profile is a chosen color there, not the "none" tonal step `headerFill` draws.
+    public var markColor: NSColor { themed ?? swatch }
+
     /// The group chip's fill in the active theme scope: the color washed
     /// into the sidebar so the name stays primary text; none draws the
     /// neutral badge fill.

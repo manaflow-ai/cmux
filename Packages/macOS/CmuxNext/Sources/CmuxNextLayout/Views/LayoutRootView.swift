@@ -92,11 +92,15 @@ public final class LayoutRootView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        observationTask?.cancel()
-        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
-        for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
-        driver.detach()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observationTask?.cancel()
+            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            driver.detach()
+        }
     }
 
     override public var isFlipped: Bool { true }

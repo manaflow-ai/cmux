@@ -103,6 +103,7 @@ extension HomeStore {
                 return
             }
             let outcome = mirror.apply(page: page)
+            confirm([page.conversation.id])
             bumpTranscript(id)
             settle()
             rebuildRows()

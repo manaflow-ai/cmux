@@ -16,8 +16,8 @@ export type SpeedSection = {
 };
 
 /// The reasoning chip and its menu (Lawrence 2026-10-09, MonoCode's picker): a Reasoning section
-/// with one checked row per level the model offers, a Default badge on the model's own level and
-/// a line under a level that needs one (Ultracode); then the speed section when the agent has one.
+/// with one checked row per level the model offers and a line under a level that needs one
+/// (Ultracode); then the speed section when the agent has one.
 /// The chip names the level, plus "Fast" while fast mode is on. The menu is the shared popup
 /// layer's opaque surface (ui/Menu), so nothing shows through it. Picking sends chat.effort
 /// through `onPick` (and the speed section's own `onPick`).

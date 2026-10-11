@@ -19,6 +19,8 @@ public struct ThemeInput: Hashable, Sendable {
     public var backgroundOpacity: Double
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     public var backgroundBlur: Int
+    /// Where the chrome's accent comes from (`appearance.accent`, not the Ghostty config).
+    public var accent: ThemeAccent = .neutral
 
     /// A theme from its colors.
     ///
