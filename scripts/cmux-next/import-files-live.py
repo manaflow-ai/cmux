@@ -14,9 +14,9 @@ synthetic exports in a scratch folder (no real passwords):
   3. a bookmarks HTML file picked there lands in the bookmark bar's Imported folder;
   4. a passwords CSV picked through Safari's steps is imported (the counts toast);
   5. Safari's Export Browsing Data zip (bookmarks, history, one password and a
-     credit card file cmux must not read): the bookmark lands, the password is
+     credit card file cmux must not import): the bookmark lands, the password is
      imported, the zip goes to the Trash, and its history shows in the omnibar;
-  6. Chrome's Google Takeout history JSON (one row per visit) shows in the omnibar,
+  6. Chrome's Google Takeout history JSON (one row per visit; two pages) shows in the omnibar,
      and Chrome's steps name takeout.google.com.
 
 Quits the app by PID and stops the tag's daemons at the end.
@@ -88,6 +88,7 @@ def takeout_history(path):
     now = int(time.time() * 1e6)
     rows = [{"url": f"https://takeout-{RUN}.example.com/", "title": f"Takeout history {RUN}", "time_usec": now - i * 1_000_000,
              "page_transition": "LINK"} for i in range(3)]
+    rows.append({"url": f"https://takeout-other-{RUN}.example.com/", "title": "Other", "time_usec": now, "page_transition": "TYPED"})
     rows.append({"url": "chrome://settings/", "title": "Settings", "time_usec": now, "page_transition": "TYPED"})
     write(path, json.dumps({"Browser History": rows}))
 
@@ -225,12 +226,14 @@ try:
           "the Safari zip goes to the Trash")
     check(wait_for(lambda: next((t for t in toasts() if "history imported: 1" in t.lower()), None), "the zip's history toast") is not None,
           f"the Safari zip's history is imported ({toasts()})")
+    check("0000000000000000" not in json.dumps(rpc("debug.toast")) + json.dumps(bookmark_urls()), "the zip's credit card file is not imported")
 
     result = import_through("chrome", "takeout-history.json")
     if isinstance(result, tuple):
         check("takeout.google.com" in " ".join(result[1].get("lines", [])), f"Chrome's steps name Google Takeout ({result[1].get('lines')})")
-    check(wait_for(lambda: next((t for t in toasts() if "history imported: 1" in t.lower()), None), "the Takeout history toast") is not None,
-          f"the Takeout history is imported, one page from three visits and no chrome:// page ({toasts()})")
+    # Two pages, so the Safari zip's "1" toast can't stand in for this one.
+    check(wait_for(lambda: next((t for t in toasts() if "history imported: 2" in t.lower()), None), "the Takeout history toast") is not None,
+          f"the Takeout history is imported, two pages from four visits and no chrome:// page ({toasts()})")
 
     rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "about:blank"}, "focus": True})
     time.sleep(2)  # the tab's omnibar comes up

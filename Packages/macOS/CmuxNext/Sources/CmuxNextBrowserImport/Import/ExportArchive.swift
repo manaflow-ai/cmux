@@ -42,7 +42,7 @@ public struct ExportArchive: Sendable {
             guard !path.hasPrefix("__MACOSX/"), !name.hasPrefix("._") else { return nil }
             switch name.lowercased() {
             case "bookmarks.html": self = .bookmarks
-            case "history.json": self = .history
+            case "history.json", "browserhistory.json": self = .history
             case "passwords.csv": self = .passwords
             default: return nil
             }
@@ -58,7 +58,7 @@ public struct ExportArchive: Sendable {
         guard let end = endOfCentralDirectory(zip) else { throw Failure.notAnArchive }
         let count = Int(zip.u16(end + 10)), start = Int(zip.u32(end + 16))
         var archive = ExportArchive()
-        var offset = start
+        var offset = start, inflated = 0
         for _ in 0..<count {
             guard offset >= 0, offset + 46 <= zip.count, zip.u32(offset) == 0x0201_4B50 else { throw Failure.notAnArchive }
             let flags = zip.u16(offset + 8), method = zip.u16(offset + 10)
@@ -67,9 +67,12 @@ public struct ExportArchive: Sendable {
             guard offset + 46 + nameLength <= zip.count else { throw Failure.notAnArchive }
             let name = String(decoding: UnsafeRawBufferPointer(rebasing: zip[(offset + 46)..<(offset + 46 + nameLength)]), as: UTF8.self)
             offset += 46 + nameLength + Int(zip.u16(offset + 30)) + Int(zip.u16(offset + 32))
-            // Encrypted entries and oversized (or zip64) parts are skipped, never guessed at.
-            guard let part = Part(name), flags & 1 == 0, size <= maximumPart,
+            // Encrypted entries and oversized (or zip64) parts are skipped, never guessed at;
+            // so is anything past the archive's size in all, and a second passwords file.
+            guard let part = Part(name), flags & 1 == 0, size <= maximumPart, inflated + size <= maximumSize,
+                  part != .passwords || archive.passwordCSVs.isEmpty,
                   let source = payload(zip, local: local, compressed: compressed) else { continue }
+            inflated += size
             switch part {
             case .passwords:
                 var ok = false
