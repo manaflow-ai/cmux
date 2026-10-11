@@ -25,6 +25,11 @@ public final class SettingsController {
     public private(set) var snapshot: CmuxConfigSnapshot = .empty
     /// The dotted key the palette previews now (`preview`), or nil.
     public internal(set) var previewingKey: String?
+    /// The snapshot a preview shows, or nil while none does (`preview`).
+    public internal(set) var previewSnapshot: CmuxConfigSnapshot?
+    /// The settings in effect: a preview's snapshot while one shows, else the loaded one. Live
+    /// appearance the applier does not own (themes, the accent) follows this, so a preview shows.
+    public var applied: CmuxConfigSnapshot { previewSnapshot ?? snapshot }
     /// Number of completed loads; tests and the App can await changes by it.
     public private(set) var loadCount = 0
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
@@ -297,6 +302,7 @@ public final class SettingsController {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
+            previewSnapshot = nil
             diagnostics = applier.apply(loaded.snapshot)
             let effective = loaded.effective
             snapshot = loaded.snapshot
