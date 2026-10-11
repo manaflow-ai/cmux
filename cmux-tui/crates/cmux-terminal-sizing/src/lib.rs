@@ -25,7 +25,7 @@ pub struct TerminalGridSize {
 }
 
 impl TerminalGridSize {
-    pub const fn new(cols: u16, rows: u16) -> Self {
+    pub const fn new( cols : u16,rows: u16 )->Self{
         Self { cols, rows }
     }
 
