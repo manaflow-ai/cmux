@@ -48,5 +48,33 @@ export function documentName(artifact: Artifact): string {
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
 
+/// The documents a reply carries: each fenced block the panel can draw, in order.
+function documents(text: string): Artifact[] {
+  const found: Artifact[] = [];
+  const fence = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)[^\n]*\n([\s\S]*?)(?:^ {0,3}\1[ \t]*$|(?![\s\S]))/gm;
+  for (const match of text.matchAll(fence)) {
+    const code = match[3]!.replace(/\n$/, "");
+    const kind = artifactKind(match[2], code);
+    if (kind) found.push({ kind, lang: match[2] || kind, code });
+  }
+  return found;
+}
+
+/// A document's versions (cx-ncc.64): the chat's documents of its kind and title, oldest first, as
+/// Claude counts a rewritten document. One with no title, or that the chat has only once, is its only
+/// version.
+export function artifactVersions(replies: readonly string[], artifact: Artifact): Artifact[] {
+  const name = documentName(artifact);
+  if (!name) return [artifact];
+  const versions = replies
+    .flatMap(documents)
+    .filter((candidate) => candidate.kind === artifact.kind && documentName(candidate) === name);
+  // A document the chat repeats unchanged is one version.
+  const distinct = versions.filter(
+    (candidate, index) => versions.findIndex((v) => v.code === candidate.code) === index,
+  );
+  return distinct.some((candidate) => candidate.code === artifact.code) ? distinct : [artifact];
+}
+
 /// Opens a fence in the side panel; unset where the page has none (a gallery, a test).
 export const ArtifactContext = createContext<((artifact: Artifact) => void) | undefined>(undefined);

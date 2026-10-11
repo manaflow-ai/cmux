@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
-import { Check, Close, Copy, SaveTray } from "./icons";
+import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
@@ -24,16 +24,27 @@ export type SaveDocument = (
 ) => Promise<"saved" | "cancelled" | "unavailable">;
 
 export function ArtifactPanel({
-  artifact,
+  artifact: opened,
+  versions = [opened],
   onClose,
   onSave,
 }: {
   artifact: Artifact;
+  /// The document's versions in the chat (cx-ncc.64, `artifactVersions`), with the opened one: the
+  /// header steps between them.
+  versions?: readonly Artifact[];
   onClose(): void;
   /// Unset where the page has no host save panel (a gallery, a test): no Save.
   onSave?: SaveDocument;
 }) {
   const t = useT();
+  const [index, setIndex] = useState(() =>
+    Math.max(
+      0,
+      versions.findIndex((v) => v.code === opened.code),
+    ),
+  );
+  const artifact = versions[index] ?? opened;
   const previews = artifact.kind === "markdown" || canRender();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
@@ -53,6 +64,36 @@ export function ArtifactPanel({
     >
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
+        {versions.length > 1 && (
+          <span className="acpmux-artifact-versions">
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.previousVersion")}
+              title={t("artifact.previousVersion")}
+              disabled={index === 0}
+              onClick={() => setIndex(index - 1)}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span
+              className="acpmux-artifact-version"
+              title={t("artifact.versionCount", { index: index + 1, total: versions.length })}
+            >
+              {`${index + 1}/${versions.length}`}
+            </span>
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.nextVersion")}
+              title={t("artifact.nextVersion")}
+              disabled={index === versions.length - 1}
+              onClick={() => setIndex(index + 1)}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </span>
+        )}
         {previews && (
           <span className="acpmux-artifact-tabs">
             <button
