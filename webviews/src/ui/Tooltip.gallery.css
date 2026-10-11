@@ -1,0 +1,36 @@
+.tooltip-gallery {
+  color: var(--cmux-text, CanvasText);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.tooltip-gallery-button {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 11px;
+}
+
+.tooltip-gallery-button:hover,
+.tooltip-gallery-button:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.tooltip-gallery-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 55%, transparent);
+  outline-offset: 2px;
+}
+
+.tooltip-gallery-card {
+  display: grid;
+  gap: 3px;
+  max-width: 220px;
+}
+
+.tooltip-gallery-card span {
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  font-size: 12px;
+}
