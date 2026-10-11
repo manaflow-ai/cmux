@@ -44,6 +44,11 @@
 #               `nonisolated deinit`, with main-actor cleanup in
 #               `guard Thread.isMainThread else { return }` plus
 #               `MainActor.assumeIsolated { ... }`.
+#   task-local bindings: a synchronous `$local.withValue(` sits in
+#               `TaskContext.run` (same line or the line above). Bound where
+#               no task is current, it lives in the thread's fallback storage,
+#               and an isolated deinit run inline there makes the Swift 6.2
+#               runtime free() a marker its global task allocator made (cx-bpcj).
 #
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
@@ -159,6 +164,8 @@ MAIN_ACTOR = [
 ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
 # A plain deinit takes the target's default isolation: main-actor in a uiSwiftSettings target.
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
+TASK_LOCAL_BINDING = re.compile(r"\$\w+\.withValue\(")
+IN_TASK_CONTEXT = re.compile(r"\bTaskContext\.run\b")
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 
@@ -222,6 +229,10 @@ for dirpath, _, files in os.walk(sources):
             if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
                 hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
                             "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
+            if (TASK_LOCAL_BINDING.search(code) and not IN_TASK_CONTEXT.search(code)
+                    and not (index > 0 and IN_TASK_CONTEXT.search(lines[index - 1])) and not allowed(lines, index)):
+                hits.append("task local bound outside TaskContext.run (where no task is current the runtime frees a "
+                            "marker with free() that its task allocator made, cx-bpcj); wrap it in TaskContext.run")
             for name in hits:
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
                 print(f"    {line.strip()}")
