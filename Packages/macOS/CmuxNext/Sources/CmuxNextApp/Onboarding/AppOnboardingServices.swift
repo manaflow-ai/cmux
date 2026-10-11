@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
+import CmuxNextCompat
 
 /// `OnboardingServices` over the app for the tool window: the importer
 /// (cookies and passwords into each profile's Chromium store) and the
@@ -70,7 +71,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func openExternal(_ url: URL) {
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.openInBackground(url)
     }
 
     /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the

@@ -19,6 +19,8 @@ final class WorkspaceRowView: SidebarRowView {
     private var lastConfiguration: (SidebarWorkspace, SidebarRow)?
     private var activityState = StatusIndicatorState.idle
     private let badge = UnreadBadgeView()
+    /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
+    let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = NSImageView()
@@ -37,7 +39,7 @@ final class WorkspaceRowView: SidebarRowView {
     private let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private var badgeText: String?
     private(set) var disclosure: SidebarTabDisclosure?
-    private var count: Int?
+    private(set) var count: Int?
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
     /// fill; an indeterminate one fills the whole track, dimmed.
@@ -77,7 +79,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -102,10 +104,10 @@ final class WorkspaceRowView: SidebarRowView {
         disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
     }
 
-    /// Reads the agent mark setting and redraws the row once when it changes (no polling).
-    private func observedAgentMarkVariant() -> SidebarAgentMarkVariant {
+    /// Reads the agent mark and presence dot settings and redraws the row once when one changes (no polling).
+    private func observedTunables() -> (agentMark: SidebarAgentMarkVariant, presenceDots: Bool) {
         withObservationTracking {
-            SidebarTunables.agentMark.value
+            (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, let last = self.lastConfiguration else { return }
@@ -131,16 +133,18 @@ final class WorkspaceRowView: SidebarRowView {
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant
+        var presenceDots: Bool
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
         lastConfiguration = (ws, row)
+        let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
-            agentMark: observedAgentMarkVariant(),
+            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots,
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -169,6 +173,7 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
+        presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
@@ -190,22 +195,6 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityLabel(accessibilityText(ws, content: shown))
         needsLayout = true
         needsDisplay = true
-    }
-
-    private func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
-        var parts = [ws.title]
-        if let s = content.detail { parts.append(s) }
-        if let s = content.badge { parts.append(s) }
-        if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
-        if let count { parts.append(Strings.tabCount(count)) }
-        switch ws.unread {
-        case let .count(n) where n > 0: parts.append(Strings.unreadCount(n))
-        case .dot: parts.append(Strings.unreadDot)
-        default: break
-        }
-        if let text = Strings.activity(content.activity) { parts.append(text) }
-        if ws.muted { parts.append(Strings.muted) }
-        return parts.joined(separator: ", ")
     }
 
     /// Where an NSTextField label with this text would sit (inline rename
@@ -341,6 +330,11 @@ final class WorkspaceRowView: SidebarRowView {
         if !mutedMark.isHidden {
             mutedMark.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
+        }
+        if !presenceDots.isHidden {
+            let w = presenceDots.preferredWidth
+            presenceDots.frame = NSRect(x: trailing - w, y: 0, width: w, height: b.height)
+            trailing -= w + Metrics.space2
         }
 
         var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading

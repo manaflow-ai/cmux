@@ -100,9 +100,10 @@
 .acpmux-context-compact:disabled{opacity:.5}
 .acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-text);color:var(--acpmux-base)}
+/* Send fills with the accent (the text color, or the theme's hue with appearance.accent). */
+.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-accent,var(--agent-text));color:var(--agent-on-accent,var(--acpmux-base))}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base))}
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 34%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 .acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
 /* The picker menus open above the field, aligned with its edges. */
@@ -178,9 +179,9 @@
 .acpmux-newtab-default:active{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
 .acpmux-newtab-all:active{color:var(--agent-soft)}
 .acpmux-omni-row:active{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
-.acpmux-newtab .acpmux-send:hover{background:color-mix(in srgb,var(--acpmux-composer-dim) 75%,var(--agent-text))}
-.acpmux-newtab .acpmux-send-ready:hover{background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base))}
-.acpmux-newtab .acpmux-send:active{background:color-mix(in srgb,var(--agent-text) 76%,var(--acpmux-base))}
+.acpmux-newtab .acpmux-send:hover{background:color-mix(in srgb,var(--acpmux-composer-dim) 75%,var(--agent-accent,var(--agent-text)))}
+.acpmux-newtab .acpmux-send-ready:hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 88%,var(--acpmux-base))}
+.acpmux-newtab .acpmux-send:active{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 76%,var(--acpmux-base))}
 @container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}}
 /* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, inset so the composer's rounded corners lead into them. Laid over the transcript's foot (absolute), so queuing, sending or removing one never moves the composer or the transcript. */

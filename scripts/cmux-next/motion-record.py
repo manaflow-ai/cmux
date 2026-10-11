@@ -28,6 +28,7 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--surface", action="append", default=[])
 parser.add_argument("--only", action="append", default=[])
 parser.add_argument("--seconds", type=float, default=1.5)
+parser.add_argument("--window-height", type=float, default=720, help="the window's height in points (frames are window-sized)")
 opts = parser.parse_args()
 
 
@@ -231,13 +232,56 @@ def popups():
         snapshot("sidebar-closed")
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups}
+def sweep(points, step=1 / 60):
+    """The pointer through `points` (window coordinates, top-left origin),
+    one `debug.pointer_hover` move per display frame, then out of the window."""
+    height = opts.window_height
+    entered = set()
+    rpc("debug.motion", {"action": "start"})
+    for x, y in points:
+        reply = rpc("debug.pointer_hover", {"point": [x, height - y]}) or {}
+        entered.update(reply.get("entered") or [])
+        time.sleep(step)  # test harness: pointer pace, one move per frame
+    rpc("debug.pointer_hover", {"point": None})
+    time.sleep(0.3)  # test harness: the last fades settle
+    trace = rpc("debug.motion", {"action": "stop"}) or {}
+    print("hovered:", sorted(entered), "speed:", trace.get("speed"), "reduce_motion:", trace.get("reduce_motion"),
+          "spans:", json.dumps(trace.get("spans"))[:600], flush=True)
+
+
+def line(x0, y0, x1, y1, frames):
+    return [(x0 + (x1 - x0) * i / frames, y0 + (y1 - y0) * i / frames) for i in range(frames + 1)]
+
+
+def hover():
+    # A fast sweep down the sidebar rows and along the tab strip, with the
+    # hover fill clearing at once (the default) and over 120 ms
+    # (`motion.fade.hoverOut`; absent on builds before cx-f6i7's hover pass).
+    for _ in range(5):
+        action("newWorkspace")
+        time.sleep(0.3)  # test harness: one workspace at a time
+    for _ in range(4):
+        action("newTab")
+        time.sleep(0.3)  # test harness: one tab at a time
+    save_layout("hover")
+    for out in (0, 0.12):
+        rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": out})
+        rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
+        suffix = "-out%d" % round(out * 1000)
+        record("hover", "sidebar" + suffix, lambda: sweep(line(110, 60, 110, 330, 16)))
+        record("hover", "tabs" + suffix, lambda: sweep(line(240, 54, 900, 54, 16)))
+    rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": None})
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover}
 
 
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
+    # Capture slots can launch with ui.animationSpeed "off"; record at the default speed (in memory only).
+    rpc("debug.motion", {"action": "speed", "value": "fast"})
     action("workspace.selectFirst")
     time.sleep(1.0)  # test harness: the workspace settles
     for name in opts.surface or list(SURFACES):

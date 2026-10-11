@@ -68,7 +68,7 @@ extension ProfileBarView {
     /// the sidebar chrome (less for the current space, so its color reads).
     // theme-scoped: called only from drawMarks(), inside performWithTheme
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
-        let base = profile.color?.swatch ?? Palette.textPrimary
+        let base = profile.color?.markColor ?? Palette.textPrimary
         return Self.markColor(base: base, step: Palette.stripStep, active: active)
     }
 

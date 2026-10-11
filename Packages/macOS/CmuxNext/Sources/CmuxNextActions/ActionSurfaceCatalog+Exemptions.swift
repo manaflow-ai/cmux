@@ -170,7 +170,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
-            "sidebar.profileMenu", "browser.downloads.showFolder",
+            "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
         ],
         .liveInput: [
             "palette.toggleDictation",
@@ -218,6 +218,7 @@ nonisolated extension ActionSurfaceCatalog {
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
+            "focusPaneByNumber", "focusSidebar",
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",

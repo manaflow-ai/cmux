@@ -119,7 +119,7 @@ final class GroupHeaderRowView: SidebarRowView {
         collapsed ? .disclosureCollapsed : .disclosureExpanded
     }
 
-    override var debugFill: Bool { super.debugFill || pill.backgroundColor != nil }
+    override var debugFill: Bool { super.debugFill || (pill.backgroundColor?.alpha ?? 0) > 0 }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
@@ -153,7 +153,7 @@ final class GroupHeaderRowView: SidebarRowView {
             dot.backgroundColor = (tint == .palette(.grey) ? Palette.textTertiary : tint.headerFill).cgColor
             // The header is its dot and label (cx-fo2t): no hover or selection
             // fill, so it never reads as a workspace row. A drop still shows.
-            pill.backgroundColor = isDropTarget ? Palette.selectionFill.cgColor : nil
+            ChromeHover.paint(pill, isDropTarget ? Palette.selectionFill : nil, animated: fadesNextFill)
             pill.borderWidth = 0
             paintFill(nil)
             CATransaction.begin()
