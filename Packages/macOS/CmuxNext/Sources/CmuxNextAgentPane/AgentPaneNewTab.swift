@@ -49,8 +49,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
-    /// true shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu);
-    /// nil hides them until the switcher is styled.
+    /// true shows the template dots (Debug Settings `newTab.templateSwitcher`, on by default
+    /// since cx-l1jv); nil hides them.
     public var templateSwitcher: Bool?
     /// The agent last picked.
     public var lastAgent: String?

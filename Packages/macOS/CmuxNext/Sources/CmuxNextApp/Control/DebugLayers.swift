@@ -49,12 +49,17 @@ enum DebugLayers {
             "bound": .number(Double(LayoutPassGuard.bound)),
             "breaks_loops": .bool(guardian.breaksLoops),
             "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
+            "max_view_class": guardian.maxPassesClass.map(JSONValue.string) ?? .null,
+            "max_window_class": guardian.maxPassesWindowClass.map(JSONValue.string) ?? .null,
+            // The limit of that window (LayoutPassGuard.limit(viewCount:)); `bound` is the largest.
+            "max_window_limit": guardian.maxPassesWindowLimit.map { .number(Double($0)) } ?? .null,
             "loops": .array(guardian.reports.map { report in
                 .object([
                     "view_class": .string(report.viewClass),
                     "window_class": report.windowClass.map(JSONValue.string) ?? .null,
                     "ancestry": .array(report.ancestry.map(JSONValue.string)),
                     "passes": .number(Double(report.passes)),
+                    "limit": .number(Double(report.limit)),
                     "broken": .bool(report.broken),
                 ])
             }),
@@ -74,6 +79,7 @@ enum DebugLayers {
                 "visible": .bool(child.isVisible),
                 "level": .number(Double(child.level.rawValue)),
                 "frame": rect(child.frame),
+                "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: child)))),
             ])
         }
         let planes = layer.adoptedPlanes.map { plane -> JSONValue in
@@ -120,7 +126,7 @@ enum DebugLayers {
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
         // Every displayed ring strokes its pane's rounded content rect.
         let ringsInSync = layer.adoptedPlanes.allSatisfy { plane in
-            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy(\.ringInSync)
+            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
         #if DEBUG
@@ -132,6 +138,8 @@ enum DebugLayers {
             "id": .string(controller.state.id),
             "window_number": .number(Double(window.windowNumber)),
             "frame": rect(window.frame),
+            // Layout calls of one view in one turn the guard allows in this window.
+            "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: window)))),
             "placement": .string(layer.placement.rawValue),
             "overlay_panel": layer.overlayPanel.map { .number(Double($0.windowNumber)) } ?? .null,
             "overlay_panel_frame": layer.overlayPanel.map { rect($0.frame) } ?? .null,

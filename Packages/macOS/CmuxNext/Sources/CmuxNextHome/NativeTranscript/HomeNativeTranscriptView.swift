@@ -127,6 +127,10 @@ public final class HomeNativeTranscriptView: NSView {
     #if DEBUG
     /// The first-run panel is on screen (capture scenes settle on it).
     public var debugFirstRunShown: Bool { !firstRun.isHiddenOrHasHiddenAncestor && firstRun.window != nil }
+    /// The first-run panel's listed agents, most urgent first.
+    public var debugFirstRunAgents: [HomeDebugAgentRow] { firstRun.debugAgents }
+    /// Clicks the panel's agent row `index` (`HomeFirstRunView.debugClickAgent`).
+    public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
     #endif
 
     /// A click on the header's name pill (the Chief's settings sidebar).

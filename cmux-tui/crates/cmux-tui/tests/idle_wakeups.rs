@@ -19,13 +19,17 @@ use cmux_tui_core::platform::transport;
 
 /// Quiet window over which wakeups are counted.
 const WINDOW: Duration = Duration::from_secs(10);
+/// Consecutive windows measured; a process is judged by its median window, so
+/// a one-off event (one window) passes and a periodic wake (every window) fails.
+const WINDOWS: u32 = 3;
 /// Time after setup for one-shot work (first render, journal flushes) to end.
 const SETTLE: Duration = Duration::from_secs(3);
-/// Context switches allowed per process in the window. Any periodic wake of
-/// 1 Hz or faster gives at least 10; a stray one-shot event (a late journal
-/// fsync, a deadline set during setup) gives one or two.
+/// Context switches allowed per process in its median window. Any periodic
+/// wake of 1 Hz or faster gives at least 10 in every window; a stray one-shot
+/// event (a late journal fsync, a deadline set during setup, one write below a
+/// watched folder) gives a few in one window.
 const MAX_SWITCHES_PER_WINDOW: u64 = 5;
-/// CPU allowed per process in the window: 0.5% of one core.
+/// CPU allowed per process in its median window: 0.5% of one core.
 const MAX_CPU_PER_WINDOW: Duration = Duration::from_millis(50);
 
 struct Daemon {
@@ -295,6 +299,32 @@ fn delta(before: Usage, after: Usage) -> Usage {
     }
 }
 
+/// Whether a process woke up over the measured windows: its median window
+/// (switches and CPU taken separately) is over the limit.
+fn woke(windows: &[Usage]) -> bool {
+    let mut switches: Vec<u64> = windows.iter().map(|used| used.switches).collect();
+    let mut cpu: Vec<Duration> = windows.iter().map(|used| used.cpu).collect();
+    switches.sort_unstable();
+    cpu.sort_unstable();
+    switches[switches.len() / 2] > MAX_SWITCHES_PER_WINDOW
+        || cpu[cpu.len() / 2] > MAX_CPU_PER_WINDOW
+}
+
+#[test]
+fn cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake() {
+    let window =
+        |switches, cpu_ms| Usage { cpu: Duration::from_millis(cpu_ms), switches, wakeups: 0 };
+    // A stray event in one window (a late fsync, one write below a watched folder): 6 switches.
+    assert!(!woke(&[window(1, 1), window(6, 2), window(0, 0)]));
+    // The 0789ec3f class: 2 to 130 switches a second, in every window.
+    assert!(woke(&[window(20, 1), window(25, 1), window(21, 1)]));
+    assert!(woke(&[window(1300, 30), window(1250, 28), window(1310, 31)]));
+    // A periodic wake that starts during the measurement still fails.
+    assert!(woke(&[window(0, 0), window(12, 1), window(11, 1)]));
+    // So does steady CPU use.
+    assert!(woke(&[window(2, 60), window(2, 70), window(1, 65)]));
+}
+
 #[test]
 fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
     assert_idle(&Daemon::start("daemon"), || {});
@@ -313,10 +343,13 @@ fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
     let busy = daemon.dir.join("busy/deep/er");
     fs::create_dir_all(&busy).unwrap();
     assert_idle(&daemon, move || {
-        // About 20 writes a second through the window, in a folder beside
+        // About 20 writes a second through the windows, in a folder beside
         // the missing one.
-        for round in 0..(WINDOW.as_millis() / 50) {
+        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
+        let mut round = 0u64;
+        while Instant::now() < end {
             fs::write(busy.join(format!("file-{}", round % 8)), round.to_string()).unwrap();
+            round += 1;
             std::thread::sleep(Duration::from_millis(50));
         }
     });
@@ -324,8 +357,8 @@ fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
 }
 
 /// Starts a terminal, keeps the app's streams open, settles, then runs
-/// `during` across the quiet window and fails when the daemon or a terminal
-/// host woke up.
+/// `during` across the quiet windows and fails when the daemon or a terminal
+/// host woke up (see [`woke`]).
 fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
     let created = request(
         &daemon.socket,
@@ -371,31 +404,39 @@ fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
     let processes: Vec<(String, u32)> = std::iter::once(("daemon".to_string(), daemon.child.id()))
         .chain(hosts.iter().map(|pid| (format!("terminal host {pid}"), *pid)))
         .collect();
-    let before: Vec<Usage> = processes.iter().map(|(_, pid)| usage(*pid)).collect();
+    let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
     let started = Instant::now();
     let activity = std::thread::spawn(during);
-    std::thread::sleep(WINDOW);
+    for _ in 0..WINDOWS {
+        std::thread::sleep(WINDOW);
+        marks.push(processes.iter().map(|(_, pid)| usage(*pid)).collect());
+    }
     activity.join().unwrap();
     assert!(
-        started.elapsed() < WINDOW + Duration::from_secs(2),
-        "the activity outlived the window"
+        started.elapsed() < WINDOW * WINDOWS + Duration::from_secs(2),
+        "the activity outlived the windows"
     );
-    let after: Vec<Usage> = processes.iter().map(|(_, pid)| usage(*pid)).collect();
 
     let mut failures = Vec::new();
-    for ((name, _), (before, after)) in processes.iter().zip(before.into_iter().zip(after)) {
-        let used = delta(before, after);
+    for (index, (name, _)) in processes.iter().enumerate() {
+        let windows: Vec<Usage> =
+            marks.windows(2).map(|pair| delta(pair[0][index], pair[1][index])).collect();
         let line = format!(
-            "idle {name}: cpu {:.1} ms, {} context switches, {} wakeups in {:?} ({:.2}/s)",
-            used.cpu.as_secs_f64() * 1000.0,
-            used.switches,
-            used.wakeups,
-            WINDOW,
-            used.switches as f64 / WINDOW.as_secs_f64(),
+            "idle {name}: {} ({WINDOWS} windows of {WINDOW:?})",
+            windows
+                .iter()
+                .map(|used| format!(
+                    "cpu {:.1} ms, {} context switches, {} wakeups",
+                    used.cpu.as_secs_f64() * 1000.0,
+                    used.switches,
+                    used.wakeups
+                ))
+                .collect::<Vec<_>>()
+                .join(" | "),
         );
         // Not captured by libtest, so CI logs carry the numbers on success too.
         let _ = writeln!(std::io::stderr(), "{line}");
-        if used.switches > MAX_SWITCHES_PER_WINDOW || used.cpu > MAX_CPU_PER_WINDOW {
+        if woke(&windows) {
             failures.push(line);
         }
     }

@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, usage};
+use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
 mod browser;
 #[cfg(test)]
@@ -18,6 +18,8 @@ pub(in crate::cli) mod cases;
 mod conversation;
 mod flags;
 mod git;
+mod history;
+pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
 mod server_ensure;
@@ -165,6 +167,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "conversation" => {
             conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
         }
@@ -1925,14 +1928,6 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalProducerPut
                 | ResourceOperation::SessionJournalSegmentSeal
         )
-}
-
-fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
-    if allowed.contains(&value) {
-        Ok(())
-    } else {
-        Err(UsageError::new(format!("{flag} must be one of {}", allowed.join(", "))))
-    }
 }
 
 fn parse_bool(flag: &str, value: &str) -> Result<bool, UsageError> {

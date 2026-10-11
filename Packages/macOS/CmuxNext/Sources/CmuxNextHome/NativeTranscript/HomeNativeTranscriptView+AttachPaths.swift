@@ -73,7 +73,7 @@ extension HomeNativeTranscriptView {
     @discardableResult
     public func sendDraft() -> String? { transcript.sendDraft() }
     /// A love tapback on the newest incoming message (the picker's path).
-    public func debugTapbackNewestIncoming() -> Bool { transcript.debugTapbackNewestIncoming() }
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool { transcript.debugTapbackNewestIncoming(mine: mine) }
     /// Plays or pauses the newest video bubble (the click's path).
     public func debugToggleNewestVideo() -> Bool { transcript.debugToggleNewestVideo() }
     /// The context menu's titles at the newest text bubble (the right-click's path).

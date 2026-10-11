@@ -1,5 +1,7 @@
 public import Foundation
+import CmuxNextCompat
 import Darwin
+import Dispatch
 
 public struct ProcessResult: Sendable {
     public var status: Int32
@@ -12,6 +14,11 @@ public struct ProcessResult: Sendable {
 /// child cannot fill a pipe and deadlock, and a grandchild that keeps the
 /// descriptor (an agent started from a shell rc file) cannot hold an EOF wait
 /// open forever.
+///
+/// `progressIdle`: the child also fails when its stdout stays silent that
+/// long. A child that reports progress on stdout (`server ensure --restore-progress`
+/// while the owner restores) is bounded by its own progress, not by a fixed
+/// timeout shorter than the work; `timeout` stays the hard cap.
 public struct ProcessRunner {
     public init() {}
     public static func run(
@@ -20,6 +27,7 @@ public struct ProcessRunner {
         environment: [String: String]?,
         stdin: Data? = nil,
         timeout: Duration,
+        progressIdle: Duration? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
         let stdoutFile = try TempOutput()
@@ -47,6 +55,10 @@ public struct ProcessRunner {
         defer { try? input?.fileHandleForReading.close() }
         process.standardOutput = stdoutFile.handle
         process.standardError = stderrFile.handle
+        // Each stdout write is a progress event (a vnode event on the temp
+        // file; the child's writes land on the same file).
+        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor) }
+        defer { progress?.cancel() }
 
         let box = ProcessBox(process)
         // A cancelled caller kills the child, so the waiter below ends now
@@ -68,8 +80,22 @@ public struct ProcessRunner {
                     }
                 }
                 group.addTask {
-                    // wakeup-allow: one-shot deadline (child process timeout)
-                    try await clock.sleep(for: timeout)
+                    guard let progressIdle, let progress else {
+                        // wakeup-allow: one-shot deadline (child process timeout)
+                        try await clock.sleep(for: timeout)
+                        return Int32.min
+                    }
+                    var seen = progress.count
+                    var waited = Duration.zero
+                    while waited < timeout {
+                        let window = min(progressIdle, timeout - waited)
+                        // wakeup-allow: one wake per idle window (no stdout progress = timeout), bounded by the hard cap
+                        try await clock.sleep(for: window)
+                        waited += window
+                        let now = progress.count
+                        if now == seen { return Int32.min }
+                        seen = now
+                    }
                     return Int32.min
                 }
                 defer { group.cancelAll() }
@@ -111,4 +137,28 @@ final class ProcessBox: @unchecked Sendable {
         guard pid > 0, process.isRunning else { return }
         signal(pid, SIGKILL)
     }
+}
+
+/// Counts writes to a child's stdout file (`ProcessRunner.run(progressIdle:)`).
+/// The watch has its own duplicate of the descriptor, closed by the cancel
+/// handler, so the caller may close its file at any time.
+final class StdoutProgress: Sendable {
+    private let writes = Mutex<Int>(0)
+    private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
+
+    init(watching fd: Int32) {
+        let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
+        guard watched >= 0 else { return }
+        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
+                                                              queue: queue)
+        watch.setEventHandler { [weak self] in self?.writes.withLock { $0 += 1 } }
+        watch.setCancelHandler { close(watched) }
+        watch.activate()
+        source.withLock { $0 = watch }
+    }
+
+    var count: Int { writes.withLock { $0 } }
+
+    func cancel() { source.withLock { $0?.cancel() } }
 }

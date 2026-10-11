@@ -24,7 +24,7 @@ So the problems are not depth. They are what is missing, what is misplaced, and 
 **Missing UI for the things people change first**
 - App theme (`appearance.theme`) has no Settings control. It is set only by onboarding. Settings > Appearance picks room, workspace and terminal themes.
 - Terminal font family and size have no UI anywhere; you hand-edit cmux.json or the Ghostty config.
-- Interface size and Base Keymap are palette-only. The keymap switch also confirms through an NSAlert.
+- Interface size and Base Keymap are palette-only. The keymap switch applies at once with an Undo toast (cx-b9u).
 - Default shell and default agent/harness have no surface at all.
 
 **Order fights frequency**
@@ -45,7 +45,7 @@ So the problems are not depth. They are what is missing, what is misplaced, and 
 
 **Interruptions and confirmations**
 - Reset All asks "are you sure".
-- Base Keymap raises an NSAlert.
+- Base Keymap applies at once and offers Undo in a toast (cx-b9u).
 - Both have undo-able alternatives.
 
 **Several write paths, two sources**

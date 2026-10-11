@@ -12,27 +12,30 @@ import os
 /// `needsLayout` on itself, or moves views between windows. The exception
 /// names no view.
 ///
-/// The guard counts layout calls per view in one run-loop turn, restarting
-/// when the view's window changes frame: an animated resize (zoom) lays the
-/// window out once per frame inside one turn. It wraps `-[NSView layout]` and,
-/// the first time a view's `super.layout()` reaches it, every `layout`
-/// override in that view's class chain, so a call counts once at its
-/// outermost override (an override that never calls super stays invisible).
-/// A normal turn lays out a view one to three times. When one
-/// view passes ``bound`` in one turn, the guard records a ``Report`` with
+/// The guard counts `-[NSView layout]` calls per view in one run-loop turn
+/// (an override that calls `super.layout()` counts; one that does not is
+/// invisible). A normal turn lays out a view one to three times. When one
+/// view passes its window's limit in one turn (``limit(viewCount:)``:
+/// ``bound``, lower in a small window, because AppKit's own limit is the
+/// window's view count and a fixed bound would never fire before a small
+/// panel throws), the guard records a ``Report`` with
 /// the view's class, its superview chain and its window class, logs a fault
 /// and calls ``onLoop`` (the app sends it to Sentry as a non-fatal event).
 /// One report per view class per launch. Reading: ``reports``,
-/// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`).
+/// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`). A view's
+/// count restarts when its window changes frame: an animated resize (zoom)
+/// lays the window out once per frame inside one turn.
+///
+/// The guard wraps `-[NSView layout]` and, the first time a view's
+/// `super.layout()` reaches it, every `layout` override in that view's
+/// class chain, so a call counts once at its outermost override.
 ///
 /// With ``breaksLoops`` (release builds) the guard also ends the loop before
-/// AppKit's limit (a pass per view in the window): past three quarters of the
-/// window's views, the view's further layouts in that turn are skipped and
-/// one layout is asked for on the next turn, so the app keeps running. A view
-/// that merely lays out often in a large window is never skipped. Skipping
-/// happens at the outermost override, so the looping override's own code
-/// does not run either. Debug builds leave it off, so a loop still ends the
-/// app where it can be fixed.
+/// AppKit does: past ``breakLimit(viewCount:)``, the view's further layouts
+/// in that turn are skipped, overrides included, and one layout is asked for
+/// on the next turn, so the app keeps running. A view that merely lays out
+/// often in a large window is never skipped. Debug builds leave it off, so
+/// a loop still ends the app where it can be fixed.
 @MainActor
 public final class LayoutPassGuard {
     public struct Report: Sendable, Equatable {
@@ -40,10 +43,13 @@ public final class LayoutPassGuard {
         public var windowClass: String?
         /// Superview classes, nearest first (at most 8).
         public var ancestry: [String]
-        /// Layout passes of the view in the turn when the bound was passed.
+        /// Layout passes of the view in the turn when the limit was passed.
         public var passes: Int
+        /// The window's limit then (``LayoutPassGuard/limit(viewCount:)``):
+        /// below ``LayoutPassGuard/bound`` only in a small window.
+        public var limit: Int
         public var at: Date
-        /// The guard skips the view's layouts past its window's limit
+        /// The guard skips the view's layouts past its window's break limit
         /// (``breaksLoops``).
         public var broken = false
     }
@@ -51,18 +57,27 @@ public final class LayoutPassGuard {
     public static let shared = LayoutPassGuard()
 
     /// Layout calls of one view in one run-loop turn above which the turn
-    /// is reported as a loop (fewer in a small window). Well above a normal
-    /// turn.
+    /// is a loop. Well below AppKit's own limit (one pass per view in the
+    /// window), well above a normal turn.
     public static let bound = 16
 
     /// A loop was found (main thread, once per view class per launch).
     public var onLoop: ((Report) -> Void)?
-    /// Skip a looping view's layouts past the limit instead of letting
+    /// Skip a looping view's layouts past the break limit instead of letting
     /// AppKit end the app. On in release builds (CrashReporter+Launch).
     public var breaksLoops = false
     public private(set) var reports: [Report] = []
     /// The most layout calls one view had in one turn since launch.
     public private(set) var maxPassesInOneTurn = 0
+    /// The view class and window class that had ``maxPassesInOneTurn``
+    /// (a busy view below the limit, named before it becomes a loop), and
+    /// that window's limit then.
+    public private(set) var maxPassesClass: String?
+    public private(set) var maxPassesWindowClass: String?
+    public private(set) var maxPassesWindowLimit: Int?
+    /// Views counted per window at most; a window with this many or more
+    /// gets the full ``bound``.
+    static let viewCountCap = 2 * bound
     public private(set) var isInstalled = false
 
     /// Per view this turn, at its window's frame.
@@ -77,6 +92,10 @@ public final class LayoutPassGuard {
     private var wrapped: Set<ObjectIdentifier> = []
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
+    /// Limit per window this turn (``limit(viewCount:)``).
+    private var windowLimits: [ObjectIdentifier: Int] = [:]
+    /// Break limit per window this turn (``breakLimit(viewCount:)``).
+    private var windowBreakLimits: [ObjectIdentifier: Int] = [:]
     private var observer: CFRunLoopObserver?
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "layout-pass-guard")
 
@@ -92,6 +111,9 @@ public final class LayoutPassGuard {
     public func reset() {
         classCounts.removeAll()
         maxPassesInOneTurn = 0
+        maxPassesClass = nil
+        maxPassesWindowClass = nil
+        maxPassesWindowLimit = nil
         reports.removeAll()
         reportedClasses.removeAll()
     }
@@ -113,10 +135,13 @@ public final class LayoutPassGuard {
     }
 
     private func endTurn() {
-        inLayout.removeAll()
-        guard !turnCounts.isEmpty else { return }
-        for (id, turn) in turnCounts where !turn.broken { looping[id] = nil }
-        turnCounts.removeAll(keepingCapacity: true)
+        if !inLayout.isEmpty { inLayout.removeAll() }
+        if !turnCounts.isEmpty {
+            for (id, turn) in turnCounts where !turn.broken { looping[id] = nil }
+            turnCounts.removeAll(keepingCapacity: true)
+        }
+        if !windowLimits.isEmpty { windowLimits.removeAll(keepingCapacity: true) }
+        if !windowBreakLimits.isEmpty { windowBreakLimits.removeAll(keepingCapacity: true) }
     }
 
     fileprivate enum Entry { case outermost, inner, skipped }
@@ -154,26 +179,63 @@ public final class LayoutPassGuard {
         var windowFrame: NSRect
         var count = 0
         var broken = false
-        /// Set past the fourth layout (``limits(for:)``).
-        var limits: (report: Int, breaks: Int)?
     }
 
-    /// Layouts of one view in one turn past which the turn is reported as a
-    /// loop, and past which it is broken: three quarters of the window's
-    /// views, short of AppKit's limit of a pass per view, and never under 4
-    /// (a third layout in a turn is normal). Reported at ``bound`` or there,
-    /// whichever is lower. The walk stops at 1024 views; a view in no window
-    /// is never broken.
-    private func limits(for view: NSView) -> (report: Int, breaks: Int) {
-        guard let root = view.window?.contentView?.superview ?? view.window?.contentView else { return (Self.bound, .max) }
+    /// Layout calls of one view in one turn above which the turn is a loop,
+    /// for a window of `viewCount` views. AppKit throws when the window
+    /// needs pass N+1 after N passes (N = its view count), and a looping
+    /// view is laid out in every pass, so the report must come by the view's
+    /// N-th call: a window under 8 views reports at N calls (limit N-1, at
+    /// least 1); a larger one at half its views, at most ``bound``. A small
+    /// window gives up the margin for 1-3 normal calls per turn: a view laid
+    /// out N times in an N-view window is at AppKit's own limit already.
+    public static func limit(viewCount: Int) -> Int {
+        viewCount < 8 ? max(1, viewCount - 1) : min(bound, viewCount / 2)
+    }
+
+    /// Layout calls of one view in one turn past which a release build
+    /// breaks the loop, for a window of `viewCount` views: three quarters of
+    /// them, short of AppKit's limit and far above a busy but finite view (a
+    /// titlebar widget lays out about 35 times in one turn after some home
+    /// actions), or the report limit in a window under 8 views, where that
+    /// is AppKit's own limit already.
+    public static func breakLimit(viewCount: Int) -> Int {
+        viewCount < 8 ? limit(viewCount: viewCount) : max(limit(viewCount: viewCount), viewCount * 3 / 4)
+    }
+
+    /// `window`'s views (its frame view and every subview), counted up to
+    /// `cap`. Reads `subviews` only: no layout.
+    public static func viewCount(of window: NSWindow, cap: Int = viewCountCap) -> Int {
+        guard let root = window.contentView?.superview ?? window.contentView else { return 0 }
         var views = 0
-        var stack = [root]
-        while let next = stack.popLast(), views < 1024 {
+        var stack: [NSView] = [root]
+        while let view = stack.popLast(), views < cap {
             views += 1
-            stack.append(contentsOf: next.subviews)
+            stack.append(contentsOf: view.subviews)
         }
-        let breaks = max(4, views * 3 / 4)
-        return (min(Self.bound, breaks), breaks)
+        return views
+    }
+
+    /// The limit for `window` this turn, counted once per window per turn.
+    private func limit(for window: NSWindow?) -> Int {
+        guard let window else { return Self.bound }
+        let id = ObjectIdentifier(window)
+        if let known = windowLimits[id] { return known }
+        let value = Self.limit(viewCount: Self.viewCount(of: window))
+        windowLimits[id] = value
+        return value
+    }
+
+    /// The break limit for `window` this turn, counted (up to 1024 views)
+    /// once per window per turn, and only for a view past its report limit.
+    /// A view in no window is never broken.
+    private func breakLimit(for window: NSWindow?) -> Int {
+        guard let window else { return .max }
+        let id = ObjectIdentifier(window)
+        if let known = windowBreakLimits[id] { return known }
+        let value = Self.breakLimit(viewCount: Self.viewCount(of: window, cap: 1024))
+        windowBreakLimits[id] = value
+        return value
     }
 
     private func record(_ view: NSView) {
@@ -189,14 +251,19 @@ public final class LayoutPassGuard {
         var turn = turnCounts[id].flatMap { $0.view.object === view && $0.windowFrame == windowFrame ? $0 : nil }
             ?? Turn(view: Weak(view), windowFrame: windowFrame)
         turn.count += 1
-        let count = turn.count
-        if count > maxPassesInOneTurn { maxPassesInOneTurn = count }
-        // A normal turn lays a view out at most three times; only more walks the window.
-        if count > 4, turn.limits == nil { turn.limits = limits(for: view) }
         turnCounts[id] = turn
-        guard let limits = turn.limits else { return }
-        if breaksLoops, count == limits.breaks + 1 { breakLoop(of: view, id: id, count: count) }
-        guard count == limits.report + 1, reportedClasses.insert(typeID).inserted else { return }
+        let count = turn.count
+        if count > maxPassesInOneTurn {
+            maxPassesInOneTurn = count
+            maxPassesClass = String(describing: type)
+            maxPassesWindowClass = view.window.map { String(describing: Swift.type(of: $0)) }
+            maxPassesWindowLimit = limit(for: view.window)
+        }
+        // One call per turn is every view's normal case: no limit lookup.
+        guard count > 1 else { return }
+        let reportLimit = limit(for: view.window)
+        if breaksLoops, count > reportLimit, count == breakLimit(for: view.window) + 1 { breakLoop(of: view, id: id, count: count) }
+        guard count == reportLimit + 1, reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
         var next = view.superview
         while let ancestor = next, ancestry.count < 8 {
@@ -204,7 +271,7 @@ public final class LayoutPassGuard {
             next = ancestor.superview
         }
         let report = Report(viewClass: String(describing: type), windowClass: view.window.map { String(describing: Swift.type(of: $0)) },
-                            ancestry: ancestry, passes: count, at: Date(), broken: breaksLoops)
+                            ancestry: ancestry, passes: count, limit: count - 1, at: Date(), broken: breaksLoops)
         if reports.count >= 32 { reports.removeFirst() }
         reports.append(report)
         Self.log.fault("layout loop: \(report.viewClass, privacy: .public) laid out \(count) times in one turn; window \(report.windowClass ?? "none", privacy: .public); ancestry \(ancestry.joined(separator: " < "), privacy: .public)")

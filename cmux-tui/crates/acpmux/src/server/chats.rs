@@ -1,13 +1,17 @@
 //! `_acpmux/chat*`: the device-wide chat index (ALL-CHATS-ON-DEVICE).
 //!
 //! - `_acpmux/chats {query?, harness?, folder?, account?, limit?, cursor?}`:
-//!   one page, newest first: `{ready, chats, nextCursor}`.
+//!   one page, newest first: `{ready, chats, nextCursor, seq}`. acpmux owns
+//!   the order and each chat's `brand` (its agent mark id, or null).
+//!   `seq` numbers the index changes: the page holds every change up to it.
 //! - `_acpmux/chat_settled {query?, harness?, folder?, account?, limit?, cursor?}`:
 //!   the same read-only history page, explicitly marked `settled: true`.
 //! - `_acpmux/chats_watch {enabled?, ...filter}`: the same page, then
-//!   `_acpmux/chat_changed {kind: upsert|removed, key, chat?}` for every
+//!   `_acpmux/chat_changed {kind: upsert|removed, seq, key, chat?}` for every
 //!   change on this connection (unfiltered; `_acpmux/chats_lagged` asks the
-//!   client to list again), and `{kind: activity, key, attention, preview}`
+//!   client to list again). `seq` goes up by one per index change: a change
+//!   at or below the page's `seq` is already in the page, and a jump means a
+//!   lost change (list again). One file change is one delta. And `{kind: activity, key, attention, preview}`
 //!   when the live session continuing a chat changes what it needs from the
 //!   person (`chats/activity.rs`). Every chat value carries `attention`
 //!   (`needsInput`, `failed`, `unread` or null) and `preview` (its live
@@ -49,6 +53,14 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
+    // runs its queue with the rules it was sent under, so only the local socket moves one.
+    if m.starts_with("_acpmux/transfer_") {
+        if conn.origin != Origin::Local {
+            return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
+        }
+        return hub.transfer_request(m, &params).await;
+    }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
         return super::requests::handle_request(hub, conn, m, params).await;
@@ -176,12 +188,12 @@ async fn page(
     };
     let activity = hub.chat_activity();
     blocking(move || {
-        let (mut chats, next) = service.list(&query);
+        let (mut chats, next, seq) = service.list_at(&query);
         for chat in &mut chats {
             activity.decorate(chat);
         }
         let enabled = service.enabled();
-        Ok(json!({"ready": true, "enabled": enabled, "chats": chats, "nextCursor": next}))
+        Ok(json!({"ready": true, "enabled": enabled, "chats": chats, "nextCursor": next, "seq": seq}))
     })
     .await
 }

@@ -88,7 +88,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A refused send is never ok: a test cannot pass on a dropped send (cx-ebm.55).
             if let refusal = view.sendDraft() { return .object(["ok": .bool(false), "refused": .string(refusal)]) }
             ok = true
-        case "tapback": ok = view.debugTapbackNewestIncoming()
+        case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
         default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link or texts")])

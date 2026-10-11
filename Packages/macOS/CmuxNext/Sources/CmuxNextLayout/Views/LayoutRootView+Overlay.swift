@@ -98,21 +98,28 @@ extension LayoutRootView {
     /// in window coordinates, whether the ring shows, the rect the ring
     /// strokes and the pane's rounded content rect it must equal (both in
     /// window coordinates; the plane has the root's coordinates wherever it
-    /// lives, so the ring rect is read from the overlay itself). `ringInSync`
-    /// allows the float noise of converting at a fractional interface scale,
-    /// far below a pixel.
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect,
-                               contentInWindow: CGRect, ringInSync: Bool)] {
+    /// lives, so the ring rect is read from the overlay itself).
+    /// `ringInSync`: the two rects agree within ``ringSyncTolerance`` (they
+    /// come through different coordinate conversions, so a fractional pane
+    /// size gives rounding noise near 1e-13 pt, not a lag).
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect,
+                               ringInSync: Bool)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
             let chrome = host.chrome
             let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
             let content = host.convert(host.roundedRect, to: nil)
-            let inSync = [ring.minX - content.minX, ring.minY - content.minY, ring.width - content.width,
-                          ring.height - content.height].allSatisfy { abs($0) < 0.001 }
             return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
-                    ring, content, inSync)
+                    ring, content, Self.ringRectsMatch(ring, content))
         }
+    }
+
+    /// Far below a device pixel (0.5 pt at 2x), far above conversion noise.
+    public static let ringSyncTolerance: CGFloat = 0.001
+
+    static func ringRectsMatch(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= ringSyncTolerance && abs(a.minY - b.minY) <= ringSyncTolerance
+            && abs(a.width - b.width) <= ringSyncTolerance && abs(a.height - b.height) <= ringSyncTolerance
     }
 
     /// The drop highlight's material (`debug.layers`), and a pin for it
