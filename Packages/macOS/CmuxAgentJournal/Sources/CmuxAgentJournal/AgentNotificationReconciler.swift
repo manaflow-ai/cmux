@@ -89,7 +89,8 @@ public struct AgentNotificationReconciler: Sendable {
         }
         if draft.kind == .sessionStarted,
            let existing = sessions[sessionKey],
-           event.sequence <= existing.sequence {
+           event.sequence <= existing.sequence
+                || draft.occurredAtMs < existing.occurredAtMs {
             return .init(.stale)
         }
         if draft.kind == .sessionStarted,
