@@ -122,12 +122,29 @@ function tabOrder(element: Element): number {
   return Number.isInteger(parsed) ? parsed : -1;
 }
 
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+function hiddenByAncestor(element: Element): boolean {
+  for (let ancestor: Element | null = element; ancestor; ancestor = composedParent(ancestor)) {
+    if (ancestor.hasAttribute("hidden") || ancestor.hasAttribute("inert")) return true;
+    const style = ancestor.ownerDocument.defaultView?.getComputedStyle(ancestor);
+    if (style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse") return true;
+    if (ancestor.tagName === "DETAILS" && !ancestor.hasAttribute("open")) {
+      const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+      if (!summary?.contains(element)) return true;
+    }
+  }
+  return false;
+}
+
 function isTabbable(element: Element): element is HTMLElement {
   if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || tabOrder(element) < 0) return false;
-  if (element.hidden || element.closest("[hidden], [inert]")) return false;
   if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
-  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-  return style?.display !== "none" && style?.visibility !== "hidden" && style?.visibility !== "collapse";
+  return !hiddenByAncestor(element);
 }
 
 function tabbableElements(): HTMLElement[] {
@@ -189,7 +206,7 @@ export function syntheticKey(key: string): void {
   // the gallery shell, which has no trusted-input driver. The hosted matrix runner uses Playwright
   // instead, so its native traversal remains authoritative.
   if (!keydown.defaultPrevented && eventKey === "Tab") moveFocusForTab(modifiers.shiftKey);
-  target.dispatchEvent(
+  deepestActiveElement().dispatchEvent(
     new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
   );
   // KeyboardEvent dispatch does not run the browser's default button activation.

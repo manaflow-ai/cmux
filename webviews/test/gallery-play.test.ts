@@ -9,6 +9,7 @@ const keys = [
   "navigator",
   "HTMLElement",
   "HTMLInputElement",
+  "ShadowRoot",
   "KeyboardEvent",
   "getComputedStyle",
 ] as const;
@@ -23,6 +24,7 @@ beforeAll(() => {
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
     HTMLInputElement: dom.window.HTMLInputElement,
+    ShadowRoot: dom.window.ShadowRoot,
     KeyboardEvent: dom.window.KeyboardEvent,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   });
@@ -67,6 +69,39 @@ describe("gallery shell keyboard emulation", () => {
 
     syntheticKey("Tab");
     expect(document.activeElement).toBe(second);
+  });
+
+  test("skips controls hidden by ancestors, closed details, or a shadow host", () => {
+    document.getElementById("root")!.innerHTML = `
+      <button id="first">First</button>
+      <div hidden><button id="hidden">Hidden</button></div>
+      <div style="display: none"><button id="display-none">Display none</button></div>
+      <details><button id="closed-details">Closed details</button></details>
+      <button id="second">Second</button>
+    `;
+    const host = document.createElement("div");
+    host.hidden = true;
+    host.attachShadow({ mode: "open" }).innerHTML = '<button id="shadow-hidden">Shadow hidden</button>';
+    document.getElementById("root")!.append(host);
+    const first = document.getElementById("first") as HTMLButtonElement;
+    const second = document.getElementById("second") as HTMLButtonElement;
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(document.activeElement).toBe(second);
+  });
+
+  test("dispatches keyup to the element that receives focus", () => {
+    document.getElementById("root")!.innerHTML = '<button id="first">First</button><button id="second">Second</button>';
+    const first = document.getElementById("first") as HTMLButtonElement;
+    const second = document.getElementById("second") as HTMLButtonElement;
+    const keyup: string[] = [];
+    first.addEventListener("keyup", () => keyup.push("first"));
+    second.addEventListener("keyup", () => keyup.push("second"));
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(keyup).toEqual(["second"]);
   });
 
   test("leaves focus to a key handler that prevents the default", () => {
