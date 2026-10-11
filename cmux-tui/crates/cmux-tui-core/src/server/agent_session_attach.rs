@@ -338,7 +338,9 @@ struct AnsweredBy {
 /// 1 to 128 characters of `[A-Za-z0-9_.:-]`.
 fn is_answer_id(value: &str) -> bool {
     (1..=128).contains(&value.len())
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 /// 64 lowercase hex characters: a decision nonce or proof.
