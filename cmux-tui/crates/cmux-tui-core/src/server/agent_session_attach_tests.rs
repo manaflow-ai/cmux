@@ -676,6 +676,10 @@ fn a_permission_answer_carries_the_decision_proof_to_acpmux_unchanged() {
         "permission_id":"perm_live","option_id":"allow","decision_nonce":nonce,
         "person_decision":"not-hex"}));
     assert_code(&malformed, "agent_session.bad_request");
+    let bad_device = client.request(json!({"cmd":"agent-session-permission","surface":surface,
+        "permission_id":"perm_live","option_id":"allow","decision_nonce":nonce,
+        "person_decision":proof,"answered_by":{"device":"my phone!","feed_item":"feed-1"}}));
+    assert_code(&bad_device, "agent_session.bad_request");
     fake.no_frame();
     let reply = client.request(json!({"cmd":"agent-session-permission","surface":surface,
         "permission_id":"perm_live","option_id":"allow","decision_nonce":nonce,
