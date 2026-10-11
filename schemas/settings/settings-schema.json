@@ -189,7 +189,8 @@
             "key" : "settings.group.appTheme",
             "rows" : [
               "appearance.theme",
-              "appearance.appTheme"
+              "appearance.appTheme",
+              "appearance.accent"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -5322,6 +5323,120 @@
         "text" : "App Theme"
       },
       "validation" : "domain:theme"
+    },
+    {
+      "accepts" : [
+        "neutral",
+        "theme",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.accent.neutral",
+            "text" : "Neutral"
+          },
+          "value" : "neutral"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.theme",
+            "text" : "Theme Color"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.red",
+            "text" : "Red"
+          },
+          "value" : "red"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.green",
+            "text" : "Green"
+          },
+          "value" : "green"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.yellow",
+            "text" : "Yellow"
+          },
+          "value" : "yellow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.blue",
+            "text" : "Blue"
+          },
+          "value" : "blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.magenta",
+            "text" : "Magenta"
+          },
+          "value" : "magenta"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.cyan",
+            "text" : "Cyan"
+          },
+          "value" : "cyan"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "neutral",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.accent.help",
+        "text" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.accent",
+      "keywords" : [
+        "accent",
+        "color",
+        "colour",
+        "highlight",
+        "selection",
+        "personality",
+        "rose pine",
+        "ansi"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "accent"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.accent",
+        "text" : "Accent"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -17942,7 +18057,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "8315c140d6282879e1eb545ac2335bccacba7e6c5c4bf43d90fc28a40109689c",
+  "schema_hash" : "74e23d5cc8add4f69a0abcedb32b0b814d3d053c3434378d01b408e591c6bba5",
   "sections" : [
     {
       "id" : "general",
