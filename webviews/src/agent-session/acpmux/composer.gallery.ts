@@ -88,6 +88,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
+    "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
     "new-chat": {
@@ -144,6 +145,17 @@ export default agentPaneEntry({
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
+    },
+    focused: {
+      note: "The prompt focused: no ring drawn inside the composer box.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-md" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        await ctx.waitFor(() => ctx.document.activeElement === field);
+        const outline = ctx.document.defaultView!.getComputedStyle(field).outlineStyle;
+        if (outline !== "none") throw new Error(`the focused prompt draws an outline (${outline})`);
+      },
     },
     // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
     "context-menu": {
@@ -517,6 +529,69 @@ export default agentPaneEntry({
         if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("slash command pick lost prompt focus");
         if (!ctx.find(prompt).textContent?.includes(`${command} `))
           throw new Error("slash command pick did not update prompt");
+      },
+    },
+    "mention-picker": {
+      note: "Play: type @rea in the prompt; the chat's files that match open under the caret, best first, and Return writes @README.md into the prompt.",
+      snapshot: chat(finished),
+      native: {
+        "file.search": {
+          root: CWD,
+          results: [
+            { path: "README.md", matches: [0, 1, 2] },
+            { path: "src/reader.ts", matches: [4, 5, 6] },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Fix @rea");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll(".acpmux-mention-row")).some((row) =>
+            row.textContent?.includes("README.md"),
+          ),
+        );
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        if (!ctx.find(prompt).textContent?.includes("Fix @README.md"))
+          throw new Error(`mention pick did not write the path: ${ctx.find(prompt).textContent}`);
+        if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("mention pick lost prompt focus");
+      },
+    },
+    "mention-escaped-path": {
+      note: "Play: pick a path markdown escapes (src/__init__.py), then keep typing; the picker stays closed after the space it wrote.",
+      snapshot: chat(finished),
+      native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8] }] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Read @ini");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        await ctx.type("now");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (!ctx.find(prompt).textContent?.includes("Read @src/__init__.py now"))
+          throw new Error(`mention pick did not write the path: ${ctx.find(prompt).textContent}`);
+        if (
+          ctx.document.querySelector(".acpmux-mention-row") ||
+          ctx.find(prompt).getAttribute("aria-expanded") === "true"
+        )
+          throw new Error("the picker reopened after the picked path's space");
+      },
+    },
+    "mention-mid-word": {
+      note: "Play: an @ inside a word (an email address) opens no file picker.",
+      snapshot: chat(finished),
+      native: { "file.search": { root: CWD, results: [{ path: "README.md" }] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("mail me@rea");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (ctx.document.querySelector(".acpmux-mention-row")) throw new Error("an @ inside a word opened the picker");
       },
     },
     "slash-fork": {

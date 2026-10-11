@@ -14,7 +14,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliNamed: Set<ActionID> = [
         "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
-        "palette.openFolderInVSCodeInline", "reopenPreviousSession", "reopenClosedWorkspace", "moveWorkspaceUp",
+        "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
         "renameWorkspace", "palette.clearWorkspaceName", "editWorkspaceDescription",
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
@@ -256,6 +256,8 @@ nonisolated extension ActionSurfaceCatalog {
     static let mcpExemption: [ActionID: SurfaceExemption] = byReason(mcpExemptionsByReason)
     static let mcpExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .systemChange: [
+            // Opens a batch of workspaces in the person's app: the person starts it (cx-rwlb).
+            "workspace.importClassic",
             "notifications.dismissal.keystroke",
             "notifications.dismissal.focus",
             "notifications.dismissal.click",

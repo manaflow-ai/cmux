@@ -135,6 +135,8 @@ enum RemoteStrings {
         case .connecting, .connected:
             if let failure = session.daemonFailure { return daemonFailed(failure) }
             return session.lastError
+        case .reconnecting:
+            return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
         case .authFailed(let message):
             return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
         case .hostKeyUntrusted(let message):
@@ -157,7 +159,7 @@ enum RemoteStrings {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
              .installFailed(let message), .failed(let message): message
         case .needsInstall(let need): needText(need, session)
-        case .connecting, .connected: session.daemonFailure ?? session.lastError
+        case .connecting, .connected, .reconnecting: session.daemonFailure ?? session.lastError
         case .offline, .installing: session.lastError
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }

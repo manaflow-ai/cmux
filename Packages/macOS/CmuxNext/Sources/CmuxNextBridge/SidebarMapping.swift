@@ -106,6 +106,7 @@ public struct SidebarMapping {
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
+            agentName: agentTab(tabs)?.agentName,
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
@@ -144,8 +145,13 @@ public struct SidebarMapping {
     /// The brand of the agent running in these tabs (design/agent-icons): the first that
     /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
-        let busy = tabs.lazy.filter { $0.agent?.state == .working || $0.agent?.state == .blocked }.compactMap(\.agentBrand).first
-        return busy ?? tabs.lazy.compactMap(\.agentBrand).first
+        agentTab(tabs)?.agentBrand
+    }
+
+    /// The tab whose agent the row names: a working or waiting one first.
+    func agentTab(_ tabs: [TabModel]) -> TabModel? {
+        let branded = tabs.lazy.filter { $0.agentBrand != nil }
+        return branded.first { $0.agent?.state == .working || $0.agent?.state == .blocked } ?? branded.first
     }
 
     /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.

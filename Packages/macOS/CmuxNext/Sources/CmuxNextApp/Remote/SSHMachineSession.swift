@@ -104,7 +104,7 @@ final class SSHMachineSession {
                 // task-owner: one actor hop to read the link's output
                 Task { [weak self] in await self?.updateDaemonFailure(link: link) }
             }
-        case .connecting, .failed: break
+        case .connecting, .reconnecting, .failed: break
         case .offline, .authFailed, .hostKeyUntrusted, .unreachable, .needsInstall, .installing, .installFailed:
             linkReached = false
             daemonFailure = nil

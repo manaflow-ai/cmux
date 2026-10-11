@@ -35,6 +35,12 @@ final class HomeChannelsPageProvider: PageProvider {
             guard let before = params["beforeSeq"]?.intValue, before > 0 else { throw PageError.invalidParams("beforeSeq") }
             let limit = Self.bounded(params["limit"]?.intValue, default: 100)
             return try await HomeChannelsWire.history(source, conversation: try Self.conversation(params), before: Seq(before), limit: limit)
+        case "cmux.home.thread":
+            guard let root = try Self.optionalMessage(params["root"]) else { throw PageError.invalidParams("root") }
+            let after = max(0, params["afterSeq"]?.intValue ?? 0)
+            let limit = Self.bounded(params["limit"]?.intValue, default: 100)
+            return try await HomeChannelsWire.thread(source, conversation: try Self.conversation(params), root: root,
+                                                     after: Seq(after), limit: limit)
         case "cmux.home.search":
             guard let query = params["query"]?.stringValue, !query.isEmpty, query.count <= 200 else { throw PageError.invalidParams("query") }
             return try await HomeChannelsWire.search(source, query: query, limit: min(Self.bounded(params["limit"]?.intValue, default: 20), 50))

@@ -980,7 +980,7 @@ pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
 mod redact;
-mod remote_guard;
+pub(crate) mod remote_guard;
 mod requests;
 mod routes;
 pub(crate) mod trust_gate;

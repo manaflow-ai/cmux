@@ -7,6 +7,7 @@ export const HomeOps = {
   inbox: "cmux.home.inbox",
   page: "cmux.home.page",
   history: "cmux.home.history",
+  thread: "cmux.home.thread",
   send: "cmux.home.send",
   read: "cmux.home.read",
   react: "cmux.home.react",
@@ -111,9 +112,37 @@ export interface HomeInbox {
   rev: number;
 }
 
+/** The owner's stats of one thread root, counted over every reply (not only the loaded window).
+ * A retracted reply still counts. Hosts before conversation-thread-v1 send none. */
+export interface HomeThreadStats {
+  root: string;
+  replyCount: number;
+  /** The newest reply's seq (absent with no reply): a loaded reply after it is not counted yet. */
+  lastReplySeq?: number;
+  lastReplyAt?: number;
+  /** The first three distinct reply authors. */
+  authors: string[];
+}
+
 export interface HomePage {
   conversation: HomeConversation;
   messages: HomeMessage[];
+  /** Stats of the thread roots in `messages`. */
+  threads?: HomeThreadStats[];
+}
+
+/** `cmux.home.history`: one older page. */
+export interface HomeHistory {
+  messages: HomeMessage[];
+  threads?: HomeThreadStats[];
+}
+
+/** `cmux.home.thread`: the root, the replies after `afterSeq` (ascending) and the thread's stats. */
+export interface HomeThreadPage {
+  root: HomeMessage;
+  replies: HomeMessage[];
+  hasMore: boolean;
+  thread: HomeThreadStats;
 }
 
 /** One coalesced batch of owner events: the host sends at most one pending batch at a time. */

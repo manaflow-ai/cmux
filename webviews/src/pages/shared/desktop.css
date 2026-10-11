@@ -125,18 +125,26 @@ input[type="submit"] {
   box-shadow: none !important;
 }
 
-/* Text selection takes the theme accent's tint (the text color under the default neutral
-   accent), never the system highlight blue. A page with its own selection color sets it later. */
+/* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
+   (the text color under the default neutral accent), never the system highlight blue
+   (`--cmux-text-selection`, WebTheme.swift). A page with its own selection color sets it later.
+   Carets take the config's `cursor-color`, else the text color (`--cmux-caret`). */
 ::selection {
-  background-color: color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent);
+  background-color: var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent));
+}
+:root {
+  caret-color: var(--cmux-caret, auto);
 }
 
 /* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a
    selected or checked row still changes when it takes focus, and the accent bar when it is on. A
    row that marks its highlight itself (`data-highlighted`, the menus' and pickers' keyboard row)
-   draws that instead. */
-:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
+   draws that instead, and never the engine's own ring (macOS WebKit draws it in the system blue;
+   a page without ui.css, the agent pane, has nothing else removing it). */
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible {
   outline: none;
+}
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
   background-image: linear-gradient(var(--cmux-row-focus), var(--cmux-row-focus));
   box-shadow: inset var(--cmux-row-focus-bar) 0 0 var(--cmux-accent, currentColor);
 }

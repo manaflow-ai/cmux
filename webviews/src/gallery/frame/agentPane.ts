@@ -53,7 +53,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
         return answer({ protocolVersion: 1, transport: "preview", machineName: "This Mac", ...state.ready });
       case "project.list":
       case "file.search":
-        return answer([]);
+        return answer(state.native?.[message.method] ?? []);
       default:
         return answer(state.native?.[message.method ?? ""] ?? null);
     }
