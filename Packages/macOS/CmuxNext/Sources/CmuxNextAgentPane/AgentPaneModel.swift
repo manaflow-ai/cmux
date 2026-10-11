@@ -52,9 +52,10 @@ public final class AgentPaneModel {
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
     /// there), never this Mac's (cx-k21v).
     @ObservationIgnored public var onListRemoteProjects: ((String?) async -> [String])?
-    /// The last handshake gave a chat on another machine: the page's folder tools (project list,
-    /// Browse, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
-    @ObservationIgnored public private(set) var remoteChat = false
+    /// A chat on another machine (set by the host when it makes the page, and by a handshake that
+    /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
+    /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
+    @ObservationIgnored public var remoteChat = false
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
     @ObservationIgnored public var onOpenChatInTerminal: ((String) -> Void)? // `chats.openInTerminal`: a row's right-click menu
     @ObservationIgnored public var onChatsPage: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)? // `chats.page` (cx-n0i9)
@@ -248,7 +249,7 @@ public final class AgentPaneModel {
                 // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
                 if let cwd = handshake.cwd, !filled { handshakeCwd = cwd }
                 if let session = handshake.sessionId { transport.sessions.add(session) }
-                remoteChat = handshake.connection?.remote != nil
+                if handshake.connection?.remote != nil { remoteChat = true }
                 // The connection stays here; the reply never encodes it.
                 pendingConnection = handshake.connection
                 handshake.connection = nil
@@ -319,6 +320,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
         case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
+        case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
         case .useFolder(let cwd, _) where remoteChat:

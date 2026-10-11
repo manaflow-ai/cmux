@@ -262,7 +262,10 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            guard let view = makeView(AgentPaneModel(host: refused, allowsTabConversion: false)) else { return nil }
+            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            // Its folder tools never act on this Mac either (cx-k21v).
+            (model.remoteChat, model.neverPooled) = (true, true)
+            guard let view = makeView(model) else { return nil }
             views[key] = view
             track(key, in: store)
             return view
@@ -309,6 +312,7 @@ final class AgentTabStore {
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
             model.neverPooled = true
+            model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
                 let folders = remoteFolders?(resolve(key)) ?? []
