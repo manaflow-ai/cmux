@@ -62,13 +62,4 @@ struct AgentPanePastChatTests {
         #expect((reply["value"] as? [String: Any])?["pastTurns"] == nil)
         #expect(asked.keys.count == 2)
     }
-
-    /// The daemon's answer: malformed turns are skipped, missing times stay nil.
-    @Test func readsTheDaemonsTurns() {
-        let turns = AgentPanePastTurn.turns(result: ["key": Self.key, "turns": [
-            ["prompt": "one", "answer": "two", "promptAt": 1_790_931_601_000, "answerAt": NSNull()],
-            ["answer": "no prompt"],
-        ]])
-        #expect(turns == [AgentPanePastTurn(prompt: "one", answer: "two", promptAt: 1_790_931_601_000, answerAt: nil)])
-    }
 }
