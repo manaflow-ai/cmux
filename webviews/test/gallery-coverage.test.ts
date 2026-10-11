@@ -11,6 +11,7 @@
 // On a pull request only its own findings fail (test/support/prScope.ts): ones about a file it
 // changes, or a name on an allowlist or covers line it adds or removes. The rest print as warnings.
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { validateEntries } from "../src/gallery/format";
@@ -71,14 +72,32 @@ const scope = prScope({
     "webviews/test/support/prScope.ts",
     "webviews/scripts/gallery/entries.ts",
     "webviews/src/gallery/format.ts",
+    // validateEntries' helpers.
+    "webviews/src/gallery/play.ts",
+    "webviews/src/experiments/experiment.ts",
+    "webviews/src/experiments/tunable.ts",
   ],
   lists: ["webviews/test/gallery-coverage.allowlist.json", /^webviews\/src\/.*\.gallery\.tsx?$/],
 });
 /** A component (`file#Name`) or page id: its source files, and the names an allowlist or covers line gives it. */
 function place(name: string) {
-  if (!name.includes("#")) return { files: pageFiles.get(name) ?? [], names: [name, `page:${name}`] };
+  if (!name.includes("#")) return { files: pageFiles.get(name) ?? removedPage(name), names: [name, `page:${name}`] };
   const file = name.split("#")[0]!;
   return { files: [`webviews/src/${file}`], names: [name, file] };
+}
+
+/** The changed Swift files that declared page `id` on the base branch (a pull request removed or renamed it). */
+function removedPage(id: string): string[] {
+  const declared = new RegExp(`PageDescriptor\\(\\s*id:\\s*"${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
+  return [...scope.changed].filter((file) => {
+    if (!file.startsWith(path.relative(REPO, SWIFT) + "/") || !file.endsWith(".swift")) return false;
+    try {
+      const base = execFileSync("git", ["show", `HEAD^1:${file}`], { cwd: REPO, encoding: "utf8", stdio: "pipe" });
+      return declared.test(base);
+    } catch {
+      return false; // New in the pull request.
+    }
+  });
 }
 
 /** `owners`: a path prefix of allowlisted names, and the lane that owns their entries. */
@@ -89,13 +108,18 @@ describe("gallery coverage", async () => {
   const byFile = components();
   const allComponents = [...byFile].flatMap(([file, names]) => names.map((name) => `${file}#${name}`)).sort();
   const allPages = [...pageFiles.keys()];
-  /** Each entry id's gallery file, for the findings about an entry. */
-  const entryFile = new Map<string, string>();
-  for (const file of galleryFiles())
-    entryFile.set(((await import(file)) as { default: { id: string } }).default.id, path.relative(REPO, file));
+  /** Each entry id's gallery files (more than one for a duplicate id), for the findings about an entry. */
+  const entryFiles = new Map<string, string[]>();
+  for (const file of galleryFiles()) {
+    const id = ((await import(file)) as { default: { id: string } }).default.id;
+    entryFiles.set(id, [...(entryFiles.get(id) ?? []), path.relative(REPO, file)]);
+  }
+  /** A finding `<id>: ...` or `<id>#<variant>: ...`; the longest id it starts with, as ids may hold `:` or `#`. */
   const entryPlace = (problem: string) => {
-    const file = entryFile.get(problem.split(/[#:]/)[0]!);
-    return { files: file ? [file] : [] };
+    const id = [...entryFiles.keys()]
+      .filter((candidate) => problem.startsWith(`${candidate}:`) || problem.startsWith(`${candidate}#`))
+      .sort((a, b) => b.length - a.length)[0];
+    return { files: id === undefined ? [] : entryFiles.get(id)! };
   };
   const covers = entries.flatMap((entry) => entry.covers);
   const coveredComponents = new Set(
@@ -178,7 +202,8 @@ describe("gallery coverage", async () => {
     expect(
       scope.owned(
         idle,
-        (prefix) => ({ files: [], names: [prefix] }),
+        // The allowlist line that last named the prefix is gone, so a change to the allowlist owns it.
+        (prefix) => ({ files: ["webviews/test/gallery-coverage.allowlist.json"], names: [prefix] }),
         (prefix) => prefix,
       ),
     ).toEqual([]);

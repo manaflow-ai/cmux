@@ -92,6 +92,7 @@ class ScopedChecksTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, output)
             self.assertNotIn(f'::warning title=On the base branch, not in this PR::{needle}', output)
         else:
+            self.assertEqual(result.returncode, 0, output)
             self.assertIn(f'::warning title=On the base branch, not in this PR::{needle}', output)
         self.assertIn(needle, output)
 
@@ -134,6 +135,24 @@ class ScopedChecksTests(unittest.TestCase):
                                   'webviews/test/gallery-coverage.allowlist.json': listed},
                                  {'webviews/test/gallery-coverage.allowlist.json': text})
         self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/Orphan.tsx#Orphan')
+
+    def test_coverage_pr_adding_a_duplicate_entry_id_fails(self):
+        # The copy sorts before the entry it duplicates, so the id's last file is the unchanged one.
+        settings = 'webviews/src/pages/settings/components'
+        entry = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
+        checkout = self.checkout({f'{settings}/clean.ts': CLEAN}, {f'{settings}/AThemeTokens.gallery.tsx': entry})
+        self.assertRun(checkout.run(COVERAGE), True, 'pages.settings.theme-tokens: duplicate id')
+
+    def test_coverage_pr_dropping_an_owner_prefix_last_line_owns_it(self):
+        allowlist = WEBVIEWS / 'test/gallery-coverage.allowlist.json'
+        text = allowlist.read_text()
+        owned = text.replace('"owners": {', '"owners": {\n    "pages/zz/": "lane",', 1)
+        listed = owned.replace('"components": [', '"components": [\n    "pages/zz/Orphan.tsx#Orphan",', 1)
+        checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN,
+                                  'webviews/test/gallery-coverage.allowlist.json': listed},
+                                 {'webviews/src/pages/zz/Orphan.tsx': CLEAN.replace('clean', 'orphan'),
+                                  'webviews/test/gallery-coverage.allowlist.json': owned})
+        self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/')
 
 
 if __name__ == '__main__':

@@ -21,6 +21,8 @@ export interface FindingPlace {
 export interface PrScope {
   /** False locally and on base pushes: every finding counts. */
   readonly scoped: boolean;
+  /** The repository paths the pull request changes (empty when not scoped). */
+  readonly changed: ReadonlySet<string>;
   /** Whether a finding at `place` fails this run. */
   owns(place: FindingPlace): boolean;
   /** The findings that fail this run; the others print as warnings. */
@@ -53,6 +55,7 @@ export function prScope(options: { rules: readonly string[]; lists?: readonly (s
     place.files.some((file) => changed.has(file)) || (place.names ?? []).some((name) => names.has(name));
   return {
     scoped: true,
+    changed,
     owns,
     owned(findings, place, text) {
       const failing: string[] = [];
@@ -67,6 +70,7 @@ export function prScope(options: { rules: readonly string[]; lists?: readonly (s
 
 const everyFinding: PrScope = {
   scoped: false,
+  changed: new Set(),
   owns: () => true,
   owned: (findings, _place, text) => findings.map(text),
 };
