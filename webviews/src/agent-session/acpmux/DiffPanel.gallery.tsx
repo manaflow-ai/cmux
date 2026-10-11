@@ -97,6 +97,9 @@ const loadedScope = {
 const loadedSource: ChangesSource = {
   diff: async (scope: ChangeScope) => ({ ...loadedScope, scope }),
   status: async () => ({ branch: "feat/gallery", base: "main", ahead: 2, behind: 0 }),
+  // The Branch scope's Create PR: opens after a beat and links the pull request.
+  pullRequest: () =>
+    new Promise((resolve) => setTimeout(() => resolve({ url: "https://github.com/o/r/pull/7", number: 7 }), 900)),
 };
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
