@@ -16,6 +16,7 @@ import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
 import { BranchPill } from "./changes/BranchPill";
+import { PullRequestButton } from "./changes/PullRequestButton";
 import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
@@ -348,7 +349,12 @@ export function DiffPanel({
       {(branch || skipped > 0 || turnNote) && (
         <div className="acpmux-diff-notes">
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
-          {branch && <BranchPill branch={branch.branch} base={branch.base} />}
+          {branch && (
+            <div className="acpmux-branch-row">
+              <BranchPill branch={branch.branch} base={branch.base} />
+              {source?.pullRequest && <PullRequestButton open={source.pullRequest} />}
+            </div>
+          )}
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
