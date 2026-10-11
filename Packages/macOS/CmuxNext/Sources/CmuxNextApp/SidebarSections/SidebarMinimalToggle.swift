@@ -6,7 +6,8 @@ import os
 /// Enable Minimal Mode and Disable Minimal Mode (palette, CLI
 /// `sidebar enable-minimal-mode` / `disable-minimal-mode`, and the sidebar's
 /// menu, which shows only the one that applies) set `sidebar.minimal`, the
-/// Settings row Minimal Sidebar, so the choice follows cmux.json. The config
+/// Settings row Minimal Mode (not `sidebar.minimalMode`, the older Hide Bands
+/// Until Hover row), so the choice follows cmux.json. The config
 /// layer is the one owner; the sidebar only reads the setting.
 enum SidebarMinimalToggle {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")

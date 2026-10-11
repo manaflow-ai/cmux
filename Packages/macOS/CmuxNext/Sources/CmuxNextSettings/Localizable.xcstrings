@@ -38652,127 +38652,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Minimal Mode"
+            "value": "Hide Bands Until Hover"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ミニマルモード"
+            "value": "ホバーするまで上下の帯を隠す"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "إخفاء الأشرطة حتى التمرير فوقها"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Sakrij trake do prelaska mišem"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Skjul bånd indtil hover"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Leisten bis zum Überfahren ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Ocultar bandas hasta pasar el puntero"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Masquer les bandeaux jusqu’au survol"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Nascondi le fasce fino al passaggio del puntatore"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "លាក់របារ រហូតដល់ដាក់ទស្សន៍ទ្រនិចលើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "마우스를 올릴 때까지 띠 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Skjul bånd til pekeren er over"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Ukryj pasy do najechania kursorem"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Ocultar faixas até passar o ponteiro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Скрывать полосы до наведения"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "ซ่อนแถบจนกว่าจะวางเมาส์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Üzerine Gelinene Kadar Bantları Gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Приховувати смуги до наведення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "Ẩn các dải cho đến khi rê chuột"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "悬停前隐藏上下栏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Minimal Mode"
+            "value": "懸停前隱藏上下欄"
           }
         }
       }
@@ -73309,27 +73309,27 @@
     "settings.sidebar.minimal": {
         "extractionState": "manual",
         "localizations": {
-          "ar": { "stringUnit": { "state": "needs_review", "value": "شريط جانبي بسيط" } },
-          "bs": { "stringUnit": { "state": "needs_review", "value": "Minimalna bočna traka" } },
-          "da": { "stringUnit": { "state": "needs_review", "value": "Minimal sidebjælke" } },
-          "de": { "stringUnit": { "state": "needs_review", "value": "Minimale Seitenleiste" } },
-          "en": { "stringUnit": { "state": "translated", "value": "Minimal Sidebar" } },
-          "es": { "stringUnit": { "state": "needs_review", "value": "Barra lateral mínima" } },
-          "fr": { "stringUnit": { "state": "needs_review", "value": "Barre latérale minimale" } },
-          "it": { "stringUnit": { "state": "needs_review", "value": "Barra laterale minimale" } },
-          "ja": { "stringUnit": { "state": "needs_review", "value": "ミニマルなサイドバー" } },
-          "km": { "stringUnit": { "state": "needs_review", "value": "របារចំហៀងសាមញ្ញ" } },
-          "ko": { "stringUnit": { "state": "needs_review", "value": "최소 사이드바" } },
-          "nb": { "stringUnit": { "state": "needs_review", "value": "Minimal sidepanel" } },
-          "pl": { "stringUnit": { "state": "needs_review", "value": "Minimalny pasek boczny" } },
-          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Barra lateral mínima" } },
-          "ru": { "stringUnit": { "state": "needs_review", "value": "Минимальная боковая панель" } },
-          "th": { "stringUnit": { "state": "needs_review", "value": "แถบด้านข้างแบบเรียบง่าย" } },
-          "tr": { "stringUnit": { "state": "needs_review", "value": "Sade Kenar Çubuğu" } },
-          "uk": { "stringUnit": { "state": "needs_review", "value": "Мінімальна бічна панель" } },
-          "vi": { "stringUnit": { "state": "needs_review", "value": "Thanh bên tối giản" } },
-          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "极简侧边栏" } },
-          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "極簡側邊欄" } }
+          "ar": { "stringUnit": { "state": "needs_review", "value": "الوضع البسيط" } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Minimalni način" } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Minimal tilstand" } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Minimaler Modus" } },
+          "en": { "stringUnit": { "state": "translated", "value": "Minimal Mode" } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Modo mínimo" } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Mode minimal" } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Modalità minimale" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "ミニマルモード" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "របៀបអប្បបរមា" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "미니멀 모드" } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Minimal modus" } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Tryb minimalny" } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Modo Mínimo" } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Минимальный режим" } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "โหมดมินิมอล" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Minimal Mod" } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Мінімальний режим" } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Chế độ tối giản" } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "极简模式" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "極簡模式" } }
         }
       },
     "settings.sidebar.minimal.help": {
@@ -73343,7 +73343,7 @@
           "es": { "stringUnit": { "state": "needs_review", "value": "Las filas de los espacios de trabajo solo muestran su icono, nombre y marca de no leído, y los títulos de sección se vuelven líneas finas." } },
           "fr": { "stringUnit": { "state": "needs_review", "value": "Les lignes des espaces de travail n’affichent que leur icône, leur nom et la marque non lu, et les titres de section deviennent de fines lignes." } },
           "it": { "stringUnit": { "state": "needs_review", "value": "Le righe degli spazi di lavoro mostrano solo icona, nome e indicatore di non letto, e i titoli delle sezioni diventano linee sottili." } },
-          "ja": { "stringUnit": { "state": "needs_review", "value": "ワークスペースの行にはアイコン、名前、未読マークだけを表示し、セクションのタイトルは細い線になります。" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの行にはアイコン、名前、未読マークだけを表示し、セクションのタイトルは細い線になります。" } },
           "km": { "stringUnit": { "state": "needs_review", "value": "ជួរកន្លែងធ្វើការបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន ហើយចំណងជើងផ្នែកក្លាយជាបន្ទាត់ស្តើង។" } },
           "ko": { "stringUnit": { "state": "needs_review", "value": "작업 공간 행에는 아이콘, 이름, 읽지 않음 표시만 나타나고 섹션 제목은 얇은 선이 됩니다." } },
           "nb": { "stringUnit": { "state": "needs_review", "value": "Arbeidsområderader viser bare ikon, navn og ulest-merke, og seksjonstitler blir tynne streker." } },

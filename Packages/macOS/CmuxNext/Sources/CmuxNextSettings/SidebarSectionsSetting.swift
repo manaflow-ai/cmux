@@ -31,7 +31,7 @@ public nonisolated enum SidebarSectionsSetting {
 
     static func minimalDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Sidebar"),
+                          title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
                           help: SettingsText.keyed("settings.sidebar.minimal.help",
                                                    "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.minimal),
@@ -40,7 +40,7 @@ public nonisolated enum SidebarSectionsSetting {
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.minimalMode", "Minimal Mode"),
+                          title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
                           help: SettingsText.keyed("settings.sidebar.minimalMode.help",
                                                    "Hides the chosen sections until the pointer is over the sidebar."),
                           kind: .choice([
