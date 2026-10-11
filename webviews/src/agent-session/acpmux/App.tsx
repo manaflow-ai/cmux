@@ -3279,7 +3279,9 @@ function AcpmuxPane() {
                       onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
-                        ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode }));
+                        ignoreFailure(
+                          callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode }),
+                        );
                         window.setTimeout(refreshTabState, 400);
                       }}
                       sideTabs={sideTabs}
