@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use super::*;
 
-const KEY_HEX: &str = "4b1d2c3e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00";
+const KEY_HEX: &str = "4b1d2c3e5f60718293a4b5c6d7e8f901122334455667788990aabbccddeeff00";
 const INSTALL: &str = "inst_lease_app";
 
 struct Daemon {
