@@ -41,12 +41,14 @@ pub fn connect(
 
 /// The acpmux executable this host runs, symlinks resolved.
 pub fn expected() -> Option<PathBuf> {
-    let configured = crate::cli::env("ACPMUX_BIN").map(PathBuf::from).or_else(|| {
-        std::env::current_exe()
-            .ok()?
-            .parent()
-            .map(|dir| dir.join("acpmux"))
-    })?;
+    let configured = crate::cli::env("ACPMUX_BIN")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()?
+                .parent()
+                .map(|dir| dir.join("acpmux"))
+        })?;
     std::fs::canonicalize(configured).ok()
 }
 
@@ -203,7 +205,11 @@ mod codesign {
         static kSecCodeInfoTeamIdentifier: CFStringRef;
         static kSecGuestAttributeAudit: CFStringRef;
         fn SecCodeCopySelf(flags: u32, code: *mut SecCodeRef) -> OSStatus;
-        fn SecCodeCopyStaticCode(code: SecCodeRef, flags: u32, out: *mut SecStaticCodeRef) -> OSStatus;
+        fn SecCodeCopyStaticCode(
+            code: SecCodeRef,
+            flags: u32,
+            out: *mut SecStaticCodeRef,
+        ) -> OSStatus;
         fn SecCodeCopySigningInformation(
             code: SecStaticCodeRef,
             flags: u32,
@@ -220,7 +226,11 @@ mod codesign {
             flags: u32,
             requirement: *mut SecRequirementRef,
         ) -> OSStatus;
-        fn SecCodeCheckValidity(code: SecCodeRef, flags: u32, requirement: SecRequirementRef) -> OSStatus;
+        fn SecCodeCheckValidity(
+            code: SecCodeRef,
+            flags: u32,
+            requirement: SecRequirementRef,
+        ) -> OSStatus;
     }
 
     /// Releases a CF object at the end of its scope.
@@ -251,19 +261,30 @@ mod codesign {
                 }
                 let _statik = Owned(statik);
                 let mut info: CFDictionaryRef = std::ptr::null();
-                if SecCodeCopySigningInformation(statik, SIGNING_INFORMATION, &mut info) != 0 || info.is_null() {
+                if SecCodeCopySigningInformation(statik, SIGNING_INFORMATION, &mut info) != 0
+                    || info.is_null()
+                {
                     return None;
                 }
                 let _info = Owned(info.cast());
-                let team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier.cast()) as CFStringRef;
+                let team =
+                    CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier.cast()) as CFStringRef;
                 if team.is_null() {
                     return None;
                 }
                 let mut buffer = [0 as std::ffi::c_char; 64];
-                if CFStringGetCString(team, buffer.as_mut_ptr(), buffer.len() as _, kCFStringEncodingUTF8) == 0 {
+                if CFStringGetCString(
+                    team,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as _,
+                    kCFStringEncodingUTF8,
+                ) == 0
+                {
                     return None;
                 }
-                let text = std::ffi::CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned();
+                let text = std::ffi::CStr::from_ptr(buffer.as_ptr())
+                    .to_string_lossy()
+                    .into_owned();
                 (!text.is_empty()).then_some(text)
             }
         })
@@ -279,12 +300,19 @@ mod codesign {
         let mut len = token.len() as libc::socklen_t;
         // SAFETY: token and len are valid for the sizes given; each CF object is released by Owned.
         unsafe {
-            if libc::getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, token.as_mut_ptr().cast(), &mut len) != 0
+            if libc::getsockopt(
+                fd,
+                SOL_LOCAL,
+                LOCAL_PEERTOKEN,
+                token.as_mut_ptr().cast(),
+                &mut len,
+            ) != 0
                 || len as usize != token.len()
             {
                 return refused();
             }
-            let data = Owned(CFDataCreate(kCFAllocatorDefault, token.as_ptr(), token.len() as _).cast());
+            let data =
+                Owned(CFDataCreate(kCFAllocatorDefault, token.as_ptr(), token.len() as _).cast());
             let keys = [kSecGuestAttributeAudit as *const c_void];
             let values = [data.0];
             let attributes = Owned(
@@ -299,11 +327,15 @@ mod codesign {
                 .cast(),
             );
             let mut code: SecCodeRef = std::ptr::null();
-            if SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.0.cast(), 0, &mut code) != 0 || code.is_null() {
+            if SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.0.cast(), 0, &mut code)
+                != 0
+                || code.is_null()
+            {
                 return refused();
             }
             let _code = Owned(code);
-            let text = format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
+            let text =
+                format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
             let string = Owned(
                 CFStringCreateWithBytes(
                     kCFAllocatorDefault,
@@ -315,7 +347,9 @@ mod codesign {
                 .cast(),
             );
             let mut requirement: SecRequirementRef = std::ptr::null();
-            if SecRequirementCreateWithString(string.0.cast(), 0, &mut requirement) != 0 || requirement.is_null() {
+            if SecRequirementCreateWithString(string.0.cast(), 0, &mut requirement) != 0
+                || requirement.is_null()
+            {
                 return refused();
             }
             let _requirement = Owned(requirement);
