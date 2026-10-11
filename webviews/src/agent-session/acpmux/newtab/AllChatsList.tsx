@@ -67,6 +67,12 @@ function rowsOf(page: AllChatsPage | undefined): AllChatsRow[] {
   return page.chats.filter((row) => row && typeof row.key === "string" && typeof row.harness === "string");
 }
 
+/// A first page read again (a push from the chat index) over the loaded rows: its rows lead, and
+/// the loaded rows it does not name keep their order below (they are older than all of it).
+export function mergeFirstPage(_fresh: AllChatsRow[], rows: AllChatsRow[]): AllChatsRow[] {
+  return rows;
+}
+
 /// The pages of one query: a new query starts over at the first page (its old cursor is dropped
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
