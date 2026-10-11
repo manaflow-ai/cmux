@@ -13,6 +13,8 @@ struct CaptureSceneDefinition: Sendable {
 final class CaptureSceneRegistry {
     let services: AppServices
     let frames = BenchFrames()
+    /// The tab `home-chief` reported as waiting, put back to idle after its snapshot.
+    var blockedTerminal: String?
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {

@@ -29,7 +29,11 @@ extension CaptureSceneRegistry {
         // The showcase pane may hold only its agent chat: open a terminal the
         // way the sidebar's New Terminal Tab does, and wait for its record.
         if showcaseTerminal(controller) == nil {
-            _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user))
+            // Aimed at the capture window's pane: the action's default is the active window's.
+            let pane = controller.focusedPane ?? controller.content?.panes.values.min { $0.paneKey < $1.paneKey }
+            guard let pane else { return .object(["error": .string("the capture window has no pane")]) }
+            let target = ActionTargetRef(kind: .pane, id: pane.pane.id)
+            _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: target))
             frames.start()
             _ = await frames.settled(until: { [self] in showcaseTerminal(controller) != nil },
                                      start: ContinuousClock.now, window: 0, deadline: 5_000)
@@ -39,9 +43,12 @@ extension CaptureSceneRegistry {
             return .object(["error": .string("no live terminal in the capture window to report as waiting")])
         }
         reportShowcaseAgent(.blocked, on: terminal)
+        // The terminal to put back to idle: focus may move before the snapshot.
+        blockedTerminal = terminal.tab.id
         TopPages.show(.home, services: services, in: controller.state)
         guard let page = controller.topPages.views[.home] as? TopHomePageView else {
             reportShowcaseAgent(.idle, on: terminal)
+            blockedTerminal = nil
             return .object(["error": .string("Home page did not open"), "chief": .string(chief)])
         }
         page.show(ConversationID(chief))
@@ -68,6 +75,7 @@ extension CaptureSceneRegistry {
         guard settled != nil else {
             report["error"] = .string("Home's first-run panel did not show before the deadline")
             reportShowcaseAgent(.idle, on: terminal)
+            blockedTerminal = nil
             return .object(report)
         }
         return .object(report)
@@ -86,8 +94,11 @@ extension CaptureSceneRegistry {
 
     /// Puts the showcase terminal back to idle once the scene's snapshot is taken.
     func clearShowcaseAgent(windowID: String) {
-        guard let controller = services.windows.controller(for: windowID), let terminal = showcaseTerminal(controller) else { return }
-        reportShowcaseAgent(.idle, on: terminal)
+        defer { blockedTerminal = nil }
+        guard let id = blockedTerminal, let controller = services.windows.controller(for: windowID),
+              let pane = controller.content?.panes.values.first(where: { $0.pane.tabs.contains { $0.id == id } }),
+              let tab = pane.pane.tabs.first(where: { $0.id == id }) else { return }
+        reportShowcaseAgent(.idle, on: (pane, tab))
     }
 
     /// A hook's report for the showcase terminal (`report-agent`); the
