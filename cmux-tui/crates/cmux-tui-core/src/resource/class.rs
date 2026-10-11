@@ -110,6 +110,7 @@ impl ResourceOperation {
                 | Self::WorkspaceGroupList
                 | Self::WorkspaceLogList
                 | Self::WorkspaceStatusList
+                | Self::WorkspaceAgentStartGet
         ) {
             OperationClass::Read
         } else {

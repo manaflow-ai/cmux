@@ -102,6 +102,8 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
         | Op::SessionJournalHookPut
+        // It tells whether a path exists and is a folder (cx-9aps).
+        | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
         | Op::ProjectObserve

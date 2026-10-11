@@ -138,6 +138,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("history.visit.import", HISTORY_VISIT_REASON),
     ("history.visit.summaries", HISTORY_OMNIBOX_REASON),
     ("history.visit.remove", HISTORY_OMNIBOX_REASON),
+    ("workspace.agent_start.get", AGENT_START_REASON),
     ("agent.message.list", AGENT_MESSAGE_REASON),
     ("agent.message.mark", AGENT_MESSAGE_REASON),
     ("agent.message.send", AGENT_MESSAGE_REASON),
@@ -197,6 +198,9 @@ const APP_WORKSPACE_REASON: &str = "The hosting app opens an installed app's one
      from its sidebar item (app-screens-v1); agents open apps through the apps tools.";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
+
+const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
+     chat opens; an agent already runs in its folder (cx-9aps).";
 
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();

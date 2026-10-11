@@ -143,6 +143,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitImport => OperationOwner::History,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
+        | ResourceOperation::WorkspaceAgentStartGet
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate

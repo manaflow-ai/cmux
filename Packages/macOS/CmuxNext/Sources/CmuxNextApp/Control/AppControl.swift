@@ -47,6 +47,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(SessionTransferControl.methods(services: services))
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
