@@ -127,99 +127,92 @@ export function ChatHeaderTools({
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
-  const tools = (
+  const buttons = tabTools && (
     <>
-      {tabTools &&
-        actions.map(({ id, mode }) =>
-          id === "newTab" ? (
-            // One button whose label and icon change, so the next click lands on it again.
+      {actions.map(({ id, mode }) =>
+        id === "newTab" ? (
+          // One button whose label and icon change, so the next click lands on it again.
+          <button
+            key={id}
+            data-quick-action={id}
+            type="button"
+            className="acpmux-header-tool"
+            aria-label={t(sideTabs ? "header.hideTabs" : "header.newTab")}
+            aria-pressed={sideTabs}
+            title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
+            onClick={onSideTabs}
+          >
+            <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={15} />
+          </button>
+        ) : id === "changes" ? (
+          // Hidden, not disabled, without changes (cx-qom0); an open diff keeps it, to close it here.
+          onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)) ? (
             <button
               key={id}
               data-quick-action={id}
               type="button"
               className="acpmux-header-tool"
-              aria-label={t(sideTabs ? "header.hideTabs" : "header.newTab")}
-              aria-pressed={sideTabs}
-              title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
-              onClick={onSideTabs}
+              aria-label={t("header.changes")}
+              aria-pressed={on(HEADER_ACTIONS.changes, mode)}
+              title={withShortcut(t("header.changes"), changesKey)}
+              onClick={() => onChanges(mode)}
             >
-              <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={15} />
+              <Icon name="diff.file" size={15} />
             </button>
-          ) : id === "changes" ? (
-            // Hidden, not disabled, without changes (cx-qom0); an open diff keeps it, to close it here.
-            onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)) ? (
-              <button
-                key={id}
-                data-quick-action={id}
-                type="button"
-                className="acpmux-header-tool"
-                aria-label={t("header.changes")}
-                aria-pressed={on(HEADER_ACTIONS.changes, mode)}
-                title={withShortcut(t("header.changes"), changesKey)}
-                onClick={() => onChanges(mode)}
-              >
-                <Icon name="diff.file" size={15} />
-              </button>
-            ) : null
-          ) : id === "preview" ? (
-            // Hidden, not disabled, without a page (cx-qom0); an open preview keeps it, to close it here.
-            onPreview && (previewUrl || on(HEADER_ACTIONS.preview, mode)) ? (
-              <button
-                key={id}
-                data-quick-action={id}
-                type="button"
-                className="acpmux-header-tool"
-                aria-label={t("header.preview")}
-                aria-pressed={on(HEADER_ACTIONS.preview, mode)}
-                title={
-                  previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")
-                }
-                onClick={() => onPreview(previewUrl, mode)}
-              >
-                <Icon name="media.play" size={15} />
-              </button>
-            ) : null
-          ) : id === "terminal" ? (
+          ) : null
+        ) : id === "preview" ? (
+          // Hidden, not disabled, without a page (cx-qom0); an open preview keeps it, to close it here.
+          onPreview && (previewUrl || on(HEADER_ACTIONS.preview, mode)) ? (
             <button
               key={id}
               data-quick-action={id}
               type="button"
               className="acpmux-header-tool"
-              aria-label={t("header.terminal")}
-              aria-pressed={on(HEADER_ACTIONS.terminal, mode)}
-              title={withShortcut(t("header.terminal"), terminalKey)}
-              onClick={() => onTerminal(mode)}
+              aria-label={t("header.preview")}
+              aria-pressed={on(HEADER_ACTIONS.preview, mode)}
+              title={
+                previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")
+              }
+              onClick={() => onPreview(previewUrl, mode)}
             >
-              <Icon name="terminal" size={15} />
+              <Icon name="media.play" size={15} />
             </button>
-          ) : (
-            <button
-              key={id}
-              data-quick-action={id}
-              type="button"
-              className="acpmux-header-tool"
-              aria-label={t("header.browser")}
-              aria-pressed={on(HEADER_ACTIONS.browser, mode)}
-              title={withShortcut(t("header.browser"), browserKey)}
-              onClick={() => onBrowser(mode)}
-            >
-              <Icon name="browser" size={15} />
-            </button>
-          ),
-        )}
-      {summary}
-      <ChatMenu
-        items={menu}
-        disabled={menu().length === 0}
-        onOpen={onMenuOpen}
-        expand={expand}
-        onExpanded={onExpanded}
-      />
+          ) : null
+        ) : id === "terminal" ? (
+          <button
+            key={id}
+            data-quick-action={id}
+            type="button"
+            className="acpmux-header-tool"
+            aria-label={t("header.terminal")}
+            aria-pressed={on(HEADER_ACTIONS.terminal, mode)}
+            title={withShortcut(t("header.terminal"), terminalKey)}
+            onClick={() => onTerminal(mode)}
+          >
+            <Icon name="terminal" size={15} />
+          </button>
+        ) : (
+          <button
+            key={id}
+            data-quick-action={id}
+            type="button"
+            className="acpmux-header-tool"
+            aria-label={t("header.browser")}
+            aria-pressed={on(HEADER_ACTIONS.browser, mode)}
+            title={withShortcut(t("header.browser"), browserKey)}
+            onClick={() => onBrowser(mode)}
+          >
+            <Icon name="browser" size={15} />
+          </button>
+        ),
+      )}
     </>
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {onCustomize && tabTools ? (
+      {onCustomize && buttons ? (
+        // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
+        // inside them reaches this host through React.
         <ContextMenu
           className="acpmux-header-customize"
           items={customizeItems(actions, menuTarget, onCustomize, t)}
@@ -232,15 +225,26 @@ export function ChatHeaderTools({
               target.current = (button?.getAttribute("data-quick-action") ?? undefined) as QuickActionId | undefined;
             }}
           >
-            {tools}
+            {buttons}
           </div>
         </ContextMenu>
       ) : (
-        tools
+        buttons
       )}
+      {summary}
+      <ChatMenu
+        items={menu}
+        disabled={menu().length === 0}
+        onOpen={onMenuOpen}
+        expand={expand}
+        onExpanded={onExpanded}
+      />
     </div>
   );
 }
+
+/// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page).
+const ALWAYS_SHOWN: ReadonlySet<QuickActionId> = new Set(["terminal", "browser", "newTab"]);
 
 const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
   terminal: "header.terminal",
@@ -252,7 +256,8 @@ const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
 
 /// The header's right-click menu (cx-00n1, Claude Code desktop's toolbar customization): for the
 /// right-clicked button, Move Left/Right and whether a click toggles its panel or opens another
-/// ([+] New tab always toggles); then every quick action, checked while shown; then Reset.
+/// ([+] New tab always toggles); then every quick action, checked while shown; then Reset. The last
+/// button always shown (Terminal, Browser, New tab) cannot be hidden: the menu opens on the buttons.
 function customizeItems(
   list: readonly QuickAction[],
   target: QuickActionId | undefined,
@@ -308,6 +313,7 @@ function customizeItems(
       id: `show-${id}`,
       label: check(shown, name),
       ariaLabel: t(shown ? "header.quickActions.hide" : "header.quickActions.show", { name }),
+      disabled: shown && !withShown(list, id, false).some((action) => ALWAYS_SHOWN.has(action.id)),
       separatorBefore: items.length > 0 && id === QUICK_ACTION_IDS[0],
       onSelect: () => save(withShown(list, id, !shown)),
     });

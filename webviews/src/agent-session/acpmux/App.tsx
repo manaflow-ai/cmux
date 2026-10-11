@@ -118,7 +118,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
-import { configureQuickActions, type QuickActionMode } from "./header/quickActions";
+import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -3289,8 +3289,12 @@ function AcpmuxPane() {
                       onPointerEnter={quick ? undefined : refreshTabState}
                       onCustomize={(list) => {
                         // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
+                        // A save the App refused (layout.json mid-edit) puts the buttons back.
+                        const before = quickActions();
                         configureQuickActions({ quickActions: list });
-                        ignoreFailure(callNative("pane.setQuickActions", { quickActions: list }));
+                        callNative("pane.setQuickActions", { quickActions: list }).catch(() =>
+                          configureQuickActions({ quickActions: before }),
+                        );
                       }}
                       summary={
                         <SummaryButton

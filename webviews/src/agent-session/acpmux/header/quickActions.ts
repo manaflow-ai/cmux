@@ -69,6 +69,9 @@ const subscribe = (listener: () => void) => {
 };
 const snapshot = () => current;
 
+/// The quick action list now.
+export const quickActions = (): readonly QuickAction[] => current;
+
 /// The live quick action list.
 export const useQuickActions = (): readonly QuickAction[] => useSyncExternalStore(subscribe, snapshot, snapshot);
 

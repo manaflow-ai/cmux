@@ -38,18 +38,29 @@ extension AgentPaneCustomization {
     /// - Throws: When `layout.json` exists but is not a JSON object (the user is midway through
     ///   editing it: it is never overwritten), or when it cannot be written.
     public static func savingQuickActions(_ list: [AgentPaneQuickAction], in directory: URL) throws {
-        let file = directory.appending(path: "layout.json")
+        // Through a symlinked layout.json (a dotfiles repository), as cmux.json is written
+        // (CmuxConfigFile), instead of replacing the link with a regular file.
+        let file = directory.appending(path: "layout.json").resolvingSymlinksInPath()
+        let manager = FileManager.default
         var layout: [String: Any] = [:]
-        // concurrency-allow: documented as blocking; the App calls it from a @concurrent writer.
-        if let data = try? Data(contentsOf: file) {
+        if manager.fileExists(atPath: file.path) {
+            // concurrency-allow: documented as blocking; the App calls it from a @concurrent writer.
+            let data = try Data(contentsOf: file)
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path])
             }
             layout = object
         }
         layout["quickActions"] = list.map(\.json)
-        let data = try JSONSerialization.data(withJSONObject: layout, options: [.sortedKeys, .prettyPrinted])
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try data.write(to: file, options: .atomic)
+        let data = try JSONSerialization.data(withJSONObject: layout, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
+        let folder = file.deletingLastPathComponent()
+        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+        let temporary = folder.appending(path: ".\(file.lastPathComponent).\(UUID().uuidString).tmp")
+        try data.write(to: temporary)
+        if manager.fileExists(atPath: file.path) {
+            _ = try manager.replaceItemAt(file, withItemAt: temporary)
+        } else {
+            try manager.moveItem(at: temporary, to: file)
+        }
     }
 }
