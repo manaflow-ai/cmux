@@ -14,9 +14,9 @@
 //!
 //! - team VM (checked first, on any machine): kind `team`, or the baked team
 //!   files root `/srv/team` (a directory owned by root, group `cmux-ssh`).
-//! - Cloud VM: the root-owned Cloud image stamp (the `fs-v1` check,
-//!   link/cloud_fs.rs), the root-owned bake instance id, or `CMUX_VM_ID` in
-//!   the environment.
+//! - Cloud VM: the Cloud image stamp `/etc/cmux/image-stamp` or the bake
+//!   instance id `/etc/cmux/bake-instance-id` exists (trusted or not: a
+//!   tampered one can only make the kind stricter), or `CMUX_VM_ID` is set.
 //! - owner VM: a Cloud VM with kind `owner` and no team marker.
 //! - Any other Cloud VM (no record, an unreadable one, another value) is of
 //!   unknown kind and refused (fail closed). Anything that is not a Cloud VM
@@ -41,6 +41,8 @@ const VM_KIND_FILE: &str = "/etc/cmux/vm-kind";
 const TEAM_FILES_ROOT: &str = "/srv/team";
 const TEAM_LOGIN_GROUP: &str = "cmux-ssh";
 const BAKE_INSTANCE_FILE: &str = "/etc/cmux/bake-instance-id";
+/// The Cloud image stamp (link/cloud_fs.rs `IMAGE_STAMP`).
+const IMAGE_STAMP: &str = "/etc/cmux/image-stamp";
 const VM_ID_VAR: &str = "CMUX_VM_ID";
 const HOST_OVERRIDE_VAR: &str = "CMUX_AGENT_START_HOST";
 
@@ -67,8 +69,11 @@ fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
     if team_files || kind.as_deref() == Some("team") {
         return AgentStartHost::TeamVm;
     }
-    let cloud = crate::link::cloud_fs::trusted_cloud_stamp()
-        || trusted(BAKE_INSTANCE_FILE, false).is_some()
+    // Any stamp or bake id counts as Cloud evidence here, trusted or not: a
+    // tampered one makes the kind stricter (unknown), never looser.
+    let present = |path: &str| std::fs::symlink_metadata(path).is_ok();
+    let cloud = present(IMAGE_STAMP)
+        || present(BAKE_INSTANCE_FILE)
         || vm_id;
     match (cloud, kind.as_deref()) {
         (false, _) => AgentStartHost::Allowed,

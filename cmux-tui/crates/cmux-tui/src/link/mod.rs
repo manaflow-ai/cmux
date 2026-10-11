@@ -3,7 +3,7 @@
 //! to paired peers only, no relay.
 
 mod cloud;
-pub(crate) mod cloud_fs;
+mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
