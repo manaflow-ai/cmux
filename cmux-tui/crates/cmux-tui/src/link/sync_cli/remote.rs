@@ -131,9 +131,15 @@ impl Remote {
     }
 
     fn is_dir(&mut self, path: &str) -> anyhow::Result<bool> {
+        Ok(self.kind(path)?.as_deref() == Some("dir"))
+    }
+
+    /// The kind of the entry at `path` (`file`, `dir`, `symlink`, `other`);
+    /// None when nothing is there.
+    pub(super) fn kind(&mut self, path: &str) -> anyhow::Result<Option<String>> {
         match self.call("fs.stat", json!({ "path": path })) {
-            Ok(stat) => Ok(stat["kind"] == json!("dir")),
-            Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(false),
+            Ok(stat) => Ok(stat["kind"].as_str().map(str::to_string)),
+            Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(None),
             Err(error) => Err(error),
         }
     }
@@ -145,14 +151,14 @@ impl Remote {
         &mut self,
         path: &str,
         reader: &mut dyn Read,
-        executable: bool,
+        permissions: u32,
     ) -> anyhow::Result<String> {
         let first = read_part(reader)?;
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
             let entry = self.call(
                 "fs.write",
-                json!({ "path": path, "bytes_base64": encode(&first), "mode": "overwrite", "executable": executable }),
+                json!({ "path": path, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
             )?;
             return revision_of(&entry);
         }
@@ -160,7 +166,7 @@ impl Remote {
         let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
         let mut revision = revision_of(&self.call(
             "fs.write",
-            json!({ "path": part, "bytes_base64": encode(&first), "mode": "overwrite", "executable": executable }),
+            json!({ "path": part, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
         )?)?;
         let mut chunk = second;
         while !chunk.is_empty() {
@@ -170,7 +176,11 @@ impl Remote {
             )?)?;
             chunk = read_part(reader)?;
         }
-        self.delete(&[path.to_string()])?;
+        // Only a file is replaced; a folder in the way stays and the rename
+        // answers fs.exists.
+        if self.kind(path)?.as_deref() == Some("file") {
+            self.delete(&[path.to_string()])?;
+        }
         let entry = self.call("fs.rename", json!({ "path": part, "name": name }))?;
         // A rename keeps size and mtime, so the revision is the last part's.
         Ok(entry["entry"]["revision"].as_str().map_or(revision, str::to_string))

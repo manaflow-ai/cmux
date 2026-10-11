@@ -39,7 +39,7 @@ impl WriteMode {
             ("create" | "overwrite", Some(_)) => {
                 Err(FsError::ParamsInvalid("expected is only valid with replace".into()))
             }
-            _ => Err(FsError::ParamsInvalid("mode is create, overwrite, replace or append".into())),
+            _ => Err(FsError::ParamsInvalid("mode is create, overwrite or replace".into())),
         }
     }
 
@@ -127,10 +127,14 @@ impl PendingWrite {
         Ok(pending)
     }
 
-    /// Gives the file being written 0755 (executable) or 0644: a script a
-    /// sync copies keeps the bit git records.
-    pub fn set_executable(&mut self, executable: bool) -> Result<(), FsError> {
-        Ok(sys::fchmod(self.file.as_fd(), if executable { 0o755 } else { 0o644 })?)
+    /// Gives the file being written `permissions`: 0644, 0755, 0600 or 0700
+    /// (a sync keeps the executable bit git records and a private file's
+    /// privacy).
+    pub fn set_permissions(&mut self, permissions: u32) -> Result<(), FsError> {
+        if ![0o644, 0o755, 0o600, 0o700].contains(&permissions) {
+            return Err(FsError::ParamsInvalid("permissions is 0644, 0755, 0600 or 0700".into()));
+        }
+        Ok(sys::fchmod(self.file.as_fd(), permissions)?)
     }
 
     /// Appends `bytes` to the temporary file.
@@ -170,28 +174,37 @@ impl Drop for PendingWrite {
 /// `expected` (`fs.write` mode `append`): a file over the single-write limit
 /// arrives in parts, created under a temporary name, appended to, then
 /// renamed into place. Unlike the other modes this changes the file in
-/// place; a write that lands between the check and the append is appended
-/// after (the same window as `replace`).
+/// place, so it is held to more: the opened descriptor must be a regular
+/// file with one link (a hard link could reach a file outside the roots)
+/// and the expected revision, and a failed write is cut back to the old
+/// size.
 pub fn append(roots: &Roots, path: &str, expected: &str, bytes: &[u8]) -> Result<Entry, FsError> {
     let resolved = roots.resolve(path, false)?;
     let Some(name) = resolved.name.clone() else {
         return Err(if resolved.is_root { FsError::PermissionDenied } else { FsError::NotAFile });
     };
     let dir = resolved.dir();
-    let found = current(dir, &name)?;
-    if found.as_ref().is_some_and(|meta| meta.kind != EntryKind::File) {
+    if current(dir, &name)?.is_some_and(|meta| meta.kind != EntryKind::File) {
         return Err(FsError::NotAFile);
     }
-    let found = found.as_ref().map(Meta::revision);
-    if found.as_deref() != Some(expected) {
-        return Err(FsError::RevisionMismatch { current: found });
+    // O_NONBLOCK: a FIFO swapped in after the check above never blocks.
+    let fd = sys::open_at(dir, &name, libc::O_WRONLY | libc::O_APPEND | libc::O_NONBLOCK, 0)?;
+    let stat = sys::stat_fd(fd.as_fd())?;
+    let meta = Meta::of(&stat);
+    if meta.kind != EntryKind::File || stat.st_nlink != 1 {
+        return Err(FsError::NotAFile);
+    }
+    if meta.revision() != expected {
+        return Err(FsError::RevisionMismatch { current: Some(meta.revision()) });
     }
     if sys::available_bytes(dir)? < bytes.len() as u64 {
         return Err(FsError::NoSpace);
     }
-    let mut file = File::from(sys::open_at(dir, &name, libc::O_WRONLY | libc::O_APPEND, 0)?);
-    file.write_all(bytes)?;
-    file.sync_all()?;
+    let mut file = File::from(fd);
+    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+        let _ = file.set_len(meta.size);
+        return Err(error.into());
+    }
     Entry::at(dir, &name)
 }
 

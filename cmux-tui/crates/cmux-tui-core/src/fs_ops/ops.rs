@@ -73,10 +73,10 @@ struct WriteParams {
     mode: String,
     #[serde(default)]
     expected: Option<String>,
-    /// True gives the file 0755, false 0644; absent keeps a replaced
-    /// file's bits and gives a new file 0644.
+    /// The written file's bits, 0644, 0755, 0600 or 0700 (decimal on the
+    /// wire); absent keeps a replaced file's bits and gives a new file 0644.
     #[serde(default)]
-    executable: Option<bool>,
+    permissions: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -277,16 +277,16 @@ impl FsService {
             let Some(expected) = params.expected else {
                 return Err(FsError::ParamsInvalid("append needs expected".into()));
             };
-            if params.executable.is_some() {
-                return Err(FsError::ParamsInvalid("executable is not valid with append".into()));
+            if params.permissions.is_some() {
+                return Err(FsError::ParamsInvalid("permissions is not valid with append".into()));
             }
             return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data)? }));
         }
         let mode = WriteMode::parse(&params.mode, params.expected)?;
         let mut pending =
             PendingWrite::begin(&self.roots, &params.path, mode, Some(data.len() as u64))?;
-        if let Some(executable) = params.executable {
-            pending.set_executable(executable)?;
+        if let Some(permissions) = params.permissions {
+            pending.set_permissions(permissions)?;
         }
         pending.write(&data)?;
         Ok(json!({ "entry": pending.commit()? }))
