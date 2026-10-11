@@ -732,6 +732,42 @@ impl JournalIngressSender {
         outcome
     }
 
+    /// Queue a terminal output gap without waiting for queue space or a
+    /// durability receipt. This is used after the bounded capture deadline has
+    /// elapsed: a free slot should still preserve the gap marker, but the
+    /// reader must not incur a second durability wait on a stalled writer.
+    pub(crate) fn try_send_terminal_gap(
+        &self,
+        event: JournalIngressEvent,
+    ) -> anyhow::Result<()> {
+        debug_assert!(matches!(&event, JournalIngressEvent::TerminalOutputGap { .. }));
+        let Some(sender) = &self.terminal_sender else { return Ok(()) };
+        let _admission = self.state.enqueue_admission.lock().unwrap();
+        if let Some(error) = self.state.admission_error() {
+            anyhow::bail!(error);
+        }
+        self.state.stats.enqueued(JournalLane::Terminal);
+        match sender.try_send(QueuedJournalEvent { event, completion: None }) {
+            Ok(()) => {
+                if let Some(wake) = &self.wake_sender {
+                    match wake.try_send(()) {
+                        Ok(()) | Err(TrySendError::Full(())) => {}
+                        Err(TrySendError::Disconnected(())) => {}
+                    }
+                }
+                Ok(())
+            }
+            Err(TrySendError::Full(_)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
+                anyhow::bail!("session journal terminal queue is full")
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
+                anyhow::bail!(self.writer_error())
+            }
+        }
+    }
+
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
         self.send_durable(JournalIngressEvent::TerminalBarrier)
     }
