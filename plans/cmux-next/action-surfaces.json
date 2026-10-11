@@ -17618,7 +17618,7 @@
         "key" : "",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "opt"
         ]
       },
       "id" : "agentPane.previousTurn",
@@ -17651,7 +17651,7 @@
         "key" : "",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "opt"
         ]
       },
       "id" : "agentPane.nextTurn",
