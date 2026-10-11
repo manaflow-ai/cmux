@@ -50,7 +50,7 @@ extension QuickComposerPanel {
         }
         // Hidden (the chat moved to a tab), it resizes at once: a late animation would size the next composer.
         guard isVisible else { return setFrame(target, display: false) }
-        Motion.animate(.panel, in: contentView) { animator().setFrame(target, display: true) }
+        Motion.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
     }
 
     func windowDidMove(_ notification: Notification) { saveFrame() }
