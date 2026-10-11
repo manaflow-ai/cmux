@@ -103,3 +103,15 @@ test("the floating chat's header and compact bar follow the App and ask it to ch
   expect(host.querySelector(".acpmux-floating-bar")).toBeNull();
   expect(host.querySelector(".acpmux-floating-header")).toBeNull();
 });
+
+test("a chat tab's menu offers the floating chat only while the App says it is on", async () => {
+  const { headerState, setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
+  expect(headerState().floatingChat).toBe(false);
+  setHeaderState({ pinned: false, sideTabs: false, lit: [], floatingChat: true, version: 1 });
+  expect(headerState().floatingChat).toBe(true);
+  // A push that leaves it out (an older App) keeps it.
+  setHeaderState({ pinned: true, version: 2 });
+  expect(headerState().floatingChat).toBe(true);
+  setHeaderState({ floatingChat: false, version: 3 });
+  expect(headerState().floatingChat).toBe(false);
+});
