@@ -1,10 +1,8 @@
 //! Opaque public resource identities and protocol-v2 shared types.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
 
-use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
 use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -128,6 +126,12 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "credential.verify")]
+    CredentialVerify,
+    #[serde(rename = "credential.mint")]
+    CredentialMint,
+    #[serde(rename = "credential.rotate")]
+    CredentialRotate,
     #[serde(rename = "conversation.list")]
     ConversationList,
     #[serde(rename = "conversation.get")]
@@ -578,6 +582,8 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::CredentialVerify
+                | Self::CredentialMint
                 | Self::ConversationList
                 | Self::ConversationGet
                 | Self::ConversationHistory
@@ -648,6 +654,8 @@ impl ResourceOperation {
 mod envelope;
 mod hex;
 mod journal;
+mod name_index;
+pub use name_index::{PublicSlotIndexes, resolve_name};
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -934,47 +942,6 @@ fn is_registered_public_id(value: &str) -> bool {
             | "sidebar_plugin"
     ) && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-pub fn resolve_name<T: Clone>(
-    kind: &str,
-    selector: &str,
-    candidates: impl IntoIterator<Item = (String, Option<String>, T)>,
-) -> Result<T, ResourceError> {
-    let mut matches = candidates
-        .into_iter()
-        .filter(|(_, name, _)| name.as_deref() == Some(selector))
-        .collect::<Vec<_>>();
-    match matches.len() {
-        0 => Err(ResourceError::not_found(kind, selector)),
-        1 => Ok(matches.pop().expect("one match").2),
-        _ => {
-            let mut ids = matches.into_iter().map(|(id, _, _)| id).collect::<Vec<_>>();
-            ids.sort();
-            Err(ResourceError::ambiguous(kind, selector, ids))
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct PublicSlotIndexes {
-    pub workspaces: HashMap<WorkspacePublicId, WorkspaceId>,
-    pub screens: HashMap<ScreenPublicId, ScreenId>,
-    pub panes: HashMap<PanePublicId, PaneId>,
-    pub tabs: HashMap<TabPublicId, SurfaceId>,
-    /// Every view placement of a content resource. Terminal content may have
-    /// any number of placements; browser content currently has one.
-    pub content_placements: HashMap<ContentPublicId, Vec<SurfaceId>>,
-    pub workspace_ids: HashMap<WorkspaceId, WorkspacePublicId>,
-    pub screen_ids: HashMap<ScreenId, ScreenPublicId>,
-    pub pane_ids: HashMap<PaneId, PanePublicId>,
-    pub tab_ids: HashMap<SurfaceId, TabPublicId>,
-    pub content_ids: HashMap<SurfaceId, ContentPublicId>,
-    pub splits: HashMap<SplitPublicId, SplitId>,
-    pub split_ids: HashMap<SplitId, SplitPublicId>,
-    pub screen_workspace: HashMap<ScreenId, WorkspaceId>,
-    pub pane_screen: HashMap<PaneId, ScreenId>,
-    pub tab_pane: HashMap<SurfaceId, PaneId>,
 }
 
 #[cfg(test)]

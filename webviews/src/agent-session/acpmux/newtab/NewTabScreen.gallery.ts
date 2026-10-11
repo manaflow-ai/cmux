@@ -5,6 +5,12 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 
+/// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
+const SITE_ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAOElEQVR42mNgoDZQTX79Hx+mSDNeQ4jVjNUQUjVjGIJNEh2QZAAuMJIMoDgQ6ZIWqJ+UqZKZyAEAwqPV6AATmH0AAAAASUVORK5CYII=";
+const OTHER_SITE_ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPklEQVR42mNgoDZ4FcHzHx+mSDNeQ4jVjNUQUjVjGIJN8v/bqyiYJAPQNeMyZDgbQHEg0iUtUD8pUyUzkQMARpy6LDTJkq8AAAAASUVORK5CYII=";
+
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -77,6 +83,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
+    "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -121,6 +129,69 @@ export default agentPaneEntry({
       ready: newTab({ tools: [] }),
       snapshot: noChat(manySessions(3)),
     },
+    "split-open-tabs": {
+      note: "Opened by Split Right from a browser tab (cx-jfo7): the workspace's tabs, each one moved into this pane by a click.",
+      ready: newTab({
+        openTabs: [
+          { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
+          { id: "t3", kind: "agent", title: "cmux-next chief" },
+        ],
+      }),
+      snapshot: noChat(manySessions(3)),
+    },
+    "recently-closed": {
+      note: "Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyRecentlyClosed?.([
+          {
+            id: "closed:1",
+            kind: "browser",
+            title: "PR #17516",
+            detail: "https://github.com/manaflow-ai/cmux/pull/17516",
+            closedAt: minutesAgo(1),
+            icon: SITE_ICON,
+            available: true,
+          },
+          {
+            id: "closed:2",
+            kind: "terminal",
+            title: "zsh",
+            detail: "~/src/cmux",
+            closedAt: minutesAgo(4),
+            available: true,
+          },
+          {
+            id: "closed:3",
+            kind: "browser",
+            title: "Docs",
+            detail: "https://developer.apple.com/documentation",
+            closedAt: minutesAgo(9),
+            icon: OTHER_SITE_ICON,
+            available: true,
+          },
+          {
+            id: "closed:4",
+            kind: "workspace",
+            title: "cmux-web",
+            detail: "~/src/cmux-web",
+            closedAt: minutesAgo(30),
+            available: true,
+          },
+          {
+            id: "closed:5",
+            kind: "terminal",
+            title: "build",
+            detail: "~/src/relay",
+            closedAt: minutesAgo(60),
+            available: false,
+          },
+        ]);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
+      },
+    },
     "with-tools": {
       note: "Tools use the host action catalog and shortcut labels.",
       ready: newTab(),
@@ -135,25 +206,29 @@ export default agentPaneEntry({
       },
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs and a visited page: those rows and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs and visited pages: those rows (with their favicons, a glyph while one loads) and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: {
           tabs: [
-            { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" },
+            { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
             { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
           ],
           workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
           folders: [CWD],
           commands: [],
-          history: [{ url: "https://cmux.dev/release", title: "cmux release notes" }],
+          // A visited page with its site's icon, and one whose icon is still loading (the glyph).
+          history: [
+            { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
+            { url: "https://example.com/release", title: "example release" },
+          ],
         },
       }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Two tabs, the page and the search: four presses end on the last row.
-        for (let step = 0; step < 4; step++) await ctx.press("ArrowDown");
+        // Two tabs, the two pages and the search: five presses end on the last row.
+        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
       },
     },
     "typed-address": {

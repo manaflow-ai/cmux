@@ -47,8 +47,12 @@ final class PageWKWebView: WKWebView {
 
     private var menuActionObserver: (any NSObjectProtocol)?
 
-    isolated deinit {
-        if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+        }
     }
 
     /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c87b39158c6f928d318f9196caa9f4c889ed07c2b2b3758c2967688544bdd7e6. */
+/* cmux-tui mux protocol 12, IR 99c1977d5cb8dee72791a20df1f7d2d1e82c5d2c79d0a7c738650ad6c0322410. */
 
 
 import type * as T from "./types.js";
@@ -18,6 +18,25 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
+  /** What the agent is doing now; null clears the surface's presence and every other field is then null. */
+  "activity": (T.AgentPresenceActivity) | null;
+  /** Adapter identity (claude, codex, ...). */
+  "agent": (string) | null;
+  /** The 1-based line the tool call targets, when the tool input names one. */
+  "line": (bigint) | null;
+  /** The file the tool call targets, when the tool input names one. */
+  "path": (string) | null;
+  /** The agent's portable session id, a stable identity for colour. */
+  "session": (string) | null;
+  "surface": T.Id;
+  /** The native tool name of the current or last tool call. */
+  "tool": (string) | null;
+  /** When the hook observed the event; null on clear. */
+  "updated_at_ms": (bigint) | null;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -578,6 +597,7 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -653,6 +673,7 @@ export type SerializedButNotEmittedEvent =
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ClientAttachedEvent

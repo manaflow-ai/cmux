@@ -27,12 +27,20 @@ extension NSImage {
                 return true
             }
         case .system(let symbol):
-            let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
-            image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(configuration)
-                ?? NSImage(size: NSSize(width: side, height: side))
-            // Lay out like a pack icon: a side x side box.
-            image.size = NSSize(width: side, height: side)
+            // Lay out like a pack icon: a side x side box, with the symbol fitted
+            // and centered so wide or tall symbols keep their proportions.
+            image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+                let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
+                guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(configuration),
+                    glyph.size.width > 0, glyph.size.height > 0
+                else { return true }
+                let scale = min(rect.width / glyph.size.width, rect.height / glyph.size.height)
+                let size = NSSize(width: glyph.size.width * scale, height: glyph.size.height * scale)
+                let origin = NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2)
+                glyph.draw(in: NSRect(origin: origin, size: size))
+                return true
+            }
         }
         image.isTemplate = true
         return image

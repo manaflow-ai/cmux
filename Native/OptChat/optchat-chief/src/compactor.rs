@@ -2115,17 +2115,6 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         env.insert(key.to_owned(), "1".to_owned());
     }
     env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
-    // No start-up network calls (feature flags, telemetry): under an
-    // import's 16 starts at once they took 3-4.6 s per start (p50) and up
-    // to 17 s, against 0.75 s and 1.2 s without (stub server on
-    // cmux-lawrence-2, 2026-10-10). The compactor's request stays the same
-    // but for two betas it never uses (inline-tools, advisor-tool): no
-    // tools, permission mode default. Compactor sessions only; turns and
-    // subagents keep their feature flags.
-    env.insert(
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_owned(),
-        "1".to_owned(),
-    );
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;

@@ -78,8 +78,11 @@ The Chief's tools are `zoom`, `date`, `spawn(tasks)` and `tell(id, message)`,
 all served by the host on `optchat/tools.sock` (the `optchat` MCP server on a
 Claude harness, `chief spawn|tell|zoom|date` on any other).
 
-- `spawn` waits for settle (at most 10 s, as a turn does; then the lines
-  still building read as the placeholder), renders the view, and starts one acpmux session per
+- `spawn` in a turn takes that turn's view and its new messages at once
+  (no wait for the compactor to summarize the turn's own tool calls:
+  parity timing 2026-10-09, the settle took 7.2 s of an 8.7 s spawn);
+  outside a turn it waits for settle (at most 10 s, as a turn does; then
+  the lines still building read as the placeholder), renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
   `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
   home; a directory that does not exist on the host is reported and
@@ -120,10 +123,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
   (daemon `close-workspace` by key, into the closed history) instead of the
   done mark.
-- The opener follows the E17 rule (schemas/chief-cmux-target) at each
-  open: the app while its control socket and daemon exist, else the
-  Chief's own owner daemon (a Chief that `cmux chief` started without the
-  app). The app shows that owner daemon as a machine row named after the
+- Subagent workspaces always live in the Chief's own owner daemon (the
+  host's `--daemon-socket`), also when the app started the Chief (hq-6d
+  2026-10-09): one place, and they outlive the app. Before, the app's
+  session took them while the app ran (E17's TargetWorkspaces switch). The
+  app shows that owner daemon as a machine row named after the
   Chief, on the paired-server path (`ServerReach.localChief`, route `unix`
   to the owner's socket), signed in or not, so the workspaces appear when
   the app opens. Every subagent
@@ -863,13 +867,15 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   retry that keeps its slot 28.1 min, and 4 spare sessions started ahead
   26.0 min (175 of 1,207 starts hidden, about 1 GB more); run-to-run noise
   is about 2 min. The time goes to one Claude Code process per call; the
-  reference calls the Messages API directly. Most of a start under load is
-  Claude Code's start-up network calls (feature flags, telemetry): a start
-  takes 0.54 s alone, but 3-4.6 s (p50) and up to 17 s with 16 at once;
-  with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, 0.75 s and 1.2 s
-  (stub server, cmux-lawrence-2, 2026-10-10). The compactor presets set it
-  (its request keeps no tools and permission mode default; only two unused
-  betas go); turn and subagent sessions keep their feature flags. Nothing pretends to be Claude Code and no API key is involved:
+  reference calls the Messages API directly. Claude Code's start-up network
+  calls are most of a bare start under load (stub server, 16 at once: 3-4.6
+  s p50 and up to 17 s, 0.75 s and 1.2 s with
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1), but in a real import the
+  variable did not help: session start p50 11.9 s and 41.3 min with it,
+  10.6 s and 35.8 min without (2026-10-10, same corpus), so the compactor
+  does not set it. A real session start is mostly acpmux and session setup,
+  not Claude Code's own start-up.
+  Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),

@@ -13,12 +13,10 @@ name: cmux-tui tree request
 #
 # It builds and uploads nothing itself. When the commit is on feat-cmux-next,
 # its tree is not published, and no active cmux-tui artifacts run has the same
-# key, it points cmux-tui-pin-<sha12> at the commit and dispatches
-# cmux-tui-artifacts.yml there; that run has its own concurrency group
-# (sha-<sha>) and is never cancelled. A ref created with this job's
-# GITHUB_TOKEN starts no push run, so exactly one publisher starts. A commit
-# that is not on feat-cmux-next is refused: a cmux-tui-pin-* run has the R2
-# publish credentials.
+# key, it re-runs the commit's own cmux-tui artifacts run (cancelled or
+# failed). A commit that is not on feat-cmux-next is refused: that run has the
+# R2 publish credentials. A commit that never had a run (it was never a pushed
+# head) is reported with the cmux-tui-pin-* push that publishes it.
 
 on:
   # GitHub dispatches only a workflow it knows, and it learns a file that is
@@ -36,7 +34,7 @@ on:
         type: string
 
 # Requests for one commit run one at a time, so the second sees the first's
-# dispatched run and starts nothing.
+# re-run (an active run) and starts nothing.
 concurrency:
   group: cmux-tui-tree-request-${{ inputs.commit }}
   cancel-in-progress: false
@@ -50,10 +48,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
-      # actions: write dispatches cmux-tui-artifacts.yml; contents: write creates
-      # the cmux-tui-pin-<sha12> ref it runs on.
+      # actions: write re-runs a cmux-tui artifacts run.
       actions: write
-      contents: write
+      contents: read
     steps:
       - name: Check the commit is on feat-cmux-next
         env:
@@ -153,26 +150,27 @@ jobs:
             exit 0
           fi
 
-          pin="cmux-tui-pin-${COMMIT:0:12}"
-          if ! created="$(gh api -X POST "repos/$REPOSITORY/git/refs" -f "ref=refs/heads/$pin" -f "sha=$COMMIT" 2>&1)"; then
-            existing="$(gh api "repos/$REPOSITORY/git/ref/heads/$pin" --jq .object.sha 2>/dev/null || true)"
-            [[ "$existing" == "$COMMIT" ]] || {
-              echo "::error::could not point $pin at $COMMIT: $created"
-              exit 1
-            }
+          # Re-run the commit's own cmux-tui artifacts run: its push run was
+          # cancelled while pending (before cx-73f2 a newer push replaced it) or
+          # failed. A re-run keeps the commit, event and ref, needs only
+          # actions: write, and its tree-preflight builds a key that is still
+          # missing. This job's GITHUB_TOKEN cannot create a cmux-tui-pin-* ref
+          # (HTTP 403), so a commit that never had a run is reported, not built.
+          latest="$(gh api "repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$COMMIT&per_page=50" \
+            --jq '[.workflow_runs[]
+                   | select((.event == "push" and (.head_branch == "feat-cmux-next" or (.head_branch | startswith("cmux-tui-pin-"))))
+                            or .event == "workflow_dispatch")]
+                  | sort_by(.id) | last | if . == null then "" else "\(.id)\t\(.status)\t\(.html_url)" end')"
+          if [[ -z "$latest" ]]; then
+            echo "::error::no cmux-tui artifacts run exists for $COMMIT (it was never a pushed branch head). Publish it by hand: git push origin $COMMIT:refs/heads/cmux-tui-pin-${COMMIT:0:12}"
+            report unpublishable
+            exit 1
           fi
-          # 30 s of slack for clock skew; an older dispatch run of this commit would
-          # name the same publisher anyway.
-          dispatched_at="$(date -u -d '30 seconds ago' +%Y-%m-%dT%H:%M:%SZ)"
-          gh api -X POST "repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/dispatches" -f "ref=$pin" >/dev/null
-          echo "Dispatched cmux-tui-artifacts.yml on $pin for $COMMIT."
-          # The run appears in the API a few seconds after the dispatch; name it
-          # so the requester (the controller's build report) can link it.
-          run_url=""
-          for _ in $(seq 1 12); do
-            run_url="$(gh api "repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$COMMIT&event=workflow_dispatch&created=%3E%3D$dispatched_at" \
-              --jq '.workflow_runs[0].html_url // empty' 2>/dev/null || true)"
-            [[ -n "$run_url" ]] && break
-            sleep 5
-          done
-          report publishing "${run_url:-$SERVER_URL/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml?query=branch%3A$pin}"
+          IFS=$'\t' read -r run_id run_status run_url <<<"$latest"
+          if [[ "$run_status" != completed ]]; then
+            report publishing "$run_url"
+            exit 0
+          fi
+          gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun" >/dev/null
+          echo "Re-ran cmux-tui artifacts run $run_id for $COMMIT."
+          report publishing "$run_url"

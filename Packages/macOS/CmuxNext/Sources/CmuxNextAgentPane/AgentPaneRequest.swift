@@ -81,6 +81,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
+    /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
+    /// address only; a click that closes the open preview may name none.
+    case preview(url: String?, toggle: Bool)
+    /// The header's right-click menu saved the quick actions (`pane.setQuickActions
+    /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
+    case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.

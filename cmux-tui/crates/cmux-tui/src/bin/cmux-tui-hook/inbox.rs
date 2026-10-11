@@ -12,9 +12,6 @@ use super::*;
 
 /// Queued messages one hook asks the daemon for, oldest first.
 const PAGE: u64 = 50;
-/// Rendered text one hook hands over; later messages wait for the next
-/// hook. Codex keeps 2,500 tokens of hook output by default.
-const MAX_TEXT_BYTES: usize = 8 * 1024;
 const DEADLINE: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +88,7 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
             return;
         }
     };
-    let batch = batch(messages);
+    let batch = cmux_tui_core::agent_message_prompt::batch(messages);
     if batch.is_empty() {
         print_nothing(Some(delivery));
         return;
@@ -106,22 +103,6 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
         true,
         deadline,
     );
-}
-
-/// The oldest queued messages that fit in one hook's output; always at
-/// least one.
-pub(super) fn batch(oldest_first: Vec<Value>) -> Vec<Value> {
-    let mut batch = Vec::new();
-    let mut bytes = 0;
-    for message in oldest_first {
-        let size = message["body"].as_str().map_or(0, str::len) + 512;
-        if !batch.is_empty() && bytes + size > MAX_TEXT_BYTES {
-            break;
-        }
-        bytes += size;
-        batch.push(message);
-    }
-    batch
 }
 
 fn queued(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<Vec<Value>> {

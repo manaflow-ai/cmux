@@ -1,137 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "handlers.refusal.audioMuteUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs audio mute support in the cmux-next browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next のブラウザで音声ミュートへの対応が必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب دعم كتم الصوت في متصفح cmux-next"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je podrška za utišavanje zvuka u cmux-next pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver understøttelse af lyd fra i cmux-next-browseren"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert Stummschaltung im cmux-next-Browser"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere silenciar audio en el navegador de cmux-next"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la coupure du son dans le navigateur cmux-next"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il supporto per disattivare l’audio nel browser di cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការការគាំទ្របិទសំឡេងក្នុងកម្មវិធីរុករក cmux-next"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 브라우저에서 오디오 음소거 지원이 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever støtte for å dempe lyd i cmux-next-nettleseren"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga obsługi wyciszania dźwięku w przeglądarce cmux-next"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer suporte a silenciar áudio no navegador do cmux-next"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна поддержка отключения звука в браузере cmux-next"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องรองรับการปิดเสียงในเบราว์เซอร์ cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next tarayıcısında ses kapatma desteği gerekiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна підтримка вимкнення звуку в браузері cmux-next"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần hỗ trợ tắt tiếng trong trình duyệt cmux-next"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 浏览器支持音频静音"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 瀏覽器支援音訊靜音"
-          }
-        }
-      }
-    },
     "handlers.refusal.browserFindClosesWithEscape": {
       "extractionState": "manual",
       "localizations": {
@@ -3141,6 +3010,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "需要 group"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupOnAnotherMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a group holds workspaces of one machine; this workspace is on another machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループには 1 台のマシンのワークスペースだけが入ります。このワークスペースは別のマシンにあります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تضم المجموعة مساحات عمل جهاز واحد؛ مساحة العمل هذه على جهاز آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "grupa sadrži radne prostore jedne mašine; ovaj radni prostor je na drugoj mašini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en gruppe rummer arbejdsområder fra én maskine; dette arbejdsområde er på en anden maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "eine Gruppe enthält Workspaces eines Rechners; dieser Workspace ist auf einem anderen Rechner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un grupo contiene espacios de trabajo de una sola máquina; este espacio de trabajo está en otra máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un groupe contient les espaces de travail d'une seule machine ; cet espace de travail est sur une autre machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un gruppo contiene gli spazi di lavoro di una sola macchina; questo spazio di lavoro è su un'altra macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមមួយផ្ទុកកន្លែងធ្វើការរបស់ម៉ាស៊ីនតែមួយ; កន្លែងធ្វើការនេះនៅលើម៉ាស៊ីនផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹에는 한 머신의 워크스페이스만 들어갑니다. 이 워크스페이스는 다른 머신에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en gruppe inneholder arbeidsområder fra én maskin; dette arbeidsområdet er på en annen maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "grupa zawiera obszary robocze jednej maszyny; ten obszar roboczy jest na innej maszynie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "um grupo contém espaços de trabalho de uma só máquina; este espaço de trabalho está em outra máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "группа содержит рабочие пространства одной машины; это рабочее пространство на другой машине"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มหนึ่งเก็บเวิร์กสเปซของเครื่องเดียว เวิร์กสเปซนี้อยู่บนเครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bir grup tek bir makinenin çalışma alanlarını içerir; bu çalışma alanı başka bir makinede"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "група містить робочі простори однієї машини; цей робочий простір на іншій машині"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "một nhóm chứa không gian làm việc của một máy; không gian làm việc này ở máy khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个分组只包含一台机器的工作区；此工作区在另一台机器上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個群組只包含一台機器的工作區；此工作區在另一台機器上"
           }
         }
       }
@@ -22532,6 +22532,1185 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "首頁的分頁會一直留在首頁中。"
+          }
+        }
+      }
+    },
+    "refusal.app.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا التطبيق متوقف. شغّله من App Store."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova aplikacija je isključena. Uključite je u App Storeu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne app er slået fra. Slå den til i App Store."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese App ist ausgeschaltet. Schalte sie im App Store ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app is turned off. Turn it on in the App Store."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta app está desactivada. Actívala en la App Store."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette app est désactivée. Activez-la dans l’App Store."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa app è disattivata. Attivala nell’App Store."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このAppはオフになっています。App Storeでオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីនេះត្រូវបានបិទ។ បើកវានៅក្នុង App Store។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 앱은 꺼져 있습니다. App Store에서 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne appen er slått av. Slå den på i App Store."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta aplikacja jest wyłączona. Włącz ją w App Store."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este app está desativado. Ative-o na App Store."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это приложение выключено. Включите его в App Store."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปนี้ปิดอยู่ เปิดได้ใน App Store"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu uygulama kapalı. App Store’dan açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей застосунок вимкнено. Увімкніть його в App Store."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng này đang tắt. Hãy bật nó trong App Store."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 已关闭。请在 App Store 中打开它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 已關閉。請在 App Store 中開啟它。"
+          }
+        }
+      }
+    },
+    "refusal.app.noPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد صفحة يمكن فتحها لهذا التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova aplikacija nema stranicu za otvaranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne app har ingen side at åbne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese App hat keine Seite zum Öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app has no page to open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta app no tiene una página para abrir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette app n’a pas de page à ouvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa app non ha una pagina da aprire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このAppには開けるページがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីនេះគ្មានទំព័រសម្រាប់បើកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 앱에는 열 수 있는 페이지가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne appen har ingen side å åpne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta aplikacja nie ma strony do otwarcia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este app não tem uma página para abrir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У этого приложения нет страницы для открытия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปนี้ไม่มีหน้าที่จะเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu uygulamanın açılacak bir sayfası yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей застосунок не має сторінки для відкриття."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng này không có trang để mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 没有可打开的页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 沒有可開啟的頁面。"
+          }
+        }
+      }
+    },
+    "refusal.app.noWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح نافذة cmux أولًا، ثم افتح التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo otvorite cmux prozor, a zatim otvorite aplikaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn først et cmux-vindue, og åbn derefter appen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffne zuerst ein cmux-Fenster und dann die App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a cmux window first, then open the app."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre primero una ventana de cmux y luego abre la app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrez d’abord une fenêtre cmux, puis ouvrez l’app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri prima una finestra di cmux, poi apri l’app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "先にcmuxのウインドウを開いてから、Appを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកផ្ទាំង cmux ជាមុនសិន បន្ទាប់មកបើកកម្មវិធី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 cmux 윈도우를 연 다음 앱을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne et cmux-vindu først, og åpne deretter appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw otwórz okno cmux, a potem otwórz aplikację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra primeiro uma janela do cmux e depois abra o app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала откройте окно cmux, затем откройте приложение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดหน้าต่าง cmux ก่อน แล้วจึงเปิดแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce bir cmux penceresi açın, ardından uygulamayı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу відкрийте вікно cmux, потім відкрийте застосунок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy mở một cửa sổ cmux trước, rồi mở ứng dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先打开一个 cmux 窗口，然后再打开此 App。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先開啟一個 cmux 視窗，然後再開啟此 App。"
+          }
+        }
+      }
+    },
+    "refusal.app.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد في هذا التطبيق أمر بهذا المعرّف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova aplikacija nema naredbu s tim ID-om."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne app har ingen kommando med det id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese App hat keinen Befehl mit dieser ID."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app has no command with that id."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta app no tiene ningún comando con ese ID."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette app n’a aucune commande avec cet identifiant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa app non ha alcun comando con quell’ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このAppにはそのIDのコマンドがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីនេះគ្មានពាក្យបញ្ជាដែលមាន ID នោះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 앱에는 해당 ID의 명령이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne appen har ingen kommando med den ID-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta aplikacja nie ma polecenia o tym identyfikatorze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este app não tem um comando com esse ID."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У этого приложения нет команды с таким ID."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปนี้ไม่มีคำสั่งที่มี ID นั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu uygulamada bu kimliğe sahip bir komut yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей застосунок не має команди з таким ID."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng này không có lệnh nào có ID đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 没有该 ID 的命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 沒有該 ID 的指令。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.audioMuteNeedsPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only a loaded browser tab can be muted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュートできるのは読み込み済みのブラウザタブだけです"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن كتم الصوت إلا في علامة تبويب متصفح محمّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "samo učitana kartica preglednika može se utišati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kun en indlæst browserfane kan få lyden slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nur ein geladener Browser-Tab kann stummgeschaltet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "solo se puede silenciar una pestaña del navegador cargada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "seul un onglet de navigateur chargé peut être mis en sourdine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "si può disattivare l'audio solo di una scheda del browser caricata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាចបិទសំឡេងបានតែផ្ទាំងកម្មវិធីរុករកដែលបានផ្ទុករួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로드된 브라우저 탭만 음소거할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bare en lastet nettleserfane kan dempes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "wyciszyć można tylko załadowaną kartę przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "só é possível silenciar uma aba do navegador carregada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "отключить звук можно только у загруженной вкладки браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดเสียงได้เฉพาะแท็บเบราว์เซอร์ที่โหลดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "yalnızca yüklenmiş bir tarayıcı sekmesinin sesi kapatılabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "вимкнути звук можна лише в завантаженій вкладці браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chỉ có thể tắt tiếng thẻ trình duyệt đã tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有已加载的浏览器标签页可以静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有已載入的瀏覽器分頁可以靜音"
+          }
+        }
+      }
+    },
+    "handlers.refusal.sectionTakesNoWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لهذا القسم أن يضم مساحات عمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "taj odjeljak ne može sadržavati radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den sektion kan ikke indeholde arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dieser Abschnitt kann keine Arbeitsbereiche enthalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "that section cannot hold workspaces"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esa sección no puede contener espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cette section ne peut pas contenir d’espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "quella sezione non può contenere spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのセクションにはワークスペースを追加できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែកនោះមិនអាចផ្ទុកកន្លែងធ្វើការបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 섹션에는 작업 공간을 넣을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den seksjonen kan ikke inneholde arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ta sekcja nie może zawierać obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "essa seção não pode conter espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот раздел не может содержать рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนนั้นใส่พื้นที่ทำงานไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu bölüm çalışma alanı içeremez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей розділ не може містити робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "mục đó không thể chứa không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该区块不能包含工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該區塊無法包含工作區"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupAlreadyInSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كل مساحات العمل في المجموعة موجودة بالفعل في هذا القسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "svi radni prostori u grupi su već u tom odjeljku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "alle arbejdsområder i gruppen er allerede i den sektion"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "alle Arbeitsbereiche der Gruppe sind bereits in diesem Abschnitt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "every workspace in the group is already in that section"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "todos los espacios de trabajo del grupo ya están en esa sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tous les espaces de travail du groupe sont déjà dans cette section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tutti gli spazi di lavoro del gruppo sono già in quella sezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループ内のすべてのワークスペースはすでにそのセクションにあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការទាំងអស់ក្នុងក្រុមមាននៅក្នុងផ្នែកនោះរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹의 모든 작업 공간이 이미 해당 섹션에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "alle arbeidsområdene i gruppen er allerede i den seksjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "wszystkie obszary robocze z grupy są już w tej sekcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "todos os espaços de trabalho do grupo já estão nessa seção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "все рабочие пространства группы уже в этом разделе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานทั้งหมดในกลุ่มอยู่ในส่วนนั้นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gruptaki tüm çalışma alanları zaten bu bölümde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "усі робочі простори групи вже в цьому розділі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "mọi không gian làm việc trong nhóm đã có trong mục đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分组中的所有工作区都已在该区块中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組中的所有工作區都已在該區塊中"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupCannotJoinSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إضافة مساحات عمل المجموعة إلى قسم بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "radni prostori grupe još se ne mogu dodati u odjeljak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gruppens arbejdsområder kan endnu ikke føjes til en sektion"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "die Arbeitsbereiche der Gruppe können noch keinem Abschnitt hinzugefügt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the group's workspaces cannot be added to a section yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "los espacios de trabajo del grupo aún no se pueden añadir a una sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "les espaces de travail du groupe ne peuvent pas encore être ajoutés à une section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gli spazi di lavoro del gruppo non possono ancora essere aggiunti a una sezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループのワークスペースはまだセクションに追加できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់អាចបន្ថែមកន្លែងធ្វើការរបស់ក្រុមទៅផ្នែកបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹의 작업 공간을 아직 섹션에 추가할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gruppens arbeidsområder kan ikke legges til i en seksjon ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "obszarów roboczych grupy nie można jeszcze dodać do sekcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "os espaços de trabalho do grupo ainda não podem ser adicionados a uma seção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "рабочие пространства группы пока нельзя добавить в раздел"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังเพิ่มพื้นที่ทำงานของกลุ่มไปยังส่วนไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "grubun çalışma alanları henüz bir bölüme eklenemiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "робочі простори групи поки не можна додати до розділу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chưa thể thêm các không gian làm việc của nhóm vào mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂时无法将分组的工作区添加到区块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫時無法將群組的工作區加入區塊"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noPaneWithNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the screen has no pane with that number"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي الشاشة على جزء بهذا الرقم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekran nema okno s tim brojem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skærmen har ingen rude med det nummer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Bildschirm hat keinen Bereich mit dieser Nummer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la pantalla no tiene ningún panel con ese número"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l’écran n’a pas de panneau portant ce numéro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lo schermo non ha un riquadro con quel numero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面にその番号のペインはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អេក្រង់មិនមានផ្ទាំងដែលមានលេខនោះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면에 그 번호의 패널이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skjermen har ingen rute med det nummeret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekran nie ma panelu o tym numerze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a tela não tem um painel com esse número"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на экране нет панели с таким номером"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าจอไม่มีบานหน้าต่างหมายเลขนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekranda bu numarada bölme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на екрані немає панелі з таким номером"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "màn hình không có khung nào mang số đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕上没有该编号的窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "畫面上沒有該編號的窗格"
           }
         }
       }

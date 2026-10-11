@@ -143,9 +143,9 @@ A heavy user wants:
 | Verb (action id) | Why |
 | --- | --- |
 | New Workspace Above / Below / at Top / at Bottom (`workspace.newAbove`, `.newBelow`, `.newAtTop`, `.newAtBottom`) | The new workspace lands where the user looks, not at the end. |
-| New Workspace in This Group / in New Group (`workspace.newInGroup`, `.newInNewGroup`) | Grouped projects grow in place; no create-then-drag. |
+| New Workspace Like This (`workspace.newLikeThis`; folds `.newInGroup` and `.newInSameDirectory`) | Same directory, same group (below it) and the same first-tab kind: a second workspace for the same repo grows in place. |
+| New Workspace in New Group (`workspace.newInNewGroup`) | Grouped projects grow in place; no create-then-drag. |
 | New Workspace on Machine… (`workspace.newOnMachine`) | Sessions on several machines (data-model.md 1); pinned to the window's space so it shows. |
-| New Workspace in Same Directory (`workspace.newInSameDirectory`) | A second workspace for the same repo, started in the current directory. |
 | Duplicate Workspace, with or without browser tabs (`workspace.duplicate`, `.duplicateTerminalsOnly`) | Same screens, columns, splits, ratios and directories, new terminals (never a shared process), optionally the same pages. |
 | Set / Clear Workspace Icon (`workspace.setIcon`, `.clearIcon`) | An SF Symbol or one emoji tells workspaces apart faster than a color. |
 | Move Workspace to Bottom, to New Group (`workspace.moveToBottom`, `.moveToNewGroup`); Move to Top now uses the same slot path | Completes Up/Down/Top; Move to Top used to write order to the workspace's own daemon in personal mode. |

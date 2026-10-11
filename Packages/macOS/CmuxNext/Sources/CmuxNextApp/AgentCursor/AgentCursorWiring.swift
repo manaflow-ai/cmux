@@ -37,8 +37,12 @@ enum AgentCursorWiring {
     /// (plans/cmux-next/agent-cursor.md), with a9's per-window resolver.
     static func slot(for controller: WindowController) -> AgentCursorWindowSlot {
         let services = controller.services
-        let slot = AgentCursorWindowSlot(resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id)) {
-            [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
+        let slot = AgentCursorWindowSlot(
+            resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id),
+            color: { [weak services] session in
+                AgentCursorPresenceColors.shared.color(for: session, store: services?.daemon.store)
+            }
+        ) { [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
         }
         slot.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
         return slot

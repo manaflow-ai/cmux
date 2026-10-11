@@ -68,10 +68,14 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         config = configuration
     }
 
-    isolated deinit {
-        reconnect?.cancel()
-        subscription?.cancel()
-        directoryWatch?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            reconnect?.cancel()
+            subscription?.cancel()
+            directoryWatch?.cancel()
+        }
     }
 
     public func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {

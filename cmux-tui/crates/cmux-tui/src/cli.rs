@@ -21,6 +21,7 @@ mod chief_target;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
+mod codex_app_server;
 mod command;
 mod docs;
 mod extra_help;
@@ -30,6 +31,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 #[cfg(unix)]

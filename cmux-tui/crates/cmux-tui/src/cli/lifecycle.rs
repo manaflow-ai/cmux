@@ -464,6 +464,9 @@ fn run_ensure(
         Err(crate::local_owner::EnsureError::DifferentSession) => {
             local_error("server.different_session", messages.different_session, output, 1)
         }
+        Err(crate::local_owner::EnsureError::DifferentState) => {
+            local_error("server.different_state", messages.different_state, output, 1)
+        }
         Err(crate::local_owner::EnsureError::InvalidIdentity) => {
             local_error("server.invalid_identity", messages.invalid_identity, output, 3)
         }

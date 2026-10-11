@@ -136,6 +136,13 @@ extension HomeStore {
         default:
             let outcome = mirror.apply(event)
             switch event {
+            case .inbox(let snapshot): confirm(snapshot.conversations.map(\.id))
+            case .conversationChanged(let summary, _, _): confirm([summary.id])
+            case .message(let message, _): confirm([message.conversation])
+            case .conversationPage(let page): confirm([page.conversation.id])
+            default: break
+            }
+            switch event {
             case .inbox(let snapshot):
                 me = snapshot.me
                 log.dropIntents(outside: Set(mirror.conversations.keys))
@@ -177,6 +184,7 @@ extension HomeStore {
         defer { refetching.remove(stream) }
         guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
         let behind = mirror.apply(inbox: snapshot)
+        confirm(snapshot.conversations.map(\.id))
         me = snapshot.me
         settle()
         rebuildRows()
