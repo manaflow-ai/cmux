@@ -8072,9 +8072,16 @@ of a receive this daemon guarded, and answers `{next}`.
 ### agent-transfer-receive-abort
 
 `{id, cmd:"agent-transfer-receive-abort", receive_id}` forgets a receive
-this daemon guarded and answers `{dropped:true}`; later writes and finishes
-of it are `agent_transfer.unknown_receive`. acpmux has no target-side abort,
-so nothing is sent to it: it sweeps the receive's files after 24 h.
+this daemon guarded; later writes and finishes of it are
+`agent_transfer.unknown_receive`. It sends acpmux
+`_acpmux/transfer_forget {transferId, sessionId}` with the ids of the
+receive's own manifest (never from the frame), so acpmux drops the
+receive's files and refuses that move from then on, and answers
+`{dropped:true, forgotten, landed}` (`landed`: the chat had already arrived
+here). An acpmux that cannot forget leaves `forgotten:false`; its files are
+swept after 24 h. acpmux's forget is not a daemon command. A receive whose
+manifest lacks a plain `transferId` and `sessionId` is
+`agent_transfer.bad_request`.
 
 ### agent-transfer-finish
 

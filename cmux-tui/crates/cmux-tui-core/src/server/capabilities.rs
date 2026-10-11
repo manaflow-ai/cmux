@@ -29,7 +29,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
-        capabilities.push(AGENT_TRANSFER_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
     }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);

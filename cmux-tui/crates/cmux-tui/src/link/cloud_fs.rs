@@ -23,6 +23,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use cmux_tui_core::fs_ops::{FsService, Roots};
+use cmux_tui_core::server::agent_transfer::AgentTransferHost;
 
 /// The root-owned stamp of a Cloud image.
 const IMAGE_STAMP: &str = "/etc/cmux/image-stamp";
@@ -83,9 +84,9 @@ fn this_is_a_cloud_host() -> bool {
 /// What `agent-transfer-v1` guards moved chats with: on a Cloud host they
 /// arrive under `$HOME/work` under peer control, elsewhere only in the folder
 /// the app names, under web control. `None` without a `HOME`.
-pub(super) fn agent_transfer_host() -> Option<cmux_tui_core::server::AgentTransferHost> {
+pub(super) fn agent_transfer_host() -> Option<AgentTransferHost> {
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    Some(cmux_tui_core::server::AgentTransferHost { cloud: this_is_a_cloud_host(), home })
+    Some(AgentTransferHost { cloud: this_is_a_cloud_host(), home })
 }
 
 /// Installs the file owner over `HOME` when this is a Cloud host. Returns

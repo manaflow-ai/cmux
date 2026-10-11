@@ -18,8 +18,10 @@
 //! - `agent-transfer-write {receive_id, path, offset, data}`: one page.
 //! - `agent-transfer-finish {receive_id, name?}`: imports the chat in the
 //!   receive's own folder (`cwd` is never taken here).
-//! - `agent-transfer-receive-abort {receive_id}`: forgets the receive (acpmux
-//!   has no target-side abort; it sweeps the receive's files after 24 h).
+//! - `agent-transfer-receive-abort {receive_id}`: forgets the receive and has
+//!   acpmux forget its move (`_acpmux/transfer_forget` with the transfer and
+//!   session ids of the receive's own manifest): acpmux drops the receive's
+//!   files and refuses that move from then on.
 //!
 //! Machine kind: receive and finish read `agent-session-start`'s host gate
 //! at each call and refuse on a team VM and on a Cloud VM of unknown kind
@@ -128,7 +130,16 @@ pub(crate) struct AgentTransfers {
 /// A guarded receive: what its finish uses.
 struct Receive {
     cwd: String,
+    /// The move and chat its manifest names (what a forget drops).
+    moved: Moved,
     touched: Instant,
+}
+
+/// A move's id and its chat's session id, from a receive's manifest.
+#[derive(Clone)]
+struct Moved {
+    transfer_id: String,
+    session_id: String,
 }
 
 /// A move's listed bundle paths, each with the scrubbed bytes served for it
@@ -457,7 +468,10 @@ enum Prepared {
         manifest: Map<String, Value>,
         guard: Value,
         cwd: String,
+        moved: Moved,
     },
+    /// `_acpmux/transfer_forget` of a dropped receive's move.
+    Forget(Moved),
     Write {
         receive_id: String,
         path: String,
@@ -504,7 +518,18 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             if AgentTransfers::full(&mut lock(&transfers.receives), MAX_RECEIVES, |r| r.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Receive { manifest, guard, cwd }
+            let id = |key: &str| {
+                manifest
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|id| is_plain_id(id))
+                    .map(str::to_owned)
+            };
+            let (Some(transfer_id), Some(session_id)) = (id("transferId"), id("sessionId")) else {
+                return Err(Refusal::BadRequest.into());
+            };
+            let moved = Moved { transfer_id, session_id };
+            Prepared::Receive { manifest, guard, cwd, moved }
         }
         Verb::Write(WriteParams { receive_id, path, offset, data }) => {
             if !is_bundle_path(&path) || page_data_len(&data).is_none_or(|n| n > MAX_PAGE_BYTES) {
@@ -528,10 +553,11 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             Prepared::Finish { receive_id, cwd, name }
         }
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
-            // acpmux has no target-side abort: it sweeps the receive's files
-            // after 24 h, and without this entry no write or finish reaches it.
-            lock(&transfers.receives).remove(&receive_id).ok_or(Refusal::UnknownReceive)?;
-            Prepared::Answer(json!({"dropped": true}))
+            // Without this entry no write or finish reaches the receive; acpmux
+            // drops its files and refuses the move from now on (its forget).
+            let receive =
+                lock(&transfers.receives).remove(&receive_id).ok_or(Refusal::UnknownReceive)?;
+            Prepared::Forget(receive.moved)
         }
         Verb::Begin(BeginParams { surface, interrupt }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
@@ -655,14 +681,14 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     };
     let transfers = &mux.agent_transfers;
     match prepared {
-        Prepared::Receive { manifest, guard, cwd } => {
+        Prepared::Receive { manifest, guard, cwd, moved } => {
             let params = json!({"manifest": manifest, "guard": guard});
             let answer = call("_acpmux/transfer_receive", params, CALL_TIMEOUT)?;
             let receive_id = answer["receiveId"].as_str().filter(|id| is_plain_id(id));
             let (Some(receive_id), true) = (receive_id, answer["guarded"] == json!(true)) else {
                 return Err(Refusal::Unguarded.into());
             };
-            let entry = Receive { cwd, touched: Instant::now() };
+            let entry = Receive { cwd, moved, touched: Instant::now() };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer["sessionId"]}))
         }
@@ -711,6 +737,17 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             Ok(json!({"data": page["data"], "next": page["next"], "eof": page["eof"]}))
         }
         Prepared::Answer(answer) => Ok(answer),
+        Prepared::Forget(Moved { transfer_id, session_id }) => {
+            let params = json!({"transferId": transfer_id, "sessionId": session_id});
+            // Dropped here either way; an acpmux without forget sweeps the
+            // receive's files after 24 h.
+            Ok(match call("_acpmux/transfer_forget", params, CALL_TIMEOUT) {
+                Ok(answer) => {
+                    json!({"dropped": true, "forgotten": true, "landed": answer["landed"]})
+                }
+                Err(_) => json!({"dropped": true, "forgotten": false, "landed": null}),
+            })
+        }
         Prepared::Commit { session, transfer_id, to } => {
             let params = json!({"sessionId": session, "transferId": transfer_id, "to": to});
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;

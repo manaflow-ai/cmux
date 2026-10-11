@@ -126,9 +126,7 @@ pub use agent_session_attach::{
     AgentStartHostSource,
 };
 #[cfg(unix)]
-pub(crate) mod agent_transfer;
-#[cfg(unix)]
-pub use agent_transfer::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost};
+pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -2550,11 +2548,9 @@ fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = agent_transfer::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
+        .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
+    {
         return keep_open;
     }
     #[cfg(unix)]
