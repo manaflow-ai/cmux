@@ -138,9 +138,6 @@ public struct SSHTuiConnection: Sendable {
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
             routeSensitiveOptions.append("IdentityAgent=\(agent)")
-            if !resolver.hasOptionKey(options, key: "IdentityAgent") {
-                options.append("IdentityAgent=\(agent)")
-            }
         } else if configuration.agentSocketPathOverrideIsSet {
             // Keep an explicitly disabled agent from sharing a master opened
             // with the caller's inherited agent, and make the route identity
