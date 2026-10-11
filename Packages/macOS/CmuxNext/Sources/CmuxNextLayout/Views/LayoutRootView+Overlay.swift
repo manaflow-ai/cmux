@@ -98,14 +98,20 @@ extension LayoutRootView {
     /// in window coordinates, whether the ring shows, the rect the ring
     /// strokes and the pane's rounded content rect it must equal (both in
     /// window coordinates; the plane has the root's coordinates wherever it
-    /// lives, so the ring rect is read from the overlay itself).
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect)] {
+    /// lives, so the ring rect is read from the overlay itself). `ringInSync`
+    /// allows the float noise of converting at a fractional interface scale,
+    /// far below a pixel.
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect,
+                               contentInWindow: CGRect, ringInSync: Bool)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
             let chrome = host.chrome
-            let ring = chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY)
+            let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
+            let content = host.convert(host.roundedRect, to: nil)
+            let inSync = [ring.minX - content.minX, ring.minY - content.minY, ring.width - content.width,
+                          ring.height - content.height].allSatisfy { abs($0) < 0.001 }
             return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
-                    convert(ring, to: nil), host.convert(host.roundedRect, to: nil))
+                    ring, content, inSync)
         }
     }
 

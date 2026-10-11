@@ -86,7 +86,7 @@ enum DebugLayers {
                 "rings": .array((root?.overlayRings ?? []).map { ring in
                     .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing),
                              "ring_in_window": rect(ring.ringInWindow), "content_in_window": rect(ring.contentInWindow),
-                             "ring_in_sync": .bool(ring.ringInWindow == ring.contentInWindow)])
+                             "ring_in_sync": .bool(ring.ringInSync)])
                 }),
                 "drop_highlight_in_window": root?.dropHighlightFrameInWindow.map(rect) ?? .null,
                 "drop_highlight_material": root.map { .string(String(describing: $0.dropHighlightMaterial)) } ?? .null,
@@ -120,7 +120,7 @@ enum DebugLayers {
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
         // Every displayed ring strokes its pane's rounded content rect.
         let ringsInSync = layer.adoptedPlanes.allSatisfy { plane in
-            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInWindow == $0.contentInWindow }
+            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy(\.ringInSync)
         }
         var fields: [String: JSONValue] = [:]
         #if DEBUG
