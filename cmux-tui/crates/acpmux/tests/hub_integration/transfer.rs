@@ -1,0 +1,159 @@
+//! Moving a chat to another daemon (`_acpmux/transfer_*`, `acpmux.transfer.v1`). Two daemons in
+//! one process stand for a sibling build or a remote machine; the test is the client that moves
+//! the chat between them, as the app (or a Move to Cloud service) does:
+//!
+//! - source `transfer_begin` freezes the chat and describes its bundle; `transfer_read` pages it;
+//! - target `transfer_receive`, `transfer_write` and `transfer_finish` rebuild it, its queue live;
+//! - source `transfer_commit` retires it there (or `transfer_abort` gives it back).
+//!
+//! The chat arrives with its history, its queue (each queued prompt runs once, on the target)
+//! and its draft; the source runs nothing once the move began.
+
+use super::*;
+
+/// The `text` of every record of `kind` in a session's log.
+async fn texts(c: &mut TestClient, id: &str, kind: &str) -> Vec<String> {
+    let page = c
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+        .await
+        .unwrap();
+    page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == kind)
+        .filter_map(|e| e["msg"]["text"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Pages every file of the bundle `begin` describes from `src` into the target's `receive_id`.
+async fn copy_bundle(src: &mut TestClient, dst: &mut TestClient, begin: &Value, receive_id: &str) {
+    let transfer_id = begin["transferId"].as_str().unwrap();
+    for file in begin["files"].as_array().unwrap() {
+        let path = file["path"].as_str().unwrap();
+        let mut offset = 0u64;
+        loop {
+            let part = src
+                .request(
+                    "_acpmux/transfer_read",
+                    json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096}),
+                )
+                .await
+                .unwrap();
+            let data = part["data"].as_str().unwrap();
+            dst.request(
+                "_acpmux/transfer_write",
+                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data}),
+            )
+            .await
+            .unwrap();
+            offset = part["next"].as_u64().unwrap();
+            if part["eof"] == true {
+                break;
+            }
+        }
+    }
+}
+
+/// A chat with a reply in its history, a draft, and a turn running with `queued` behind it.
+async fn busy_chat(c: &mut TestClient, queued: &[(&str, &str)]) -> String {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    c.request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": "unsent words"}))
+        .await
+        .unwrap();
+    c.send(method::SESSION_PROMPT, prompt(&id, "p-turn", "until-cancel")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    for (prompt_id, text) in queued {
+        c.send(method::SESSION_PROMPT, prompt(&id, prompt_id, text)).await;
+        c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| {
+            p["promptId"] == *prompt_id && p["queued"] == true
+        })
+        .await;
+    }
+    id
+}
+
+fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
+    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
+}
+
+#[tokio::test]
+async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_runs_once_there() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a"), ("p-b", "b")]).await;
+
+    // The running turn stops; nothing queued starts here once the move began.
+    let begin = src
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    assert_eq!(begin["schema"], "acpmux.transfer.v1", "{begin}");
+    assert_eq!(begin["sessionId"], id.as_str(), "{begin}");
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    let moved =
+        dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    assert_eq!(moved["sessionId"], id.as_str(), "{moved}");
+    let committed = src
+        .request(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(committed["committed"], true, "{committed}");
+
+    // The queue runs on the target, in order, each prompt once.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !texts(&mut dst, &id, "user_message").await.contains(&"b".to_owned()) {
+        assert!(tokio::time::Instant::now() < deadline, "the moved queue never ran");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ran_there = texts(&mut dst, &id, "user_message").await;
+    assert_eq!(ran_there, ["hi", "until-cancel", "a", "b"], "history, then the queue once");
+    let ran_here = texts(&mut src, &id, "user_message").await;
+    assert_eq!(ran_here, ["hi", "until-cancel"], "the source ran nothing after the move began");
+
+    let draft = dst.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(draft["draft"], "unsent words", "{draft}");
+    let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(left["status"], "closed", "{left}");
+    let draft = src.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
+    assert!(draft["draft"].is_null(), "the source keeps no draft: {draft}");
+}
+
+#[tokio::test]
+async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+
+    // A running turn is not stopped unless the mover asks.
+    let busy = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    assert!(busy.as_ref().is_err_and(|e| e.contains("transfer.busy")), "{busy:?}");
+
+    let begin = src
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{refused:?}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel"]);
+
+    src.request(
+        "_acpmux/transfer_abort",
+        json!({"sessionId": id, "transferId": begin["transferId"]}),
+    )
+    .await
+    .unwrap();
+    // Given back: its queue runs, and it takes prompts again.
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
+    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel", "a", "again"]);
+}
