@@ -14,6 +14,7 @@ import {
   filesFrom,
   installFileDropLifecycle,
   readAttachments,
+  MAX_ATTACHMENTS,
   thumbnail,
   type AttachmentError,
   type ComposerAttachment,
@@ -104,6 +105,9 @@ function attachmentErrorText(error: AttachmentError, t: Translate): string {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
+  /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
+  attach(attachment: ComposerAttachment): void;
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
@@ -334,6 +338,12 @@ export function Composer({
             ...restoredAttachments,
             ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
           ]);
+      },
+      attach(attachment) {
+        setAttachments((current) => {
+          const held = current.filter((chip) => chip.id !== attachment.id);
+          return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
+        });
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
