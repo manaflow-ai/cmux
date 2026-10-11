@@ -333,6 +333,7 @@ impl Hub {
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.watch_transfers();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
