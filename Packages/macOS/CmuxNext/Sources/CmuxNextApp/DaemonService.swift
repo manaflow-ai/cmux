@@ -142,7 +142,9 @@ final class DaemonService {
         // task-owner: one `--version` run per start; the handoff check awaits it
         let bundledCommit = Task { try? await launcher.bundledBuildCommit() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
-            guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
+            let bundledValue = await bundledCommit.value
+            DebugTimings.markLaunch("diag.version_read")
+            guard identity.buildCommit != nil, let bundled = bundledValue else { return false }
             let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)
             guard case .restart(let running, let target) = decision else { return false }
             DebugTimings.markLaunch("daemon_version_handoff")
@@ -174,6 +176,7 @@ final class DaemonService {
             let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
             var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
+            DebugTimings.markLaunch("diag.connect_returned")
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
                 // exit and starts the bundled build, which adopts the terminals.
