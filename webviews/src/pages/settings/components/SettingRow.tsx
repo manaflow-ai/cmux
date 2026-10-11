@@ -33,6 +33,10 @@ export function useRowMenu(key: string): ContextMenuItem[] {
   ];
 }
 
+/** Editable text, whose right-click keeps WebKit's Cut, Copy and Paste. */
+const TEXT_FIELDS =
+  'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])';
+
 /** One setting: title and one-line help on the left, its editor on the right. */
 export function SettingRow({
   row,
@@ -95,15 +99,18 @@ export function SettingRow({
             </div>
           )}
         </ContextMenu>
-        <div className="row-control">
-          <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
-          <ResetButton
-            settingKey={row.key}
-            shown={customized && !managed}
-            disabled={!state.connected || !state.readable}
-            label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
-          />
-        </div>
+        {/* The control has the row's menu too (cx-2lm4); a text field keeps its own Cut, Copy and Paste. */}
+        <ContextMenu className="row-control-menu" items={menu} ignore={TEXT_FIELDS}>
+          <div className="row-control">
+            <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
+            <ResetButton
+              settingKey={row.key}
+              shown={customized && !managed}
+              disabled={!state.connected || !state.readable}
+              label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
+            />
+          </div>
+        </ContextMenu>
       </div>
     </div>
   );

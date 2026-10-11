@@ -108,6 +108,10 @@ public final class ThemeScope {
     private let windows = NSHashTable<NSWindow>.weakObjects()
     private let responders = NSHashTable<AnyObject>.weakObjects()
 
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
+
     private init() {
         level = .config
         input = ThemeStore.shared.input

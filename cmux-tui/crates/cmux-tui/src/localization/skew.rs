@@ -29,6 +29,11 @@ pub(crate) struct SkewMessages {
     pub could_not_run: &'static str,
     /// A daemon without the session journal (cli/wire.rs).
     pub journal_unsupported: &'static str,
+    /// A tunnel socket to another machine's daemon of another build:
+    /// `{daemon}`, `{own}`, `{fix}` (`cmux remote ssh … --upgrade`).
+    pub remote_build: &'static str,
+    /// The same without a recorded SSH route: `{daemon}`, `{own}`.
+    pub remote_build_no_ssh: &'static str,
 }
 
 pub(super) const ENGLISH: SkewMessages = SkewMessages {
@@ -48,6 +53,8 @@ pub(super) const ENGLISH: SkewMessages = SkewMessages {
     unreadable: "the daemon's CLI cannot be checked: {why}",
     could_not_run: "cmux: could not run {path}: {error}",
     journal_unsupported: "resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+    remote_build: "cmux: this socket reaches a daemon on another machine that runs build {daemon} (this CLI is build {own}); a remote daemon's CLI is never run from here; fix: {fix}",
+    remote_build_no_ssh: "cmux: this socket reaches a daemon on another machine that runs build {daemon} (this CLI is build {own}); a remote daemon's CLI is never run from here; install build {own} of cmux-tui on that machine",
 };
 
 pub(super) const JAPANESE: SkewMessages = SkewMessages {
@@ -67,4 +74,6 @@ pub(super) const JAPANESE: SkewMessages = SkewMessages {
     unreadable: "デーモンの CLI を確認できません: {why}",
     could_not_run: "cmux: {path} を実行できませんでした: {error}",
     journal_unsupported: "常駐セッションはジャーナルの購読に対応していません。この cmux-tui バイナリで再起動してください",
+    remote_build: "cmux: このソケットの先は別のマシンのデーモンで、ビルド {daemon} で動いています (この CLI はビルド {own})。リモートのデーモンの CLI はここからは実行しません。修正: {fix}",
+    remote_build_no_ssh: "cmux: このソケットの先は別のマシンのデーモンで、ビルド {daemon} で動いています (この CLI はビルド {own})。リモートのデーモンの CLI はここからは実行しません。そのマシンに cmux-tui のビルド {own} をインストールしてください",
 };

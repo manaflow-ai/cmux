@@ -238,6 +238,7 @@ export function AllChatsList({
         <button
           type="button"
           className="nt-all-row"
+          data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
           title={row.cwd ? `${title}\n${row.cwd}` : title}
@@ -303,18 +304,25 @@ export function AllChatsList({
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
           {active.map((chat) => (
             <li key={chat.id}>
-              <button
-                type="button"
-                className="nt-all-row"
-                data-state={chat.state}
-                onClick={() => onOpenActive?.(chat.id)}
+              {/* Its right-click menu: Open, as its click (cx-2lm4). */}
+              <ContextMenu
+                className="nt-row-host"
+                items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
               >
-                <span className="nt-all-glyph">
-                  <AgentMark harness={chat.harness} />
-                </span>
-                <span className="nt-all-title">{chat.title}</span>
-                <span className="nt-all-state">{chat.label}</span>
-              </button>
+                <button
+                  type="button"
+                  className="nt-all-row"
+                  data-focus-ring="row"
+                  data-state={chat.state}
+                  onClick={() => onOpenActive?.(chat.id)}
+                >
+                  <span className="nt-all-glyph">
+                    <AgentMark harness={chat.harness} />
+                  </span>
+                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-state">{chat.label}</span>
+                </button>
+              </ContextMenu>
             </li>
           ))}
         </ul>

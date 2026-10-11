@@ -28,6 +28,8 @@ final class ViewerService {
     private(set) lazy var markdownPages = FilePageService(services: owner, kind: .markdown)
     /// Code editor page tabs (diff-host S7).
     private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
+    /// Files tree tabs beside a chat (cx-p4rt).
+    private(set) lazy var fileTrees = FileTreePageService(services: owner)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
