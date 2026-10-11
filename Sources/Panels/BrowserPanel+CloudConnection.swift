@@ -61,15 +61,24 @@ extension BrowserPanel {
         let blockedHosts = [
             ("localhost\\.?", true), (".*\\.localhost\\.?", true),
             ("127(?:\\.[0-9]+){1,3}", true), ("0\\.0\\.0\\.0", true),
-            ("\\[::1\\]", true), ("\\[0:0:0:0:0:0:0:1\\]", true),
+            ("\\[::\\]", true), ("\\[::0*\\]", true),
+            ("\\[::1\\]", true), ("\\[0:0:0:0:0:0:0:0\\]", true),
+            ("\\[0:0:0:0:0:0:0:1\\]", true),
             // IPv4-mapped IPv6 literals are only blocked when their embedded
             // address is loopback or unspecified. Public mapped addresses
             // must remain eligible for the managed SSH pane's local-public
             // navigation fallback.
             ("\\[::ffff:127(?:\\.[0-9]+){1,3}\\]", true),
             ("\\[::ffff:0(?:\\.0){3}\\]", true),
-            ("\\[::ffff:0:0\\]", true),
-            ("\\[::ffff:7f00:[0-9a-fA-F]+\\]", true),
+            ("\\[::ffff:0{1,4}:0{1,4}\\]", true),
+            ("\\[::ffff:7f[0-9a-fA-F]{2}:[0-9a-fA-F]{1,4}\\]", true),
+            ("\\[0:0:0:0:0:ffff:7f[0-9a-fA-F]{2}:[0-9a-fA-F]{1,4}\\]", true),
+            ("\\[64:ff9b::127(?:\\.[0-9]+){1,3}\\]", true),
+            ("\\[64:ff9b::7f[0-9a-fA-F]{2}:[0-9a-fA-F]{1,4}\\]", true),
+            ("0x7f[0-9a-fA-F]{6}", true),
+            ("0x7f(?:\\.[0-9a-fA-Fx]+){1,3}", true),
+            ("0*177[0-7]{6,9}", true),
+            ("0*177(?:\\.[0-7]+){1,3}", true),
             ("[0-9]+", true)
         ]
         var rules: [[String: Any]] = []

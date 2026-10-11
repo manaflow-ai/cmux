@@ -126,6 +126,15 @@ extension CmuxTuiSurfaceProvider {
             return false
         }
         if machine.isSSH, privateURL.scheme?.lowercased() == "https" {
+            // A redirect or link from an already-working HTTP SSH preview
+            // must not tear down that preview just because HTTPS loopback is
+            // unsupported. Cancel the new navigation and keep the current
+            // managed route alive; initial HTTPS materialization still gets a
+            // recoverable error card below.
+            if browser.cloudAccess.model?.route == .loopback,
+               browser.cloudAccess.model?.isReady == true {
+                return false
+            }
             browser.cloudAccess.showUnavailable(String(
                 localized: "cloud.portAccess.sshLoopbackHTTPSUnavailable",
                 defaultValue: "HTTPS previews for SSH loopback services are not supported yet."

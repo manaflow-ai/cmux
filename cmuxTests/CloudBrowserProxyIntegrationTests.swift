@@ -236,8 +236,16 @@ struct CloudBrowserProxyIntegrationTests {
           'http://localhost.:\(clientService.port)/echo?from=trailing-dot',
           'http://0.0.0.0:\(clientService.port)',
           'http://0.0.0.0:\(clientService.port)/echo?from=unspecified',
+          'http://[::]:\(clientService.port)',
+          'http://[::]:\(clientService.port)/echo?from=ipv6-unspecified',
           'http://[::ffff:127.0.0.1]:\(clientService.port)',
-          'http://[::ffff:127.0.0.1]:\(clientService.port)/echo?from=mapped-ipv6'
+          'http://[::ffff:127.0.0.1]:\(clientService.port)/echo?from=mapped-ipv6',
+          'http://[::ffff:127.42.7.9]:\(clientService.port)/echo?from=mapped-loopback-range',
+          'http://[::ffff:7f42:0709]:\(clientService.port)/echo?from=mapped-hex-loopback',
+          'http://[64:ff9b::127.0.0.1]:\(clientService.port)/echo?from=nat64-loopback',
+          'http://[64:ff9b::7f00:1]:\(clientService.port)/echo?from=nat64-hex-loopback',
+          'http://0x7f000001:\(clientService.port)/echo?from=hex-loopback',
+          'http://0177.0.0.1:\(clientService.port)/echo?from=octal-loopback'
         ].map(url => new Promise(resolve => {
           const image = new Image();
           image.onload = () => resolve('loaded');
@@ -246,7 +254,7 @@ struct CloudBrowserProxyIntegrationTests {
           document.body.append(image);
         })))
         """, arguments: [:], in: nil, contentWorld: .page) as? [String]
-        #expect(blockedImageResults == Array(repeating: "blocked", count: 8))
+        #expect(blockedImageResults == Array(repeating: "blocked", count: 16))
         #expect(clientService.requests.isEmpty,
                 "Unrewritten parser-style localhost resources must be blocked instead of reaching a local service")
         let rootURL = try #require(URL(string: "http://127.0.0.1:\(clientService.port)"))
