@@ -285,7 +285,9 @@ fn copilot(h: &Path, project: &Path) {
 fn auggie(h: &Path) {
     let session = json!({"sessionId": AUGGIE_ID, "created": "2026-10-02T09:00:00Z", "modified": "2026-10-02T09:00:05Z",
         "chatHistory": [{"exchange": {"request_message": "Find the bug", "response_text": "It is in main.rs."},
-                         "finishedAt": "2026-10-02T09:00:05Z"}]});
+                         "finishedAt": "2026-10-02T09:00:05Z"},
+                        {"exchange": {"request_message": "", "response_text": "Fixed.",
+                                      "request_nodes": [{"type": 0, "text_node": {"content": "Now fix it"}}]}}]});
     write(&h.join(format!(".augment/sessions/{AUGGIE_ID}.json")), &session.to_string());
 }
 
@@ -322,6 +324,12 @@ for i, (role, content, visible) in enumerate(json.loads({rows:?})):
         cwd = project.display().to_string(),
         rows = rows.to_string(),
     );
+    // Another chat in the same store stays out of this one.
+    let script = format!(
+        r#"{script}
+db.execute("INSERT INTO sessions VALUES ('20261002_2', 'Other', '', '/', '2026-10-02 10:00:00', '2026-10-02 10:00:00')")
+db.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp, metadata_json) VALUES ('20261002_2', 'user', '[{{\"type\": \"text\", \"text\": \"Other chat\"}}]', 1790931700, '{{}}')")"#
+    );
     sqlite(&h.join(".local/share/goose/sessions/sessions.db"), &script);
 }
 
@@ -332,6 +340,7 @@ fn crush(h: &Path, project: &Path) {
     let rows = json!([
         ["user", [{"type": "text", "data": {"text": "Explain the cache"}}]],
         ["assistant", [{"type": "reasoning", "data": {"thinking": "hm"}}, {"type": "text", "data": {"text": "It memoizes."}}, {"type": "finish", "data": {"reason": "end_turn"}}]],
+        ["tool", [{"type": "tool_result", "data": {"content": "x"}}, {"type": "text", "data": {"text": "tool says"}}]],
     ]);
     let script = format!(
         r#"db.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, title TEXT, message_count INTEGER, created_at INTEGER, updated_at INTEGER)")
@@ -356,14 +365,18 @@ async fn copilot_auggie_goose_and_crush_chats_give_their_prompts_and_answers() {
     crush(&h.0, &project);
     let hub = hub_on(&h.0).await;
     let (tx, mut rx) = connect(&hub, Origin::Local).await;
+    // An Auggie prompt kept only in its request nodes is still its own turn.
     let chats = [
-        (format!("copilot-cli:{COPILOT_ID}"), pair("List the tests", "There are three.")),
-        (format!("auggie:{AUGGIE_ID}"), pair("Find the bug", "It is in main.rs.")),
-        (format!("goose:{GOOSE_ID}"), pair("Add logging", "Adding it.\n\nDone.")),
-        (format!("crush:{CRUSH_ID}"), pair("Explain the cache", "It memoizes.")),
+        (format!("copilot-cli:{COPILOT_ID}"), vec![pair("List the tests", "There are three.")]),
+        (
+            format!("auggie:{AUGGIE_ID}"),
+            vec![pair("Find the bug", "It is in main.rs."), pair("Now fix it", "Fixed.")],
+        ),
+        (format!("goose:{GOOSE_ID}"), vec![pair("Add logging", "Adding it.\n\nDone.")]),
+        (format!("crush:{CRUSH_ID}"), vec![pair("Explain the cache", "It memoizes.")]),
     ];
     for (id, (key, expected)) in (11..).zip(chats) {
         let answer = call(&tx, &mut rx, id, "_acpmux/chat_transcript", json!({"key": key})).await;
-        assert_eq!(turns(&answer), [expected], "{key}: {answer}");
+        assert_eq!(turns(&answer), expected, "{key}: {answer}");
     }
 }
