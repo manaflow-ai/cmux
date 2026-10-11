@@ -5,13 +5,13 @@ import CmuxNextDaemon
 import Foundation
 
 /// Recently closed tabs, screens, and workspaces as the daemon records them
-/// (`closed-history-v1`, state-ownership.md 2). One shared path for Reopen
-/// Closed Tab, Reopen Closed Screen, Reopen Closed Workspace, and Recently Closed: read the newest
-/// item from the mirrored history (`DaemonStore.closedItems`), reopen it
-/// with `closed.reopen`, and show what came back. The history lists
-/// (Recently Closed…, `history.list`, the history page) show these items
-/// beside the app's own trackers (`ClosedTabTracker`, `ClosedScreenHistory`),
-/// which skip daemons that serve the history.
+/// (`closed-history-v2`, state-ownership.md 2, reopen-closed.md). The only
+/// closed history: the app keeps no copy. One shared path for Cmd-Shift-T,
+/// Reopen Closed Screen, Reopen Closed Workspace, the undo toasts, Search
+/// Tabs and every history list: read the item from the mirrored history
+/// (`DaemonStore.closedItems`), reopen it with `closed.reopen`, and show
+/// what came back. Every surface kind the daemon records (terminal, browser,
+/// agent, page and viewer tabs) comes back through the same op.
 @MainActor
 enum DaemonClosedHistory {
     struct Entry {
@@ -37,6 +37,33 @@ enum DaemonClosedHistory {
     /// True when some connected daemon records closed history.
     static func isServed(in services: AppServices) -> Bool {
         services.machines.daemons.contains { $0.store.servesStateResources }
+    }
+
+    /// Whose an entry is for Cmd-Shift-T (decision 1, reopen-closed.md 4).
+    enum Owner: Equatable {
+        /// Its tab or screen left a workspace that `window` lists.
+        case window
+        /// Its workspace is listed by no window (a closed workspace, a
+        /// deleted group, a workspace no window shows).
+        case none
+        /// Another window (open or closed) lists its workspace.
+        case otherWindow
+    }
+
+    /// Who owns `entry` as seen from window `window` (a window id).
+    static func owner(of entry: Entry, window: String?, in services: AppServices) -> Owner {
+        guard let resource = entry.item.workspaceID, let workspace = entry.daemon.store.workspace(resourceID: resource),
+              let owner = services.windows.registry.value.owner(of: workspace.id) else { return .none }
+        return owner == window ? .window : .otherWindow
+    }
+
+    /// Cmd-Shift-T's item for window `window`: the newest group of any
+    /// level (tab, screen, workspace) that left this window, else the newest
+    /// one no window owns. Never a group of another window (decision 1).
+    static func newest(for window: String?, in services: AppServices) -> Entry? {
+        let all = entries([.tab, .screen, .workspace], in: services)
+        return all.first { owner(of: $0, window: window, in: services) == .window }
+            ?? all.first { owner(of: $0, window: window, in: services) == .none }
     }
 
     /// The entry with id `id` on any daemon.
@@ -115,6 +142,40 @@ enum DaemonClosedHistory {
             show(reopened, kind: item.kind, daemon: daemon, services: services)
             return nil
         })
+    }
+
+    /// Deletes `entry` for good on its daemon (History's Remove, Search
+    /// Tabs' forget): it cannot be reopened any more.
+    static func delete(_ entry: Entry, services: AppServices) {
+        let daemon = entry.daemon, id = entry.item.id
+        services.registry.track(Task { @MainActor in
+            guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
+            do {
+                try await connection.state.deleteClosed(id)
+                return nil
+            } catch {
+                daemon.logger.error("closed.delete failed: \(String(describing: error), privacy: .public)")
+                return "closed.delete: \(error)"
+            }
+        })
+    }
+
+    /// Clears every connected daemon's closed history: the groups closed at
+    /// or after `since`, every group for nil (Clear History).
+    static func clear(since: Date?, services: AppServices) {
+        let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
+        for daemon in services.machines.daemons where daemon.store.servesStateResources {
+            services.registry.track(Task { @MainActor in
+                guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
+                do {
+                    try await connection.state.deleteAllClosed(sinceMs: sinceMs)
+                    return nil
+                } catch {
+                    daemon.logger.error("closed.delete all failed: \(String(describing: error), privacy: .public)")
+                    return "closed.delete: \(error)"
+                }
+            })
+        }
     }
 
     /// Shows a reopened item once the store has it.
