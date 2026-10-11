@@ -8,7 +8,10 @@ public import CmuxTheme
 /// another and each one keeps WCAG text contrast (4.5:1, which also covers
 /// the 3:1 icons need) on the surface and on the hover and pressed fills its
 /// buttons add. Hover and press show as the button's fill, never as a
-/// different glyph color.
+/// different glyph color. The ground is opaque: over a see-through window
+/// the wallpaper is not known here, the same limit every text token has.
+/// A glyph with its own chosen color (an icon tint, an emoji) is the
+/// person's content and keeps that color.
 extension ThemeTokens {
     /// The ink for glyphs on `fill` (nil: no fill) painted over `base`.
     ///
@@ -35,9 +38,13 @@ extension ThemeTokens {
 
 extension Palette {
     /// ``CmuxTheme/ThemeTokens/glyphInk(over:base:)`` in the active theme
-    /// scope, for a fill named by its token (nil: the sidebar with no fill).
+    /// scope for a sidebar glyph, for a fill named by its token (nil: no
+    /// fill). The ground is the sidebar as it paints: the person's sidebar
+    /// background (`appearance.surfaces.sidebar`) when set, else the theme's.
     @MainActor public static func glyphInk(over fill: KeyPath<ThemeTokens, ThemeRGB>? = nil) -> NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return tokens.glyphInk(over: fill.map { tokens[keyPath: $0] }).nsColor
+        let ground = ThemeScope.app.surfaceBackgrounds.opaqueFill(for: .sidebar, tokens: tokens,
+                                                                  base: tokens.sidebarBackground.withAlpha(1))
+        return tokens.glyphInk(over: fill.map { tokens[keyPath: $0] }, base: ground).nsColor
     }
 }
