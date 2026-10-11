@@ -4,35 +4,12 @@
 import { useState } from "react";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
+import { ThemeBall } from "../../../ui/ThemeBall";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { Icon } from "../icons";
 import { t } from "../strings";
 
 const CONFIG = "\u0000config";
-
-/** A small chip of a theme: its background with the foreground and four palette colors. */
-export function ThemeChip({ theme }: { theme: GhosttyTheme | undefined }) {
-  if (!theme) return <span className="theme-chip theme-chip-empty" aria-hidden="true" />;
-  const dots = [1, 2, 4, 5].map((index) => theme.palette[index] ?? theme.foreground);
-  return (
-    <svg className="theme-chip" viewBox="0 0 28 18" aria-hidden="true">
-      <rect
-        x="0.5"
-        y="0.5"
-        width="27"
-        height="17"
-        rx="4"
-        fill={theme.background}
-        stroke="currentColor"
-        strokeOpacity="0.18"
-      />
-      <rect x="4" y="5" width="9" height="2" rx="1" fill={theme.foreground} />
-      {dots.map((color, index) => (
-        <circle key={index} cx={6 + index * 5.3} cy="12" r="1.9" fill={color} />
-      ))}
-    </svg>
-  );
-}
 
 export function ThemePicker({
   value,
@@ -88,7 +65,7 @@ export function ThemePicker({
         disabled={disabled}
         onClick={() => setOpen(!open)}
       >
-        <ThemeChip theme={value ? colors?.get(value) : configColors} />
+        <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
         <span className="theme-button-name">{value ?? configLabel}</span>
         <Icon name="chevron" />
       </button>
@@ -114,13 +91,13 @@ export function ThemePicker({
           renderItem={(name) =>
             name === CONFIG ? (
               <span className="theme-option-row">
-                <ThemeChip theme={configColors} />
+                <ThemeBall colors={configColors} />
                 <span className="theme-option-name">{configLabel}</span>
                 {value === null && <Icon name="check" className="theme-option-check" />}
               </span>
             ) : (
               <span className="theme-option-row" data-theme-option={name}>
-                <ThemeChip theme={colors?.get(name)} />
+                <ThemeBall name={name} colors={colors?.get(name)} />
                 <span className="theme-option-name">{name}</span>
                 {name === value && <Icon name="check" className="theme-option-check" />}
               </span>

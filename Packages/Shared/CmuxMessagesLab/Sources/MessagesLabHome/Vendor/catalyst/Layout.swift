@@ -688,8 +688,25 @@ enum RowBuilder {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
         }
+        // A message's thread: a reply's root, or the message itself when the message after it is its inline reply (a
+        // thread root with its replies under it). Messages separates such a thread from the messages around it like a
+        // sender change: when the first inline reply to a message arrives, the gap above that root grows to 32 pt
+        // (macOS 27, lossless typing-unfocused-take1: root top minus the bubble above, tail included, 7.5 -> 30.0 pt
+        // while the reply arrives). A root whose replies are elsewhere ("2 Replies", a preview at the reply) keeps
+        // its group (real still scenes). No thread view: one thread.
+        // `i`: x's index. x is a root when the messages right after it (deleted ones skipped) are its replies and one
+        // of them is not unsent: a root whose last inline reply is unsent or deleted returns to its group gap.
+        func thread(_ x: Message, at i: Int) -> ID? {
+            if let r = x.replyTo { return r.messageId }
+            guard !threadMode else { return nil }
+            for n in messages.dropFirst(i + 1) where n.deletedAt == nil {
+                guard n.replyTo?.messageId == x.id else { break }
+                if n.retractedAt == nil { return x.id }
+            }
+            return nil
+        }
         // The message above the range: the nearest one that is not deleted.
-        var prevIndex = span.lowerBound - 1
+        var prevIndex = messages.prefix(max(0, span.lowerBound)).lastIndex { $0.deletedAt == nil } ?? -1
         var prev: Message? = messages.prefix(max(0, span.lowerBound)).last { $0.deletedAt == nil } // no index math
         for (idx, m) in zip(span, messages.dropFirst(span.lowerBound)) {
             if m.deletedAt != nil { continue }
@@ -713,14 +730,14 @@ enum RowBuilder {
                 default: gap = 3.5
                 }
                 if !threadMode { connector = "part:\(r.messageId):\(r.partIndex)" }
-            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, p.replyTo == m.replyTo {
+            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, thread(p, at: prevIndex) == thread(m, at: idx) {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
             } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
                 // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
                 // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
                 // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
                 gap = 7
-            } else if let p = prev, p.senderId != m.senderId || p.replyTo != m.replyTo {
+            } else if let p = prev, p.senderId != m.senderId || thread(p, at: prevIndex) != thread(m, at: idx) {
                 gap = 32     // a new sender, or a change of thread (measured on macOS 26)
             } else {
                 gap = 12
@@ -744,7 +761,8 @@ enum RowBuilder {
             } else {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
-                    || next.retractedAt != nil || next.replyTo != m.replyTo } ?? true
+                    || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || thread(next, at: messages.dropFirst(idx + 1).firstIndex { $0.deletedAt == nil } ?? idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                     let (size, tl) = (measured.size, measured.text)
@@ -788,7 +806,7 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
                 }
             }
-            prev = m
+            prev = m; prevIndex = idx
         }
         // cmux: the host's notice, centered like the date row, under the newest message.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {

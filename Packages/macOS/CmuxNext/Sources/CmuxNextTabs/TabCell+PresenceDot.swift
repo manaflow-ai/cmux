@@ -25,7 +25,7 @@ extension TabCell {
     /// theme-scoped: callers run it inside `themeScope.perform`.
     func applyPresenceDotColor() {
         guard let presenceLayer, let presence = item.presence else { return }
-        presenceLayer.backgroundColor = AgentPresenceColor.color(forKey: presence.colorKey).cgColor
+        presenceLayer.backgroundColor = AgentPresenceColor(key: presence.colorKey).color.cgColor
     }
 
     /// Places the dot at the end of the title area when the title keeps a

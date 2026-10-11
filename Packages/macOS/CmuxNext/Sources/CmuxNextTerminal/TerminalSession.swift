@@ -185,12 +185,6 @@ public final class TerminalSession {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
 
-    /// A live, zero-copy scaled mirror for hover previews. See
-    /// ``TerminalMirrorView``.
-    public func makeMirrorView() -> TerminalMirrorView {
-        TerminalMirrorView(session: self)
-    }
-
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
