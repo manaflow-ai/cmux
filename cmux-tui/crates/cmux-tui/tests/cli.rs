@@ -3694,6 +3694,8 @@ mod settings_owner;
 #[cfg(unix)]
 #[path = "cli/status.rs"]
 mod status;
+#[path = "cli/tab_group_hex.rs"]
+mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
