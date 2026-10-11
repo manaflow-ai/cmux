@@ -128,7 +128,13 @@ final class TabHoverCardController: HoverCardSource {
         body.configure(content)
         if case .tab = content {
             body.setResources(resources.report ?? lastReports[tab])
-            if noThumbnail.contains(tab) { body.setThumbnailVisible(false) }
+            // A tab whose thumbnail is not known yet keeps what the card shows (the last
+            // tab's picture, or no frame) until its own lands: never an empty frame (R131).
+            if noThumbnail.contains(tab) {
+                body.setThumbnailVisible(false)
+            } else if thumbnails.image(for: tab) != nil {
+                body.setThumbnailVisible(true)
+            }
         }
         let newCard = bodyID != id
         // A retarget keeps the shown thumbnail until this tab's lands; a tab
@@ -159,8 +165,12 @@ final class TabHoverCardController: HoverCardSource {
         resources.close()
         thumbnailTask?.cancel()
         bodyID = nil
-        // A card that hides starts its next show blank, never with this tab's image.
-        if !cardIsShowing() { body?.setThumbnail(nil) }
+        // A card that hides starts its next show blank, never with this tab's image:
+        // an empty frame its thumbnail fades into.
+        if !cardIsShowing() {
+            body?.setThumbnail(nil)
+            body?.setThumbnailVisible(true)
+        }
     }
 
     /// Whether a card is on screen (a deactivation then is a retarget, not
@@ -214,9 +224,11 @@ final class TabHoverCardController: HoverCardSource {
                 return
             }
             self.thumbnails.insert(image, for: id)
+            self.noThumbnail.remove(id)
+            // A card that showed no frame (the last tab had none) grows one for it.
+            let grows = self.body?.showsThumbnail == false
             self.body?.setThumbnail(image)
-            // A tab that had none gets its thumbnail frame back.
-            if self.noThumbnail.remove(id) != nil { self.coordinator.contentChanged(target) }
+            if grows { self.coordinator.contentChanged(target) }
         }
     }
 }
