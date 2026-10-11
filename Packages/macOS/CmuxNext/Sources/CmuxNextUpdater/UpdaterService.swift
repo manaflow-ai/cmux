@@ -213,6 +213,12 @@ public final class UpdaterService {
         }
         controller.actionDelegate = self
         controller.startUpdaterIfNeeded()
+        #if DEBUG
+        if UpdateHarness.current?.backgroundCheck == true {
+            UpdateHarness.mark("background_check")
+            controller.checkInBackground()
+        }
+        #endif
         recheckRequiredUpdate()
     }
 

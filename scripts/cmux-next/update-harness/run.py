@@ -28,7 +28,7 @@ import argparse, json, os, plistlib, select, shutil, signal, socket, subprocess,
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from sessions import Agent, Terminal, bundle_commit, patch_build_stamp  # noqa: E402
+from sessions import Agent, Terminal, bundle_commit, patch_build_stamp, wait_path  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -197,6 +197,10 @@ def main():
     ap.add_argument("--required-update", action="store_true",
                     help="turn automatic downloads off (cmux.json) and require v2 (managed MinimumVersion): "
                          "the update must still download and stage with no click")
+    ap.add_argument("--sparkle-auto", action="store_true",
+                    help="v1 runs with SUAutomaticallyUpdate on and starts with Sparkle's scheduled background "
+                         "check (Sparkle's own silent driver stages the update, as on a Mac whose nightly "
+                         "preferences have automatic updates on)")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     a = ap.parse_args()
@@ -238,7 +242,8 @@ def main():
             terminal = Terminal(v1, work, log, f"cmux-app-{slug}")
         harness = {"feed": feed_url, "marks": marks_path}
         base = int(time.time())
-        i1 = plist_set(v1, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base)}, harness)
+        i1 = plist_set(v1, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base)},
+                       {**harness, "background": True} if a.sparkle_auto else harness)
         v2_extra = {}
         if a.required_update:
             # v2 is a newer version, which v1's organization requires.
@@ -290,7 +295,8 @@ def main():
             env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_NEXT_MANAGED_PREFS_FILE=managed)
             result["required"] = {"from": i1.get("CFBundleShortVersionString"), "minimum": i2["CFBundleShortVersionString"]}
         binary = os.path.join(v1, "Contents/MacOS", i1["CFBundleExecutable"])
-        app = subprocess.Popen([binary], env=env, cwd=os.path.join(work, "cwd"), stdin=subprocess.DEVNULL,
+        arguments = ["-SUAutomaticallyUpdate", "YES"] if a.sparkle_auto else []
+        app = subprocess.Popen([binary, *arguments], env=env, cwd=os.path.join(work, "cwd"), stdin=subprocess.DEVNULL,
                                stdout=open(os.path.join(out, "v1.log"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
         v1_pid = app.pid
         result["v1_pid"] = v1_pid
@@ -302,7 +308,8 @@ def main():
         if not first(marks.read(), "updater_created", pid=v1_pid):
             raise SystemExit("v1 did not start the harness updater (is it a DEBUG build with the harness keys?)")
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
-        log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
+        if not a.sparkle_auto:
+            log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
         ends = ["phase.ready", "phase.note"] + (["phase.available"] if a.required_update else [])
         staged = marks.wait(lambda rows: next((first(rows, end, pid=v1_pid) for end in ends if first(rows, end, pid=v1_pid)), None),
                             a.stage_timeout)
@@ -328,7 +335,25 @@ def main():
         log("install", json.dumps(reply)[:200])
         t_exit = wait_exit(v1_pid, 60)
         if t_exit is None:
-            raise SystemExit("v1 did not exit within 60 s of the install")
+            # The click did nothing visible to the process: record what the updater says, then try
+            # the way out a person has (Quit; Sparkle installs a staged update when the app quits).
+            result["click"] = "no exit within 60 s"
+            result["status_after_click"] = rpc(sock, "updates.status")
+            log("CLICK DID NOTHING", json.dumps(result["status_after_click"])[:3000])
+            log("quit", json.dumps(rpc(sock, "action.run", {"id": "quitKeepSessions"}))[:200])
+            result["quit_exit"] = wait_exit(v1_pid, 60) is not None
+            def installed(_):
+                try:
+                    with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
+                        build = plistlib.load(f)["CFBundleVersion"]
+                except (OSError, ValueError, KeyError):
+                    return None
+                return build if build == i2["CFBundleVersion"] else None
+            # The installer swaps the bundle after the app exits.
+            result["installed_build_after_quit"] = wait_path(os.path.dirname(v1), installed, 60) or "unchanged"
+            log("after quit", result["quit_exit"], result["installed_build_after_quit"])
+            raise SystemExit("the install click did nothing")
+        result["click"] = "exited"
         app.wait(5)
         restored = marks.wait(lambda rows: all(first(rows, m, not_pid=v1_pid) for m in RESTORED_MARKS[:2]) and rows,
                               a.relaunch_timeout)

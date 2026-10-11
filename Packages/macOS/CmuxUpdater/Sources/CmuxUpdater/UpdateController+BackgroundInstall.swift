@@ -15,6 +15,14 @@ extension UpdateController {
         driver.stagedItem
     }
 
+    /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
+    /// through Sparkle's own silent driver, not this app's driver (the update harness's
+    /// `background` run, and what a scheduled check does).
+    public func checkInBackground() {
+        log.append("background check requested")
+        updater.checkForUpdatesInBackground()
+    }
+
     /// Installs the staged update and relaunches. No-op without one.
     public func installStagedUpdate() {
         driver.installStaged()
