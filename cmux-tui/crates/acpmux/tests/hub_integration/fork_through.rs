@@ -77,15 +77,15 @@ async fn a_fork_through_the_latest_turn_opens_a_new_session_and_an_earlier_turn_
 
 /// A hub whose default agent is a Claude stdio profile keeping Claude Code's
 /// own store layout under `claude` (fake_claude.py with CLAUDE_CONFIG_DIR).
-async fn claude_setup(claude: &std::path::Path) -> (Arc<Hub>, TestClient) {
+async fn claude_setup(claude: &std::path::Path, env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let mut env: BTreeMap<String, String> =
+        env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+    env.insert("CLAUDE_CONFIG_DIR".to_owned(), claude.to_string_lossy().into_owned());
     let profile = HarnessProfile {
         kind: acpmux::config::HarnessKind::ClaudeStdio,
         argv: vec!["python3".into(), fake_claude.into()],
-        env: BTreeMap::from([(
-            "CLAUDE_CONFIG_DIR".to_owned(),
-            claude.to_string_lossy().into_owned(),
-        )]),
+        env,
         description: None,
         fallback: None,
         family: None,
@@ -142,7 +142,7 @@ async fn a_claude_chat_forks_through_an_earlier_turn_holding_only_the_history_be
     let root = std::env::temp_dir().join(format!("acpmux-fork-at-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");
     std::fs::create_dir_all(&claude).unwrap();
-    let (hub, mut c) = claude_setup(&claude).await;
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
     let s = c
         .request(
             method::SESSION_NEW,
@@ -181,5 +181,47 @@ async fn a_claude_chat_forks_through_an_earlier_turn_holding_only_the_history_be
     assert_eq!(fork["sessions"].as_array().map(Vec::len), Some(1), "one conversation id: {fork}");
     assert_ne!(fork["sessions"], source["sessions"], "the fork is its own conversation");
     assert_eq!(source["prompts"], json!(["first", "second"]), "{source}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The cut follows Claude's transcript, not a count of the chat's prompts: a
+/// prompt Claude never stored (its launcher died) does not move it, so the
+/// fork through the turn after it holds that turn and no later one.
+#[tokio::test]
+async fn a_claude_fork_through_a_turn_after_a_failed_one_holds_that_turn_and_no_later_one() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-at-{}", uuid::Uuid::now_v7()));
+    let (claude, die) = (root.join("claude"), root.join("die"));
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) =
+        claude_setup(&claude, &[("FAKE_CLAUDE_DIE_IF", &die.to_string_lossy())]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "src"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    c.request(method::SESSION_PROMPT, prompt("first")).await.unwrap();
+    std::fs::write(&die, "").unwrap();
+    hub.detach_child(&hub.resolve(&id).unwrap()).await;
+    let _ = c.request(method::SESSION_PROMPT, prompt("lost")).await;
+    std::fs::remove_file(&die).unwrap();
+    hub.detach_child(&hub.resolve(&id).unwrap()).await;
+    for text in ["second", "third"] {
+        c.request(method::SESSION_PROMPT, prompt(text)).await.unwrap();
+    }
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let second = events
+        .iter()
+        .position(|e| e.kind == "user_message" && e.msg["text"] == "second")
+        .unwrap_or_else(|| panic!("no second prompt: {events:?}"));
+    let through = events[second..].iter().find(|e| e.kind == "turn_result").unwrap().seq;
+
+    let f = c.request(FORK_OP, json!({"sessionId": id, "throughSeq": through})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let fork = claude_history(&hub, &mut c, &fid).await;
+    assert_eq!(fork["prompts"], json!(["first", "second"]), "{fork}");
     let _ = std::fs::remove_dir_all(&root);
 }

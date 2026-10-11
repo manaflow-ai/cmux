@@ -75,9 +75,12 @@ for line in sys.stdin:
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
         if STORE and LAYOUT:
+            # Claude Code stamps each line with its UTC time to the millisecond.
+            import datetime
+            at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
-                f.write(json.dumps({"type": "user", "sessionId": SESSION, "message": {"role": "user", "content": said}}) + "\n")
-                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
+                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
         elif STORE:
             open(stored(SESSION), "w").close()
         text = json.dumps(sys.argv[1:])
