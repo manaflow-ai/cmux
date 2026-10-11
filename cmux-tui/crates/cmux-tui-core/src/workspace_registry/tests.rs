@@ -118,8 +118,16 @@ fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
         .connection
         .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
         .unwrap();
+    assert_eq!(mode, 0, "legacy migration must not rewrite the registry during open");
+    assert!(meta_value(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap().is_none());
+    assert!(reopened.migrate_journal_auto_vacuum().unwrap());
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
     assert_eq!(mode, 2);
     assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
+    assert!(!reopened.migrate_journal_auto_vacuum().unwrap());
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }

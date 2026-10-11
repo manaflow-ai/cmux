@@ -7053,6 +7053,12 @@ impl Mux {
 
     fn run_journal_maintenance(&self) {
         let result = (|| -> anyhow::Result<()> {
+            if self.workspace_registry.lock().unwrap().migrate_journal_auto_vacuum()? {
+                // A legacy registry migration performs one full VACUUM. Keep
+                // that rewrite isolated to this maintenance tick before
+                // attempting checkpoint or sealing work.
+                return Ok(());
+            }
             let head = self.workspace_registry.lock().unwrap().session_journal_head()?;
             let latest =
                 self.workspace_registry.lock().unwrap().journal_checkpoints()?.into_iter().next();
@@ -20347,6 +20353,47 @@ mod tests {
         assert!(after_second < after_first, "later idle ticks must keep reclaiming pages");
 
         drop(observer);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_legacy_vacuum_migration_runs_in_maintenance() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-legacy-vacuum-maintenance-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("legacy-vacuum-maintenance", &root);
+        let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let legacy = rusqlite::Connection::open(database).unwrap();
+        legacy
+            .execute("DELETE FROM meta WHERE key = ?1", ["journal_auto_vacuum_migrated"])
+            .unwrap();
+        legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+        drop(legacy);
+
+        mux.run_journal_maintenance();
+
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(
+            registry
+                .connection
+                .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            registry
+                .connection
+                .query_row(
+                    "SELECT value FROM meta WHERE key = 'journal_auto_vacuum_migrated'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "1"
+        );
+        drop(registry);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

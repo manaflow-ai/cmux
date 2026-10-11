@@ -2687,7 +2687,14 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
-        migrate_journal_auto_vacuum(&connection)?;
+        // Existing registries are migrated by the background journal
+        // maintenance worker. VACUUM can rewrite a large cloud registry, so
+        // startup only stamps fresh databases that already use incremental
+        // auto-vacuum and leaves legacy conversion for availability work after
+        // the mux is serving.
+        if fresh_database {
+            mark_journal_auto_vacuum_migrated(&connection)?;
+        }
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
@@ -3798,23 +3805,29 @@ impl WorkspaceRegistry {
     }
 }
 
-/// Convert registries created before journal maintenance to incremental
-/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
-/// the marker keeps reopening an existing registry from repeating that work.
-fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<()> {
-    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
-        return Ok(());
-    }
-    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
-    if auto_vacuum != 2 {
-        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
-    }
+fn mark_journal_auto_vacuum_migrated(connection: &Connection) -> anyhow::Result<()> {
     connection.execute(
         "INSERT INTO meta(key, value) VALUES(?1, '1')
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         [JOURNAL_AUTO_VACUUM_META_KEY],
     )?;
     Ok(())
+}
+
+/// Convert registries created before journal maintenance to incremental
+/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
+/// the marker keeps reopening an existing registry from repeating that work.
+fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<bool> {
+    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
+        return Ok(false);
+    }
+    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
+    if auto_vacuum != 2 {
+        eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
+        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    }
+    mark_journal_auto_vacuum_migrated(connection)?;
+    Ok(auto_vacuum != 2)
 }
 
 fn require_resource_effect_pepper_id(
