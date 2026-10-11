@@ -10,6 +10,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Windows: the daemon lock (`LockFileEx`).
+#[cfg(windows)]
+mod windows_lock;
+#[cfg(windows)]
+use windows_lock::{acquire_lock, wait_for_lock_release};
+
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
@@ -625,27 +631,6 @@ fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
     }
     Ok(file)
 }
-/// Windows: an exclusive `LockFileEx` lock (std's `File::try_lock`), held
-/// while the file stays open; the system releases it when the daemon exits.
-#[cfg(windows)]
-fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    match file.try_lock() {
-        Ok(()) => Ok(file),
-        Err(std::fs::TryLockError::WouldBlock) => {
-            Err(anyhow!("another acpmux daemon holds {}", path.display()))
-        }
-        Err(std::fs::TryLockError::Error(e)) => {
-            Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
-        }
-    }
-}
-
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
 
 /// Arguments placed before `daemon run` when a client starts the daemon, for
@@ -696,27 +681,6 @@ async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
-/// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
-/// the Unix arm polls `flock`.
-#[cfg(windows)]
-async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
-        return true;
-    };
-    let deadline = tokio::time::Instant::now() + budget;
-    loop {
-        match file.try_lock() {
-            Ok(()) => return true,
-            Err(std::fs::TryLockError::WouldBlock) => {}
-            Err(std::fs::TryLockError::Error(_)) => return false,
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     let path = socket_path();
