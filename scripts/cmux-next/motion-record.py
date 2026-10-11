@@ -428,6 +428,49 @@ def panels():
         record("panels", f"{name}-open", lambda toggle=toggle: action(toggle, focus=True))
         record("panels", f"{name}-close", lambda toggle=toggle: action(toggle, focus=True))
 
+def everyday():
+    # The audit's everyday session (cx-f6i7): one step after another, each
+    # recorded. Steps that need focus run with it, as a person's would.
+    steps = [
+        ("home", lambda: action("home.show", focus=True)),
+        ("new-workspace", lambda: action("workspace.newAtBottom", focus=True)),
+        ("new-tab-page", lambda: action("newTab", focus=True)),
+        ("new-terminal-tab", lambda: action("newSurface", focus=True)),
+        ("next-tab", lambda: action("nextSurface", focus=True)),
+        ("close-tab", lambda: action("closeTab", focus=True)),
+        ("split-right", lambda: action("splitRight", focus=True)),
+        ("split-down", lambda: action("splitDown", focus=True)),
+        ("focus-left", lambda: action("focusLeft", focus=True)),
+        ("zoom", lambda: action("toggleSplitZoom", focus=True)),
+        ("unzoom", lambda: action("toggleSplitZoom", focus=True)),
+        ("close-pane", lambda: action("closePane", focus=True)),
+        ("new-chat", lambda: action("palette.newAgentChat", focus=True)),
+        ("palette-open", lambda: action("tab.search", focus=True)),
+        ("palette-close", lambda: rpc("debug.key", {"key": "escape", "target": "palette"})),
+        ("settings-open", lambda: action("openSettings", focus=True)),
+        ("settings-section", lambda: action("openSettings", focus=True, args={"section": "appearance"})),
+        ("settings-close", lambda: action("closeTab", focus=True)),
+        ("tab-group-create", lambda: action("tabGroup.create", focus=True)),
+        ("tab-group-collapse", lambda: action("tabGroup.toggleCollapsed", focus=True)),
+        ("tab-group-expand", lambda: action("tabGroup.toggleCollapsed", focus=True)),
+        ("workspace-new-group", lambda: action("workspace.newInNewGroup", focus=True)),
+        ("groups-collapse", lambda: action("workspaceGroup.collapseAll", focus=True)),
+        ("groups-expand", lambda: action("workspaceGroup.expandAll", focus=True)),
+        ("floating-chat-open", lambda: action("palette.quickAgentChat", focus=True)),
+        ("floating-chat-close", lambda: action("palette.quickAgentChat", focus=True)),
+        ("sidebar-hide", lambda: action("toggleSidebar", focus=True)),
+        ("sidebar-show", lambda: action("toggleSidebar", focus=True)),
+        ("home-again", lambda: action("home.show", focus=True)),
+    ]
+    save_layout("everyday")
+    for index, (name, run) in enumerate(steps):
+        def trigger(run=run, name=name):
+            reply = run()
+            if isinstance(reply, dict) and (reply.get("error") or reply.get("ok") is False):
+                print(f"everyday {name}:", json.dumps(reply)[:300], flush=True)
+        record("everyday", f"{index:02d}-{name}", trigger, seconds=1.6)
+        time.sleep(0.3)  # test harness: settle between steps
+
 def hovercard():
     # A tab hover card shows after the pointer rests on a tab, then moves to
     # the next tab (a retarget: one tab's thumbnail replaces the other's).
@@ -450,7 +493,7 @@ def hovercard():
 
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday}
 
 
 def main():

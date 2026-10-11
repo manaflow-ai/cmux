@@ -22,6 +22,9 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case offline
         case connecting
         case connected
+        /// The link client is up but redials its lost connection (sleep,
+        /// a network drop or change); remote programs keep running there.
+        case reconnecting
         case authFailed(String)
         case hostKeyUntrusted(String)
         case unreachable(String)
@@ -53,6 +56,8 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case probed(InstallNeed)
         case failed(SSHFailure)
         case linkUp
+        /// The running link client reports it is redialing.
+        case linkInterrupted
         case linkLost
         case wake(Wake)
         case installStarted
@@ -82,7 +87,7 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             status = .offline
             blocked = true
         case .attemptStarted:
-            if status == .connected { status = .connecting }
+            if status == .connected || status == .reconnecting { status = .connecting }
         case .probed(let need):
             guard need != .none else { return }
             status = .needsInstall(need)
@@ -105,8 +110,10 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case .linkUp:
             status = .connected
             blocked = false
+        case .linkInterrupted:
+            if status == .connected { status = .reconnecting }
         case .linkLost:
-            if status == .connected { status = .connecting }
+            if status == .connected || status == .reconnecting { status = .connecting }
         case .wake(let wake):
             guard blocked else { return }
             if Self.unblocks(status, wake) { blocked = false }

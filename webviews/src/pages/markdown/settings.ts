@@ -45,8 +45,9 @@ export const MARKDOWN_STYLE_DEFAULTS = {
   "--cmux-md-table-border": "1px solid var(--cmux-md-border-color)",
   "--cmux-md-table-header-background": "var(--cmux-md-code-background)",
   "--cmux-md-task-checked-color": "var(--cmux-diff-accent, var(--cmux-md-text-color))",
-  "--cmux-md-selection-color": "color-mix(in srgb, var(--cmux-md-link-color) 28%, transparent)",
-  "--cmux-md-caret-color": "var(--cmux-md-text-color)",
+  "--cmux-md-selection-color":
+    "var(--cmux-text-selection, color-mix(in srgb, var(--cmux-md-link-color) 28%, transparent))",
+  "--cmux-md-caret-color": "var(--cmux-caret, var(--cmux-md-text-color))",
   "--cmux-md-footnote-size": "0.9em",
   "--cmux-md-superscript-size": "0.75em",
   "--cmux-md-ui-font-size": "13px",
