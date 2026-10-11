@@ -20,6 +20,9 @@ public final class CEFAgentRelay {
     private var sink: ((String) -> Void)?
     private var onEnd: (() -> Void)?
     private var waiters: [OneShot<Bool>] = []
+    /// The media bridge's deferred first page is not asked for yet: raw
+    /// clients wait for it, so their own navigation comes after.
+    private var attaching = false
     /// The media hub's binding reports arrive as protocol events too: the
     /// bridge takes its own, and the browser's events stay on while it
     /// listens, relay or not.
@@ -82,7 +85,7 @@ public final class CEFAgentRelay {
     /// failed, the tab closed, or the waiting task was cancelled.
     public func browserCreated() async -> Bool {
         guard let tab else { return false }
-        if tab.browserID != nil { return true }
+        if tab.browserID != nil, !attaching { return true }
         if tab.isClosed { return false }
         let waiter = OneShot<Bool>()
         waiters.removeAll { $0.isResolved }
@@ -105,9 +108,11 @@ public final class CEFAgentRelay {
 
     func browserAttached() {
         if let browser = tab?.browserID, let media {
-            // Raw clients waiting for the browser start after the media
-            // bridge's deferred first page, so their own navigation wins.
-            media.attach(browser) { [weak self] in self?.resumeWaiters(true) }
+            attaching = true
+            media.attach(browser) { [weak self] in
+                self?.attaching = false
+                self?.resumeWaiters(true)
+            }
         } else {
             resumeWaiters(true)
         }

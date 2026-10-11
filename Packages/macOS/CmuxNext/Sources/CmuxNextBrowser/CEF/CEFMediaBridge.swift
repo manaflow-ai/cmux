@@ -17,17 +17,19 @@ import os
 ///
 /// New-document scripts reach only documents that start after they are
 /// added, so a web page the tab opens with is not created with the browser:
-/// it loads once the scripts are in (cx-6qwm.4). Otherwise its first
-/// document ran before the recorder, and `mediaSession` handlers it set
-/// while loading were never seen.
+/// it loads once the scripts are in, or after `deferredLoadCap` without
+/// them (cx-6qwm.4). Otherwise its first document ran before the recorder,
+/// and `mediaSession` handlers it set while loading were never seen. Only
+/// http(s) pages wait; restored tabs and tabs Chromium opens (popups,
+/// `chrome.tabs.create`) start their own first document as before.
 final class CEFMediaBridge {
     private unowned let tab: CEFTab
     private var observation: ObservationLoop?
     /// The committed document the binding was last added for.
     private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
-    /// The web page the browser loads after the scripts, and the navigation
-    /// that asked for it (a later navigation replaces it).
-    private var deferred: (url: String, navigation: BrowserNavigationID?)?
+    /// The web page the browser loads after the scripts, with the tab's
+    /// navigation and committed page then (a later navigation replaces it).
+    private var deferred: (url: String, navigation: BrowserNavigationID?, committed: URL?)?
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -38,13 +40,15 @@ final class CEFMediaBridge {
             deferred = nil
             return url
         }
-        deferred = (url, tab.navigation)
+        deferred = (url, tab.navigation, tab.committedURL)
         return ""
     }
 
+    /// The longest a deferred page waits for the scripts.
+    static let deferredLoadCap: Duration = .milliseconds(300)
+
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`). `then`
-    /// runs once the scripts are in and the deferred page is asked for, or
-    /// the browser is gone.
+    /// runs once the deferred page is asked for (at once without one).
     func attach(_ browser: Int32, then: @escaping () -> Void) {
         tab.agentRelay.mediaListens = true
         let channel = BrowserMediaState.channel
@@ -57,16 +61,29 @@ final class CEFMediaBridge {
             ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
             Self.binding,
         ]
-        let deferred = deferred
-        self.deferred = nil
-        run(calls, browser) { [weak tab] in
-            // A navigation asked for meanwhile (`load`) replaces the page.
-            if let tab, let deferred, tab.browserID == browser, !tab.isClosed, tab.navigation == deferred.navigation {
+        observation = ObservationLoop { [weak self] in self?.documentChanged() }
+        // A restore (`cmux_tab_restore_navigation`) brings its own first page.
+        let pending = tab.pendingRestore == nil ? deferred : nil
+        deferred = nil
+        guard let deferred = pending else {
+            then()
+            run(calls, browser)
+            return
+        }
+        let load = DeferredLoad { [weak tab] in
+            // A navigation asked for meanwhile (`load`) or committed (one
+            // Chromium or an agent started) replaces the page.
+            if let tab, tab.browserID == browser, !tab.isClosed, tab.navigation == deferred.navigation,
+               tab.committedURL == deferred.committed {
                 tab.runtime.shim?.loadURL(browser, deferred.url)
             }
             then()
         }
-        observation = ObservationLoop { [weak self] in self?.documentChanged() }
+        run(calls, browser) { load.run() }
+        Task {
+            try? await Task.sleep(for: Self.deferredLoadCap)
+            load.run()
+        }
     }
 
     private static var binding: (String, [String: Any]) {
@@ -118,5 +135,18 @@ extension CEFTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) {
         machine.apply(.audioMutedChanged(muted))
         Task { await media(.muteTab(state.isAudioMuted)) }
+    }
+}
+
+/// The deferred page's load, run once: by the scripts or by the cap.
+private final class DeferredLoad {
+    private var action: (() -> Void)?
+
+    init(_ action: @escaping () -> Void) { self.action = action }
+
+    func run() {
+        let action = action
+        self.action = nil
+        action?()
     }
 }
