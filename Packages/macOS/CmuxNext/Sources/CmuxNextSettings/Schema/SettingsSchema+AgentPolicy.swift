@@ -46,7 +46,7 @@ extension SettingsSchema {
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode",
+        "sidebar.minimalMode", "sidebar.minimal",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",

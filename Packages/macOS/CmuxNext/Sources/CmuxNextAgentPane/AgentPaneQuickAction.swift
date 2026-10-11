@@ -31,7 +31,7 @@ public nonisolated struct AgentPaneQuickAction: Equatable, Sendable {
     var json: [String: String] { ["id": id, "mode": mode] }
 }
 
-extension AgentPaneCustomization {
+nonisolated extension AgentPaneCustomization {
     /// Writes `list` as `quickActions` in `layout.json` in `directory`, keeping the file's other
     /// keys, creating both when missing. Blocking file IO: call it off the main actor.
     ///

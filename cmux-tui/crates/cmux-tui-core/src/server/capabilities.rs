@@ -5,8 +5,9 @@ use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
 /// when the binary installed a cloud transport, `history-search-v1` when it
-/// installed the search index, and
-/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs.
+/// installed the search index,
+/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
+/// `daemon-build-v1` when the binary installed its build identity.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
@@ -26,6 +27,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
+    }
+    if daemon_build::installed() {
+        capabilities.push(DAEMON_BUILD_CAPABILITY);
     }
     capabilities
 }
