@@ -82,9 +82,8 @@ const MAX_RECEIVES: usize = 16;
 const MAX_SETTLED: usize = 16;
 /// A receive-abort's answer when nothing was forgotten: the receive stays
 /// and whether the chat landed is unknown.
-static UNKNOWN_LANDING: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
-    json!({"dropped": false, "forgotten": false, "landed": null})
-});
+static UNKNOWN_LANDING: std::sync::LazyLock<Value> =
+    std::sync::LazyLock::new(|| json!({"dropped": false, "forgotten": false, "landed": null}));
 const MAX_MOVES: usize = 16;
 const MAX_CALLS: usize = 8;
 /// A receive or move not touched that long is forgotten (acpmux sweeps its

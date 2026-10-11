@@ -89,7 +89,12 @@ struct Failed {
 
 impl Failed {
     fn new(code: impl Into<String>, error: impl Into<String>) -> Self {
-        Self { code: code.into(), error: error.into(), transfer_id: None, retry_after_seconds: None }
+        Self {
+            code: code.into(),
+            error: error.into(),
+            transfer_id: None,
+            retry_after_seconds: None,
+        }
     }
 
     /// A call to the `side` daemon that failed: its refusal code, or
