@@ -390,12 +390,14 @@ struct ModeBarButton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The tab switch: the selection pill slides and the tabs settle into
-    /// their new widths on the sidebar glide's spring, without overshoot.
-    static let switchAnimation = Animation.spring(response: 0.38, dampingFraction: 0.9)
-    /// A label going away fades at once; a new one fades in once the pill is
-    /// on its way, so the eye follows the pill, then reads the label.
-    static let labelOutAnimation = Animation.easeOut(duration: 0.10)
-    static let labelInAnimation = Animation.easeOut(duration: 0.16).delay(0.09)
+    /// their new widths on a spring without overshoot. Snappier than the
+    /// sidebar glide's 0.38: the pill moves a short way, and a slower spring
+    /// spends most of that move in its tail, which reads as lag.
+    static let switchAnimation = Animation.spring(response: 0.28, dampingFraction: 0.9)
+    /// Labels swap straight away, so the clicked tab reads as selected at
+    /// once while the pill is still on its way.
+    static let labelOutAnimation = Animation.easeOut(duration: 0.08)
+    static let labelInAnimation = Animation.easeOut(duration: 0.12)
 
     /// With its label hidden, the icon (and badge) moves into the middle of
     /// the label's empty slot, so it sits centered in the tab's highlight.
