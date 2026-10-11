@@ -731,6 +731,13 @@ jobs:
           python cmux-tui/scripts/smoke-windows-long-state-path.py \
             --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
+      - name: Verify the Windows daemon reports its source revision
+        shell: bash
+        run: |
+          python cmux-tui/scripts/smoke-windows-identify-build.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe \
+            --expect-build "$(git rev-parse HEAD)"
+
       - name: Verify Windows terminal process exit
         shell: bash
         run: |
