@@ -128,6 +128,7 @@ import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
+import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
@@ -206,6 +207,9 @@ declare global {
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
       command?(name: string): void;
+      /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
+      /// since a script it runs here is no gesture the page's clipboard accepts.
+      lastCodeBlock?(): string | null;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
@@ -368,6 +372,7 @@ const changesSource: ChangesSource = {
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
+  stageHunk: (paths, hunk, unstage) => callNative("git.stageHunk", { paths, hunk, unstage }),
   pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
@@ -2323,6 +2328,7 @@ function AcpmuxPane() {
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
+  const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
@@ -2452,6 +2458,7 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
+      lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
@@ -2462,6 +2469,9 @@ function AcpmuxPane() {
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
+        // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
+        // the menu has none or the chat is archived.
+        if (name === "archiveChat") archiveChatRef.current?.();
         if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (
           [
@@ -2991,6 +3001,12 @@ function AcpmuxPane() {
           "git.push": (params) => client.gitPush(params),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
+          "git.stageHunk": ({ paths, hunk, unstage }) =>
+            client.gitStageHunk(
+              Array.isArray(paths) ? paths.map(String) : [],
+              Array.isArray(hunk) ? hunk.map(String) : [],
+              unstage === true,
+            ),
           "git.pullRequest": () => client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
@@ -3160,15 +3176,17 @@ function AcpmuxPane() {
         setHeaderState({ sideTabs: result?.shown === true }),
       ),
     );
+  const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
-      archived: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived),
+      archived,
       local: localCwd !== undefined,
     },
     (archived) => ignoreFailure(callNative("chat.archive", { archived })),
     t,
   );
+  archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.

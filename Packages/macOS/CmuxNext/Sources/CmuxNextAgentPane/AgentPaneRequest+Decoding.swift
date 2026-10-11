@@ -241,7 +241,7 @@ extension AgentPaneRequest {
         case "quick.floatingState": self = .quickFloatingState
         case "quick.context": self = .quickContext
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
-        case "git.stage", "git.unstage":
+        case "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk":
             self = .gitStage(AgentPaneGitStage(method: method, params: params))
         case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
         case "project.instructions": self = .projectInstructions(AgentPaneProjectInstructions(params: params))
