@@ -15,10 +15,11 @@ pub(super) enum Adoption {
     /// A session already adopted this id; `session/new` returns it.
     Existing(Arc<Session>),
     /// Create a session, in the adopted conversation's recorded cwd if any;
-    /// `fork`: a new conversation forked from it (`--fork-session`);
+    /// `fork`: a new conversation forked from it (`--fork-session`).
+    /// `file`: the adopted conversation's transcript, replayed as history (`adopt_replay`).
     /// `store`: the chat index's store that holds it when the profile's
     /// store does not (cx-vx54).
-    Found { cwd: Option<PathBuf>, fork: bool, store: Option<PathBuf> },
+    Found { cwd: Option<PathBuf>, fork: bool, file: Option<PathBuf>, store: Option<PathBuf> },
 }
 
 impl Hub {
@@ -58,7 +59,7 @@ impl Hub {
         remote: bool,
     ) -> Result<Adoption, RpcError> {
         let Some(a) = adopt else {
-            return Ok(Adoption::Found { cwd: None, fork: false, store: None });
+            return Ok(Adoption::Found { cwd: None, fork: false, file: None, store: None });
         };
         if let Some(asked) = &a.harness
             && asked != agent
@@ -106,7 +107,12 @@ impl Hub {
             return Err(RpcError::invalid_params(live.refusal(family, &a.agent_session_id))
                 .with_data(json!({"reason": "adopt.live", "details": live.details(family)})));
         }
-        Ok(Adoption::Found { cwd: found.cwd, fork: a.if_live == IfLive::Fork, store })
+        Ok(Adoption::Found {
+            cwd: found.cwd,
+            fork: a.if_live == IfLive::Fork,
+            file: Some(found.file),
+            store,
+        })
     }
 
     /// The session that already adopted `agent_session_id` in `family`, so
@@ -213,5 +219,81 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+impl Hub {
+    /// Appends the adopted conversation's past turns (`adopt_replay::read`) as this session's
+    /// history, unless the resumed harness already replayed some (Codex `session/load` can).
+    pub(super) async fn replay_adopted(&self, session: &Arc<Session>, family: &str, file: PathBuf) {
+        let has_history = self.store.events(&session.id, 0, 100_000).is_ok_and(|events| {
+            events.iter().any(|e| e.kind == "user_message" || e.kind == "agent_message_chunk")
+        });
+        if has_history {
+            return;
+        }
+        let fam = family.to_owned();
+        let Ok(turns) =
+            tokio::task::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
+        else {
+            return;
+        };
+        if turns.is_empty() {
+            return;
+        }
+        let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        for (i, turn) in turns.iter().enumerate() {
+            let turn_id = format!("adopted-{i}");
+            let prompt_id = format!("adopted-prompt-{i}");
+            // Each record keeps the transcript's time, so a fork through it cuts Claude's
+            // transcript there (`fork_at.rs`) and the turn shows its real time.
+            let (started, ended) = (turn.prompt_at, turn.answer_at.or(turn.prompt_at));
+            let turn_seq = self
+                .append_at(
+                    session,
+                    "mux",
+                    "turn_started",
+                    json!({"prompt": turn.prompt.chars().take(200).collect::<String>(), "client": "adopt", "promptId": prompt_id, "turnId": turn_id, "control": "local"}),
+                    None,
+                    started,
+                )
+                .0
+                .seq;
+            self.append_at(
+                session,
+                "mux",
+                "user_message",
+                json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
+                None,
+                started,
+            );
+            if !turn.answer.is_empty() {
+                self.append_at(
+                    session,
+                    "in",
+                    "agent_message_chunk",
+                    json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}}}}),
+                    None,
+                    ended,
+                );
+            }
+            self.append_at(
+                session,
+                "mux",
+                "turn_end",
+                json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq}),
+                None,
+                ended,
+            );
+            // A settled turn: clients and restart recovery read `turn_result`, not `turn_end`.
+            self.append_at(
+                session,
+                "mux",
+                "turn_result",
+                json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id}),
+                None,
+                ended,
+            );
+        }
     }
 }

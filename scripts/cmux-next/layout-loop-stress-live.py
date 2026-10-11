@@ -12,7 +12,7 @@ steps the window size 50 times. After every step it reads `debug.layers` and
 fails when:
 
 - one view was laid out more than its window's LayoutPassGuard limit
-  (16, lower in a window of few views) in one run-loop turn (`layout_passes.max_in_one_turn`), or the guard caught a loop;
+  (16, lower in a window of few views) in one window layout (`layout_passes.max_in_one_turn`), or the guard caught a loop;
 - a plane is out of sync with its home (`planes[].in_sync`: the plane's
   frame vs the root's rect in window coordinates; this is the ring offset
   an ancestor move caused), a ring is off its rounded content rect, or the
@@ -81,7 +81,7 @@ def check(step, app, results):
     bound = passes.get("max_window_limit") or passes.get("bound", 16)
     worst = passes.get("max_in_one_turn", 0)
     if worst > bound:
-        failures.append("%s: a %s in %s was laid out %s times in one turn (window limit %s)" % (
+        failures.append("%s: a %s in %s was laid out %s times in one window layout (window limit %s)" % (
             step, passes.get("max_view_class"), passes.get("max_window_class"), worst, bound))
     for loop in passes.get("loops") or []:
         failures.append("%s: layout loop in %s (%s)" % (step, loop.get("view_class"), " < ".join(loop.get("ancestry") or [])))
@@ -300,6 +300,10 @@ finally:
 # The browser split must have moved a plane into the overlay panel (the
 # path the deferral and the ancestor-move resync change); a run that never
 # left the root proves nothing about it.
+# The guard counts inside -[NSWindow layoutIfNeeded]; a run that counted
+# nothing means that bracket never fired (the proof would be empty).
+if results and not LAST_PASSES.get("max_in_one_turn"):
+    failures.append("the guard counted no layout inside a window layout (layoutIfNeeded bracket never fired)")
 if results and not any("overlay_panel" in r["placement"] for r in results):
     failures.append("no step ran with the plane in the overlay panel (browser page window never showed)")
 summary = {"tag": TAG, "steps": len(results), "failures": failures,

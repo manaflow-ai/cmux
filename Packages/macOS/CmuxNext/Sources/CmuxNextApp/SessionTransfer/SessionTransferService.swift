@@ -195,8 +195,9 @@ final class SessionTransferService {
 
     /// Opens records read from classic's files (scripts/cmux-next/classic-to-next.py):
     /// `agent` {harness, session, cwd?, name?} becomes an agent chat resumed by its
-    /// session id; `workspace` {name?, cwd?, terminals: [{title?, cwd?, command?}]}
-    /// becomes one workspace with a terminal tab per entry. Nothing is closed anywhere.
+    /// session id; `workspace` {name?, cwd?, terminals: [{title?, cwd?, command?}], layout?}
+    /// becomes one workspace with a terminal per entry, in `layout`'s panes and
+    /// splits (`TransferLayout`), else as tabs of one pane. Nothing is closed anywhere.
     func open(agent: [String: TransferJSONValue]?, workspace: [String: TransferJSONValue]?) async throws -> TransferJSONValue {
         if let agent {
             guard let harness = agent["harness"]?.stringValue, let session = agent["session"]?.stringValue else {
@@ -216,14 +217,13 @@ final class SessionTransferService {
                                 cwd: terminal["cwd"]?.stringValue ?? cwd, sshTarget: nil, command: terminal["command"]?.stringValue,
                                 agentHarness: nil, agentSessionID: nil)
         }
-        let id = try await create(items[0], workspaceName: name)
+        // A layout that does not name each terminal once is left out: the terminals still open, as tabs.
+        let layout = TransferLayout(json: workspace["layout"], terminals: items.count) ?? .pane(Array(items.indices))
+        let id = try await create(items[layout.terminals[0]], workspaceName: name)
         guard items.count > 1 else { return ["workspace": .string(id)] }
         guard let services, let connection = services.daemon.connection,
               let pane = try await firstPane(of: id, connection: connection) else { throw Failure.unavailable }
-        for item in items.dropFirst() {
-            try await connection.newTab(in: pane, options: SpawnOptions(cwd: item.cwd, command: item.command,
-                                                                      name: item.title.isEmpty ? nil : item.title))
-        }
+        try await open(layout, items: items, in: pane, workspace: id, connection: connection)
         return ["workspace": .string(id)]
     }
 

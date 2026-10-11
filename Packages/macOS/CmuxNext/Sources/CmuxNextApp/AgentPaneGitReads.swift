@@ -20,6 +20,9 @@ final class AgentPaneGitLink {
         self.daemon = daemon
     }
 
+    /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
+    var isLocal: Bool { daemon.isLocal }
+
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).

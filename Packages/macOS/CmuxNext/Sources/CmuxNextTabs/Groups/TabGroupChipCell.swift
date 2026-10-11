@@ -176,7 +176,7 @@ final class TabGroupChipCell {
     private func applyColors() {
         themeScope.perform {
             pill.shadowColor = Palette.shadow.cgColor
-            var fill = group.colorToken.themedChipFill
+            var fill = group.tint.chipFill
             if isPressed {
                 fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill
             } else if isHovered {
