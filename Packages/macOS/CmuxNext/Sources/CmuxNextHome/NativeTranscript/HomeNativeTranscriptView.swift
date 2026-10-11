@@ -63,6 +63,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
+    /// An agent row of the first-run panel was picked: the host opens that
+    /// tab (its daemon tab id).
+    public var onFirstRunAgent: (String) -> Void = { _ in }
     /// The host is still loading the conversation's first page: the
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
@@ -90,12 +93,8 @@ public final class HomeNativeTranscriptView: NSView {
         addSubview(noticeLabel)
         connectAttachments()
         firstRun.isHidden = true
-        firstRun.onSuggestion = { [weak self] prompt in
-            guard let self else { return }
-            self.transcript.setDraft(prompt)
-            self.window?.makeFirstResponder(self.transcript.primaryInput)
-        }
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
+        firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
@@ -229,6 +228,13 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.setShortcuts(terminal: terminal, agent: agent, tabs: tabs)
     }
 
+    /// The user's agents for the first-run panel's glance (the host maps
+    /// them from the tab status the strip and the sidebar draw); empty lists
+    /// none.
+    public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
+        firstRun.setAgents(agents)
+    }
+
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
         firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
@@ -285,8 +291,9 @@ public final class HomeNativeTranscriptView: NSView {
             Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
         }
         performWithTheme {
-            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
-                                 fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
+            firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
+                                 hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
+                                 danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
         }
     }
