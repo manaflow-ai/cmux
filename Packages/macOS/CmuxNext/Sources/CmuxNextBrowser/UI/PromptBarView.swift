@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 /// Glass bar that asks the first pending prompt of the tab: a permission
-/// request, a JavaScript alert, confirm, or text input, or HTTP
-/// authentication (user name and password).
+/// request, a JavaScript alert, confirm, or text input, HTTP
+/// authentication (user name and password), or a link to another app
+/// (Open, with "Always allow" for the site).
 final class PromptBarView: NSView {
     private(set) var prompt: BrowserPrompt?
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
@@ -11,6 +12,8 @@ final class PromptBarView: NSView {
     /// HTTP authentication fields.
     let userField = ChromeTextField()
     let passwordField = ChromeSecureTextField()
+    /// "Always allow" of a link to another app.
+    private let alwaysCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let buttons = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()
@@ -40,6 +43,7 @@ final class PromptBarView: NSView {
         stack.addArrangedSubview(inputField)
         stack.addArrangedSubview(userField)
         stack.addArrangedSubview(passwordField)
+        stack.addArrangedSubview(alwaysCheck)
         stack.addArrangedSubview(buttons)
 
         let content = OverlayBackingView()
@@ -70,6 +74,7 @@ final class PromptBarView: NSView {
             guard let self else { return }
             let padding = BrowserMetrics.overlayPadding
             messageLabel.font = BrowserMetrics.bodyFont
+            alwaysCheck.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
             for field in [inputField, userField, passwordField] as [NSTextField] {
                 field.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
@@ -122,6 +127,7 @@ final class PromptBarView: NSView {
         inputField.isHidden = true
         userField.isHidden = true
         passwordField.isHidden = true
+        alwaysCheck.isHidden = true
 
         switch prompt.kind {
         case .permission(let kind):
@@ -162,6 +168,13 @@ final class PromptBarView: NSView {
             passwordField.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.authSignIn, prominent: true, response: nil)
+        case .openExternalApp(let app, let scheme):
+            messageLabel.stringValue = Strings.externalAppPrompt(origin: prompt.origin, app: app)
+            alwaysCheck.title = Strings.externalAppAlwaysAllow(origin: prompt.origin, scheme: scheme)
+            alwaysCheck.state = .off
+            alwaysCheck.isHidden = false
+            addButton(Strings.cancel, prominent: false, response: .cancel)
+            addButton(Strings.externalAppOpen, prominent: true, response: nil)
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)
@@ -170,12 +183,14 @@ final class PromptBarView: NSView {
         }
     }
 
-    /// The answer of the prompt's prominent button: the typed text, or the
-    /// typed user name and password.
+    /// The answer of the prompt's prominent button: the typed text, the
+    /// typed user name and password, or Open (always, when checked).
     func submit() {
         guard let prompt else { return }
         if case .credentials = prompt.kind {
             prompt.respond(.credentials(user: userField.stringValue, password: passwordField.stringValue))
+        } else if case .openExternalApp = prompt.kind {
+            prompt.respond(alwaysCheck.state == .on ? .allow : .allowOnce)
         } else {
             prompt.respond(.text(inputField.stringValue))
         }

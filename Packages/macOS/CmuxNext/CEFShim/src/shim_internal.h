@@ -228,6 +228,14 @@ std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
 bool IsWebStoreURL(const std::string& url);
 
+// Links to other apps (shim_external.mm): OnBeforeBrowse records whether the
+// user's gesture started each main-frame navigation (UI thread); the request
+// handler of a main-frame navigation reports one Chromium cannot load as
+// EXTERNAL_URL instead of running the OS handler.
+void RecordNavigationGesture(int browser_id, const std::string& url, bool gesture);
+void ForgetNavigationGesture(int browser_id);
+CefRefPtr<CefResourceRequestHandler> NavigationRequestHandler(const std::string& url, bool main_frame_navigation);
+
 // Downloads (shim_downloads.mm, UI thread). The page clients' download
 // handler: every download waits for the host's path (DOWNLOAD_STARTED,
 // cmux_shim_download_continue) and reports its progress and end.

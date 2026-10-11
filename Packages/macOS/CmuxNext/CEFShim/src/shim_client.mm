@@ -135,10 +135,11 @@ class Client : public CefClient,
   // a remote machine, or the reverse) is cancelled; the host re-creates the
   // tab in the other store with the same URL.
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
-                      bool, bool is_redirect) override {
+                      bool user_gesture, bool is_redirect) override {
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
+    RecordNavigationGesture(id, url, user_gesture && !is_redirect);
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {
       Emit(CMUX_SHIM_AUTH_CALLBACK, id, 0, is_redirect ? 1 : 0, 0, url);
@@ -157,10 +158,10 @@ class Client : public CefClient,
 
   // MARK: Chrome Web Store
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
-                                                                 CefRefPtr<CefRequest> request, bool, bool,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+                                                                 CefRefPtr<CefRequest> request, bool is_navigation, bool,
                                                                  const CefString&, bool&) override {
-    return WebStoreRequestHandler(request->GetURL().ToString());
+    return NavigationRequestHandler(request->GetURL().ToString(), is_navigation && frame && frame->IsMain());
   }
 
   // MARK: Renderer process failures
@@ -334,6 +335,7 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);
+    ForgetNavigationGesture(id);
     registrations_.erase(id);
     ForgetDevToolsProtocol(id);
     browsers().erase(id);

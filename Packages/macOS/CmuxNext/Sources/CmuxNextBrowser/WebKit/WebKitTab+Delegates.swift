@@ -38,7 +38,7 @@ extension WebKitTab: WKNavigationDelegate {
             // Other apps open only from a click in the main frame, never from
             // a script or a redirect.
             if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.launch(url)
+                BrowserExternalApps.shared.open(url, from: webView.url, ask: enqueuePrompt)
             }
             return
         }
