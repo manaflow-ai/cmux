@@ -1,5 +1,6 @@
 // A settled run of tool calls: one summary line ("Read files, ran commands")
 // that opens to the calls themselves, in a list that scrolls past nine rows.
+import { useFindReveal } from "./chatFind";
 import { useId, useState, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -24,6 +25,7 @@ function runIcon(category: ToolRunCategory | undefined): ReactNode {
 
 export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[]; children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  useFindReveal(items, () => setOpen(true));
   const list = useId();
   return (
     <>

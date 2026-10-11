@@ -1,6 +1,7 @@
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
+import { FindReveal, isFindRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
@@ -72,14 +73,18 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
   const nodes = groups.map(groupNode);
+  // Find opens what holds its current match in this row only (chatFind.ts).
+  const reveal = useContext(FindReveal);
   return (
-    <div className="cv-tools">
-      {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
-        <ToolRun items={items ?? []}>{nodes}</ToolRun>
-      ) : (
-        nodes
-      )}
-    </div>
+    <FindReveal.Provider value={reveal && isFindRow(row, reveal.rowId) ? reveal : undefined}>
+      <div className="cv-tools">
+        {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
+          <ToolRun items={items ?? []}>{nodes}</ToolRun>
+        ) : (
+          nodes
+        )}
+      </div>
+    </FindReveal.Provider>
   );
 }
 

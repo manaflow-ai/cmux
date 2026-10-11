@@ -1,6 +1,7 @@
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
 // App.tsx +12 -3") that opens to the calls on a tree guide: commands as command rows, edits
 // as their diffs, reads and searches as their own rows.
+import { useFindReveal } from "./chatFind";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
@@ -29,6 +30,7 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 export function ToolGroupRow({ kind, items }: { kind: ToolGroupKind; items: readonly AcpmuxActivity[] }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useFindReveal(items, () => setOpen(true));
   const detailsId = useId();
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);

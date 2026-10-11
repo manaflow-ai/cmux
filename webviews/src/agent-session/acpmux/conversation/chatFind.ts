@@ -1,9 +1,11 @@
-// Find in Chat: matches of a query in the transcript's prompts and replies, the one the reader is
-// on, and the highlights over the rows on screen (CSS custom highlights, so the rendered rows are
-// never rewritten). The transcript is virtualized: matches come from the rows' text, and a row
-// draws its highlights once it mounts.
-import { useCallback, useMemo, useState } from "react";
-import type { AcpmuxRow } from "../model";
+// Find in Chat: matches of a query in the transcript's prompts, replies and work (each tool call's
+// title, command, output and edit diffs), the one the reader is on, and the highlights over the
+// rows on screen (CSS custom highlights, so the rendered rows are never rewritten). The transcript
+// is virtualized: matches come from the rows' text, and a row draws its highlights once it mounts.
+// The current match opens what hides it: its turn's "Worked for" fold (App.tsx) and, through
+// FindReveal, the tool group or call that holds it (cx-ncc.70).
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from "react";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -14,14 +16,29 @@ export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
 
 const SEARCHED_KINDS = new Set(["user", "assistant"]);
 
-/** Every match of `query` (case-insensitive) in the prompts and replies of `rows`, in order. */
+/** What Find reads of one tool call or thought: its text, title, command, output and new text. */
+export function activityText(item: AcpmuxActivity): string {
+  const tool = item.tool;
+  return [item.text, tool?.title, tool?.command, tool?.output, ...(tool?.diffs ?? []).map((diff) => diff.newText)]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** What Find reads of a row: a prompt's or reply's text, or its tool calls'. */
+function rowText(row: AcpmuxRow): string | undefined {
+  if (SEARCHED_KINDS.has(row.kind)) return row.text;
+  return row.items?.length ? row.items.map(activityText).join("\n") : undefined;
+}
+
+/** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
 export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
   const needle = query.toLocaleLowerCase();
   if (!needle) return [];
   const matches: FindMatch[] = [];
   rows.forEach((row, rowIndex) => {
-    if (!SEARCHED_KINDS.has(row.kind) || !row.text) return;
-    const text = row.text.toLocaleLowerCase();
+    const found = rowText(row);
+    if (!found) return;
+    const text = found.toLocaleLowerCase();
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
@@ -80,6 +97,32 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   return { open, query, matches, active: current, show, hide, setQuery, next, previous, focusRequest };
 }
 
+/** The current match's row and the query, while Find shows one; ToolRows passes it to its row only. */
+/** `repaint` redraws the highlights once a part opens (only that part re-renders otherwise). */
+export const FindReveal = createContext<{ rowId: string; needle: string; repaint: () => void } | undefined>(undefined);
+
+/** Whether `row` draws the current match's row: the row itself or its copy in an open fold, never
+ * the turn's edited-files card (`ended`, turns.ts), which keeps the id but lists only file names. */
+export const isFindRow = (row: AcpmuxRow, rowId: string) =>
+  (row.id === rowId && !row.ended) || row.id === `${rowId}:fold`;
+
+/** Where the transcript draws match row `rowId` (isFindRow); -1 while its fold is closed. */
+export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number {
+  return rows.findIndex((row) => isFindRow(row, rowId));
+}
+
+/** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
+export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
+  const reveal = useContext(FindReveal);
+  const hit = Boolean(reveal && items.some((item) => activityText(item).toLocaleLowerCase().includes(reveal.needle)));
+  useLayoutEffect(() => {
+    if (!hit) return;
+    open();
+    reveal?.repaint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
+  }, [hit, reveal]);
+}
+
 type HighlightRegistry = { set(name: string, value: unknown): void; delete(name: string): void };
 
 function registry(): HighlightRegistry | undefined {
@@ -122,7 +165,9 @@ export function paintFindHighlights(root: HTMLElement, query: string, active?: F
       }
     }
     all.push(...ranges);
-    if (active && row.dataset.rowId === active.rowId && ranges.length)
+    // The match's row, or its copy in an open fold (the edited-files card keeps the id but has no match).
+    const rowId = row.dataset.rowId;
+    if (active && (rowId === active.rowId || rowId === `${active.rowId}:fold`) && ranges.length)
       current = ranges[Math.min(active.occurrence, ranges.length - 1)];
   }
   highlights.set(FIND_HIGHLIGHT, new Highlight(...all.filter((range) => range !== current)));

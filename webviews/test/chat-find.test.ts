@@ -78,6 +78,30 @@ await requireBrowserLane("chat-find.test.ts", async () => {
     });
   }
 
+  /** Waits (up to 5 s) for the current match to sit in the transcript's viewport: a match in a
+   * closed fold opens it first, and its rows measure before the scroll lands. */
+  async function settleInView(page: Page) {
+    await page
+      .waitForFunction(
+        () => {
+          const active = [
+            ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
+          ];
+          const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+          return (
+            active.length > 0 &&
+            active.every((range) => {
+              const box = range.getBoundingClientRect();
+              return box.top >= view.top && box.bottom <= view.bottom;
+            })
+          );
+        },
+        null,
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
+  }
+
   async function openChat(page: Page) {
     await page.goto(`${base}/?mock`);
     // The seeded worked turn's reply is drawn.
@@ -120,6 +144,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.keyboard.press("Shift+Enter");
       await page.keyboard.press("Shift+Enter");
+      await settleInView(page);
       const last = await state(page);
       expect(last.count).toBe(`${total} of ${total}`);
       expect(last.inView).toBe(true);
@@ -156,33 +181,44 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       if (!installed) return;
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
       await openChat(page);
-      // Only in the test command's output, and only in the edit of upload.test.ts.
-      for (const needle of ["1504.40ms", "failNext(2, 503)"]) {
-        expect(await page.evaluate(() => document.querySelector(".acpmux-scroll")?.textContent ?? "")).not.toContain(
-          needle,
-        );
-        await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), needle);
-        await page.waitForSelector(".acpmux-find__field");
-        await page.fill(".acpmux-find__field", needle);
-        await page
+      // Only in the test command's output: found, its group opened, highlighted and in view.
+      await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
+      await page.waitForSelector(".acpmux-find__field");
+      const activeIs = (text: string) =>
+        page
           .waitForFunction(
-            (text) =>
+            (needle) =>
               [
                 ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
                   []),
               ]
                 .map(String)
-                .some((range) => range.toLowerCase() === text.toLowerCase()),
-            needle,
+                .some((range) => range.toLowerCase() === needle.toLowerCase()),
+            text,
             { timeout: 10_000 },
           )
           .catch(() => undefined);
-        const found = await state(page);
-        expect(found.count, needle).toBe("1 of 1");
-        expect(found.active, needle).toEqual([needle]);
-        expect(found.inView, needle).toBe(true);
-        await page.keyboard.press("Escape");
-      }
+      await activeIs("1504.40ms");
+      await settleInView(page);
+      const output = await state(page);
+      expect(output.count).toBe("1 of 1");
+      expect(output.active).toEqual(["1504.40ms"]);
+      expect(output.inView).toBe(true);
+
+      // Only in the edit of upload.test.ts: found, and its edits group opens on the diff. (The diff
+      // draws in @pierre/diffs' shadow root, where the page's highlights do not reach.)
+      await page.fill(".acpmux-find__field", "failNext");
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll<HTMLElement>(".acpmux-scroll button[aria-expanded]")].some(
+            (button) =>
+              (button.textContent ?? "").startsWith("Edited 3 files") &&
+              button.getAttribute("aria-expanded") === "true",
+          ),
+        null,
+        { timeout: 10_000 },
+      );
+      expect((await state(page)).count).toBe("1 of 1");
       await page.close();
     });
   });

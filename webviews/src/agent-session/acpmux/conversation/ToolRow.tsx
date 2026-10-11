@@ -1,5 +1,6 @@
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
+import { useFindReveal } from "./chatFind";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
@@ -40,6 +41,10 @@ export function toolIcon(kind?: string): ReactNode {
 export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useFindReveal(
+    useMemo(() => [item], [item]),
+    () => setOpen(true),
+  );
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);

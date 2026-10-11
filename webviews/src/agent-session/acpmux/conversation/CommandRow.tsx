@@ -1,6 +1,7 @@
 // One command in a "Ran N commands" group: the command line in mono, cut to the row, then its
 // exit status and run time, opening to its Shell block.
-import { useId, useState } from "react";
+import { useFindReveal } from "./chatFind";
+import { useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { menuPartRef } from "./menuParts";
@@ -11,6 +12,10 @@ import { isFailed, isRunning, toolDuration } from "./toolGroups";
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useFindReveal(
+    useMemo(() => [item], [item]),
+    () => setOpen(true),
+  );
   const detailsId = useId();
   const tool = item.tool!;
   const running = isRunning(tool);

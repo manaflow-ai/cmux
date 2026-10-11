@@ -93,7 +93,15 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { clearFindHighlights, paintFindHighlights, useChatFind, type ChatFind } from "./conversation/chatFind";
+import {
+  clearFindHighlights,
+  FindReveal,
+  findRowIndex,
+  isFindRow,
+  paintFindHighlights,
+  useChatFind,
+  type ChatFind,
+} from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
@@ -740,6 +748,15 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const JUMP_LATEST_DISTANCE = 80;
 /// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
 const JUMP_LATEST_SETTLE_MS = 600;
+/// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
+function scrollRangeIn(scroller: HTMLElement, range: Range) {
+  const box = range.getBoundingClientRect();
+  const view = scroller.getBoundingClientRect();
+  if (box.top < view.top || box.bottom > view.bottom)
+    scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
+}
+/// How long Find keeps a new match in view while its groups open and the rows above it measure.
+const FIND_REVEAL_MS = 600;
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1210,14 +1227,34 @@ export function VirtualTranscript({
   // text is drawn, the match itself; every commit repaints the highlights over the mounted rows.
   const findQuery = find?.open ? find.query : "";
   const findTarget = find?.matches[find.active];
+  // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
+  // once its fold is open.
+  const findIndex = findTarget ? findRowIndex(rows, findTarget.rowId) : -1;
   const revealing = useRef<string | undefined>(undefined);
-  const targetKey = findTarget && findQuery ? `${findTarget.rowId}:${findTarget.occurrence}:${findQuery}` : undefined;
+  const targetKey =
+    findTarget && findQuery && findIndex >= 0 ? `${findTarget.rowId}:${findTarget.occurrence}:${findQuery}` : undefined;
+  // A group or call that opens to show the match asks for a render here, so the highlights and
+  // the scroll below see its text.
+  const [, setRevealed] = useState(0);
+  const findReveal = useMemo(
+    () =>
+      findTarget && findQuery
+        ? {
+            rowId: findTarget.rowId,
+            needle: findQuery.toLocaleLowerCase(),
+            repaint: () => setRevealed((count) => count + 1),
+          }
+        : undefined,
+    [findTarget, findQuery],
+  );
+  const revealUntil = useRef(0);
   useLayoutEffect(() => {
     revealing.current = targetKey;
+    revealUntil.current = performance.now() + FIND_REVEAL_MS;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
-    const top = layout.tops[findTarget.rowIndex];
-    const bottom = top + layout.heights[findTarget.rowIndex];
+    const top = layout.tops[findIndex];
+    const bottom = top + layout.heights[findIndex];
     if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -1228,10 +1265,18 @@ export function VirtualTranscript({
     if (!findQuery) return clearFindHighlights();
     const current = paintFindHighlights(node, findQuery, findTarget);
     if (!current || revealing.current !== targetKey) return;
-    revealing.current = undefined;
-    const box = current.getBoundingClientRect();
-    const view = node.getBoundingClientRect();
-    if (box.top < view.top || box.bottom > view.bottom) node.scrollTop += box.top - view.top - node.clientHeight / 3;
+    // A match in a closed group is drawn before the group opens (with no size), and it moves as the
+    // opened parts and the rows above it measure, so it is kept in view for a moment.
+    if (performance.now() > revealUntil.current) {
+      revealing.current = undefined;
+      return;
+    }
+    if (current.getBoundingClientRect().height === 0) return;
+    // Inner scrollers first (a command's output scrolls on its own), then the transcript.
+    for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
+      if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+        scrollRangeIn(box, current);
+    scrollRangeIn(node, current);
   });
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.
@@ -1311,52 +1356,54 @@ export function VirtualTranscript({
           width={width}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-          <div ref={thread} className="acpmux-thread">
-            {rows.slice(range.first, range.last).map((row, index) => {
-              const absoluteIndex = range.first + index;
-              const kind = rowKind(row);
-              const Component = registry[kind] ?? NoticeRow;
-              const isExpanded = expanded.has(row.id);
-              const controls =
-                row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
-              return (
-                <RowFrame
-                  key={`${sessionId ?? ""}:${row.id}`}
-                  row={row}
-                  kind={kind}
-                  index={absoluteIndex}
-                  setSize={canLoadOlder ? -1 : rows.length}
-                  top={layout.tops[absoluteIndex]}
-                  rowWidth={transcriptRowWidth(width)}
-                  expanded={isExpanded}
-                  observer={observer}
-                  report={reportDrawn}
-                  enter={enteringRows.current.has(row.id)}
-                  onEntered={onEntered}
-                  active={effectiveActiveRowId === row.id}
-                  selected={selectedRows.has(absoluteIndex)}
-                  tabStop={tabStopId === row.id}
-                  onFocus={() => rowFocus(row.id)}
-                  onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
-                  copyable={transcriptHasFloatingCopy(row)}
-                  onCopy={() =>
-                    copyRows(selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id])
-                  }
-                >
-                  <Component
+        <FindReveal.Provider value={findReveal}>
+          <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
+            <div ref={thread} className="acpmux-thread">
+              {rows.slice(range.first, range.last).map((row, index) => {
+                const absoluteIndex = range.first + index;
+                const kind = rowKind(row);
+                const Component = registry[kind] ?? NoticeRow;
+                const isExpanded = expanded.has(row.id);
+                const controls =
+                  row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
+                return (
+                  <RowFrame
+                    key={`${sessionId ?? ""}:${row.id}`}
                     row={row}
-                    onToggleActivity={onToggleActivity}
-                    onOpenDiff={onOpenDiff}
+                    kind={kind}
+                    index={absoluteIndex}
+                    setSize={canLoadOlder ? -1 : rows.length}
+                    top={layout.tops[absoluteIndex]}
+                    rowWidth={transcriptRowWidth(width)}
                     expanded={isExpanded}
-                    controls={controls}
-                    githubRepository={githubRepository}
-                  />
-                </RowFrame>
-              );
-            })}
+                    observer={observer}
+                    report={reportDrawn}
+                    enter={enteringRows.current.has(row.id)}
+                    onEntered={onEntered}
+                    active={effectiveActiveRowId === row.id}
+                    selected={selectedRows.has(absoluteIndex)}
+                    tabStop={tabStopId === row.id}
+                    onFocus={() => rowFocus(row.id)}
+                    onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                    copyable={transcriptHasFloatingCopy(row)}
+                    onCopy={() =>
+                      copyRows(selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id])
+                    }
+                  >
+                    <Component
+                      row={row}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      expanded={isExpanded}
+                      controls={controls}
+                      githubRepository={githubRepository}
+                    />
+                  </RowFrame>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </FindReveal.Provider>
       </div>
       {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
     </>
@@ -1721,17 +1768,21 @@ function AcpmuxPane() {
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
     [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName],
   );
-  const transcriptRows = useMemo(() => {
-    if (childRows) return childRows;
+  // The chat's rows before turns fold their work, which Find searches (a closed fold included).
+  const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
-    const rows = groups?.supported
+    return groups?.supported
       ? snapshot.rows.filter(
           (row) =>
             row.kind !== "permission" ||
             (!row.permission?.groupId && !groupedIds.has(row.permission?.permissionId ?? "")),
         )
       : snapshot.rows;
+  }, [snapshot.rows, snapshot.permissionGroups]);
+  const transcriptRows = useMemo(() => {
+    if (childRows) return childRows;
+    const rows = sourceRows;
     return withMoveRows(
       withShellRows(
         withSubagentRows(
@@ -1742,16 +1793,7 @@ function AcpmuxPane() {
       ),
       sessionMoves,
     );
-  }, [
-    childRows,
-    snapshot.rows,
-    expanded,
-    snapshot.isWorking,
-    snapshot.clockOffsetMs,
-    snapshot.permissionGroups,
-    chatShellRuns,
-    sessionMoves,
-  ]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
   /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
   const lineage = useMemo(
     () => ({
@@ -1766,7 +1808,22 @@ function AcpmuxPane() {
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // Find in Chat over the transcript; the page actions read it through `findRef`.
-  const find = useChatFind(transcriptRows);
+  const findRows = childRows ?? sourceRows;
+  const find = useChatFind(findRows);
+  // A match in a turn's closed "Worked for" opens it, so the transcript draws the row.
+  const findTarget = find.open ? find.matches[find.active] : undefined;
+  // Before paint, so the transcript scrolls to the match in the same frame.
+  useLayoutEffect(() => {
+    if (!findTarget || childRows || transcriptRows.some((row) => isFindRow(row, findTarget.rowId))) return;
+    const user = findRows
+      .slice(0, findTarget.rowIndex + 1)
+      .reverse()
+      .find((row) => row.kind === "user");
+    if (!user) return;
+    const fold = `${WORKED}-${user.id}`;
+    setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
+  }, [findTarget?.rowId, findTarget?.occurrence]);
   const findRef = useRef(find);
   findRef.current = find;
   const [inspectorOpen, setInspectorOpen] = useState(false);
