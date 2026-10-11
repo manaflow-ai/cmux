@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { loadGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
@@ -38,11 +39,10 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
   test("stops a running turn and restores Send after the host snapshot", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`);
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    await loadGalleryFrame(
+      page,
+      `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`,
+    );
 
     const state = await page.evaluate(() => ({
       send: document.querySelector('button[aria-label="Send"]') !== null,
