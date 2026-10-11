@@ -12,7 +12,7 @@ steps the window size 50 times. After every step it reads `debug.layers` and
 fails when:
 
 - one view was laid out more than its window's LayoutPassGuard limit
-  (16, lower in a window of few views) in one run-loop turn (`layout_passes.max_in_one_turn`), or the guard caught a loop;
+  (16, lower in a window of few views) in one window layout (`layout_passes.max_in_one_turn`), or the guard caught a loop;
 - a plane is out of sync with its home (`planes[].in_sync`: the plane's
   frame vs the root's rect in window coordinates; this is the ring offset
   an ancestor move caused), a ring is off its rounded content rect, or the
@@ -81,7 +81,7 @@ def check(step, app, results):
     bound = passes.get("max_window_limit") or passes.get("bound", 16)
     worst = passes.get("max_in_one_turn", 0)
     if worst > bound:
-        failures.append("%s: a %s in %s was laid out %s times in one turn (window limit %s)" % (
+        failures.append("%s: a %s in %s was laid out %s times in one window layout (window limit %s)" % (
             step, passes.get("max_view_class"), passes.get("max_window_class"), worst, bound))
     for loop in passes.get("loops") or []:
         failures.append("%s: layout loop in %s (%s)" % (step, loop.get("view_class"), " < ".join(loop.get("ancestry") or [])))
