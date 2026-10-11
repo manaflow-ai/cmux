@@ -7,6 +7,8 @@ Behaviour per prompt text:
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
+  "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 
@@ -380,6 +382,25 @@ def handle_prompt(rid, params):
                 cancelled.discard(sid)
                 send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                 return
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "answer-then-exit" answers, then the agent exits between turns.
+    if text == "answer-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answered"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        time.sleep(0.3)
+        os._exit(0)
+    # "until-cancel-then-exit" is "until-cancel", then the agent exits between
+    # turns: a chat whose process is gone with no answer.
+    if text == "until-cancel-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                time.sleep(0.3)
+                os._exit(0)
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
