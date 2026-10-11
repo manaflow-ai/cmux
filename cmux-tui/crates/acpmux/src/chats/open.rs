@@ -37,7 +37,7 @@ pub struct StoreProfile {
     pub codex: Option<PathBuf>,
 }
 
-/// The Claude and Codex profiles that can adopt, with the stores their
+/// The Claude, Codex and OpenCode profiles that can adopt, with the stores their
 /// spawn env names: the profile's env, then its own defaults entry, then its
 /// family's defaults, then the daemon's homes.
 pub fn store_profiles(config: &Config, homes: &HarnessHomes) -> Vec<StoreProfile> {
@@ -48,7 +48,7 @@ pub fn store_profiles(config: &Config, homes: &HarnessHomes) -> Vec<StoreProfile
         .filter(|(_, profile)| profile.kind != HarnessKind::Terminal)
         .filter_map(|(name, profile)| {
             let family = derive_family(name, profile);
-            if family != "claude" && family != "codex" {
+            if family != "claude" && family != "codex" && family != "opencode" {
                 return None;
             }
             let layers = [
@@ -171,6 +171,8 @@ fn family_profile(harness: AdapterKind, profiles: &[StoreProfile]) -> Option<&st
     let family = match harness {
         AdapterKind::ClaudeCode => "claude",
         AdapterKind::Codex => "codex",
+        // OpenCode keeps every chat in one data dir: any opencode profile loads it.
+        AdapterKind::OpenCode => "opencode",
         _ => return None,
     };
     profiles
