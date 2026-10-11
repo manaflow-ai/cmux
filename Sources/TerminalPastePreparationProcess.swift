@@ -97,10 +97,13 @@ actor TerminalPastePreparationProcess {
     private func startReadinessSource() {
         guard let readinessPipe, let readinessSignal else { return }
         try? readinessPipe.fileHandleForWriting.close()
-        let descriptor = dup(readinessPipe.fileHandleForReading.fileDescriptor)
+        let descriptor = fcntl(
+            readinessPipe.fileHandleForReading.fileDescriptor,
+            F_DUPFD_CLOEXEC,
+            0
+        )
         try? readinessPipe.fileHandleForReading.close()
         guard descriptor >= 0 else { return }
-        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
         let source = DispatchSource.makeReadSource(
             fileDescriptor: descriptor,
             queue: .global(qos: .userInitiated)

@@ -43,7 +43,12 @@ struct TerminalPasteWorkerStartupDeadlineTests {
             response: .terminal(.insertText("never delivered"))
         )
         defer { worker.remove() }
-        let service = worker.service(deadline: .seconds(1))
+        // Longer than the bound below: only the readiness restart can end
+        // this paste within it.
+        let service = worker.service(
+            deadline: .seconds(1),
+            workerStartupAllowance: .seconds(30)
+        )
         let started = ContinuousClock.now
 
         let outcome = await service.prepareReportingFailure(
