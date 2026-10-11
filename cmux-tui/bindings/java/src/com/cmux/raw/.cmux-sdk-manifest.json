@@ -636,6 +636,11 @@
       "size": 2863
     },
     {
+      "path": "ConversationDraftEvent.java",
+      "sha256": "c2686c4e6add2e2991edcff8c7f3ed9a8ed6c296ec3d82f74b4795684739ac4a",
+      "size": 3901
+    },
+    {
       "path": "ConversationDraftRequest.java",
       "sha256": "041e37373ec547920c56418200e7b47f9f09f52d644d34a6ef845a4e86856169",
       "size": 8036
@@ -962,8 +967,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "84049781c764db094aa1b9a44f1574bcae4ec6e935edd77a552bf21bf6ff40fc",
-      "size": 14507
+      "sha256": "0e9b6ab69ef61445e01f7299376025d299b8b139be8c31a7929f019e90468983",
+      "size": 14733
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1712,8 +1717,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "7463c520d22cf753d4ddf33f4109080aed30bb837015b0e7b0d16d8c7cbcd9d9",
-      "size": 6066
+      "sha256": "d5a6aa18efcfd20cf997ae2c8b322b52a82b226ec5ebf2de948a1a4c10df33fa",
+      "size": 6147
     },
     {
       "path": "ProtocolEvent.java",
@@ -2932,7 +2937,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce",
+  "ir_sha256": "2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
