@@ -105,6 +105,8 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.missingAgentID: "invalid_params"
     case SessionTransferService.Failure.agentNotOpened: "unavailable"
     case SessionTransferService.Failure.chatNotMoved: "unavailable"
+    case SessionTransferService.Failure.chatInChats: "unavailable"
+    case SessionTransferService.Failure.sourceAgentsStopped: "unavailable"
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))

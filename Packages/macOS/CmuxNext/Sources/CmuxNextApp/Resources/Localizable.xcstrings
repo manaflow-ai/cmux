@@ -7879,6 +7879,138 @@
         }
       }
     },
+    "sessionTransfer.error.sourceAgentsStopped": {
+      "comment": "session.transfer.pull of an agent chat: the source cmux build's agent service (acpmux) does not answer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other build's agent service is not running. Open that build's chat once, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة الوكلاء في الإصدار الآخر لا تعمل. افتح محادثة ذلك الإصدار مرة واحدة، ثم حاول مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servis agenata druge verzije nije pokrenut. Jednom otvorite chat te verzije, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den anden builds agenttjeneste kører ikke. Åbn den builds chat én gang, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Dienst des anderen Builds läuft nicht. Öffne den Chat dieses Builds einmal und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de agentes de la otra compilación no se está ejecutando. Abre una vez el chat de esa compilación y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service d’agents de l’autre build n’est pas lancé. Ouvrez une fois la discussion de ce build, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio agenti dell’altra build non è in esecuzione. Apri una volta la chat di quella build, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一方のビルドのエージェントサービスが動いていません。そのビルドのチャットを一度開いてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាភ្នាក់ងាររបស់កំណែផ្សេងមិនកំពុងដំណើរការទេ។ សូមបើកការជជែករបស់កំណែនោះម្តង រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 빌드의 에이전트 서비스가 실행 중이 아닙니다. 그 빌드의 채팅을 한 번 연 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten i den andre builden kjører ikke. Åpne chatten i den builden én gang, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa agentów drugiej wersji nie działa. Otwórz raz czat tamtej wersji i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de agentes da outra versão não está em execução. Abra o chat dessa versão uma vez e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентов другой сборки не запущена. Откройте один раз чат той сборки и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเอเจนต์ของบิลด์อื่นไม่ได้ทำงาน เปิดแชตของบิลด์นั้นหนึ่งครั้ง แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer derlemenin ajan hizmeti çalışmıyor. O derlemenin sohbetini bir kez açın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентів іншої збірки не запущена. Відкрийте один раз чат тієї збірки й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ tác nhân của bản dựng kia không chạy. Hãy mở cuộc trò chuyện của bản dựng đó một lần rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个版本的代理服务未运行。请先在该版本中打开一次聊天，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個版本的代理服務未執行。請先在該版本中開啟一次聊天，然後再試一次。"
+          }
+        }
+      }
+    },
     "sessionTransfer.error.agentNotOpened": {
       "extractionState": "manual",
       "localizations": {
@@ -8006,6 +8138,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式聊天未在 cmux-next 中開啟，因此來源保持不變。"
+          }
+        }
+      }
+    },
+    "sessionTransfer.error.chatInChats": {
+      "comment": "session.transfer.pull: the agent chat is in this build's agent service (or still moving there) but no tab opened. Chats is the sidebar's chat list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent chat moved to this build but its tab did not open yet. Open it from Chats."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتقلت محادثة الوكيل إلى هذا الإصدار لكن علامة تبويبها لم تُفتح بعد. افتحها من المحادثات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chat je premješten u ovu verziju, ali se njegova kartica još nije otvorila. Otvorite ga iz Chatova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatten blev flyttet til denne build, men dens fane er ikke åbnet endnu. Åbn den fra Chats."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Chat wurde in diesen Build verschoben, sein Tab ist aber noch nicht geöffnet. Öffne ihn über „Chats“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat del agente se movió a esta compilación, pero su pestaña aún no se abrió. Ábrelo desde Chats."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La discussion d’agent a été déplacée vers ce build, mais son onglet ne s’est pas encore ouvert. Ouvrez-la depuis Discussions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat dell’agente è stata spostata in questa build, ma la sua scheda non si è ancora aperta. Aprila da Chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットはこのビルドに移動しましたが、タブはまだ開いていません。チャットから開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែករបស់ភ្នាក់ងារបានផ្លាស់ទីមកកំណែនេះ ប៉ុន្តែផ្ទាំងរបស់វាមិនទាន់បើកនៅឡើយ។ សូមបើកវាពីការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅이 이 빌드로 옮겨졌지만 탭이 아직 열리지 않았습니다. 채팅에서 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatten ble flyttet til denne builden, men fanen er ikke åpnet ennå. Åpne den fra Chatter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat agenta został przeniesiony do tej wersji, ale jego karta jeszcze się nie otworzyła. Otwórz go z Czatów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat do agente foi movido para esta versão, mas a aba dele ainda não abriu. Abra-o em Chats."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента перенесён в эту сборку, но его вкладка ещё не открылась. Откройте его из «Чатов»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายแชตเอเจนต์มายังบิลด์นี้แล้ว แต่แท็บของแชตยังไม่เปิด เปิดได้จากแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbeti bu derlemeye taşındı ancak sekmesi henüz açılmadı. Sohbetler’den açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента перенесено до цієї збірки, але його вкладка ще не відкрилася. Відкрийте його з «Чатів»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện của tác nhân đã được chuyển sang bản dựng này nhưng thẻ của nó chưa mở. Hãy mở từ Trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天已移到此版本，但其标签页尚未打开。请从“聊天”中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天已移到此版本，但其分頁尚未開啟。請從「聊天」中開啟。"
           }
         }
       }

@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import Darwin
 import Foundation
 
 /// Agent chats between builds (`chat` records): the chat moves from the source build's acpmux to
@@ -7,8 +8,8 @@ import Foundation
 /// `hub/transfer_out.rs`), then opens here as a conversation tab. Builds that share one acpmux
 /// (Release and NIGHTLY share `~/.acpmux`) move only the tab.
 extension SessionTransferService {
-    /// How long `acpmux transfer` may take; it stays under `session.transfer.pull`'s deadline so
-    /// the move ends (or gives the chat back) on its own.
+    /// How long a pull waits for `acpmux transfer`. A move still running then is left to finish
+    /// (or give the chat back) on its own: ended midway, the source chat would stay frozen.
     static let chatMoveLimit: Duration = .seconds(240)
 
     /// This build's chats another build can take, by tab id: chats of this Mac's acpmux (not the
@@ -27,25 +28,43 @@ extension SessionTransferService {
         services.flatMap(QuitAgents.environment)
     }
 
-    /// Moves chat `item` into this build's acpmux and returns its session here. Its running turn
+    /// Moves chat `item` from `peer` and opens it here; the source tab closes once the chat is
+    /// here, even when its tab could not open (the source copy is closed by then).
+    func moveChat(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool) async throws {
+        guard let services else { throw Failure.unavailable }
+        // Nothing moves unless its tab can open here.
+        guard services.agentTabs.canHost(on: services.daemon) else { throw Failure.agentNotOpened }
+        let session = try await takeChat(item, interrupt: interrupt)
+        do {
+            _ = try await openChat(session, title: item.title)
+        } catch {
+            try? await completeOnPeer(item: item, peer: peer)
+            throw Failure.chatInChats
+        }
+        try await completeOnPeer(item: item, peer: peer)
+    }
+
+    /// Brings chat `item` into this build's acpmux and returns its session here. Its running turn
     /// stops when `interrupt`, else the move is refused. A failed move leaves it in the source.
-    func moveChat(_ item: SessionTransferItem, interrupt: Bool) async throws -> String {
+    private func takeChat(_ item: SessionTransferItem, interrupt: Bool) async throws -> String {
         guard let session = item.agentSessionID, let socket = item.acpmuxSocket else { throw Failure.missingAgentID }
         guard let services, let own = acpmuxEnvironment() else { throw Failure.unavailable }
-        if socket == own.socketPath { return session }
-        // `/tmp` is shared, and the source's daemon hands this one the chat's files.
-        guard Self.isOwnedSocket(socket) else { throw Failure.peerRefused }
+        if Self.sameFile(socket, own.socketPath) { return session }
         try await (services.agentTabs.localSessionHost ?? services.agentTabs.host).prewarm()
+        // An earlier pull moved it here already (its tab did not open, or the source did not close).
+        if await Self.hasOpenChat(session, in: own) { return session }
+        // `/tmp` is shared and the source's daemon hands this one the chat's files; a socket no
+        // daemon answers would make `acpmux transfer` start this build's acpmux in its home.
+        guard Self.isOwnedSocket(socket) else { throw Failure.peerRefused }
+        guard Self.answers(socket) else { throw Failure.sourceAgentsStopped }
         var environment = ProcessInfo.processInfo.environment
         environment["ACPMUX_SOCKET"] = socket
         if let home = item.acpmuxHome { environment["ACPMUX_HOME"] = home }
         let arguments = ["--json", "transfer", session, "--to", own.socketPath] + (interrupt ? ["--interrupt"] : [])
-        let result = try await ProcessRunner.run(executable: own.executable, arguments: arguments, environment: environment,
-                                                 timeout: Self.chatMoveLimit, clock: ContinuousClock())
-        guard result.status == 0 else {
-            let reason = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw Failure.chatNotMoved(reason.isEmpty ? "acpmux exited with \(result.status)" : reason)
+        guard let result = await Self.runToEnd(own.executable, arguments, environment: environment, limit: Self.chatMoveLimit) else {
+            throw Failure.chatInChats
         }
+        guard result.status == 0 else { throw Failure.chatNotMoved(Self.acpmuxReason(result.stderr, status: result.status)) }
         let moved = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any]
         return moved?["sessionId"] as? String ?? session
     }
@@ -63,8 +82,95 @@ extension SessionTransferService {
         var spawn = WorkspaceSpawn(name: title.isEmpty ? nil : title)
         spawn.firstSession = session
         let id = try await services.windows.createWorkspace(spawn, into: target)
-        // As for `agent` records: the source closes only for an opened conversation tab.
         guard try await hasConversationTab(id) else { throw Failure.agentNotOpened }
         return id
+    }
+
+    /// Whether `environment`'s acpmux has chat `session`, not closed.
+    private nonisolated static func hasOpenChat(_ session: String, in environment: AcpmuxEnvironment) async -> Bool {
+        var variables = ProcessInfo.processInfo.environment
+        variables.merge(environment.childEnvironment) { $1 }
+        guard let result = try? await ProcessRunner.run(executable: environment.executable, arguments: ["--json", "info", session],
+                                                        environment: variables, timeout: .seconds(10), clock: ContinuousClock()),
+              result.status == 0,
+              let info = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any] else { return false }
+        return info["status"] as? String != "closed"
+    }
+
+    /// acpmux's message from its `--json` error line (the last line of `stderr`), else the text.
+    private nonisolated static func acpmuxReason(_ stderr: Data, status: Int32) -> String {
+        let text = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = text.split(separator: "\n").last.map(String.init) ?? ""
+        if let line = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any],
+           let message = (line["error"] as? [String: Any])?["message"] as? String ?? line["error"] as? String {
+            return message
+        }
+        return text.isEmpty ? "acpmux exited with \(status)" : text
+    }
+
+    /// Whether two paths name one file (a socket reached as `/tmp/…` and `/private/tmp/…`).
+    private nonisolated static func sameFile(_ a: String, _ b: String) -> Bool {
+        var first = stat(), second = stat()
+        guard stat(a, &first) == 0, stat(b, &second) == 0 else { return a == b }
+        return first.st_dev == second.st_dev && first.st_ino == second.st_ino
+    }
+
+    /// Whether a daemon accepts connections on unix socket `path`.
+    private nonisolated static func answers(_ path: String) -> Bool {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return false }
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+            raw.copyBytes(from: bytes)
+            raw[bytes.count] = 0
+        }
+        return withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
+            }
+        }
+    }
+
+    /// Runs `executable` and returns its exit status and output, or nil when it is still running
+    /// after `limit`; it is never ended early (nor when the caller is cancelled). Output goes to
+    /// files, so a daemon it starts cannot hold an end-of-file wait open.
+    private nonisolated static func runToEnd(_ executable: URL, _ arguments: [String], environment: [String: String],
+                                             limit: Duration) async -> (status: Int32, stdout: Data, stderr: Data)? {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-transfer-\(UUID().uuidString)")
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else { return nil }
+        let stdoutURL = directory.appendingPathComponent("stdout"), stderrURL = directory.appendingPathComponent("stderr")
+        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        guard let stdout = try? FileHandle(forWritingTo: stdoutURL), let stderr = try? FileHandle(forWritingTo: stderrURL) else { return nil }
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdout
+        process.standardError = stderr
+        let exited = AsyncStream<Int32> { continuation in
+            process.terminationHandler = { continuation.yield($0.terminationStatus); continuation.finish() }
+        }
+        do { try process.run() } catch { return nil }
+        try? stdout.close()
+        try? stderr.close()
+        let status = await withTaskGroup(of: Int32?.self) { group in
+            group.addTask { await exited.first { _ in true } }
+            group.addTask {
+                // wakeup-allow: one-shot deadline (how long a pull waits for the move)
+                try? await Task.sleep(for: limit)
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? nil
+        }
+        guard let status else { return nil }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        return (status, (try? Data(contentsOf: stdoutURL)) ?? Data(), (try? Data(contentsOf: stderrURL)) ?? Data())
     }
 }

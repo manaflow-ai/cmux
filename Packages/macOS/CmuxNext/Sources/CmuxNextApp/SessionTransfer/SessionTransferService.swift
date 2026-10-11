@@ -186,12 +186,8 @@ final class SessionTransferService {
     }
 
     private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool) async throws {
-        if item.kind == .chat {
-            let session = try await moveChat(item, interrupt: interrupt)
-            _ = try await openChat(session, title: item.title)
-        } else {
-            _ = try await create(item)
-        }
+        if item.kind == .chat { return try await moveChat(item, from: peer, interrupt: interrupt) }
+        _ = try await create(item)
         try await completeOnPeer(item: item, peer: peer)
     }
 
@@ -288,7 +284,7 @@ final class SessionTransferService {
         return listed.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens.first?.layout.paneIDs.first
     }
 
-    private func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer) async throws {
+    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer) async throws {
         do {
             _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete",
                                                     params: ["surfaces": .array([.string(item.sourceSurface)])])
@@ -310,86 +306,6 @@ final class SessionTransferService {
                 ])
             }
         }
-    }
-
-    /// Classic's `workspace.list` covers one window, so walk `window.list`.
-    private static func discoverClassicItems(path: String) async -> [SessionTransferItem] {
-        let windows = (try? await ControlPeerClient.request(path: path, method: "window.list"))?["windows"]?.arrayValue ?? []
-        let windowIDs: [String?] = windows.isEmpty ? [nil] : windows.compactMap { $0["id"]?.stringValue }
-        var items: [SessionTransferItem] = []
-        for windowID in windowIDs {
-            let windowParams: [String: TransferJSONValue] = windowID.map { ["window_id": .string($0)] } ?? [:]
-            guard let result = try? await ControlPeerClient.request(path: path, method: "workspace.list", params: windowParams),
-                  let workspaces = result["workspaces"]?.arrayValue else { continue }
-            for workspace in workspaces {
-                guard let object = workspace.objectValue,
-                      let workspaceID = object["id"]?.stringValue ?? object["ref"]?.stringValue else { continue }
-                let fallbackCWD = object["current_directory"]?.stringValue
-                var params = windowParams
-                params["workspace_id"] = .string(workspaceID)
-                guard let result = try? await ControlPeerClient.request(path: path, method: "surface.list", params: params),
-                      let surfaces = result["surfaces"]?.arrayValue else { continue }
-                for surface in surfaces {
-                    guard let item = Self.classicItem(surface, workspace: workspaceID, fallbackCWD: fallbackCWD) else { continue }
-                    items.append(item)
-                }
-            }
-        }
-        return items
-    }
-
-    private static func classicItem(_ value: TransferJSONValue, workspace: String, fallbackCWD: String?) -> SessionTransferItem? {
-        guard let object = value.objectValue,
-              let sourceSurface = object["id"]?.stringValue ?? object["ref"]?.stringValue else { return nil }
-        let type = object["type"]?.stringValue ?? ""
-        guard type == "terminal" || type == "pty" else { return nil }
-        let binding = object["resume_binding"]?.objectValue
-        // Classic keeps the agent's session id inside its resume command
-        // (`claude --resume <id>`, `codex resume <id>`).
-        let harness = binding?["kind"]?.stringValue.flatMap { ["claude", "codex"].contains($0) ? $0 : nil }
-        let session = harness.flatMap { harness in
-            [binding?["command"]?.stringValue, binding?["launch_command"]?.stringValue]
-                .lazy.compactMap { Self.agentSessionID(harness: harness, command: $0) }.first
-        }
-        let isAgent = harness != nil && session != nil
-        let command = object["initial_command"]?.stringValue ?? binding?["command"]?.stringValue
-        // Only an SSH command is replayed; a classic terminal's other launch
-        // command may be one-shot (a deploy), so it reopens as a shell.
-        let cwd = object["requested_working_directory"]?.stringValue ?? binding?["cwd"]?.stringValue ?? fallbackCWD
-        let sshTarget = object["ssh_target"]?.stringValue ?? Self.sshTarget(from: command)
-        let title = object["title"]?.stringValue ?? ""
-        return SessionTransferItem(sourceSurface: sourceSurface, workspace: workspace,
-                                   kind: isAgent ? SessionTransferItem.Kind.agent : SessionTransferItem.Kind.terminal, title: title, cwd: cwd,
-                                   sshTarget: sshTarget, command: nil,
-                                   agentHarness: isAgent ? harness : nil,
-                                   agentSessionID: isAgent ? session : nil)
-    }
-
-    /// The session id in a classic resume command: `claude --resume|-r|--session-id <id>`
-    /// or `codex resume <id>`.
-    static func agentSessionID(harness: String, command: String?) -> String? {
-        guard let command else { return nil }
-        let tokens = command.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "'\"")) }
-        let flags: Set<String> = harness == "codex" ? ["resume"] : ["--resume", "-r", "--session-id"]
-        guard let index = tokens.firstIndex(where: flags.contains), index + 1 < tokens.count else { return nil }
-        let id = tokens[index + 1]
-        return id.isEmpty || id.hasPrefix("-") ? nil : id
-    }
-
-    private static func sshTarget(from command: String?) -> String? {
-        guard let command else { return nil }
-        let tokens = command.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-        guard let index = tokens.firstIndex(where: { $0 == "ssh" || $0.hasSuffix("/ssh") }) else { return nil }
-        var skipNext = false
-        for token in tokens.dropFirst(index + 1) {
-            if skipNext { skipNext = false; continue }
-            if token == "--" { continue }
-            if token == "-p" || token == "-o" || token == "-J" { skipNext = true; continue }
-            if token.hasPrefix("-") { continue }
-            return token.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        }
-        return nil
     }
 
     private static func isMissingTransferMethod(_ error: ControlPeerClient.Failure) -> Bool {
@@ -415,6 +331,12 @@ final class SessionTransferService {
             String(localized: "sessionTransfer.error.peerRefused",
                    defaultValue: "The other cmux build only accepts connections from its own terminals. Set its socket control mode to Automation, then try again.",
                    bundle: .module)
+        case Failure.chatInChats:
+            String(localized: "sessionTransfer.error.chatInChats",
+                   defaultValue: "The agent chat moved to this build but its tab did not open yet. Open it from Chats.", bundle: .module)
+        case Failure.sourceAgentsStopped:
+            String(localized: "sessionTransfer.error.sourceAgentsStopped",
+                   defaultValue: "The other build's agent service is not running. Open that build's chat once, then try again.", bundle: .module)
         case Failure.chatNotMoved(let reason):
             String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module)
         case Failure.invalidSurfaces:
@@ -430,6 +352,10 @@ final class SessionTransferService {
         case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused, agentNotOpened
         /// acpmux refused or failed the move (its message); the chat stays in the source build.
         case chatNotMoved(String)
+        /// The chat is (or is still moving) here, with no tab yet.
+        case chatInChats
+        /// The source build's acpmux does not answer.
+        case sourceAgentsStopped
     }
 }
 
