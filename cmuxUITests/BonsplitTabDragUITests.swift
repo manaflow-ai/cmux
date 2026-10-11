@@ -972,8 +972,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         let firstActionButton = app.descendants(matching: .any)
             .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
             .firstMatch
-        let lastActionButton = app.descendants(matching: .any)
-            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-\(actionButtonCount)")
+        let firstActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
             .firstMatch
 
         hover(
@@ -1001,6 +1001,79 @@ final class BonsplitTabDragUITests: XCTestCase {
             window.frame.maxX + 1,
             "Expected the rightmost custom action button to stay inside the window. window=\(window.frame) last=\(lastActionButton.frame)"
         )
+    }
+
+    func testNarrowPaneTabBarKeepsTrailingTabsClickableWhenActionsReveal() {
+        let actionButtonCount = 10
+        let (app, dataPath) = launchConfiguredApp(
+            startWithHiddenSidebar: true,
+            windowSize: "520x420",
+            actionButtonCount: actionButtonCount,
+            fourTabSetup: true
+        )
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for narrow pane-tab click UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let deltaTitle = ready["deltaTitle"] ?? "UITest Delta"
+        let gammaTab = app.buttons[gammaTitle]
+        let deltaTab = app.buttons[deltaTitle]
+        XCTAssertTrue(gammaTab.waitForExistence(timeout: 5.0), "Expected gamma tab to exist")
+        XCTAssertTrue(deltaTab.waitForExistence(timeout: 5.0), "Expected delta tab to exist")
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneSelectedTitle", equals: deltaTitle, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected the trailing delta tab to start selected. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        let lastActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-\(actionButtonCount)")
+            .firstMatch
+        hover(
+            in: window,
+            at: CGPoint(
+                x: min(window.frame.maxX - 24, deltaTab.frame.maxX + 40),
+                y: deltaTab.frame.midY
+            )
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) { firstActionButton.exists && firstActionButton.isHittable },
+            "Expected the narrow tab bar's trailing action lane to reveal. window=\(window.frame) gamma=\(gammaTab.frame) delta=\(deltaTab.frame) action=\(firstActionButton.debugDescription)"
+        )
+
+        for (tab, expectedTitle) in [(gammaTab, gammaTitle), (deltaTab, deltaTitle)] {
+            XCTAssertTrue(
+                waitForCondition(timeout: 2.0) { tab.exists && tab.isHittable },
+                "Expected \(expectedTitle) to remain hittable beside the revealed action lane. gamma=\(gammaTab.frame) delta=\(deltaTab.frame)"
+            )
+            tab.click()
+            XCTAssertTrue(
+                waitForJSONKey("trackedPaneSelectedTitle", equals: expectedTitle, atPath: dataPath, timeout: 5.0) != nil,
+                "Expected clicking \(expectedTitle) to select that trailing pane tab. data=\(loadJSON(atPath: dataPath) ?? [:])"
+            )
+            hover(
+                in: window,
+                at: CGPoint(
+                    x: min(window.frame.maxX - 24, tab.frame.maxX + 40),
+                    y: tab.frame.midY
+                )
+            )
+        }
     }
 
     private enum WorkspacePresentationMode: String {
