@@ -80,8 +80,7 @@ impl Hub {
             policy,
             remote,
         });
-        meta.session_env = session_env;
-        meta.chat_store = chat_store;
+        (meta.session_env, meta.chat_store) = (session_env, chat_store);
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -994,9 +993,7 @@ fn claude_resume_refusal(
     }
     let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
     if ran_elsewhere {
-        let mut env = profile.env.clone();
-        meta.apply_chat_store(&mut env);
-        let store = crate::adopt::HarnessHomes::from_env().with_env(&[&env]).claude;
+        let store = meta.claude_store(&profile.env);
         if !crate::adopt::claude_session_exists(&store, sid) {
             return Some("is not in this profile's Claude store");
         }

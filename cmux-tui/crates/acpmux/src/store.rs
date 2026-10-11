@@ -193,6 +193,14 @@ impl SessionMeta {
             env.insert(var.to_owned(), dir.to_string_lossy().into_owned());
         }
     }
+
+    /// The Claude store this session's harness reads when it spawns on a
+    /// profile with `env`.
+    pub fn claude_store(&self, env: &BTreeMap<String, String>) -> PathBuf {
+        let mut env = env.clone();
+        self.apply_chat_store(&mut env);
+        crate::adopt::HarnessHomes::from_env().with_env(&[&env]).claude
+    }
 }
 
 /// One chat store root a spawn's env named: `harness` is a chat index
