@@ -239,12 +239,14 @@ struct CloudWorkspaceCreationRevealTests {
                 return UUID()
             }
         )
-        let app = AppDelegate()
         let operations = CloudWorkspaceOperationController(isAvailable: { true })
-        app.cloudWorkspaceCoordinator = coordinator
-        app.cloudWorkspaceOperationController = operations
+        let previousAppDelegate = AppDelegate.shared
+        defer { AppDelegate.shared = previousAppDelegate }
         weak var closed: TabManager?
         do {
+            let app = AppDelegate()
+            app.cloudWorkspaceCoordinator = coordinator
+            app.cloudWorkspaceOperationController = operations
             let manager = TabManager(createInitialWorkspace: false, cloudWorkspaceSelection: coordinator.makeSelectionState())
             closed = manager
             let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
@@ -255,6 +257,10 @@ struct CloudWorkspaceCreationRevealTests {
             #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
             app.unregisterMainWindowContextForTesting(windowId: windowID)
             manager.finalizeAllWorkspacesForWindowClose()
+            // AppDelegate.shared is a strong test singleton. Restore it before
+            // leaving the scope so the orphaned route cannot keep this closed
+            // window's manager alive while the async create is paused.
+            AppDelegate.shared = previousAppDelegate
         }
         #expect(closed == nil, "A create in flight must not keep a closed window's manager alive")
         release.continuation.yield(())
