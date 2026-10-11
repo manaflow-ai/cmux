@@ -19,6 +19,12 @@ extension UpdateController {
     /// through Sparkle's own silent driver, not this app's driver (the update harness's
     /// `background` run, and what a scheduled check does).
     public func checkInBackground() {
+        guard !updater.sessionInProgress else {
+            // Sparkle ignores a check while a session runs (the launch probe): run it after.
+            log.append("background check queued behind the running session")
+            pendingBackgroundCheck = true
+            return
+        }
         log.append("background check requested")
         updater.checkForUpdatesInBackground()
     }

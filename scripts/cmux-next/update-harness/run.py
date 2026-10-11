@@ -182,6 +182,52 @@ def processes_under(root):
     return found
 
 
+def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, installed_path, old_pids, click_after_keep):
+    """The relaunched build updates again: v3 on the feed, a check, the staged click, the next relaunch."""
+    v2_pid = old_pids[-1]
+    v3 = os.path.join(work, "v3", name)
+    os.makedirs(os.path.dirname(v3))
+    run(["/usr/bin/ditto", a.app, v3])
+    i3 = plist_set(v3, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base + 2)}, harness)
+    archive = os.path.join(feed, "update3.zip")
+    run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", v3, archive])
+    signature = run(["swift", os.path.join(HERE, "keys.swift"), "sign", keys, archive])
+    short = i3.get("CFBundleShortVersionString", "0")
+    with open(os.path.join(feed, "appcast.xml"), "w") as f:
+        f.write(f"""<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>update harness</title>
+    <item>
+      <title>{short} ({i3['CFBundleVersion']})</title>
+      <pubDate>{time.strftime('%a, %d %b %Y %H:%M:%S +0000', time.gmtime())}</pubDate>
+      <sparkle:version>{i3['CFBundleVersion']}</sparkle:version>
+      <sparkle:shortVersionString>{short}</sparkle:shortVersionString>
+      <description><![CDATA[New: the second update]]></description>
+      <enclosure url="http://127.0.0.1:{a.port}/update3.zip" length="{os.path.getsize(archive)}" type="application/octet-stream" sparkle:edSignature="{signature}"/>
+    </item>
+  </channel>
+</rss>
+""")
+    if not wait_socket(sock, 60):
+        return {"result": "the relaunched app's socket did not open"}
+    rpc(sock, "action.run", {"id": CHECK_ACTION})
+    staged = marks.wait(lambda rows: first(rows, "phase.ready", pid=v2_pid) or first(rows, "phase.note", pid=v2_pid), a.stage_timeout)
+    if not staged or staged["name"] != "phase.ready":
+        return {"result": "v2 staged nothing", "status": rpc(sock, "updates.status")}
+    if click_after_keep:
+        marks.wait(lambda rows: first(rows, "keep_previous_end", pid=v2_pid), 120)
+    rpc(sock, "action.run", {"id": INSTALL_ACTION})
+    if wait_exit(v2_pid, 60) is None:
+        return {"result": "v2's install click did nothing", "status": rpc(sock, "updates.status")}
+    opened = marks.wait(lambda rows: next((r for r in rows if r["name"] == "launch.first_window_frame_committed"
+                                           and r["pid"] not in old_pids), None), a.relaunch_timeout)
+    with open(os.path.join(installed_path, "Contents/Info.plist"), "rb") as f:
+        installed = plistlib.load(f)["CFBundleVersion"]
+    return {"result": "updated" if opened and installed == i3["CFBundleVersion"] else "failed",
+            "v3_pid": opened and opened["pid"], "installed_build": installed, "v3_build": i3["CFBundleVersion"]}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", required=True)
@@ -201,6 +247,11 @@ def main():
                     help="v1 runs with SUAutomaticallyUpdate on and starts with Sparkle's scheduled background "
                          "check (Sparkle's own silent driver stages the update, as on a Mac whose nightly "
                          "preferences have automatic updates on)")
+    ap.add_argument("--break-staged", action="store_true",
+                    help="delete Sparkle's staged installation after the update stages: the install must fail "
+                         "visibly while the app runs (the failure sheet with Download Manually), never as a dead click")
+    ap.add_argument("--second-hop", action="store_true",
+                    help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     a = ap.parse_args()
@@ -329,10 +380,27 @@ def main():
         if terminal:
             terminal.start(v1)
             agent.start()
+        if a.break_staged:
+            staged_dir = os.path.join(os.environ["HOME"], "Library/Caches", i1["CFBundleIdentifier"],
+                                      "org.sparkle-project.Sparkle/Installation")
+            result["broken_staged"] = os.listdir(staged_dir) if os.path.isdir(staged_dir) else []
+            shutil.rmtree(staged_dir, ignore_errors=True)
         t_send = time.time()
         reply = rpc(sock, "action.run", {"id": INSTALL_ACTION})
         t_reply = time.time()
         log("install", json.dumps(reply)[:200])
+        if a.break_staged:
+            sheet = marks.wait(lambda rows: first(rows, "failure_content.*", pid=v1_pid), 60)
+            # A moment for the sheet to open after the failure state (it opens in the same turn).
+            presented = marks.wait(lambda rows: first(rows, "failure_sheet_presented", pid=v1_pid), 5)
+            result["break_staged"] = {"failure_content": sheet and sheet["name"], "sheet_presented": bool(presented),
+                                          "seconds_after_click": sheet and round(sheet["unix_ms"] / 1000 - t_send, 1),
+                                          "app_still_running": sessions_alive(v1_pid),
+                                       "status": rpc(sock, "updates.status") if sessions_alive(v1_pid) else None}
+            log("break staged", json.dumps(result["break_staged"])[:2000])
+            if not (sheet and presented and "downloadManually" in sheet["name"]):
+                raise SystemExit("the failed install did not open a failure sheet with Download Manually")
+            return
         t_exit = wait_exit(v1_pid, 60)
         if t_exit is None:
             # The click did nothing visible to the process: record what the updater says, then try
@@ -404,6 +472,10 @@ def main():
             result["v2_status"] = rpc(sock, "updates.status")
         except OSError as error:
             result["v2_socket_error"] = str(error)
+        if a.second_hop:
+            result["second_hop"] = second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, v1,
+                                              (v1_pid, v2_pid), click_after_keep=not a.click_at_stage)
+            log("second hop", json.dumps(result["second_hop"]))
     finally:
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
