@@ -2859,6 +2859,7 @@ function AcpmuxPane() {
       return next;
     });
   const loadReplay = useCallback(
+    // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
     [replaying],
   );
