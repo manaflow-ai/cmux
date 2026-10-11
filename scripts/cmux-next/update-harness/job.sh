@@ -17,6 +17,10 @@ if [[ -n "${NX_APP:-}" ]]; then
     exit 2
   }
   [[ -d "$NX_APP" ]] || { echo "job.sh: NX_APP $NX_APP is not an app" >&2; exit 1; }
+  [[ "${NX_APP_SOCKET:-}" == "/tmp/cmux-debug-$tag.sock" ]] || {
+    echo "job.sh: NX_APP_SOCKET ${NX_APP_SOCKET:-<unset>} is not /tmp/cmux-debug-$tag.sock, the socket run.py uses" >&2
+    exit 2
+  }
   app="$NX_APP"
   echo "job.sh: using the fleet-built app $app (no host build)"
 else
