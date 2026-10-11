@@ -911,7 +911,7 @@ async fn dispatch_request(
             )
         }
         method::MUX_DETACH => {
-            view::detach(hub, conn, &hub.resolve(session_key(&params)?)?);
+            view::detach(hub, conn, &*hub.resolve(session_key(&params)?)?);
             Ok(json!({}))
         }
         method::MUX_VIEW => view::view(hub, conn, &params),
