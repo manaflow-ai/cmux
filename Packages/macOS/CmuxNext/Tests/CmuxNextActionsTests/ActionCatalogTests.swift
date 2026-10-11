@@ -2,6 +2,14 @@ import CmuxNextActions
 import Foundation
 import Testing
 
+/// The committed action exports are compared only where CI checks them
+/// (`CMUX_CHECK_GENERATED_EXPORTS=1`: scripts/cmux-next/check-action-surfaces.sh)
+/// and rewritten under `CMUX_UPDATE_ACTION_SURFACES=1`. Elsewhere, on
+/// feat-cmux-next, the PR and base autofix regenerate them
+/// (scripts/cmux-next/regenerate-action-exports.sh), so no one does by hand.
+fileprivate let checksActionExports = ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"]
+    .contains { ProcessInfo.processInfo.environment[$0] == "1" }
+
 /// Catalog completeness against plans/cmux-next/inventory.md section 1.
 @Suite struct ActionCatalogTests {
     /// Every `KeyboardShortcutSettings.Action` ID named in the inventory. Users
@@ -83,7 +91,7 @@ import Testing
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() throws {
+    @Test(.enabled(if: checksActionExports)) func countsByDomainMatchInventory() throws {
         let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }

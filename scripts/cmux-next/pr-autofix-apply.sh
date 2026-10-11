@@ -18,7 +18,9 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     Packages/macOS/CmuxNext/ci-target-graph.json) return 0 ;;
     webviews/*) return 0 ;; # page strings and vp fmt
     cmux-tui/bindings/*) return 0 ;; # SDK wire layers
+    cmux-tui/crates/cmux-app-host/generated/*) return 0 ;; # the typed cmux global, scopes and ops
     web/data/cmux-shortcuts.generated.json) return 0 ;;
+    plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;

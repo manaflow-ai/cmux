@@ -3,6 +3,14 @@ import AppKit
 import Foundation
 import Testing
 
+/// The committed action exports are compared only where CI checks them
+/// (`CMUX_CHECK_GENERATED_EXPORTS=1`: scripts/cmux-next/check-action-surfaces.sh)
+/// and rewritten under `CMUX_UPDATE_ACTION_SURFACES=1`. Elsewhere, on
+/// feat-cmux-next, the PR and base autofix regenerate them
+/// (scripts/cmux-next/regenerate-action-exports.sh), so no one does by hand.
+fileprivate let checksActionExports = ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"]
+    .contains { ProcessInfo.processInfo.environment[$0] == "1" }
+
 /// The surface parity rule (plans/cmux-next/actions.md): every action is
 /// offered on the CLI, a right-click menu and the palette, or names why not.
 /// The catalog is finite, so each property below is checked for every
@@ -157,7 +165,7 @@ import Testing
     /// the catalog: surfaces, title and its localization key, default
     /// shortcut and chord. A changed title or shortcut fails here.
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` rewrites it.
-    @Test func exportIsFresh() throws {
+    @Test(.enabled(if: checksActionExports)) func exportIsFresh() throws {
         let url = Self.planURL("action-surfaces.json")
         let current = ActionSurfaceExport.json(catalog, titles: try Self.titleCatalog())
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
@@ -170,7 +178,7 @@ import Testing
     /// The generated block of plans/cmux-next/actions.md (counts, every
     /// menu in order, every exemption) matches the catalog, so menu order
     /// changes and new exemptions are reviewed as text.
-    @Test func reportIsFresh() throws {
+    @Test(.enabled(if: checksActionExports)) func reportIsFresh() throws {
         let url = Self.planURL("actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
         let current = ActionSurfaceReport(catalog, menus: .shared).markdown

@@ -14,6 +14,10 @@
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
+#   - the app-host generated files: cmux-tui/crates/cmux-app-host/generated
+#     (the typed cmux global, scopes and ops) from the operation catalogs, the
+#     action catalog export and the first-party apps' fragments
+#     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
 #     whose type is fixed or gone (shrink only; with --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
@@ -34,10 +38,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 app_host=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -45,14 +49,15 @@ while (( $# > 1 )); do
     --strings) strings=1; shift ;;
     --sdk) sdk=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
+    --app-host) app_host=1; shift ;;
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -138,6 +143,23 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]
     else
       echo "fixed: regenerated $shortcuts"
     fi
+  fi
+fi
+
+# 1e2. The app-host generated files, from the same export and the operation catalogs.
+app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
+if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
+  (cd "$repo" && bun "$app_host_gen" >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- cmux-tui/crates/cmux-app-host/generated | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun $app_host_gen)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
   fi
 fi
 
