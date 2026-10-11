@@ -255,7 +255,8 @@ struct CloudWorkspaceCreationRevealTests {
                 defer: false
             )
             closed = manager
-            app.registerMainWindowContextForTesting(tabManager: manager, window: window)
+            let windowID = app.registerMainWindowContextForTesting(tabManager: manager, window: window)
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
             // Resolve the test window through the same lifecycle index used by
             // AppKit before making it the active owner.
             _ = app.contextForMainWindow(window)
