@@ -24,11 +24,13 @@ use crate::app_identity::AppIdentity;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
+use page::parse_page;
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;
 mod keybinding;
 mod open;
+mod page;
 mod run;
 mod settings;
 mod skew;
@@ -339,72 +341,6 @@ fn parse_limit(value: &str, scope: &str) -> Result<u64, UsageError> {
         .ok_or_else(|| UsageError::new(messages.scope_usage.replace("{scope}", scope)))
 }
 
-/// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
-/// the mux grammar's.
-fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
-    let messages = &crate::localization::catalog().app_control;
-    let usage = || UsageError::new(messages.browser_page_usage);
-    let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
-    let mut params = Map::new();
-    if target != "page" {
-        params.insert("tab".into(), json!(target));
-    }
-    let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
-    let method = match (verb.as_str(), words.as_slice()) {
-        ("navigate" | "goto" | "open", [url]) => {
-            params.insert("url".into(), json!(url));
-            "browser.page.navigate"
-        }
-        ("back", []) => "browser.page.back",
-        ("forward", []) => "browser.page.forward",
-        ("reload", []) => "browser.page.reload",
-        ("state" | "url" | "title", []) => "browser.page.state",
-        ("eval", [script]) => {
-            params.insert("script".into(), json!(script));
-            "browser.page.eval"
-        }
-        ("snapshot", _) => {
-            let options = Options::parse(rest, &["selector", "max-depth"], &["interactive"])?;
-            if let Some(selector) = options.value("selector") {
-                params.insert("selector".into(), json!(selector));
-            }
-            if let Some(depth) = options.value("max-depth") {
-                let depth: u32 = depth.parse().map_err(|_| usage())?;
-                params.insert("max_depth".into(), json!(depth));
-            }
-            if options.flag("interactive") {
-                params.insert("interactive".into(), json!(true));
-            }
-            "browser.page.snapshot"
-        }
-        ("click" | "focus" | "text" | "value", [selector]) => {
-            params.insert("selector".into(), json!(selector));
-            match verb.as_str() {
-                "click" => "browser.page.click",
-                "focus" => "browser.page.focus",
-                "text" => "browser.page.text",
-                _ => "browser.page.value",
-            }
-        }
-        ("fill" | "type", [selector, text]) => {
-            params.insert("selector".into(), json!(selector));
-            params.insert("text".into(), json!(text));
-            if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
-        }
-        _ => return Err(usage()),
-    };
-    if verb != "snapshot" && words.len() != rest.len() {
-        return Err(usage());
-    }
-    Ok(AppCommand::Call {
-        method,
-        params: Value::Object(params),
-        timeout: Some(READ_TIMEOUT),
-        pick: None,
-    })
-}
-
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
 /// (`--wait` is the default), `--interactive`, and `--<argument> VALUE` for
 /// each schema argument (`--arg name=value` also works).
@@ -619,7 +555,10 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
-    let key = if method == "action.run" {
+    // Runs that may create or close something carry a key, so a retry is not a second run.
+    let keyed =
+        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
+    let key = if keyed.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
