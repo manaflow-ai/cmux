@@ -11,6 +11,11 @@
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 #
+# Files that serve the agent pane from its dev server (vite.config.acpmux-pane.mjs) run one at a
+# time after the rest: three of them starting at once (agent-history, agent-pane-peer-chat,
+# chat-find) stall in the dependency optimizer's first bundle and never load the page, even with
+# a dependency cache each, while each passes alone and any two pass together.
+#
 # Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
 # checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
 # current (scripts/ci/ensure-web-bundles.sh, which also provides the pinned bun), runs
@@ -98,9 +103,13 @@ if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD" >&2
   exit 1
 fi
-echo "running $count webviews test files, $jobs at a time, ${timeout_seconds}s each"
+xargs -0 grep -lZ -- vite.config.acpmux-pane.mjs < "$results/files" > "$results/serial" || true
+serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
+xargs -0 grep -LZ -- vite.config.acpmux-pane.mjs < "$results/files" > "$results/parallel" || true
+echo "running $count webviews test files, $jobs at a time ($serial agent pane dev server files one at a time after), ${timeout_seconds}s each"
 : > "$results/summary"
-xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/files"
+xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
+xargs -0 -P 1 -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/serial"
 
 failed=0
 while read -r result file log; do

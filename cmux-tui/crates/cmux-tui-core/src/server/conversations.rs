@@ -28,6 +28,9 @@ pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
 /// `conversation-draft`: the v1 command of `conversation.draft` for a bound
 /// agent connection (the Chief brain's link).
 pub const CONVERSATION_DRAFT_CAPABILITY: &str = "conversation-draft-v1";
+/// `thread_root` on `message.send` and on messages, and a send that moves
+/// the sender's own read cursor (cx-59n8.2).
+pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.

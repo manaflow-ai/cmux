@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import WebKit
+import CmuxNextWakeups
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
@@ -98,9 +99,8 @@ enum WindowHintTargets {
                     collection.answer(index, targets((value as? String) ?? "[]", in: page, clip: clip))
                 }
             }
-            // task-owner: the deadline; resuming twice is guarded by the collection.
-            Task { @MainActor in
-                try? await Task.sleep(for: pageDeadline)
+            // The deadline; resuming twice is guarded by the collection, which cancels it on finish.
+            collection.deadline.schedule(after: pageDeadline) { @MainActor in
                 collection.finish()
             }
         }
@@ -151,6 +151,7 @@ enum WindowHintTargets {
 @MainActor
 private final class PageCollection {
     var continuation: CheckedContinuation<[WindowHintTargets.Target], Never>?
+    let deadline = DemandTimer(owner: "WindowHintTargets.pageDeadline")
     private var answers: [[WindowHintTargets.Target]?]
 
     init(count: Int) { answers = Array(repeating: nil, count: count) }
@@ -161,6 +162,7 @@ private final class PageCollection {
     }
 
     func finish() {
+        deadline.cancel()
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(returning: answers.compactMap { $0 }.flatMap { $0 })

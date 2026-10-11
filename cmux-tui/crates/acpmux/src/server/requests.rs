@@ -115,7 +115,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -961,7 +961,13 @@ async fn dispatch_request(
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            hub.respond_permission(&s, pid, option, answers, answered_by, control).await?;
+            // An allow that is not the person's connection counted on its
+            // decision proof (`hub/person.rs`): the answer spends its nonce.
+            let nonce = mux_meta(&params)
+                .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
+                .and_then(Value::as_str)
+                .filter(|_| option.is_some() && !conn.is_person());
+            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

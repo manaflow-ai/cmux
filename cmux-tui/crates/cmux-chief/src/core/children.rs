@@ -139,6 +139,7 @@ impl Core {
                     reply_to: None,
                     answers: Vec::new(),
                     answers_pending: Vec::new(),
+                    thread_root: None,
                 },
                 child: Some(session.session_id.clone()),
             });

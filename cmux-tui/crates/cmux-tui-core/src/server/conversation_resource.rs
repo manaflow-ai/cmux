@@ -183,6 +183,7 @@ fn send(
         reply_to,
         answers: Vec::new(),
         answers_pending: Vec::new(),
+        thread_root: None,
     };
     let outcome = commit_op(mux, conversation, &key, principal, &op, &None)
         .map_err(|error| owner_error(operation, conversation, &key, error))?;

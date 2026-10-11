@@ -61,6 +61,7 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
         reply_to: None,
         answers: Vec::new(),
         answers_pending: Vec::new(),
+        thread_root: None,
         created_at: String::new(),
         edited_at: None,
         retracted_at: None,
