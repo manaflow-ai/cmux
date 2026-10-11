@@ -381,7 +381,11 @@ struct ModeBarButton: View {
 
     /// The tab switch's one curve: smooth, short and without overshoot, so
     /// tabs settle into their new widths instead of bouncing like a reorder.
-    static let switchAnimation = Animation.smooth(duration: 0.26)
+    static let switchAnimation = Animation.smooth(duration: 0.18)
+    /// The label's fade and the icon's glide start a layout pass after the
+    /// width change, so they run quicker and finish with it instead of
+    /// trailing behind the switch.
+    static let labelAnimation = Animation.easeOut(duration: 0.12)
 
     /// With its label hidden, the icon (and badge) moves into the middle of
     /// the label's empty slot, so it sits centered in the tab's highlight.
@@ -451,9 +455,9 @@ struct ModeBarButton: View {
         }
         .buttonStyle(.plain)
         // The label's fade and the icon's glide to or from the middle follow
-        // the width on the same curve. They change a layout pass after the
-        // width, so they carry their own animation rather than the switch's.
-        .animation(reduceMotion ? nil : Self.switchAnimation, value: labelFits)
+        // the width. They change a layout pass after the width, so they
+        // carry their own, quicker animation rather than the switch's.
+        .animation(reduceMotion ? nil : Self.labelAnimation, value: labelFits)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
