@@ -171,7 +171,11 @@ export function ChatHeaderTools({
                 className="acpmux-header-tool"
                 aria-label={t("header.preview")}
                 aria-pressed={on(HEADER_ACTIONS.preview, mode)}
-                title={previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")}
+                title={
+                  previewUrl
+                    ? t("header.previewAddress", { address: previewAddress(previewUrl) })
+                    : t("header.preview")
+                }
                 onClick={() => onPreview(previewUrl, mode)}
               >
                 <Icon name="media.play" size={15} />
