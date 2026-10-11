@@ -128,6 +128,27 @@ pub fn find(family: &str, id: &str, homes: &HarnessHomes) -> Result<Adoptable, S
     Ok(Adoptable { file, cwd })
 }
 
+/// `find` in `homes`, else in one of `others`: the stores acpmux's own chat
+/// index holds the chat in (cx-vx54), never a path from a request. The
+/// second value names the other store the session was found in.
+pub fn find_any(
+    family: &str,
+    id: &str,
+    homes: &HarnessHomes,
+    others: &[PathBuf],
+) -> Result<(Adoptable, Option<PathBuf>), String> {
+    match find(family, id, homes) {
+        Ok(found) => Ok((found, None)),
+        Err(error) => others
+            .iter()
+            .find_map(|store| {
+                let homes = HarnessHomes { claude: store.clone(), codex: store.clone() };
+                find(family, id, &homes).ok().map(|found| (found, Some(store.clone())))
+            })
+            .ok_or(error),
+    }
+}
+
 /// Whether the Claude store at `root` (a CLAUDE_CONFIG_DIR) has session `id`.
 pub fn claude_session_exists(root: &Path, id: &str) -> bool {
     is_bare_id(id) && find_claude(root, id).is_some()
