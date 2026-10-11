@@ -96,6 +96,8 @@ class Client : public CefClient,
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
   // Every download waits for the host's path (shim_downloads.mm).
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
+  // Location requests ask in the host's prompt bar (shim_permissions.mm).
+  CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return PermissionHandler(); }
 
   // MARK: Focus
 
