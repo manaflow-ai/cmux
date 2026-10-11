@@ -30,7 +30,11 @@ if [ "$(basename "$0")" = acpmux ]; then
   exit 0
 fi
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
-printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+if [ "${FAKE_SSH_PAYLOAD_DOWNLOAD:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download"]}'
+else
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+fi
 SH
 chmod +x "$CLIENT"
 
@@ -294,6 +298,23 @@ for arch in arm64 x86_64; do
   fi
   grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
   echo "PASS: $arch installs its verified client and all verified SSH companion artifacts"
+
+  # A client that downloads unbundled SSH payloads itself gets only the macOS
+  # payloads (signed with the app) plus the manifest that pins every platform.
+  ondemand_app="$TEST_DIR/OnDemand-$arch.app"
+  FAKE_SSH_PAYLOAD_DOWNLOAD=1 install_remote "$ondemand_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/ondemand-$arch.log" 2>&1
+  ondemand_ssh="$ondemand_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    cmp "$SERVE/cmux-tui-$target" "$ondemand_ssh/cmux-tui-$target"
+  done
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
+    if [[ -e "$ondemand_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client downloads it on demand" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$ondemand_ssh/manifest.json"
+  echo "PASS: $arch leaves Linux SSH payloads to a client that downloads them"
 
   if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
     echo "FAIL: native install skipped manifest attestation" >&2; exit 1

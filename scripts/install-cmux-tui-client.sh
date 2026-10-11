@@ -135,9 +135,11 @@ verify_manifest_attestation() {
   done
 }
 
+PROBE=""
 verify_probe() {
   local probe capability
   probe="$("$DEST" remote-probe --json 2>/dev/null || true)"
+  PROBE="$probe"
   [[ "$probe" == *'"app":"cmux-tui"'* ]] || {
     echo "error: installed binary does not probe as cmux-tui: $probe" >&2
     exit 1
@@ -356,9 +358,18 @@ check_acpmux
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.
+# A client reporting ssh-payload-download fetches the Linux builds itself from
+# the same immutable commit prefix, once per platform into a local cache, and
+# checks them against this manifest, so the app ships only their checksums
+# (about 77 MiB less). The macOS payloads stay bundled: signing changes their
+# bytes, so only the app's copies match the re-pinned manifest.
 SSH_ARTIFACT_DIR="$DEST_DIR/cmux-tui-ssh"
 mkdir -p "$SSH_ARTIFACT_DIR"
-for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+if ! python3 -c 'import json,sys; raise SystemExit(0 if "ssh-payload-download" in json.loads(sys.argv[1]).get("capabilities", []) else 1)' "$PROBE"; then
+  SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl "${SSH_TARGETS[@]}")
+fi
+for target in "${SSH_TARGETS[@]}"; do
   artifact="$(fetch_slice "cmux-tui-$target")"
   install -m 644 "$artifact" "$SSH_ARTIFACT_DIR/cmux-tui-$target"
 done
