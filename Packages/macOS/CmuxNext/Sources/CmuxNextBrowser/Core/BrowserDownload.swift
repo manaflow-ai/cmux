@@ -88,6 +88,19 @@ public final class BrowserDownload: Identifiable {
         return item
     }
 
+    /// A download that ended in an earlier run, as the Downloads list kept
+    /// it: nothing runs on its file, and it cannot pause or retry.
+    public static func ended(sourceURL: URL?, filename: String, destination: URL?, status: Status,
+                             receivedBytes: Int64, totalBytes: Int64?) -> BrowserDownload {
+        let item = BrowserDownload(sourceURL: sourceURL, filename: filename)
+        item.destination = destination
+        item.receivedBytes = receivedBytes
+        item.totalBytes = totalBytes
+        if status == .finished { item.fraction = 1 }
+        item.status = status == .inProgress ? .cancelled : status
+        return item
+    }
+
     public var canPause: Bool { pauseHandler != nil && status == .inProgress }
 
     /// A failed or cancelled download its engine can start again.

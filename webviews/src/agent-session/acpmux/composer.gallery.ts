@@ -531,6 +531,18 @@ export default agentPaneEntry({
           throw new Error("slash command pick did not update prompt");
       },
     },
+    "search-files-key": {
+      note: "Play: Search Files… (Cmd-P in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        // The prompt has the keyboard when the key comes in, as in a chat.
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("searchFiles");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-file-search") !== null);
+        await ctx.waitFor(() => ctx.document.activeElement === ctx.document.querySelector(".acpmux-file-search input"));
+      },
+    },
     "mention-picker": {
       note: "Play: type @rea in the prompt; the chat's files that match open under the caret, best first, and Return writes @README.md into the prompt.",
       snapshot: chat(finished),

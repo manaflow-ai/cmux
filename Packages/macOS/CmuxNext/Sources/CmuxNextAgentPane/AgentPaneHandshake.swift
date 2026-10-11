@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, machineName, githubRepository
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository
     }
 
     public var protocolVersion: Int
@@ -84,6 +84,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public nonisolated struct FolderNeeded: Codable, Sendable, Equatable {
         public var reason: String
     }
+    /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
+    /// them read-only until the chat has a session. Pages that predate it ignore it.
+    public var pastTurns: [AgentPanePastTurn]?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
