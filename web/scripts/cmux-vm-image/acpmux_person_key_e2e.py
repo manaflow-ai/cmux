@@ -225,7 +225,8 @@ def main():
         supported = run.step("guest cmux-tui keyed start support (information)", lambda: (True, *probe()[1:]))
 
         def inventory():
-            r = api.exec_root(vm, "systemctl list-units --all --no-legend 'cmux*' | awk '{print $1}' | while read -r u; do echo \"unit $u: $(systemctl show -p Environment --value $u | tr ' ' '\\n' | cut -d= -f1 | tr '\\n' ' ')\"; done; "
+            r = api.exec_root(vm, "echo \"markers: vm-kind=$(cat /etc/cmux/vm-kind 2>/dev/null || echo none) image-stamp=$([ -e /etc/cmux/image-stamp ] && echo yes || echo no) bake-instance-id=$([ -e /etc/cmux/bake-instance-id ] && echo yes || echo no) team-root=$([ -e /srv/team ] && echo yes || echo no)\"; "
+                                  "systemctl list-units --all --no-legend 'cmux*' | awk '{print $1}' | while read -r u; do echo \"unit $u: $(systemctl show -p Environment --value $u | tr ' ' '\\n' | cut -d= -f1 | tr '\\n' ' ')\"; done; "
                                   "for p in $(pgrep -f '[c]mux-tui'); do echo \"proc $p $(stat -c %U /proc/$p) $(tr '\\0' ' ' < /proc/$p/cmdline | cut -c1-80) :: $(tr '\\0' '\\n' < /proc/$p/environ | cut -d= -f1 | sort | tr '\\n' ' ') :: $(cut -d: -f3 /proc/$p/cgroup)\"; done")
             out = r["stdout"]
             with open(os.path.join(args.out, "inventory.txt"), "w") as f:
