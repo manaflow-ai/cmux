@@ -104,6 +104,8 @@ struct Source {
     aborted: Vec<String>,
     /// The next begin freezes the chat and its answer is lost.
     lose_begin_answer: bool,
+    /// The tab now shows another chat (its session id), not [`SESSION`].
+    rebound: Option<String>,
 }
 
 impl Source {
@@ -113,7 +115,21 @@ impl Source {
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         let transfer = request["transfer_id"].as_str().map(str::to_string);
+        if self.rebound.is_some() && cmd != "agent-session-attach" {
+            // The tab's chat is another one, in no move.
+            return match cmd {
+                "agent-transfer-commit" | "agent-transfer-abort" => {
+                    refused("transfer.unknown: the chat is not in this move")
+                }
+                _ => Reply::Error("agent_transfer.bad_request", format!("unexpected {cmd}")),
+            };
+        }
         match cmd {
+            "agent-session-attach" => {
+                let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
+                Reply::Data(json!({"session": {"sessionId": session}, "events": [],
+                                   "hasMore": false, "lastSeq": 0}))
+            }
             "agent-transfer-begin" => {
                 if self.committed.is_some() {
                     return Reply::Error("agent_transfer.unknown_tab", "closed".into());
@@ -587,7 +603,7 @@ mod agent_move {
     }
 
     #[test]
-    fn a_lost_begin_answer_is_resolved_by_a_rerun_that_moves_the_chat() {
+    fn a_lost_begin_answer_waits_for_the_source_lease_then_moves_the_chat() {
         let world = World::new(Target::default());
         world.source.lock().unwrap().lose_begin_answer = true;
         let (code, answer) = world.run_move();
@@ -595,14 +611,58 @@ mod agent_move {
         assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
         assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_1"));
 
+        // A move the pump never recorded is never ended by it.
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        assert_eq!(answer["retry_after_seconds"], json!(300));
+        assert_eq!(world.count("source:agent-transfer-abort"), 0);
+
+        // The source's lease aborts the unread move on its own.
+        world.source.lock().unwrap().moving = None;
         let (code, answer) = world.run_move();
         assert_eq!(code, 0, "{answer}");
         assert_eq!(answer["transfer_id"], json!("xfer_2"));
-        // Nobody ever held the first move's manifest: the target never saw it.
+        assert_eq!(world.count("source:agent-transfer-abort"), 0);
         assert_eq!(world.count("target:agent-transfer-receive"), 1);
-        let source = world.source.lock().unwrap();
-        assert_eq!(source.aborted, ["xfer_1"]);
-        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_2"));
+    }
+
+    #[test]
+    fn another_clients_move_after_a_lost_begin_answer_is_never_aborted() {
+        let world = World::new(Target::default());
+        world.source.lock().unwrap().lose_begin_answer = true;
+        let (code, _) = world.run_move();
+        assert_eq!(code, 1);
+        {
+            // The lease ended that move; another client moved the chat since.
+            let mut source = world.source.lock().unwrap();
+            source.moving = Some("xfer_theirs".into());
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
+        assert_eq!(world.count("source:agent-transfer-abort"), 0);
+        assert_eq!(world.count("source:agent-transfer-commit"), 0);
+        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
+    }
+
+    #[test]
+    fn a_tab_that_now_shows_another_chat_is_not_resolved() {
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        world.target_down.store(false, Ordering::SeqCst);
+        world.source.lock().unwrap().rebound = Some("acp_other_chat".into());
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        assert_eq!(world.count("source:agent-transfer-commit"), 0);
+        assert_eq!(world.count("source:agent-transfer-abort"), 0);
     }
 
     #[test]

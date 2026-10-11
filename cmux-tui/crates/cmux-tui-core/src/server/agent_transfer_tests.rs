@@ -808,3 +808,53 @@ fn begin_of_a_chat_already_moving_names_that_move() {
     assert_code(&abort, "agent_transfer.refused");
     assert!(abort.get("error_details").is_none(), "{abort}");
 }
+
+#[test]
+fn a_receive_abort_whose_forget_fails_keeps_the_receive_askable() {
+    let fake = FakeAcpmux::start("xforgetfail");
+    let home = Home::new("forgetfail");
+    let mux = transfer_mux(&fake, "atx-forgetfail", &home, true);
+    let mut client = Client::connect(&mux, "xforgetfail");
+    let mut failing = manifest();
+    failing["transferId"] = json!("xfer_forget_fails");
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":failing,
+                                         "cwd":home.text("work/project")}));
+    ok_data(&received);
+    let _ = fake.frame();
+    for _ in 0..2 {
+        let asked =
+            client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+        assert_eq!(
+            ok_data(&asked),
+            &json!({"dropped": false, "forgotten": false, "landed": null}),
+            "the landing is unknown and the receive stays"
+        );
+        assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_forget"));
+    }
+    // Still live: it takes pages.
+    let write = client.request(json!({"cmd":"agent-transfer-write","receive_id":"rcv_1",
+                                      "path":"events/0.ndjson","offset":0,"data":"YWJj"}));
+    ok_data(&write);
+}
+
+#[test]
+fn a_receive_abort_during_a_running_finish_cannot_say_yet() {
+    let fake = FakeAcpmux::start("xracing");
+    let home = Home::new("racing");
+    let mux = transfer_mux(&fake, "atx-racing", &home, true);
+    let mut pump = Client::connect(&mux, "xracing");
+    let mut asker = Client::connect(&mux, "xracing2");
+    ok_data(&receive(&mut pump, &home.text("work/project")));
+    let _ = fake.frame();
+    let finishing =
+        pump.send(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1","name":"slow"}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
+    let asked = asker.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked), &json!({"dropped": false, "forgotten": false, "landed": null}));
+    // No forget raced the finish.
+    fake.no_frame();
+    ok_data(&pump.answer(finishing));
+    // Once it settled, the question gets an answer.
+    let asked = asker.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked)["forgotten"], json!(true));
+}
