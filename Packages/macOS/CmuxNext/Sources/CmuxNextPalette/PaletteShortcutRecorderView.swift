@@ -103,17 +103,15 @@ final class PaletteShortcutRecorderView: NSView {
 
     override func layout() {
         super.layout()
-        // Hidden, it sits at zero height; laying its fields out there loops the window (cx-wcej).
-        guard !bounds.isEmpty else { return }
         glass.frame = bounds
         content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let padding = PaletteLayout.horizontalPadding
         let width = bounds.width - 2 * padding
         var y = Metrics.space4
-        title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: width, height: title.intrinsicContentSize.height))
+        title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: width, height: PaletteText.height(title)))
         y += PaletteLayout.headerRowHeight
-        let actionHeight = action.intrinsicContentSize.height
-        let currentSize = current.isHidden ? CGSize(width: PaletteText.fittingWidth(noneLabel), height: noneLabel.intrinsicContentSize.height)
+        let actionHeight = PaletteText.height(action)
+        let currentSize = current.isHidden ? CGSize(width: PaletteText.fittingWidth(noneLabel), height: PaletteText.height(noneLabel))
             : current.intrinsicContentSize
         let right = bounds.width - padding - currentSize.width
         action.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.rowHeight - actionHeight) / 2,

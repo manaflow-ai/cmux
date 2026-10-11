@@ -219,7 +219,7 @@ final class PaletteContentView: NSView {
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
         y += PaletteLayout.searchHeight
         // The hint takes its line from the top of the list.
-        let fieldHintHeight = fieldHint.isHidden ? 0 : fieldHint.intrinsicContentSize.height + Metrics.space2
+        let fieldHintHeight = fieldHint.isHidden ? 0 : PaletteText.height(fieldHint) + Metrics.space2
         fieldHint.frame = body.pixelAligned(NSRect(x: PaletteLayout.horizontalPadding, y: y,
                                                    width: width - 2 * PaletteLayout.horizontalPadding, height: fieldHintHeight))
         y += fieldHintHeight
@@ -228,8 +228,8 @@ final class PaletteContentView: NSView {
         let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight - fieldHintHeight)
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
-        let titleHeight = emptyTitle.intrinsicContentSize.height
-        let hintHeight = emptyHint.intrinsicContentSize.height
+        let titleHeight = PaletteText.height(emptyTitle)
+        let hintHeight = PaletteText.height(emptyHint)
         let emptyTop = listFrame.midY - (titleHeight + Metrics.space2 + hintHeight) / 2
         emptyTitle.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop, width: width, height: titleHeight))
         emptyHint.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: hintHeight))

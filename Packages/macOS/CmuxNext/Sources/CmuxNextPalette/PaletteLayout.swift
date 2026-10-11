@@ -38,10 +38,8 @@ enum PaletteLayout {
 }
 
 extension NSView {
-    /// `rect` on whole backing pixels, for a text field's frame set from `layout()`. The window's
-    /// layout engine rounds a fractional frame (the scaled metrics make them); that change asks
-    /// the superview for another layout pass, which set the same fractional frame again, until
-    /// AppKit threw "more Layout Window passes than there are views in the window" (cx-wcej).
+    /// `rect` on whole backing pixels, for a text field's frame set from `layout()` (cx-wcej; see
+    /// `PaletteText.height`).
     func pixelAligned(_ rect: NSRect) -> NSRect {
         backingAlignedRect(rect, options: .alignAllEdgesNearest)
     }
@@ -57,6 +55,15 @@ enum PaletteText {
         field.maximumNumberOfLines = 1
         field.cell?.truncatesLastVisibleLine = true
         return field
+    }
+
+    /// The height a text field settles on: its intrinsic height up to whole backing pixels. Its
+    /// own layout sets that height back, and each change asks its superview for another layout
+    /// pass; a superview that sets any other height from `layout()` loops the window until
+    /// AppKit throws "more Layout Window passes than there are views in the window" (cx-wcej).
+    static func height(_ field: NSTextField) -> CGFloat {
+        let scale = field.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return ceil(field.intrinsicContentSize.height * scale) / scale
     }
 
     /// Width that shows the whole string. `intrinsicContentSize` of a

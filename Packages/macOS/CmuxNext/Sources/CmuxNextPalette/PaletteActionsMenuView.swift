@@ -64,14 +64,12 @@ final class PaletteActionsMenuView: NSView {
 
     override func layout() {
         super.layout()
-        // Hidden, it sits at zero height; laying its fields out there loops the window (cx-wcej).
-        guard !bounds.isEmpty else { return }
         glass.frame = bounds
         content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let inset = Metrics.space2
         let padding = PaletteLayout.horizontalPadding
         var y = Metrics.space4
-        let titleHeight = title.intrinsicContentSize.height
+        let titleHeight = PaletteText.height(title)
         title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: bounds.width - 2 * padding, height: titleHeight))
         y = Metrics.space4 + PaletteLayout.headerRowHeight
         for row in rowViews {
@@ -82,7 +80,7 @@ final class PaletteActionsMenuView: NSView {
         separator.frame = NSRect(x: 0, y: y, width: bounds.width, height: Metrics.dividerThickness)
         applyColors()
         y += Metrics.dividerThickness
-        let filterHeight = filter.intrinsicContentSize.height
+        let filterHeight = PaletteText.height(filter)
         filter.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.actionsMenuRowHeight - filterHeight) / 2,
                                                    width: bounds.width - 2 * padding, height: filterHeight))
     }
@@ -163,7 +161,7 @@ final class PaletteMenuRow: NSView {
             right -= Metrics.space4
         }
         let x = icon.frame.maxX + Metrics.space4
-        let height = label.intrinsicContentSize.height
+        let height = PaletteText.height(label)
         label.frame = pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: max(0, right - x), height: height))
     }
 }

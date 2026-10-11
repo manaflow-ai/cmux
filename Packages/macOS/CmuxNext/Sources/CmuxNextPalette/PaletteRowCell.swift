@@ -212,7 +212,7 @@ final class PaletteRowCell: NSTableCellView {
     }
 
     private func centered(x: CGFloat, width: CGFloat, field: NSTextField) -> NSRect {
-        let height = field.intrinsicContentSize.height
+        let height = PaletteText.height(field)
         return pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
     }
 

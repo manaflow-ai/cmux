@@ -105,11 +105,11 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         super.layout()
         let padding = PaletteLayout.horizontalPadding
         var x = padding
-        let fieldHeight = field.intrinsicContentSize.height
+        let fieldHeight = PaletteText.height(field)
         var fieldY = (bounds.height - fieldHeight) / 2
         if !breadcrumb.isHidden {
             // Path above, field below, both inside the bar's height.
-            let labelHeight = breadcrumbLabel.intrinsicContentSize.height
+            let labelHeight = PaletteText.height(breadcrumbLabel)
             let total = labelHeight + fieldHeight
             let top = (bounds.height - total) / 2
             let width = min(PaletteText.fittingWidth(breadcrumbLabel), bounds.width - 2 * padding)
