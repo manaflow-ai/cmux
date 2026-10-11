@@ -192,8 +192,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutSettings.resetAll()
         #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        // These tests are not about the isolated snapshot worker, whose
+        // app-binary launch took over 5 s on loaded CI runners; the
+        // pasteboard here holds only test-written data.
+        TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock {
+            $0 = Self.captureSnapshotInProcess
+        }
         #endif
     }
+
+    #if DEBUG
+    /// The snapshot worker's capture (TerminalPastePreparationOperation), in process.
+    private static let captureSnapshotInProcess: TerminalPasteboardService.PreviousContentsCapture = { request in
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(request.pasteboardName))
+        guard pasteboard.changeCount == request.changeCount,
+              let contents = TerminalPasteboardItemSnapshot.captureContents(
+                of: pasteboard,
+                maximumByteCount: request.maximumByteCount
+              ),
+              pasteboard.changeCount == request.changeCount else {
+            return nil
+        }
+        return TerminalPasteboardContentsSnapshot(changeCount: request.changeCount, contents: contents)
+    }
+    #endif
 
     override func tearDown() {
         #if DEBUG
@@ -201,6 +223,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.debugEndShortcutRoutingFocusedWindowCaptureForTesting()
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         TextBoxSubmit.debugResetForTesting()
+        TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock { $0 = nil }
         #endif
         if let originalSettingsFileStore {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
@@ -8368,18 +8391,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertTrue(pasteboard.setString("user clipboard", forType: .string))
             TextBoxSubmit.debugWaitTimeoutSecondsOverride = 0
             defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
-            // A loaded runner: the app-binary snapshot worker took over 5 s
-            // to launch in run 38099700449 (attempt 1), and the paste waits on it.
-            TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock {
-                $0 = { request in
-                    try? await Task.sleep(nanoseconds: 6_000_000_000)
-                    TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock { $0 = nil }
-                    return try? await TerminalPastePreparationWorkerClient
-                        .snapshottingWithCurrentBinary()
-                        .captureSnapshot(request)
-                }
-            }
-            defer { TerminalPastePreparationWorkerClient.debugSnapshotCaptureOverride.withLock { $0 = nil } }
 
             let imageURL = try makeTemporaryPNGFile(named: "moon.png")
             var completed = false
