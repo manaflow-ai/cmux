@@ -107,6 +107,21 @@ def wait_rows(predicate, seconds=6.0):
     return rows, selection
 
 
+def settled(seconds=2.0, limit=15.0):
+    """The rows once their order holds for `seconds` (a new workspace's placement lands late)."""
+    deadline = time.time() + limit
+    rows, selection = sidebar()
+    stable_since = time.time()
+    while time.time() < deadline:
+        time.sleep(0.25)
+        now, now_selection = sidebar()
+        if titles(now) != titles(rows) or now_selection != selection:
+            rows, selection, stable_since = now, now_selection, time.time()
+        elif time.time() - stable_since >= seconds:
+            break
+    return rows, selection
+
+
 def main():
     run = uuid.uuid4().hex[:6]
     names = [f"notif-{run}-{n}" for n in ("a", "b", "c")]
@@ -117,6 +132,7 @@ def main():
     rows, selection = wait_rows(lambda rows: all(name in titles(rows) for name in names))
     if not check("the new workspaces have rows", all(name in titles(rows) for name in names), str(titles(rows))):
         return 1
+    rows, selection = settled()
     # The bottom new row that is not selected: a notification there must move it up.
     target = next((row.get("title") for row in reversed(rows)
                    if row.get("title") in names and row.get("title") not in selection), None)
