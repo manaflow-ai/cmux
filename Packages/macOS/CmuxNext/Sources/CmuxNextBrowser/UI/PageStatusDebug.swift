@@ -22,6 +22,8 @@ public struct PageStatusDebug {
             "certificate": !status.errorView.isHidden && status.errorView.isCertificateInterstitial ? "1" : "0",
             "gone": status.goneView.isHidden ? "0" : "1",
             "enginePage": chrome.tab.state.loadError?.engineShowsPage == true ? "1" : "0",
+            "errorFrame": "\(status.errorView.frame)",
+            "holes": "\((chrome.tab as? CEFTab)?.pageWindowHoles ?? [])",
         ]
     }
 }
