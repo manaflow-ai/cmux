@@ -20364,7 +20364,8 @@ mod tests {
             crate::workspace_registry::new_uuid_v4()
         ));
         let mux = open_persistent_test_mux("legacy-vacuum-maintenance", &root);
-        let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
         let legacy = rusqlite::Connection::open(database).unwrap();
         legacy
             .execute("DELETE FROM meta WHERE key = ?1", ["journal_auto_vacuum_migrated"])
