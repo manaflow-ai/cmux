@@ -100,10 +100,11 @@ describe("SCP setup on a machine that does not answer", () => {
 
   // A refusal that arrives before the command could run says nothing about
   // the guest: it keeps its provider error and code.
-  test.each([
+  const earlyRefusals: [number, string, string][] = [
     [401, "UNAUTHORIZED", "invalid api key"],
     [500, "INTERNAL_ERROR", "exec dispatch failed"],
-  ])("keeps an early %i from the exec as a provider error", async (status, code, message) => {
+  ];
+  test.each(earlyRefusals)("keeps an early %i from the exec as a provider error", async (status, code, message) => {
     const provider = unresponsiveProvider(async () => { throw new FreestyleApiError(status, { code, message }); });
     const error = await failure(() => provider.prepareSCP(vmId, key));
     expect(error.name).toBe("ProviderError");
@@ -111,9 +112,12 @@ describe("SCP setup on a machine that does not answer", () => {
     const response = await vmWorkflowErrorResponse(
       new VmProviderOperationError({ provider: "freestyle", operation: "prepareSCP", cause: error }),
     );
-    const payload = await response!.json() as { error: string; details?: { providerCode?: string } };
-    expect(payload.error).not.toBe("vm_guest_unresponsive");
-    expect(payload.details?.providerCode).toBe(code);
+    // The same answer any other provider failure gets, as before this change.
+    expect(response?.status).toBe(502);
+    const payload = await response!.json() as { error: string; details?: { operation?: string } };
+    expect(payload.error).toBe("vm_cloud_service_unavailable");
+    expect(payload.details?.operation).toBe("prepareSCP");
+    expect((error as Error & { cause?: { code?: string } }).cause?.code).toBe(code);
   });
 
   test("keeps the guest's own error when the setup command fails", async () => {
