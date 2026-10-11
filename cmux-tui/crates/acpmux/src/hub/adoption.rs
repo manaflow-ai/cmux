@@ -16,7 +16,8 @@ pub(super) enum Adoption {
     Existing(Arc<Session>),
     /// Create a session, in the adopted conversation's recorded cwd if any;
     /// `fork`: a new conversation forked from it (`--fork-session`).
-    Found { cwd: Option<PathBuf>, fork: bool },
+    /// `file`: the adopted conversation's transcript, replayed as history (`adopt_replay`).
+    Found { cwd: Option<PathBuf>, fork: bool, file: Option<PathBuf> },
 }
 
 impl Hub {
@@ -49,7 +50,9 @@ impl Hub {
         family: &str,
         env: &[&BTreeMap<String, String>],
     ) -> Result<Adoption, RpcError> {
-        let Some(a) = adopt else { return Ok(Adoption::Found { cwd: None, fork: false }) };
+        let Some(a) = adopt else {
+            return Ok(Adoption::Found { cwd: None, fork: false, file: None });
+        };
         if let Some(asked) = &a.harness
             && asked != agent
             && asked != family
@@ -94,7 +97,11 @@ impl Hub {
             return Err(RpcError::invalid_params(live.refusal(family, &a.agent_session_id))
                 .with_data(json!({"reason": "adopt.live", "details": live.details(family)})));
         }
-        Ok(Adoption::Found { cwd: found.cwd, fork: a.if_live == IfLive::Fork })
+        Ok(Adoption::Found {
+            cwd: found.cwd,
+            fork: a.if_live == IfLive::Fork,
+            file: Some(found.file),
+        })
     }
 
     /// The session that already adopted `agent_session_id` in `family`, so
@@ -181,5 +188,57 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+impl Hub {
+    /// Appends the adopted conversation's past turns (`adopt_replay::read`) as this session's
+    /// history, unless the resumed harness already replayed some (Codex `session/load` can).
+    pub(super) async fn replay_adopted(&self, session: &Arc<Session>, family: &str, file: PathBuf) {
+        let has_history = self.store.events(&session.id, 0, 100_000).is_ok_and(|events| {
+            events.iter().any(|e| e.kind == "user_message" || e.kind == "agent_message_chunk")
+        });
+        if has_history {
+            return;
+        }
+        let fam = family.to_owned();
+        let Ok(turns) =
+            tokio::task::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
+        else {
+            return;
+        };
+        let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        for (i, turn) in turns.iter().enumerate() {
+            let turn_id = format!("adopted-{i}");
+            let prompt_id = format!("adopted-prompt-{i}");
+            let turn_seq = self
+                .append(
+                    session,
+                    "mux",
+                    "turn_started",
+                    json!({"prompt": turn.prompt.chars().take(200).collect::<String>(), "client": "adopt", "promptId": prompt_id, "turnId": turn_id, "control": "local"}),
+                )
+                .seq;
+            self.append(
+                session,
+                "mux",
+                "user_message",
+                json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
+            );
+            if !turn.answer.is_empty() {
+                self.append(
+                    session,
+                    "in",
+                    "agent_message_chunk",
+                    json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}}}}),
+                );
+            }
+            self.append(
+                session,
+                "mux",
+                "turn_end",
+                json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq}),
+            );
+        }
     }
 }
