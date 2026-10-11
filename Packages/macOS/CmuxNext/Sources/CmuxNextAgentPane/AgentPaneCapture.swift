@@ -6,7 +6,7 @@ import Foundation
 /// Recording permission are the system's. It answers `{name, mimeType, data}` (a base64 PNG) for
 /// the page to attach as an image, or `{cancelled: true}` when the person presses Esc.
 enum AgentPaneCapture {
-    static let tool = "/usr/sbin/screencapture"
+    nonisolated static let tool = "/usr/sbin/screencapture"
 
     @MainActor static func reply(to mode: String?, in model: AgentPaneModel) async -> [String: Any] {
         guard let mode, mode == "screen" || mode == "window" else { return AgentPaneModel.unsupported("composer.capture") }
