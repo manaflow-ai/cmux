@@ -32,12 +32,13 @@ final class PaneThread {
     }
 
     /// Esc while a view is open. Messages: before a send in the view, the first Esc only
-    /// unfocuses its field; after a reply was sent there, or with the field not focused,
-    /// Esc closes the view. False when no view is open.
+    /// unfocuses its field (the transcript takes the focus, so the next Esc still reaches
+    /// this pane); after a reply was sent there, or with the field not focused, Esc closes
+    /// the view. False when no view is open.
     func escape() -> Bool {
         guard let controller, let open = openThread else { return false }
         if let field, controller.window?.firstResponder === field, sentInView != open {
-            controller.window?.makeFirstResponder(nil)
+            focusTranscript()
         } else {
             controller.dispatch(.closeThread)
         }
@@ -74,8 +75,10 @@ final class PaneThread {
             return nil
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+            // Only while the key focus is in this pane (a terminal, the sidebar or the palette keep their Esc).
             guard e.keyCode == 53, let self, let controller = self.controller, self.isLive(e), controller.picker == nil,
-                  controller.window?.firstResponder !== self.field else { return e }
+                  let focus = controller.window?.firstResponder as? NSView, focus.isDescendant(of: controller.host),
+                  focus !== self.field else { return e }
             return self.escape() ? nil : e
         }) { monitors.append(m) }
     }

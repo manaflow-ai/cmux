@@ -90,6 +90,10 @@ extension HomeNativeTranscriptView {
     public var debugOpenThread: String? { transcript.debugOpenThread }
     /// Esc through the field's path.
     public func debugEscape() { transcript.debugEscape() }
+    /// Reply… in the newest text bubble's context menu; the open thread's root.
+    public func debugReplyNewest(mine: Bool) -> String? { transcript.debugReplyNewest(mine: mine) }
+    /// A real Esc key press through the app's event queue (`outside`: the key focus leaves the pane first).
+    public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

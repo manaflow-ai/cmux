@@ -88,7 +88,7 @@ final class ChatsOpenCoordinator {
             return await self.reopen(chat, in: url.path)
         }
         // A fresh chat opened for a chat that cannot resume here shows its past (cx-khns1).
-        AgentPanePastChat.reader = { [weak self] chat in
+        AgentPanePastTurn.reader = { [weak self] chat in
             guard let services = self?.services, let environment = QuitAgents.environment(services) else { return [] }
             return (try? await environment.chatTranscript(key: chat)) ?? []
         }

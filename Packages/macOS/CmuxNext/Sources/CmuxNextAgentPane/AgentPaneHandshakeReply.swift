@@ -17,7 +17,7 @@ enum AgentPaneHandshakeReply {
                 handshake.draft = seed.draft
                 handshake.prompt = seed.prompt
                 handshake.harness = seed.harness
-                (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastChat.turns(of: seed.pastChat))
+                (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload
             // of the quick panel stays compact).

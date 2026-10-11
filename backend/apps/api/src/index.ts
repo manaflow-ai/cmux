@@ -36,6 +36,7 @@ export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
+import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -156,6 +157,9 @@ export default {
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
+    // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
+    const acpmux = url.pathname.match(ACPMUX_PATH)
+    if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)

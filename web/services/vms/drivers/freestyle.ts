@@ -578,6 +578,8 @@ async function execWithStdin(fs: Freestyle, vmId: string, command: string, timeo
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command, timeoutMs, linuxUser: GUEST_LINUX_USER, stdin: stdin.base64() }),
+      // A 3xx is not followed: it fails as not-ok, so the stdin is never sent to a Location host.
+      redirect: "manual",
     });
   } catch {
     throw new FreestyleStdinExecError(null, "network");
