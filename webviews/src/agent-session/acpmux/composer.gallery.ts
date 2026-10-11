@@ -519,6 +519,47 @@ export default agentPaneEntry({
           throw new Error("slash command pick did not update prompt");
       },
     },
+    "mention-picker": {
+      note: "Play: type @rea in the prompt; the chat's files that match open under the caret, best first, and Return writes @README.md into the prompt.",
+      snapshot: chat(finished),
+      native: {
+        "file.search": {
+          root: CWD,
+          results: [
+            { path: "README.md", matches: [0, 1, 2] },
+            { path: "src/reader.ts", matches: [4, 5, 6] },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Fix @rea");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll(".acpmux-mention-row")).some((row) =>
+            row.textContent?.includes("README.md"),
+          ),
+        );
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        if (!ctx.find(prompt).textContent?.includes("Fix @README.md"))
+          throw new Error(`mention pick did not write the path: ${ctx.find(prompt).textContent}`);
+        if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("mention pick lost prompt focus");
+      },
+    },
+    "mention-mid-word": {
+      note: "Play: an @ inside a word (an email address) opens no file picker.",
+      snapshot: chat(finished),
+      native: { "file.search": { root: CWD, results: [{ path: "README.md" }] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("mail me@rea");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (ctx.document.querySelector(".acpmux-mention-row")) throw new Error("an @ inside a word opened the picker");
+      },
+    },
     "slash-fork": {
       note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
