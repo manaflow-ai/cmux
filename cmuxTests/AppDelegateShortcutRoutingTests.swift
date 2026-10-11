@@ -171,6 +171,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // EXPLORATION (not for merge): the main-actor backlog each test inherits.
+        let hopStart = ProcessInfo.processInfo.systemUptime
+        let hop = ClipTimingFlag()
+        Task { @MainActor in hop.value = true }
+        let hopDeadline = Date(timeIntervalSinceNow: 30)
+        while !hop.value, Date() < hopDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+        print(String(format: "CLIPHOP %@ %.3f", name, ProcessInfo.processInfo.systemUptime - hopStart))
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
         AppDelegate.installWindowResponderSwizzlesForTesting()
