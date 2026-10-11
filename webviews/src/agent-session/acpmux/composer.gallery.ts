@@ -88,6 +88,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
+    "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
     "new-chat": {

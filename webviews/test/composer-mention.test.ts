@@ -46,7 +46,7 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
-      error: document.documentElement.dataset.galleryPlayError,
+      report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
       searches: (
         window as unknown as { cmuxGalleryLog: { method: string; params?: { query?: string } }[] }
       ).cmuxGalleryLog
@@ -59,13 +59,13 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
 
   test("@ then letters lists the chat's matching files and Return writes the path", async () => {
     const result = await play("mention-picker");
-    expect(result.play, result.error).toBe("pass");
+    expect(result.play, result.report).toBe("pass");
     expect(result.searches).toContain("rea");
   });
 
   test("an @ inside a word opens nothing and asks the host for nothing", async () => {
     const result = await play("mention-mid-word");
-    expect(result.play, result.error).toBe("pass");
+    expect(result.play, result.report).toBe("pass");
     expect(result.searches).toEqual([]);
   });
 });
