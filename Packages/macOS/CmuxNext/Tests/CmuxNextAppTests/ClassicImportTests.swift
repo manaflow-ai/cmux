@@ -129,7 +129,7 @@ struct ClassicImportTests {
     }
 
     /// acpmux's answer for a session it can adopt.
-    private static func adoptPlan(_ adopt: AgentPaneAdopt, _ cwd: String?) -> [String: Any] {
+    private nonisolated static func adoptPlan(_ adopt: AgentPaneAdopt, _ cwd: String?) -> [String: Any] {
         ["kind": "adopt", "adopt": ["harness": adopt.harness, "agentSessionId": adopt.agentSessionId],
          "sessionNew": [String: Any](), "cwd": cwd ?? ""]
     }
