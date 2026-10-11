@@ -234,6 +234,23 @@ impl RecoveryHarness {
         let _ = fs::remove_file(&self.socket);
     }
 
+    /// Stop the daemon the way logout or a reboot does: `SIGTERM`, then wait
+    /// for its orderly exit.
+    fn terminate(&mut self) {
+        self.signal_daemon(libc::SIGTERM);
+        let mut child = self.child.take().unwrap();
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("daemon did not exit after SIGTERM");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = fs::remove_file(&self.socket);
+    }
+
     fn signal_daemon(&self, signal: libc::c_int) {
         let pid = self.child.as_ref().unwrap().id() as libc::pid_t;
         // SAFETY: the harness owns this child process and passes a platform
