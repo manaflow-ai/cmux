@@ -31,7 +31,7 @@ import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
-import { NewTabScreen } from "./newtab/NewTabScreen";
+import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -152,9 +152,13 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { floatingStatus, type QuickFloating } from "./FloatingChat";
+import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
+import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
+import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { experimentArm } from "../../experiments/experiment";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -191,6 +195,8 @@ declare global {
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
+      /// Start Agent's floating chat (floatingState.ts, cx-b9qi).
+      applyFloatingState?(state: unknown): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
       applyDeviceChats?(chats: unknown): void;
       /// The newest recently closed items for the New Tab page (newtab/recentlyClosed.ts).
@@ -1391,8 +1397,25 @@ function AcpmuxPane() {
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  // The side question (`/btw`) shown above the composer, for the chat it was asked about.
+  const [aside, setAside] = useState<SideQuestionState & { sessionId: string; ask: number }>();
+  const asideAsks = useRef(0);
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
+  const handshakenRef = useRef(false);
+  /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
+  const pendingSubmits = useRef<Array<() => void>>([]);
+  const whenHandshaken = (run: () => void) => {
+    if (handshakenRef.current) run();
+    else pendingSubmits.current.push(run);
+  };
+  /// The New Tab screen's actions with its submits (a prompt, a recent session) held until the
+  /// handshake: the field types from its first render, a chat needs acpmux.
+  const withSubmitAfterHandshake = (actions: NewTabScreenActions): NewTabScreenActions => ({
+    ...actions,
+    onAsk: (...args) => whenHandshaken(() => actions.onAsk(...args)),
+    onOpenSession: (...args) => whenHandshaken(() => actions.onOpenSession(...args)),
+  });
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
@@ -1446,6 +1469,8 @@ function AcpmuxPane() {
   );
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
+  // A side question belongs to its chat: another chat drops it.
+  if (aside && snapshot.sessionId !== aside.sessionId) setAside(undefined);
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
   // snapshot instead of clearing a valid repository while the daemon is being replaced.
@@ -1893,6 +1918,10 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
+  const asksAside = !quick && experimentArm(sideQuestion) === "on";
+  // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
+  const floatingHold = useFloatingState();
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
@@ -2002,11 +2031,12 @@ function AcpmuxPane() {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
+    if (asksAside && snapshot.sessionId) enabledCmuxActions.add("btw");
     const withCommands = { ...current, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     return projectDraft && !snapshot.sessionId
       ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
       : withCommands;
-  }, [snapshot, catalog, projectDraft, continueAvailable, forkable, forkSeq]);
+  }, [snapshot, catalog, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -2143,6 +2173,9 @@ function AcpmuxPane() {
       applyHeaderState(state) {
         setHeaderState(state);
       },
+      applyFloatingState(state) {
+        setFloatingState(state);
+      },
       applyDeviceChats(chats) {
         setDeviceChats(chats);
       },
@@ -2274,6 +2307,9 @@ function AcpmuxPane() {
             : undefined,
         );
         setHandshaken(true);
+        handshakenRef.current = true;
+        // Submits made on the New Tab page before acpmux answered go now, in order.
+        for (const run of pendingSubmits.current.splice(0)) run();
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
@@ -2559,6 +2595,7 @@ function AcpmuxPane() {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
           },
+          "chat.ask": ({ question }) => client.ask(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
             const sessionId = await client.forkAside(Number(throughSeq));
             if (sessionId) await postNative("chat.sideChat", { sessionId });
@@ -2760,6 +2797,14 @@ function AcpmuxPane() {
     if (!quick) void readTabState().catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
+  // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
+  // says so once; later changes are pushed, and a reread per chat could land after a newer push.
+  useEffect(() => {
+    if (quick)
+      void callNative("quick.floatingState")
+        .then(setFloatingState)
+        .catch(() => undefined);
+  }, [quick]);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -2876,6 +2921,16 @@ function AcpmuxPane() {
           shortcutAction: HEADER_ACTIONS.newWindow,
           onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
         },
+        ...(headerState().floatingChat && snapshot.sessionId
+          ? [
+              {
+                key: "floatingChat",
+                label: t("chatMenu.floatingChat"),
+                icon: "site.permission.windowmanagement",
+                onSelect: () => runHeaderAction(HEADER_ACTIONS.floatingChat),
+              },
+            ]
+          : []),
       ],
       tools,
       [
@@ -3195,6 +3250,17 @@ function AcpmuxPane() {
           />
         )
       )}
+      {aside && (
+        <SideQuestion
+          state={aside}
+          githubRepository={githubRepository}
+          onDismiss={() => setAside(undefined)}
+          onAdd={() => {
+            setAside(undefined);
+            ignoreFailure(callNative("chat.send", { text: aside.question, attachments: [] }));
+          }}
+        />
+      )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
         <Composer
@@ -3203,6 +3269,20 @@ function AcpmuxPane() {
           chips={ComposerChips}
           draft={draft}
           onCmuxCommand={(command, args) => {
+            if (command.action === "btw") {
+              const question = args?.trim();
+              const sessionId = snapshot.sessionId;
+              if (!asksAside || !question || !sessionId) return false;
+              const ask = ++asideAsks.current;
+              setAside({ sessionId, ask, question });
+              const settle = (outcome: Partial<SideQuestionState>) =>
+                setAside((current) => (current?.ask === ask ? { ...current, ...outcome } : current));
+              callNative<string>("chat.ask", { question }).then(
+                (answer) => settle({ answer: typeof answer === "string" ? answer : "" }),
+                (error: unknown) => settle({ error: errorMessage(error) || String(error) }),
+              );
+              return true;
+            }
             if (command.action === "fork") {
               if (!forkable || forkSeq === undefined || args?.trim()) return false;
               ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
@@ -3348,6 +3428,39 @@ function AcpmuxPane() {
   const hostErrorCard = hostError && (
     <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
   );
+  // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
+  // the reply's last line.
+  let lastReply: (typeof snapshot.rows)[number] | undefined;
+  for (let index = snapshot.rows.length - 1; index >= 0 && !lastReply; index--) {
+    if (snapshot.rows[index]!.kind === "assistant") lastReply = snapshot.rows[index];
+  }
+  const floatingSession = composerSnapshot.sessions.find((session) => session.sessionId === snapshot.sessionId);
+  const quickFloating: QuickFloating | undefined = quick
+    ? {
+        state: floatingHold,
+        status: floatingStatus(
+          Boolean(snapshot.permission?.pending) ||
+            Boolean(
+              snapshot.permissionGroups?.groups?.some(
+                (group) => group.state === "pending" || group.state === "collecting",
+              ),
+            ) ||
+            floatingSession?.status === "waiting",
+          lastReply?.streaming === true || floatingSession?.status === "running",
+        ),
+        title: composerSnapshot.summary?.title || t("header.agentChat"),
+        line: (lastReply?.text ?? "")
+          .split("\n")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .at(-1),
+        setOnTop: (onTop) => void callNative(QUICK_MESSAGES.setOnTop, { onTop }).catch(() => undefined),
+        setCollapsed: (collapsed) => void callNative(QUICK_MESSAGES.setCollapsed, { collapsed }).catch(() => undefined),
+        moveToTab: () => {
+          if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
+        },
+      }
+    : undefined;
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
@@ -3361,6 +3474,7 @@ function AcpmuxPane() {
               </>
             }
             composer={composer}
+            floating={quickFloating}
           />
           {imageView && (
             <ImageViewer
@@ -3380,7 +3494,8 @@ function AcpmuxPane() {
           {showNewTab && newTab.templateSwitcher && !newTab.history && (
             <TemplateDots
               current={shownTemplate(newTab)}
-              onPick={(template) =>
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+              onPick={(template, fromKeys) =>
                 pickNewTabTemplate(template, {
                   callNative,
                   cwd: newTab.cwd,
@@ -3388,10 +3503,14 @@ function AcpmuxPane() {
                     // The parts both templates show slide to their new place (newtab/templateMotion.ts).
                     const screen = document.querySelector<HTMLElement>(".nt-screen");
                     const before = templatePlaces(screen);
+                    const dot = fromKeys ? document.activeElement : null;
                     flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    // The dot took focus; the field gets it back (the screen listens for this event),
-                    // before the parts slide, so focusing never scrolls toward where they were.
-                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                    // A clicked dot took focus; the field gets it back (the screen listens for this
+                    // event), before the parts slide, so focusing never scrolls toward where they were.
+                    // The arrow keys keep focus on the dots, to switch on, even when the page they
+                    // show focused its field as it mounted (Classic, and the screen after it).
+                    if (dot instanceof HTMLElement) dot.focus({ preventScroll: true });
+                    else window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
                     playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
                   },
                 })
@@ -3415,9 +3534,9 @@ function AcpmuxPane() {
               home={newTab.home}
               tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-              // Typed keys stay in the host's buffer until acpmux answered: a prompt sent before the
-              // handshake would have no client to start its chat.
-              inputToken={handshaken ? newTab.inputToken : undefined}
+              // The field takes keys from its first render (the host's buffer hands them over at
+              // once); only a submit waits for acpmux (`whenHandshaken`).
+              inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
               projects={newTabProjects}
@@ -3429,19 +3548,21 @@ function AcpmuxPane() {
               }
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
-              {...newTabScreenActions({
-                callNative,
-                cwd: newTab.cwd,
-                chatCwd: startFolder,
-                requestFolder,
-                leave: () => setNewTab(undefined),
-                selectSession,
-                showAllChats,
-                runShell: (command, cwd) => {
-                  if (cwd) setProjectDraft(cwd);
-                  shellRuns.start(command, cwd ? { cwd } : {});
-                },
-              })}
+              {...withSubmitAfterHandshake(
+                newTabScreenActions({
+                  callNative,
+                  cwd: newTab.cwd,
+                  chatCwd: startFolder,
+                  requestFolder,
+                  leave: () => setNewTab(undefined),
+                  selectSession,
+                  showAllChats,
+                  runShell: (command, cwd) => {
+                    if (cwd) setProjectDraft(cwd);
+                    shellRuns.start(command, cwd ? { cwd } : {});
+                  },
+                }),
+              )}
             />
           ) : showNewTab ? (
             <NewTabPage
@@ -3455,7 +3576,7 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               chips={ComposerChips}
-              onSubmit={openFromNewTab}
+              onSubmit={(...args: Parameters<typeof openFromNewTab>) => whenHandshaken(() => openFromNewTab(...args))}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
@@ -3469,7 +3590,7 @@ function AcpmuxPane() {
               }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
-              inputToken={handshaken ? newTab.inputToken : undefined}
+              inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : replaying && replaying === snapshot.sessionId ? (

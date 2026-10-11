@@ -2419,11 +2419,13 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    PendingServer, SocketStartLock, connect_session_socket, prepare_socket_parent, serve,
-    serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
+    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
+mod restoring;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
+pub use restoring::RestoringServer;
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;

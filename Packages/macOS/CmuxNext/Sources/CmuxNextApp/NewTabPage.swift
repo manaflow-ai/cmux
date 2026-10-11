@@ -285,7 +285,10 @@ extension PaneController {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
             return
         }
-        // `open` focuses the field of a New Tab page already showing, else opens one.
+        // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
+        // of another machine a new tab is a chat on that machine (cx-k21v): Focus Location
+        // never starts one there.
+        guard daemon.isLocal else { return }
         NewTabPage.open(in: self, seed: nil)
     }
 }
@@ -308,6 +311,14 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             services.agentTabs.view(for: key)?.focusLocation()
+            return
+        }
+        // A pane of another machine: its chats run there (cx-k21v). This Mac's New Tab page runs in
+        // this Mac's acpmux, so a chat typed there would start here; a chat on that machine opens
+        // in the selected tab's folder instead.
+        if !pane.daemon.isLocal, services.agentTabs.canHost(on: pane.daemon) {
+            let seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: pane.selectedTab?.cwd))
+            services.agentTabs.openTab(in: pane, seed: seed, then: then)
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
@@ -337,6 +348,8 @@ extension NewTabPage {
             return
         }
         openingPanes.remove(openingKey)
+        // The page's tab shows: from now on the key hold ends as soon as the pane shows another tab.
+        services.keyRouter.newTabInputCoordinator.didShow(in: pane.view.window)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
         if spare != nil, services.presentation.showNow(pane) {
