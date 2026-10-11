@@ -383,7 +383,8 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
             for sid in attached {
-                let _ = me.request(method::MUX_ATTACH, json!({"sessionId": sid, "limit": 0})).await;
+                let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
+                let _ = me.request(method::MUX_ATTACH, attach).await;
             }
             Ok::<(), RpcError>(())
         });

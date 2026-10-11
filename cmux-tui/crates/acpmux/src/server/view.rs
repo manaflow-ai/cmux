@@ -36,7 +36,7 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
     if sub.hidden == visible {
         sub.hidden = !visible;
-        drop(subs);
+        // Under the lock, so a detach racing this one counts the same visibility.
         hub.set_visible(&s, visible);
     }
     Ok(json!({}))

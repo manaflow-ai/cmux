@@ -116,6 +116,8 @@ impl Hub {
             "unread": m.unread,
             "lastTurn": m.last_turn,
             "attached": session.attached.load(Ordering::SeqCst),
+            // Some attached client shows the chat (`hub/seen.rs`).
+            "shown": self.shown(session),
         });
         summary["indicator"] = status_indicator(&summary).map_or(Value::Null, Value::from);
         summary
