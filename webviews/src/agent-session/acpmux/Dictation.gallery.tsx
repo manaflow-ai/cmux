@@ -99,6 +99,24 @@ export default componentEntry<Props>({
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
   ],
   styles: () => import("./styles.css"),
+  checks: {
+    anchorMovePx: {
+      value: 0,
+      reason: "Dictation changes the composer controls in place and must not move the transcript or composer anchor.",
+    },
+    layoutShiftMax: {
+      value: 0,
+      reason: "The level meter and permission notice stay inside the composer host instead of reflowing the pane.",
+    },
+    longFrameFailMs: {
+      value: 33,
+      reason: "Starting and stopping dictation is a local control interaction and should remain within one frame.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "Dictation controls and permission dismissal should settle within a quarter second.",
+    },
+  },
   load: async () => GalleryDictation,
   variants: {
     idle: { props: { initialState: "idle", initialNotice: null } },
