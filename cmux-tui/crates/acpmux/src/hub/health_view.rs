@@ -50,14 +50,16 @@ impl Hub {
     /// `ACPMUX_HEALTH_FETCH=0` keeps newest-version lookups off (the local
     /// checks still run).
     pub fn start_harness_checks(self: &Arc<Self>) {
-        let home = crate::config::home;
         if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
             let hub = self.clone();
             tokio::spawn(async move {
-                let installed =
-                    || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+                let installed = || {
+                    tokio::task::spawn_blocking(|| {
+                        crate::registry::installed(&crate::config::home())
+                    })
+                };
                 let before = installed().await.ok();
-                match crate::registry::refresh(&home()).await {
+                match crate::registry::refresh(&crate::config::home()).await {
                     Ok(true) if installed().await.ok() != before => {
                         if let Err(e) = hub.reload_catalog().await {
                             tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
@@ -71,7 +73,7 @@ impl Hub {
         let fetch_latest = !std::env::var("ACPMUX_HEALTH_FETCH").is_ok_and(|v| v == "0");
         self.health.attach(crate::harness_health::Settings {
             sources: fetch_latest.then(crate::harness_health::latest::Sources::public),
-            cache: Some(home().join("harness-health.json")),
+            cache: Some(crate::config::home().join("harness-health.json")),
             home: dirs::home_dir().unwrap_or_default(),
         });
         tokio::spawn(self.clone().run_health());
