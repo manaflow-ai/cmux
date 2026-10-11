@@ -129,7 +129,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
-                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit changes…", bundle: .module),
+                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit Changes…", bundle: .module),
                 keywords: ["agent", "git", "commit", "changes", "stage", "message"],
                 category: .agents, symbol: "checkmark.circle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -144,7 +144,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.git.push",
-                title: String(localized: "action.agentPane.git.push", defaultValue: "Push branch", bundle: .module),
+                title: String(localized: "action.agentPane.git.push", defaultValue: "Push Branch", bundle: .module),
                 keywords: ["agent", "git", "push", "upload", "remote", "branch", "upstream"],
                 category: .agents, symbol: "arrow.up.circle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
