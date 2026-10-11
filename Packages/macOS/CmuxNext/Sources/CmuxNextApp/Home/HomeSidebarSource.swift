@@ -57,6 +57,7 @@ final class HomeSidebarSource {
     @ObservationIgnored private let rows: @MainActor () -> [InboxRow]
     @ObservationIgnored private let me: @MainActor () -> ParticipantID?
     @ObservationIgnored private let contacts: @MainActor () -> [HomeContact]
+    @ObservationIgnored private let chiefAvatar: @MainActor () -> HomeChiefAvatar?
     var query = ""
     private(set) var pins = HomePins()
     /// Conversations shown unread by the user's Mark as Unread until they open or read them.
@@ -69,12 +70,14 @@ final class HomeSidebarSource {
     #endif
 
     init(store: HomePinStore, account: @escaping @MainActor () -> String, rows: @escaping @MainActor () -> [InboxRow],
-         me: @escaping @MainActor () -> ParticipantID?, contacts: @escaping @MainActor () -> [HomeContact]) {
+         me: @escaping @MainActor () -> ParticipantID?, contacts: @escaping @MainActor () -> [HomeContact],
+         chiefAvatar: @escaping @MainActor () -> HomeChiefAvatar? = { nil }) {
         self.store = store
         self.account = account
         self.rows = rows
         self.me = me
         self.contacts = contacts
+        self.chiefAvatar = chiefAvatar
     }
 
     /// The store's rows (plus DEBUG fixture rows).
@@ -88,7 +91,7 @@ final class HomeSidebarSource {
 
     func model(now: Date = Date()) -> HomeSidebarModel {
         HomeSidebarModel(rows: listed(), pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
-                         unreadMarks: unreadMarks, now: now)
+                         unreadMarks: unreadMarks, chiefAvatar: chiefAvatar(), now: now)
     }
 
     func select(_ id: ConversationID) { onSelect(id) }
