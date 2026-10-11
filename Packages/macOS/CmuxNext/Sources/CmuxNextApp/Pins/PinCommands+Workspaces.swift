@@ -99,6 +99,40 @@ extension PinCommands {
         return layout.document.sections[s].id == SidebarLayoutDocument.pinnedSectionID ? PinStrings.unpinWorkspace : PinStrings.removeFromTop
     }
 
+    /// Several layout ops as one undo step (Add Group to Section). They are
+    /// checked together first, so a reject (the item cap) leaves nothing half
+    /// done; undo sends their inverses in reverse order and skips items that
+    /// are already gone.
+    func sendLayout(_ ops: [SidebarLayoutOp], title: String, origin: ActionOrigin) throws {
+        let ops = ops.filter { op in
+            guard case let .itemRemove(id) = op else { return true }
+            return layout.document.locate(id) != nil
+        }
+        guard ops.count > 1 else {
+            guard let op = ops.first else { return }
+            return try sendLayout(op, title: title, origin: origin)
+        }
+        var checked = layout.document
+        for op in ops {
+            switch SidebarLayoutReducer.reduce(checked, op) {
+            case .success(let next): checked = next
+            case .failure(let reject): throw ActionFailure(message: SidebarSectionStrings.rejected(reject.rawValue))
+            }
+        }
+        var inverses: [SidebarLayoutOp] = []
+        for op in ops {
+            let inverse = layout.document.inverse(of: op)
+            try layout.send(op)
+            if let inverse { inverses.insert(inverse, at: 0) }
+        }
+        guard origin == .user, !inverses.isEmpty else { return }
+        registerUndo(title: title) { commands in
+            do { try commands.sendLayout(inverses, title: title, origin: .user) } catch {
+                commands.context.services.registry.refuse(RefusalStrings.describe(error))
+            }
+        }
+    }
+
     /// Sends one layout change and, for the user, registers its inverse.
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {
         let inverse = layout.document.inverse(of: op)

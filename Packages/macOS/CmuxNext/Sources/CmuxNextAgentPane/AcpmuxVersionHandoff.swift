@@ -70,12 +70,16 @@ nonisolated enum AcpmuxVersionHandoff {
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
-        return await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(15))
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
 }
 
 /// Waits for a process to exit through the kernel's exit event (no polling).
-nonisolated enum AgentPaneProcessExit {
+public nonisolated struct AgentPaneProcessExit: Sendable {
+    public let pid: Int32
+
+    public init(pid: Int32) { self.pid = pid }
+
     private final class Once: Sendable {
         let done = Mutex(false)
         let deadline = Mutex<Task<Void, Never>?>(nil)
@@ -87,8 +91,9 @@ nonisolated enum AgentPaneProcessExit {
         }
     }
 
-    static func exitEvent(pid: Int32, within timeout: Duration) async -> Bool {
-        await withCheckedContinuation { continuation in
+    public func event(within timeout: Duration) async -> Bool {
+        let pid = self.pid
+        return await withCheckedContinuation { continuation in
             let once = Once()
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)")
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)

@@ -205,7 +205,7 @@ impl Mux {
         output.context("tab group change committed no result")
     }
 
-    fn emit_tab_group_members(&self, members: &[SurfaceId], transaction: Option<&str>) {
+    pub(super) fn emit_tab_group_members(&self, members: &[SurfaceId], transaction: Option<&str>) {
         for surface in members {
             self.emit_tab_changed_for_transaction(*surface, transaction.map(Arc::from));
         }

@@ -16,13 +16,15 @@ export type ScreenSections = {
   tools: boolean;
   /// A `>` glyph before the field, in monospace.
   prompt: boolean;
+  /// The Recently Closed list (cx-d0d.60).
+  closed: boolean;
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  default: { chats: "cards", tools: true, prompt: false },
-  composer: { chats: "none", tools: false, prompt: false },
-  threads: { chats: "list", tools: false, prompt: false },
-  console: { chats: "list", tools: false, prompt: true },
+  default: { chats: "cards", tools: true, prompt: false, closed: true },
+  composer: { chats: "none", tools: false, prompt: false, closed: false },
+  threads: { chats: "list", tools: false, prompt: false, closed: true },
+  console: { chats: "list", tools: false, prompt: true, closed: true },
 };
 
 export function screenSections(template: ScreenTemplate): ScreenSections {

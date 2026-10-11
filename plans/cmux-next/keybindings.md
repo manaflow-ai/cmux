@@ -6,6 +6,24 @@ Spec: cmux-next-spec `spec/keybindings-and-palette.md` (R59). Scope: one key dis
 a binding table with `when` clauses, then the customization slices. Default bindings do
 not change (K1). Paths are under `Packages/macOS/CmuxNext/Sources/` unless noted.
 
+## 0. Window creation differs from browser defaults
+
+cmux uses `Cmd-N` for a workspace because the workspace is the unit users
+switch between in a window. The window shortcuts are separate, so browser
+muscle memory does not accidentally split a workspace across windows:
+
+| Shortcut | cmux action | Result |
+| --- | --- | --- |
+| `Cmd-N` | New Workspace (`newTab`) | Adds a workspace in the current window. |
+| `Cmd-Shift-N` | New Window (`newWindow`) | Opens a new window with its first workspace. |
+| `Cmd-Opt-Shift-N` | New Incognito Window (`newIncognitoWindow`) | Opens an isolated incognito window; its browser data is discarded when the last incognito window closes. |
+
+These bindings are also available from the File/Window menus, the command
+palette and the action registry, and can be rebound through the normal
+shortcut settings. In a browser, `Cmd-Shift-N` traditionally means a private
+window; in cmux the explicit three-modifier shortcut keeps that action distinct
+from New Window.
+
 ## 1. Every key-down path today
 
 A key-down passes these owners in this order. Each row says who decides and where.

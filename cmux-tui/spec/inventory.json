@@ -45,6 +45,9 @@
     "conversation.search",
     "conversation.send",
     "conversation.typing",
+    "credential.mint",
+    "credential.rotate",
+    "credential.verify",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.checkpoint.create",
@@ -499,6 +502,12 @@
   "events": [
     {
       "name": "agent-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "agent-presence-changed",
       "streams": [
         "subscribe"
       ]

@@ -100,8 +100,9 @@ final class HostView: NSView {
         // view put them above the morph; the real glass now sits there).
         composeHost.root.addSublayer(demo.compose.overlay)
         demo.compose.nativeChrome = true
-        let tv = demo.compose.textView.view
-        addSubview(tv)
+        // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
+        // the text view is the scroll view's document, so the clip is what the pane holds.
+        addSubview(demo.compose.textView.clip)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,

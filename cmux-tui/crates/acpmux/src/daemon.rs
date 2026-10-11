@@ -142,18 +142,36 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Bind before any slow startup work, so clients can connect and ask
     // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    let mut moved_listener = false;
     let ws_listener = match &ws {
+        // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller
+        // asked for that address). A taken configured port (an unrelated
+        // program, or a squatter) moves the daemon to a free loopback port,
+        // which it reports and saves; the app reads the port from status
+        // and checks its listener before it connects, and a proof names its
+        // transport, so a squatter on the old port relays nothing.
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
-            Err(e) if !explicit_listen => {
-                tracing::warn!("dashboard disabled: {e:#}");
-                // Report no web listener; the saved address stays in the file.
-                config.web_unbound = true;
-                None
+            Err(e) if explicit_listen => {
+                let _ = std::fs::remove_file(socket_path());
+                return Err(e.context(format!(
+                    "the WebSocket listener {listen} (--listen) is taken; free the port or choose another"
+                )));
             }
             Err(e) => {
-                let _ = std::fs::remove_file(socket_path());
-                return Err(e);
+                tracing::warn!(
+                    "websocket.listen {listen} is taken ({e:#}); listening on a free loopback port"
+                );
+                match crate::server::bind_ws("127.0.0.1:0").await {
+                    Ok(l) => {
+                        moved_listener = true;
+                        Some((l, token.clone()))
+                    }
+                    Err(e) => {
+                        let _ = std::fs::remove_file(socket_path());
+                        return Err(e.context("no free loopback port for the WebSocket listener"));
+                    }
+                }
             }
         },
         None => None,
@@ -180,6 +198,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             allowed_hosts,
             token_rotated,
         });
+        // The new port is this home's port from now on.
+        if moved_listener && let Err(e) = config.save() {
+            tracing::warn!("could not save the moved web listener: {e}");
+        }
     }
     let hub = Hub::new(config, store);
     if let Some(key) = person_key {

@@ -81,7 +81,7 @@ public final class FrameClient {
         return false
     }
 
-    isolated deinit {
-        deactivate()
-    }
+    // No deinit. An active client is held by its scheduler, so a client is only released once it
+    // is idle, and owners deactivate before they let go. An `isolated deinit` here hopped through
+    // the Swift runtime on every release and trapped when a layout view left its window (cx-t7hu).
 }

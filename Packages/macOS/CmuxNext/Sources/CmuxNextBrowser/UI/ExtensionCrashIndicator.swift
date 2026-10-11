@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 
 /// "Extension crashed, click to reload": while an extension of
 /// the tab's profile is terminated (its process crashed or was killed), the
@@ -10,7 +11,7 @@ final class ExtensionCrashIndicator {
     private let trampoline = MenuTrampoline()
     private weak var store: BrowserExtensionStore?
     private(set) lazy var button: ChromeIconButton = {
-        let button = ChromeIconButton(symbol: "exclamationmark.triangle", label: "",
+        let button = ChromeIconButton(icon: .extensionCrashed, label: "",
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Self.identifier)
         return button
@@ -32,7 +33,7 @@ final class ExtensionCrashIndicator {
             }
             return
         }
-        button.setSymbol("exclamationmark.triangle", label: Strings.extensionsCrashed(crashed.map(\.name)))
+        button.setIcon(.extensionCrashed, label: Strings.extensionsCrashed(crashed.map(\.name)))
         let target = slot.arrangedSubviews.firstIndex(of: puzzle) ?? slot.arrangedSubviews.count
         if let current = slot.arrangedSubviews.firstIndex(of: button), current == target - 1 { return }
         if arranged { slot.removeArrangedSubview(button) }
