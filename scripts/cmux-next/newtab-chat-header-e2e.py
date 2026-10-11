@@ -231,8 +231,9 @@ def main():
             clicked = click_header(page, label)
             time.sleep(2)  # test harness: the click lands
             answers = bool(wait(lambda: "error" not in (rpc("debug.windows", timeout=5) or {"error": 1}), 15))
-            row(f"New Tab Page chat beside a browser: header {label} keeps the app answering", "the app answers",
-                f"clicked {(clicked or {}).get('clicked')}; panes {panes_of(workspace) if answers else 'no answer'}", answers)
+            row(f"New Tab Page chat beside a browser: header {label} keeps the app answering", "the click lands; the app answers",
+                f"clicked {(clicked or {}).get('clicked')}; panes {panes_of(workspace) if answers else 'no answer'}",
+                answers and bool((clicked or {}).get("clicked")))
             if not answers:
                 return
 

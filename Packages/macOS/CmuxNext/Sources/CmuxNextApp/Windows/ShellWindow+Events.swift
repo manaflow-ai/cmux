@@ -39,7 +39,10 @@ extension ShellWindow {
 
     /// Tells the focus model the first responder changed, or holds that for the edit's end.
     func reportResponder() {
-        guard editTeardown.depth == 0 else { editTeardown.pending = true; return }
+        guard editTeardown.depth == 0 else {
+            editTeardown.pending = true
+            return
+        }
         guard let controller = windowController as? WindowController else { return }
         controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
     }
