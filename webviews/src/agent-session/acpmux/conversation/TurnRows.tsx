@@ -185,7 +185,7 @@ function RetryModelMenu({
       <MenuPopup label={t("turn.retryWith")} align="start">
         <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
           {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id}>
+            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
               {model.name}
             </MenuRadioItem>
           ))}

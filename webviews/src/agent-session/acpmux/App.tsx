@@ -46,6 +46,7 @@ import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
+import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
@@ -1895,18 +1896,28 @@ function AcpmuxPane() {
   }, [hunkDecisions]);
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
-  // Retry with another model (cx-ncc.62): the chat harness's models it can run now, kept the same
-  // array while they stay the same (the catalog arrives again with every snapshot).
-  const retryModelsKey = (catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.models ?? [])
-    .filter((model) => !model.unavailable)
-    .map((model) => `${model.id}\t${model.name ?? model.id}`)
+  // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
+  // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
+  // run now, kept the same array while they stay the same.
+  const pickerSession = useMemo(
+    () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
+    [snapshot.summary?.harness, snapshot.summary?.configOptions],
+  );
+  const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  const retryModelsKey = (
+    pickerCatalog.harnesses.find(
+      (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
+    )?.models ?? []
+  )
+    .filter((model) => !model.unavailable && !isDefaultChoice(model))
+    .map((model) => `${model.id}\t${model.name || model.id}`)
     .join("\n");
   const retryModels = useMemo(
     () =>
       retryModelsKey
         ? retryModelsKey.split("\n").map((line) => {
-            const [id = "", name = id] = line.split("\t");
-            return { id, name };
+            const [id = "", name = ""] = line.split("\t");
+            return { id, name: name || id };
           })
         : [],
     [retryModelsKey],
