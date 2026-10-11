@@ -16,7 +16,7 @@ function files(dir: string): string[] {
 }
 
 /** A size token: a length or percentage, a `--text-*` size, or a keyword or system font. */
-const SIZED = /\d(?:px|rem|em|pt|%)|var\(--text-|\b(?:x*-?small|medium|x*-?large|smaller|larger)\b/;
+const SIZED = /\d(?:px|rem|em|pt|%)|var\(--text-|\b(?:x*-?small|medium|x*-?large|smaller|larger)\b(?!-)/;
 const WHOLE = /^(?:inherit|initial|unset|revert|caption|icon|menu|message-box|small-caption|status-bar|var\([^)]*\))$/;
 
 test("every font shorthand on a page names a size", () => {
