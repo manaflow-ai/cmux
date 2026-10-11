@@ -333,8 +333,16 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         let closures = loopbackForwardClosures.values
         loopbackForwardClosures.removeAll()
         for start in starts { start.cancel() }
+        // A start can pass its last cancellation check after the initial
+        // forward snapshot and assign its process while the actor is waiting
+        // for other shutdown work. Await every canceled start before taking a
+        // second snapshot so no helper outlives the manager's disconnect.
+        for start in starts { _ = try? await start.value }
         for closure in closures { await closure.value }
         for forward in forwards { await forward.stop() }
+        let lateForwards = loopbackForwards.values
+        loopbackForwards.removeAll()
+        for forward in lateForwards { await forward.stop() }
         await previous?.disconnect()
     }
 }
