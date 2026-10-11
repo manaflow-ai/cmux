@@ -132,6 +132,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// to its compact bar or opens it again.
     case quickSetOnTop(Bool)
     case quickSetCollapsed(Bool)
+    /// `quick.floatingState`: the page, once loaded, reads the floating chat's state.
+    case quickFloatingState
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)

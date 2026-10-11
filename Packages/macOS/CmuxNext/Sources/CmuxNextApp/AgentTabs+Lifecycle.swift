@@ -38,11 +38,31 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: reason)
         }
         // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
+        let record: AgentSessionRef
         if let host, host != chiefHost {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
         }
-        let record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
+        // A new chat in a pane of another machine runs on that machine: the tab records that
+        // machine's store as its host and its session daemon starts the chat there
+        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). An existing session of this
+        // Mac (a link, Duplicate Tab) or an outside chat it resumes stays this Mac's.
+        let remote = !daemon.isLocal && host == nil && session == nil && adopt == nil
+        var seed = seed, newTab = newTab, spare = spare
+        if remote {
+            guard let registry = Self.registryHost(of: daemon) else {
+                if let spare, recycle?(spare) != true { retirer.retire(spare) }
+                throw AgentTabRefusal(message: RefusalStrings.agentTabsDisconnected)
+            }
+            // The New Tab page and a prewarmed spare run in this Mac's acpmux: a chat typed there
+            // would start here. The chat opens on its machine in the page's folder instead.
+            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd))
+            (newTab, spare) = (nil, nil)
+            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: nil, harness: nil)
+        } else {
+            record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
+        }
         let provisional = ProvisionalTab()
         let key = provisional.id
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: key),
@@ -67,6 +87,7 @@ extension AgentTabStore {
             spare.adoptNewTab(newTab.page)
         }
         let pending = AgentTabPending(key: key, surface: snapshot.surface)
+        if remote { remoteCreations[key] = pending }
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
             do {
                 guard let self else { throw CancellationError() }
@@ -150,6 +171,9 @@ extension AgentTabStore {
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
+        if let value = remoteSeeds.removeValue(forKey: key) { remoteSeeds[real] = value }
+        if let value = remoteCreations.removeValue(forKey: key) { remoteCreations[real] = value }
+        if let value = remoteStarts.removeValue(forKey: key) { remoteStarts[real] = value }
         if let value = pendingTurns.removeValue(forKey: key) { pendingTurns[real] = value }
         if linkedSessions.remove(key) != nil { linkedSessions.insert(real) }
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
@@ -247,6 +271,9 @@ extension AgentTabStore {
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
+        remoteSeeds[key] = nil
+        remoteCreations[key] = nil
+        remoteStarts.removeValue(forKey: key)?.cancel()
         adoptions = adoptions.filter { $0.value != key }
         aliases = aliases.filter { $0.value != key }
         linkedSessions.remove(key)
