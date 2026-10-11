@@ -133,7 +133,6 @@
     "ui/PickerPrimitives.tsx#PickerDialog",
     "ui/PickerPrimitives.tsx#PickerOption",
     "ui/PickerPrimitives.tsx#PickerOptionList",
-    "ui/Select.tsx#Select",
     "ui/Sheet.tsx#Sheet",
     "ui/Tooltip.tsx#AnchoredCard",
     "ui/Tooltip.tsx#Tooltip",
