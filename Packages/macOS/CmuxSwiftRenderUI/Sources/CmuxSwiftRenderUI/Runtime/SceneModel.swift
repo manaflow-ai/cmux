@@ -78,6 +78,9 @@ public final class SceneNode: Identifiable {
 public final class SceneStore {
     public private(set) var rootId: String?
     @ObservationIgnored private var nodes: [String: SceneNode] = [:]
+    /// When this scene's autofocus text fields may take keyboard focus. The
+    /// host notes clicks on it; the fields ask it before focusing.
+    @ObservationIgnored let autofocusGate = SceneAutofocusGate()
 
     public init() {}
 

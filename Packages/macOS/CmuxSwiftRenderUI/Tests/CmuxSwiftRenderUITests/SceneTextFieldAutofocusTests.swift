@@ -215,4 +215,23 @@ struct SceneTextFieldAutofocusTests {
 
         #expect(harness.window.firstResponder === harness.terminal)
     }
+
+    /// A click authorizes one focus move, soon after it; typing, submits and
+    /// drag feedback authorize none.
+    @Test func clickAuthorizesOneFocusMoveWithinTheWindow() {
+        var clock = ContinuousClock.now
+        let gate = SceneAutofocusGate(now: { clock })
+        for event in ["edit", "submit", "cancel", "move", "dragChange"] {
+            gate.noteEvent(event)
+            #expect(!gate.consumeRecentGesture(), "\(event) must not authorize focus")
+        }
+
+        gate.noteEvent("tap")
+        #expect(gate.consumeRecentGesture())
+        #expect(!gate.consumeRecentGesture())
+
+        gate.noteEvent("doubletap")
+        clock = clock.advanced(by: SceneAutofocusGate.gestureWindow + .milliseconds(1))
+        #expect(!gate.consumeRecentGesture())
+    }
 }

@@ -113,6 +113,9 @@ final class JSSidebarEngine {
                window.firstResponder is NSTextView {
                 window.makeFirstResponder(nil)
             }
+            // A click opens the short window in which a text field it mounts
+            // (a rename editor) may take focus; see SceneAutofocusGate.
+            self?.store?.autofocusGate.noteEvent(event)
             self?.runtime?.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
         }
     }
