@@ -14804,137 +14804,6 @@
         }
       }
     },
-    "argument.agent.host": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مضيف الجلسة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domaćin sesije"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sessionsvært"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sitzungs-Host"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session Host"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Host de la sesión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hôte de la session"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Host della sessione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッションのホスト"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនរបស់វគ្គ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "세션 호스트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Øktvert"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Host sesji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Host da sessão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Хост сеанса"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โฮสต์ของเซสชัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oturum ana bilgisayarı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Хост сеансу"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy chủ phiên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "会话主机"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "工作階段主機"
-          }
-        }
-      }
-    },
     "argument.agent.session": {
       "extractionState": "manual",
       "localizations": {
@@ -16245,133 +16114,133 @@
         }
       }
     },
-    "action.tab.restart": {
+    "argument.agent.host": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مضيف الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domaćin sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sessionsvært"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzungs-Host"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart Shell Here"
+            "value": "Session Host"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hôte de la session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host della sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここでシェルを再起動"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة تشغيل الصدفة هنا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ponovo pokreni shell ovdje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genstart shell her"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shell hier neu starten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciar shell aquí"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrer le shell ici"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riavvia la shell qui"
+            "value": "セッションのホスト"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ចាប់ផ្ដើម shell ឡើងវិញនៅទីនេះ"
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនរបស់វគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "여기서 셸 다시 시작"
+            "state": "needs_review",
+            "value": "세션 호스트"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start skallet på nytt her"
+            "state": "needs_review",
+            "value": "Øktvert"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Uruchom ponownie powłokę tutaj"
+            "state": "needs_review",
+            "value": "Host sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciar shell aqui"
+            "state": "needs_review",
+            "value": "Host da sessão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Перезапустить оболочку здесь"
+            "state": "needs_review",
+            "value": "Хост сеанса"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เริ่มเชลล์ใหม่ที่นี่"
+            "state": "needs_review",
+            "value": "โฮสต์ของเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kabuğu burada yeniden başlat"
+            "state": "needs_review",
+            "value": "Oturum ana bilgisayarı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Перезапустити оболонку тут"
+            "state": "needs_review",
+            "value": "Хост сеансу"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Khởi động lại shell tại đây"
+            "state": "needs_review",
+            "value": "Máy chủ phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "在此重新启动 Shell"
+            "state": "needs_review",
+            "value": "会话主机"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "在此重新啟動 Shell"
+            "state": "needs_review",
+            "value": "工作階段主機"
           }
         }
       }
@@ -16634,6 +16503,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "區塊"
+          }
+        }
+      }
+    },
+    "action.tab.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart Shell Here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでシェルを再起動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تشغيل الصدفة هنا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo pokreni shell ovdje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genstart shell her"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell hier neu starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar shell aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer le shell ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riavvia la shell qui"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើម shell ឡើងវិញនៅទីនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서 셸 다시 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start skallet på nytt her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchom ponownie powłokę tutaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar shell aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапустить оболочку здесь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มเชลล์ใหม่ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kabuğu burada yeniden başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапустити оболонку тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động lại shell tại đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此重新启动 Shell"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此重新啟動 Shell"
           }
         }
       }
