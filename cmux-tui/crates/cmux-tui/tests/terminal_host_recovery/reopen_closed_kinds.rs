@@ -30,9 +30,8 @@ impl AppConnection {
     fn send(&mut self, mut value: serde_json::Value) -> serde_json::Value {
         value["id"] = serde_json::json!(self.next);
         self.next += 1;
-        let response = stream_request(&mut self.writer, &mut self.reader, value);
-        assert_eq!(response["ok"], true, "request failed: {response}");
-        response["data"].clone()
+        // `stream_request` checks `ok` and returns the reply's `data`.
+        stream_request(&mut self.writer, &mut self.reader, value)
     }
 
     fn tabs(&mut self) -> Vec<serde_json::Value> {
