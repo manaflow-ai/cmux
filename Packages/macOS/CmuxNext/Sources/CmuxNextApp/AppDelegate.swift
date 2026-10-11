@@ -288,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods(services)
+                control.registerNowPlayingDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
                 if let router = control.service?.router {
