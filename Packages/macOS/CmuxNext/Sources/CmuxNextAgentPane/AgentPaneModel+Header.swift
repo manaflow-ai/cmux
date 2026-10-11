@@ -21,6 +21,9 @@ public struct AgentPaneHeaderHooks {
     /// The "..." menu's Move to Floating Chat (cx-b9qi): Start Agent's panel holds session `id` and
     /// the tab closes; false when it could not (the floating chat is off).
     public var moveToFloatingChat: (@MainActor (String) -> Bool)?
+    /// Asks for the chat folder's pull request again (`pane.tabState {refresh: true}` at a turn's
+    /// end, cx-ncc.77.1); the answer is pushed with the header state.
+    public var refreshPullRequest: (@MainActor () -> Void)?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -95,10 +98,11 @@ extension AgentPaneModel {
             let folder = folderForOtherTabs(cwd)
             if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
             return AgentPaneReply.success()
-        case .tabState:
+        case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
+            if refresh { header.refreshPullRequest?() }
             return AgentPaneReply.success(header.tabState().reply)
         case .archive(let archived):
             return await archive(archived)

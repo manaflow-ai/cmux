@@ -44,6 +44,7 @@ extension AgentTabStore {
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
         }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) })
+        model.header?.refreshPullRequest = { pullRequest.refresh() }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
