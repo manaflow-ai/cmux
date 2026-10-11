@@ -4,7 +4,9 @@ import WebKit
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
 /// whose role a person clicks (buttons, rows, tabs, links, fields, menus),
-/// reached through subviews and accessibility children alike.
+/// reached through subviews and accessibility children alike. In process a
+/// SwiftUI host shows its controls only as AXUnknown elements, so SwiftUI
+/// controls name themselves with a ``WindowHintRegion`` marker view.
 /// Web views and terminals are skipped: their contents are not controls of
 /// the window.
 @MainActor
@@ -25,19 +27,33 @@ enum WindowHintTargets {
     /// Two letters label 14 * 14 controls; more would need three.
     static let limit = WindowHintKeys.alphabet.count * WindowHintKeys.alphabet.count
 
-    /// The window's controls in reading order, clipped to its content.
+    /// The window's controls in reading order, clipped to the window. The
+    /// walk starts at the frame view above `content`, so the titlebar's
+    /// accessory controls count; the traffic lights do not.
     static func collect(in content: NSView) -> [Target] {
         guard let window = content.window else { return [] }
-        let bounds = content.convert(content.bounds, to: nil)
+        let root = content.superview ?? content
+        let bounds = root.convert(root.bounds, to: nil)
+        let trafficLights = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { window.standardWindowButton($0) }
         var found: [Target] = []
         var seen = Set<[Int]>()
-        var stack: [Any] = [content]
+        var stack: [Any] = [root]
         var visited = Set<ObjectIdentifier>()
         while let next = stack.popLast(), visited.count < 5000, found.count < limit {
             guard visited.insert(ObjectIdentifier(next as AnyObject)).inserted else { continue }
             if let view = next as? NSView {
                 guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
                 guard !(view is WKWebView), !(view is GhosttyNSView) else { continue }
+                guard !trafficLights.contains(where: { $0 === view }) else { continue }
+                if let marker = view as? WindowHintRegion.MarkerView {
+                    let rect = marker.convert(marker.bounds, to: nil).intersection(bounds)
+                    let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
+                    if marker.isEnabled, rect.width >= 4, rect.height >= 4, seen.insert(key).inserted {
+                        found.append(Target(rect: rect, role: NSAccessibility.Role.button.rawValue, title: marker.title))
+                    }
+                    continue
+                }
             }
             let element = next as? NSAccessibilityProtocol
             if element?.isAccessibilityHidden() == true { continue }
