@@ -96,6 +96,7 @@ import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
   latestForkSeq,
@@ -395,6 +396,8 @@ const WorkingRow = memo(
 
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
 /// panel) refuses, and the card's address still opens outside the pane.
+/// How many turns back the header's Preview looks for a page.
+const PREVIEW_TURNS = 8;
 const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
 /// A turn's local web page, live (conversation/PreviewCard.tsx).
 const PreviewRow = memo(
@@ -1723,6 +1726,19 @@ function AcpmuxPane() {
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
     [lastEditTurn, turnCountsFor],
   );
+  // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
+  const previewUrl = useMemo(() => {
+    const rows = snapshot.rows;
+    let end = rows.length;
+    for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS; index -= 1) {
+      if (rows[index].kind !== "user") continue;
+      const url = turnPreviewUrl(rows[index], rows.slice(index + 1, end));
+      if (url) return url;
+      end = index;
+      turns += 1;
+    }
+    return undefined;
+  }, [snapshot.rows]);
   const toggleLastChanges = () => {
     if (diffView && diffOpen) return closeDiff();
     if (lastEditTurn) openDiff(lastEditTurn.rowId);
@@ -3251,6 +3267,11 @@ function AcpmuxPane() {
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
                       onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      previewUrl={previewUrl}
+                      onPreview={(url, mode) => {
+                        ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode }));
+                        window.setTimeout(refreshTabState, 400);
+                      }}
                       sideTabs={sideTabs}
                       onSideTabs={toggleSideTabs}
                       onPointerEnter={quick ? undefined : refreshTabState}
