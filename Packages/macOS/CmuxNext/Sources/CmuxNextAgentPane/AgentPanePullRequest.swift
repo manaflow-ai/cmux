@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The pull request of a chat folder's branch, as the chat header's chip shows it (cx-tcwj).
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
