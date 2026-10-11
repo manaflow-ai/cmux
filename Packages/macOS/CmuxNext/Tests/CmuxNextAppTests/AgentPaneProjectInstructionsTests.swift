@@ -87,6 +87,12 @@ struct AgentPaneProjectInstructionsTests {
         try FileManager.default.createSymbolicLink(atPath: rig.folder + "/AGENTS.md", withDestinationPath: outside + "/target.md")
         #expect(Self.errorCode(await rig.ask(name: "AGENTS.md")) == AgentPaneTransportError.pathOutsideRoots.rawValue)
 
+        // Nor one that links to a page inside it: the tab would load it as a page.
+        try "<script></script>".write(toFile: rig.folder + "/page.html", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: rig.folder + "/CLAUDE.md", withDestinationPath: rig.folder + "/page.html")
+        #expect(Self.errorCode(await rig.ask()) == AgentPaneTransportError.pathInvalid.rawValue)
+        try FileManager.default.removeItem(atPath: rig.folder + "/CLAUDE.md")
+
         rig.model.remoteChat = true
         #expect(Self.errorCode(await rig.ask()) == "unsupported")
         #expect(!FileManager.default.fileExists(atPath: rig.folder + "/CLAUDE.md"))

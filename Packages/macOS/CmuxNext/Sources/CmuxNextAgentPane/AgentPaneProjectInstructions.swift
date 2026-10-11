@@ -40,12 +40,14 @@ public nonisolated struct AgentPaneProjectInstructions: Equatable, Sendable {
         let file = URL(fileURLWithPath: folder).appendingPathComponent(request.name)
         // Exclusive create: a file (or link) already there is kept as it is.
         let created = (try? Data().write(to: file, options: .withoutOverwriting)) != nil
-        // The file, made canonical, must still be a regular file under a root (a link out is refused).
+        // The file, made canonical, must still be a regular file under a root (a link out is refused)
+        // with the asked name: a committed CLAUDE.md that links to a page (x.html) never opens it.
         let url: URL
         switch AgentPaneFileOpen.resolve(file.path, roots: roots) {
         case .success(let resolved): url = resolved
         case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
         }
+        guard url.lastPathComponent == request.name else { return AgentPaneModel.transportFailure(.pathInvalid) }
         guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab) else {
             return AgentPaneReply.failure(code: "open_failed", message: AgentPaneModel.openFileFailedMessage)
         }
