@@ -33,6 +33,16 @@ final class SidebarUpdateCardView: NSView {
         }
     }
 
+    /// Makes ``highlights`` once a card shows: each is a web page, and two
+    /// per window built at launch with no update staged cost about 50 ms of
+    /// main thread before the first frame.
+    var makeHighlights: (@MainActor () -> any SidebarSurfaceIsland)? {
+        didSet {
+            highlights?.close()
+            highlights = card == nil ? nil : makeHighlights?()
+        }
+    }
+
     /// The highlights page waits in the card's view tree, transparent,
     /// click-through and outside the card's bounds, so it loads and reports
     /// its height while the card shows; the popover takes it while open and
@@ -92,6 +102,7 @@ final class SidebarUpdateCardView: NSView {
             hideNotes()
             return
         }
+        if highlights == nil { highlights = makeHighlights?() }
         titleLabel.stringValue = card.title
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil

@@ -93,6 +93,14 @@ final class SidebarUpdatedCardHost: NSView {
     private(set) var card: SidebarUpdatedCard?
     /// The page's height changed: the sidebar lays the slot out again.
     var onHeightChange: (() -> Void)?
+    /// Makes ``island`` once a card shows (a web page; none at launch without one).
+    var makeIsland: (@MainActor () -> any SidebarSurfaceIsland)? {
+        didSet {
+            island?.close()
+            island = card == nil ? nil : makeIsland?()
+            isHidden = card == nil || island == nil
+        }
+    }
     var island: (any SidebarSurfaceIsland)? {
         didSet {
             oldValue?.view.removeFromSuperview()
@@ -119,6 +127,7 @@ final class SidebarUpdatedCardHost: NSView {
     func configure(_ card: SidebarUpdatedCard?) {
         guard card != self.card else { return }
         self.card = card
+        if card != nil, island == nil { island = makeIsland?() }
         isHidden = card == nil || island == nil
     }
 
