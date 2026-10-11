@@ -137,9 +137,9 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(): Promise<Page> {
+  async function openChat(first = "first"): Promise<Page> {
     queue = [
-      { promptId: "q-1", prompt: "first" },
+      { promptId: "q-1", prompt: first },
       { promptId: "q-2", prompt: "second" },
       { promptId: "q-3", prompt: "third" },
     ];
@@ -189,6 +189,45 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
         edits: [{ op: "update", promptId: "q-1", text: "first, edited" }],
         rows: ["first, edited", "second", "third"],
       });
+      await page.close();
+    });
+
+    test("⌥↓ keeps focus on the prompt it moved", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Alt+ArrowDown");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-queued .acpmux-queued-text")[1]?.textContent === "first",
+      );
+      await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.dataset.promptId === "q-1");
+      await page.keyboard.press("Alt+ArrowDown");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-queued .acpmux-queued-text")[2]?.textContent === "first",
+      );
+      expect({ edits, rows: await rows(page), focused: await focused(page) }).toEqual({
+        edits: [
+          { op: "move", promptId: "q-1", index: 1 },
+          { op: "move", promptId: "q-1", index: 2 },
+        ],
+        rows: ["second", "third", "first"],
+        focused: "q-1",
+      });
+      await page.close();
+    });
+
+    test("an edit opened and saved unchanged keeps a prompt's lines and sends nothing", async () => {
+      const page = await openChat("line one\nline two");
+      await page.locator(".acpmux-composer-prompt").click();
+      for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Enter");
+      const input = page.getByRole("textbox", { name: "Edit queued prompt" });
+      await input.waitFor();
+      expect(await input.inputValue()).toBe("line one\nline two");
+      await page.keyboard.press("Enter");
+      await input.waitFor({ state: "detached" });
+      await page.waitForTimeout(300);
+      expect(edits).toEqual([]);
       await page.close();
     });
 
