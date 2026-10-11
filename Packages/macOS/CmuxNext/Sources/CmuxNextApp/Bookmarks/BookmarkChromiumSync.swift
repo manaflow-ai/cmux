@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// Chromium's bookmark models follow cmux's trees: the chrome.bookmarks bridge
 /// (plans/cmux-next/bookmarks.md section 4). A Chromium store asks for its
@@ -24,7 +25,7 @@ final class BookmarkChromiumSync {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
     /// Store to its cmux profile, for stores whose sync waits for the tree to load.
     private var waiting: [String: String] = [:]
-    private var scheduled: [String: Task<Void, Never>] = [:]
+    private var scheduled: [String: DemandTimer] = [:]
     private var homeObservation: Task<Void, Never>?
 
     init(service: BookmarkService) {
@@ -120,13 +121,11 @@ final class BookmarkChromiumSync {
     /// Syncs `store` once its events have settled for `settle`; a later
     /// call starts the wait again.
     private func schedule(_ store: String, profile: String) {
-        scheduled[store]?.cancel()
-        // task-owner: one debounced sync per store; replaced by the next schedule
-        scheduled[store] = Task { [weak self] in
-            try? await Task.sleep(for: Self.settle)
-            guard !Task.isCancelled, let self else { return }
-            scheduled[store] = nil
-            sync(store, profile: profile)
+        // One debounce per store: a later schedule replaces the pending deadline.
+        let timer = scheduled[store] ?? DemandTimer(owner: "BookmarkChromiumSync.settle")
+        scheduled[store] = timer
+        timer.schedule(after: Self.settle) { @MainActor [weak self] in
+            self?.sync(store, profile: profile)
         }
     }
 
