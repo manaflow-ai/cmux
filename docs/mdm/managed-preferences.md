@@ -77,6 +77,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.theme` | string |  |  | Theme. Colors for cmux and its terminals. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast. |
+| `appearance.themeEdits` | dictionary | `{}` |  | Theme Edits. Your color changes to a theme, such as "Rose Pine/background": "#1f1d2e". The theme itself never changes; remove an entry to reset that color. |
 | `appearance.accent` | string | `"neutral"` | `neutral`, `theme`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan` | Accent. The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris. |
 | `appearance.backdropArt` | string | `"none"` | `none`, `wheat-field-with-cypresses`, `met-saint-catherine-436908`, `met-woman-man-casement-436896`, `met-women-picking-olives-436536`, `met-sunflowers-436524`, `nga-degas-halevy-standing-66489`, `nga-degas-dancer-from-behind-32137`, `nga-carpaccio-groups-of-male-figures-73858`, `nga-perino-del-vaga-figure-studies-57613`, `nga-rubens-battle-of-nude-men-63034`, `nga-teniers-market-figures-62615` | Backdrop Art. A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above. |
 | `appearance.background` | string | `"none"` | `none`, `nga-degas-halevy-standing-66489`, `nga-degas-dancer-from-behind-32137`, `nga-carpaccio-groups-of-male-figures-73858`, `nga-perino-del-vaga-figure-studies-57613`, `nga-rubens-battle-of-nude-men-63034`, `nga-teniers-market-figures-62615`, `wheat-field-with-cypresses`, `met-saint-catherine-436908`, `met-woman-man-casement-436896`, `met-women-picking-olives-436536`, `met-sunflowers-436524`, `desktop` | Background. Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. |
@@ -178,13 +179,14 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.directory` | boolean | `false` |  | Folder |
 | `sidebar.workspaceRow.branch` | boolean | `false` |  | Git Branch |
 | `sidebar.workspaceRow.process` | boolean | `false` |  | Running Program. The terminal's title, which the shell or program sets. |
-| `sidebar.workspaceRow.agentStatus` | boolean | `false` |  | Agent Status. The status line agents and hooks report. |
+| `sidebar.workspaceRow.agentStatus` | boolean | `true` |  | Agent Status. The status agents and hooks report, one line each. |
 | `sidebar.workspaceRow.tabCount` | boolean | `false` |  | Tab Count |
 | `sidebar.workspaceRow.ports` | boolean | `false` |  | Ports. Set by a hook: cmux workspace status set ports <text>. |
 | `sidebar.workspaceRow.lastActivity` | boolean | `false` |  | Last Activity |
 | `sidebar.workspaceRow.pullRequest` | boolean | `false` |  | Pull Request. Set by a hook: cmux workspace status set pr <text>. |
-| `sidebar.workspaceRow.progress` | boolean | `false` |  | Progress. A progress bar under the row and the busy mark of running work. |
+| `sidebar.workspaceRow.progress` | boolean | `true` |  | Progress. A progress bar under the row and the busy mark of running work. |
 | `sidebar.workspaceRow.working` | boolean | `true` |  | Agent Working. A mark while an agent works in the workspace. |
+| `sidebar.workspaceRow.log` | boolean | `true` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
 | `sidebar.workspaceRow.secondLineOrder` | array | `["directory","branch","process","agentStatus","ports","lastActivity"]` | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
 | `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.terminal.directory` | boolean |  |  | Folder |
@@ -197,6 +199,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.terminal.pullRequest` | boolean |  |  | Pull Request |
 | `sidebar.workspaceRow.terminal.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.terminal.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.terminal.log` | boolean |  |  | Log |
 | `sidebar.workspaceRow.terminal.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `sidebar.workspaceRow.agent.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.agent.directory` | boolean |  |  | Folder |
@@ -209,6 +212,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.agent.pullRequest` | boolean |  |  | Pull Request |
 | `sidebar.workspaceRow.agent.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.agent.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.agent.log` | boolean |  |  | Log |
 | `sidebar.workspaceRow.agent.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `sidebar.workspaceRow.browser.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.browser.directory` | boolean |  |  | Folder |
@@ -221,6 +225,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.browser.pullRequest` | boolean |  |  | Pull Request |
 | `sidebar.workspaceRow.browser.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.browser.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.browser.log` | boolean |  |  | Log |
 | `sidebar.workspaceRow.browser.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `sidebar.workspaceRow.mixed.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.mixed.directory` | boolean |  |  | Folder |
@@ -233,6 +238,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.mixed.pullRequest` | boolean |  |  | Pull Request |
 | `sidebar.workspaceRow.mixed.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.mixed.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.mixed.log` | boolean |  |  | Log |
 | `sidebar.workspaceRow.mixed.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |

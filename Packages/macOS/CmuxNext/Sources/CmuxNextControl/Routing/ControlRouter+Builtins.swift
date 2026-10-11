@@ -60,6 +60,7 @@ extension ControlRouter {
                                                             deadline: call.deadline, progress: call.progress))
             }.claimingProgress(),
             BrowserOpenSplitRun.method(router: self),
+            FileOpenRun.method(router: self),
             .async("settings.get") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.settingsGet(call)

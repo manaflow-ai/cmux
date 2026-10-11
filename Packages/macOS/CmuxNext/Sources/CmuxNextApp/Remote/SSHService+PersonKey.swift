@@ -45,7 +45,7 @@ extension SSHService {
                 .first { ($0["id"] as? Int) == 2 }
             let result = answer?["result"] as? [String: Any]
             guard let proof = result?["proof"] as? String, result?["instance"] as? String == instance,
-                  AcpmuxSecretKey.proofsMatch(proof, key.holdsProof(instance: instance, nonce: nonce)) else {
+                  key.holds(proof: proof, instance: instance, nonce: nonce) else {
                 return .keyNotHeld
             }
             AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: instance, key: key)

@@ -112,10 +112,12 @@ public nonisolated struct KeyBindingDefaults {
     /// binding keeps its own `when`.
     /// Cmd-=/-/0 and Cmd-Shift-G are Ghostty's per-terminal font size and previous match in a
     /// focused terminal, as in Ghostty and the shipping cmux (decision K1 follow-up, 2026-10-06).
+    /// Cmd-Return (checklist item) reaches the terminal program, as in the shipping cmux
+    /// (plans/cmux-next/terminal-shortcuts.md).
     public static let yieldsToTerminal: Set<ActionID> = [
         "focusHistoryBack", "focusHistoryForward",
         "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
-        "groupSelectedWorkspaces",
+        "groupSelectedWorkspaces", "toggleChecklistItemComplete",
     ]
 
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in

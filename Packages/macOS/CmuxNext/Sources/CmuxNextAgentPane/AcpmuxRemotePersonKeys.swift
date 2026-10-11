@@ -61,7 +61,40 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
     /// exec), from a buffer that is zeroed right after. False when the line did not go out whole.
     @discardableResult
     public func writeLine(to descriptor: Int32) -> Bool {
-        let line = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.length * 2 + 1, alignment: 1)
+        withLine { base, count in
+            var offset = 0
+            while offset < count {
+                let written = Darwin.write(descriptor, base + offset, count - offset)
+                if written < 0, errno == EINTR { continue }
+                guard written > 0 else { return false }
+                offset += written
+            }
+            return true
+        }
+    }
+
+    /// Writes the key line to `stream` (the body of the app's own keyed-start request to the
+    /// Cloud service, cx-psxg), from a buffer that is zeroed right after. False when the line
+    /// did not go out whole.
+    @discardableResult
+    public func writeLine(to stream: OutputStream) -> Bool {
+        withLine { base, count in
+            var offset = 0
+            while offset < count {
+                let written = stream.write(base.assumingMemoryBound(to: UInt8.self) + offset, maxLength: count - offset)
+                guard written > 0 else { return false }
+                offset += written
+            }
+            return true
+        }
+    }
+
+    /// The length of the key line: 64 hex characters and a newline.
+    public static var lineLength: Int { length * 2 + 1 }
+
+    /// The key line in one buffer of its own, zeroed after `body`.
+    private func withLine(_ body: (UnsafeMutableRawPointer, Int) -> Bool) -> Bool {
+        let line = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.lineLength, alignment: 1)
         defer {
             Self.zero(line)
             line.deallocate()
@@ -76,14 +109,13 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
         }
         line[Self.length * 2] = 0x0A
         guard let base = line.baseAddress else { return false }
-        var offset = 0
-        while offset < line.count {
-            let written = Darwin.write(descriptor, base + offset, line.count - offset)
-            if written < 0, errno == EINTR { continue }
-            guard written > 0 else { return false }
-            offset += written
-        }
-        return true
+        return body(base, line.count)
+    }
+
+    /// Whether `proof` is what a daemon run `instance` that holds this key answers to
+    /// `_acpmux/person_holds {nonce}` (constant-time compare).
+    public func holds(proof: String, instance: String, nonce: String) -> Bool {
+        Self.proofsMatch(proof, holdsProof(instance: instance, nonce: nonce))
     }
 
     /// A fresh 32-byte nonce as lowercase hex, for `_acpmux/person_holds`.

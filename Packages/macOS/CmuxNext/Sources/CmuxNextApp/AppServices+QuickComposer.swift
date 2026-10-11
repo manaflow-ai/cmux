@@ -10,9 +10,9 @@ extension AppServices {
     /// focused pane of the frontmost main window.
     func makeQuickComposer() -> QuickComposerController {
         QuickComposerController(
-            makeChat: { [weak self] in
+            makeChat: { [weak self] session in
                 guard let self, self.agentTabs.canHostChat,
-                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick)) else { return nil }
+                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick), session: session) else { return nil }
                 let projects = NewTabPage.handler(self, cwd: nil) { _, _ in }
                 chat.model.onListProjects = { query in await projects.listProjects(query) }
                 return chat

@@ -15,6 +15,11 @@ public nonisolated struct WorkspaceRowElements: Hashable, Sendable {
     /// agent-working indicator shows (WORKING-AND-LOADING-INDICATORS).
     public static let minimal = Self(shown: [.icon, .working])
 
+    /// The default set: `minimal` plus what agents and scripts report
+    /// (status entries, the log line, progress), which a row draws only for
+    /// a workspace that reported some (#16431, classic's status block).
+    public static let standard = Self(shown: minimal.shown.union([.agentStatus, .log, .progress]))
+
     public func shows(_ element: WorkspaceRowElement) -> Bool { shown.contains(element) }
 
     /// The shown second-line elements in order.
@@ -47,7 +52,7 @@ public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
     public var base: WorkspaceRowElements
     public var overrides: [WorkspaceRowKind: WorkspaceRowOverride]
 
-    public init(base: WorkspaceRowElements = .minimal, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]) {
+    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]) {
         self.base = base
         self.overrides = overrides
     }
