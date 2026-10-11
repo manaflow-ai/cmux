@@ -61,6 +61,9 @@ export type ChangesSource = {
   diff: (scope: ChangeScope) => Promise<unknown>;
   /// Stages files (or unstages them), named as `diff` names them; absent where the view can't.
   stage?: (paths: string[], unstage: boolean) => Promise<unknown>;
+  /// Stages one hunk of a file (or unstages it): its lines, each ` `, `-` or `+` then the text.
+  /// `paths` is the file, then a rename's previous path, named as for `stage`.
+  stageHunk?: (paths: string[], hunk: string[], unstage: boolean) => Promise<unknown>;
   /// Opens the pushed branch's pull request: `{url, number}`; absent where the view can't.
   pullRequest?: () => Promise<unknown>;
   status?: () => Promise<unknown>;

@@ -82,6 +82,13 @@ export function withMinimumContrast(
   return toHex(target);
 }
 
+/// `color` moved `amount` (0 to 1) of the way to `toward`; `color` itself when either is not hex.
+export function mixColors(color: string, toward: string, amount: number): string {
+  const from = parseHex(color);
+  const to = parseHex(toward);
+  return from == null || to == null ? color.trim() : toHex(mix(from, to, amount));
+}
+
 export function contrastBetween(a: string, b: string): number | null {
   const left = parseHex(a);
   const right = parseHex(b);

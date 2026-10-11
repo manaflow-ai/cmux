@@ -38,6 +38,9 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
   if (source.diffIndicators === "bars" || source.diffIndicators === "classic" || source.diffIndicators === "none") {
     prefs.diffIndicators = source.diffIndicators;
   }
+  if (source.colors === "theme" || source.colors === "muted" || source.colors === "standard") {
+    prefs.colors = source.colors;
+  }
   for (const key of ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"] as const) {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];
