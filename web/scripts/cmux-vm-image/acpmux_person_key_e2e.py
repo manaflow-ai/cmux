@@ -326,11 +326,11 @@ def main():
             b64 = base64.b64encode(conf.encode()).decode()
             r = api.exec_root(vm, "set -e; rm -f /tmp/psxg-pwned-*; d=/etc/systemd/system/cmux-tui-daemon.service.d; mkdir -p $d; "
                                   f"echo {b64} | base64 -d > $d/psxg-probe.conf; systemctl daemon-reload; systemctl restart cmux-tui-daemon.service; "
-                                  "p=$(pgrep -o -u cmux -f '[c]mux-tui server start'); base64 -w0 /proc/$p/environ")
+                                  "p=$(systemctl show -p MainPID --value cmux-tui-daemon.service); base64 -w0 /proc/$p/environ")
             entries = base64.b64decode(r["stdout"].strip() or "").split(b"\0")
             got = next((e[len(b"CMUX_PSXG_PROBE="):] for e in entries if e.startswith(b"CMUX_PSXG_PROBE=")), None)
             ok = got == probe_value.encode()
-            return ok, f"session daemon carries the hostile value exactly: {ok}", ok
+            return ok, f"session daemon carries the hostile value exactly: {ok}; got {got!r}", ok
         hostile_ready = run.step("hostile env value in the session daemon (setup)", hostile_env_setup)
 
         def bad_body():
