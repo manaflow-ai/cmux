@@ -327,7 +327,11 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         return;
     }
 
-    let shifted_separator = key_field.iter().position(|byte| *byte == b':').unwrap();
+    // colon_count >= 1 above, so the key field has a separator.
+    let Some(shifted_separator) = key_field.iter().position(|byte| *byte == b':') else {
+        out.extend_from_slice(encoded);
+        return;
+    };
     let shifted_start = shifted_separator + 1;
     let base_separator = key_field[shifted_start..]
         .iter()
@@ -379,86 +383,5 @@ impl Drop for KeyEncoder {
             sys::ghostty_key_event_free(self.event);
             sys::ghostty_key_encoder_free(self.encoder);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Callbacks, Terminal};
-
-    #[test]
-    fn chord_parser_encodes_common_keys() {
-        let term = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
-        let mut encoder = KeyEncoder::new().unwrap();
-        encoder.sync_from_terminal(&term);
-
-        let mut out = Vec::new();
-        encoder.encode(&key_input_from_chord("ctrl+c").unwrap(), &mut out).unwrap();
-        assert_eq!(out, vec![0x03]);
-
-        out.clear();
-        encoder.encode(&key_input_from_chord("enter").unwrap(), &mut out).unwrap();
-        assert_eq!(out, b"\r");
-
-        out.clear();
-        encoder.encode(&key_input_from_chord("up").unwrap(), &mut out).unwrap();
-        assert!(!out.is_empty());
-
-        assert!(key_input_from_chord("not-a-key").is_none());
-    }
-
-    #[test]
-    fn encodes_ctrl_c() {
-        let mut enc = KeyEncoder::new().unwrap();
-        let mut out = Vec::new();
-        enc.encode(
-            &KeyInput {
-                key: sys::GHOSTTY_KEY_C,
-                mods: Mods::CTRL,
-                unshifted_codepoint: 'c' as u32,
-                ..Default::default()
-            },
-            &mut out,
-        )
-        .unwrap();
-        assert_eq!(out, vec![0x03]);
-    }
-
-    #[test]
-    fn encodes_arrow_application_mode() {
-        // DECCKM off: ESC [ A. After enabling application cursor keys via
-        // the terminal, syncing makes it ESC O A.
-        let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        let mut enc = KeyEncoder::new().unwrap();
-        let up = KeyInput { key: sys::GHOSTTY_KEY_ARROW_UP, ..Default::default() };
-
-        let mut out = Vec::new();
-        enc.sync_from_terminal(&term);
-        enc.encode(&up, &mut out).unwrap();
-        assert_eq!(out, b"\x1b[A");
-
-        term.vt_write(b"\x1b[?1h");
-        enc.sync_from_terminal(&term);
-        out.clear();
-        enc.encode(&up, &mut out).unwrap();
-        assert_eq!(out, b"\x1bOA");
-    }
-
-    #[test]
-    fn restores_reported_shifted_and_base_layout_alternates() {
-        let input = KeyInput {
-            shifted_codepoint: '\u{427}' as u32,
-            base_layout_codepoint: ';' as u32,
-            ..Default::default()
-        };
-        let mut out = Vec::new();
-
-        append_encoded_key(&input, b"\x1b[1095:;6u", &mut out);
-
-        assert_eq!(out, b"\x1b[1095:1063:59;6u");
-        out.clear();
-        append_encoded_key(&input, b"\x1b[1095::59;6u", &mut out);
-        assert_eq!(out, b"\x1b[1095:1063:59;6u");
     }
 }

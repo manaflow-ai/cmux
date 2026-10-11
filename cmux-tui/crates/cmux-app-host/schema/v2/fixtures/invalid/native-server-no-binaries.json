@@ -1,0 +1,17 @@
+{
+  "manifestVersion": 2,
+  "id": "local/x",
+  "name": "X",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "server": {
+    "kind": "native",
+    "instances": "user",
+    "hosts": [
+      "local"
+    ]
+  }
+}

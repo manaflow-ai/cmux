@@ -52,7 +52,9 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
         if (event.key === "Enter" || event.key === " ") event.currentTarget.click();
       }}
     >
-      <span className="workspace-rail" aria-hidden="true">▎</span>
+      <span className="workspace-rail" aria-hidden="true">
+        ▎
+      </span>
       <span className="workspace-name">
         {rename?.kind === "workspace" && rename.id === workspace.id ? (
           <InlineRename
@@ -61,7 +63,9 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
             onCommit={commit}
             onCancel={() => dispatchRename({ type: "cancel" })}
           />
-        ) : workspace.name}
+        ) : (
+          workspace.name
+        )}
       </span>
       <span className="workspace-subtitle">{workspace.subtitle}</span>
       {workspace.screens.some((screen) => screen.unread) && <span className="unread-dot" title={t("unread")} />}
@@ -103,7 +107,11 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
           items={[
             {
               label: t("renameWorkspace"),
-              onSelect: () => dispatchRename({ type: "begin", target: { kind: "workspace", id: workspace.id, value: workspace.name } }),
+              onSelect: () =>
+                dispatchRename({
+                  type: "begin",
+                  target: { kind: "workspace", id: workspace.id, value: workspace.name },
+                }),
             },
             { label: t("newScreen"), onSelect: () => onNewScreen(workspace.id) },
             { label: t("closeWorkspace"), danger: true, onSelect: () => onClose(workspace.id) },
@@ -151,7 +159,9 @@ export function Sidebar({
               onRename={onRenameWorkspace}
             />
           ))}
-          <button className="new-workspace" onClick={onNewWorkspace} type="button">+ {t("newWorkspace")}</button>
+          <button className="new-workspace" onClick={onNewWorkspace} type="button">
+            + {t("newWorkspace")}
+          </button>
         </div>
       </nav>
     </aside>

@@ -1,0 +1,2519 @@
+{
+ "format": "cmux-conversation-search/1",
+ "notes": [
+  "Each case: {name, actor, input {query, limit 1-100}, sources [{head, messages}], expect {hits} | {reject}}. Run searchConversations(actor, input, sources) and compare JSON values exactly (order and snippets included)."
+ ],
+ "cases": [
+  {
+   "name": "search: newest first across the actor's conversations only",
+   "actor": "user_alice",
+   "input": {
+    "query": "deploy",
+    "limit": 100
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 2,
+      "message_id": "msg_DMAB0000000000000000000002",
+      "author": "user_alice",
+      "created_at": "2026-10-02T12:00:06.000Z",
+      "snippet": "日本語のデプロイ deploy"
+     },
+     {
+      "conversation": "conv_WORK",
+      "title": "Launch",
+      "seq": 3,
+      "message_id": "msg_WORK0000000000000000000003",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:05.000Z",
+      "snippet": "…rd word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail ta…"
+     },
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 1,
+      "message_id": "msg_DMAB0000000000000000000001",
+      "author": "user_bob",
+      "created_at": "2026-10-02T12:00:04.000Z",
+      "snippet": "ÉCOLE deploy notes"
+     },
+     {
+      "conversation": "conv_WORK",
+      "title": "Launch",
+      "seq": 2,
+      "message_id": "msg_WORK0000000000000000000002",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:03.000Z",
+      "snippet": "deploy started"
+     },
+     {
+      "conversation": "conv_WORK",
+      "title": "Launch",
+      "seq": 1,
+      "message_id": "msg_WORK0000000000000000000001",
+      "author": "user_alice",
+      "created_at": "2026-10-02T12:00:01.000Z",
+      "snippet": "Can you fix the Deploy?"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: the limit keeps the newest",
+   "actor": "user_alice",
+   "input": {
+    "query": "deploy",
+    "limit": 2
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 2,
+      "message_id": "msg_DMAB0000000000000000000002",
+      "author": "user_alice",
+      "created_at": "2026-10-02T12:00:06.000Z",
+      "snippet": "日本語のデプロイ deploy"
+     },
+     {
+      "conversation": "conv_WORK",
+      "title": "Launch",
+      "seq": 3,
+      "message_id": "msg_WORK0000000000000000000003",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:05.000Z",
+      "snippet": "…rd word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail ta…"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: case-insensitive for accented capitals",
+   "actor": "user_alice",
+   "input": {
+    "query": "école",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 1,
+      "message_id": "msg_DMAB0000000000000000000001",
+      "author": "user_bob",
+      "created_at": "2026-10-02T12:00:04.000Z",
+      "snippet": "ÉCOLE deploy notes"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: CJK substring",
+   "actor": "user_alice",
+   "input": {
+    "query": "デプロイ",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 2,
+      "message_id": "msg_DMAB0000000000000000000002",
+      "author": "user_alice",
+      "created_at": "2026-10-02T12:00:06.000Z",
+      "snippet": "日本語のデプロイ deploy"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: a long message gets a centered snippet with ellipses",
+   "actor": "user_alice",
+   "input": {
+    "query": "ship-ios",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_WORK",
+      "title": "Launch",
+      "seq": 3,
+      "message_id": "msg_WORK0000000000000000000003",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:05.000Z",
+      "snippet": "…word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail …"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: work-card fields are not searched, only text parts",
+   "actor": "user_alice",
+   "input": {
+    "query": "running",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": []
+   }
+  },
+  {
+   "name": "search: no match",
+   "actor": "user_alice",
+   "input": {
+    "query": "nothing here",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": []
+   }
+  },
+  {
+   "name": "search: another member sees their own conversations",
+   "actor": "user_bob",
+   "input": {
+    "query": "deploy",
+    "limit": 100
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_OTHR",
+      "title": "Private",
+      "seq": 1,
+      "message_id": "msg_OTHR0000000000000000000001",
+      "author": "user_bob",
+      "created_at": "2026-10-02T12:00:09.000Z",
+      "snippet": "secret deploy plan"
+     },
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 2,
+      "message_id": "msg_DMAB0000000000000000000002",
+      "author": "user_alice",
+      "created_at": "2026-10-02T12:00:06.000Z",
+      "snippet": "日本語のデプロイ deploy"
+     },
+     {
+      "conversation": "conv_DMAB",
+      "title": "Bob",
+      "seq": 1,
+      "message_id": "msg_DMAB0000000000000000000001",
+      "author": "user_bob",
+      "created_at": "2026-10-02T12:00:04.000Z",
+      "snippet": "ÉCOLE deploy notes"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: empty query",
+   "actor": "user_alice",
+   "input": {
+    "query": "   ",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reject": "invalid_query"
+   }
+  },
+  {
+   "name": "search: a control character in the query",
+   "actor": "user_alice",
+   "input": {
+    "query": "dep\u0007loy",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reject": "invalid_query"
+   }
+  },
+  {
+   "name": "search: limit 0",
+   "actor": "user_alice",
+   "input": {
+    "query": "deploy",
+    "limit": 0
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reject": "invalid_limit"
+   }
+  },
+  {
+   "name": "search: limit 101",
+   "actor": "user_alice",
+   "input": {
+    "query": "deploy",
+    "limit": 101
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_WORK",
+      "title": "Launch",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_WORK0000000000000000000001",
+       "conversation": "conv_WORK",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Can you fix the Deploy?"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000002",
+       "conversation": "conv_WORK",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "work",
+         "session": "deploy",
+         "status": "running"
+        },
+        {
+         "type": "text",
+         "text": "deploy started"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000003",
+       "conversation": "conv_WORK",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word the deploy failed on ship-ios tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail tail"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:05.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_WORK0000000000000000000004",
+       "conversation": "conv_WORK",
+       "seq": 4,
+       "client_msg_id": "c4",
+       "author": "user_alice",
+       "parts": [],
+       "created_at": "2026-10-02T12:00:07.000Z",
+       "reactions": [],
+       "retracted_at": "2026-10-02T12:00:08.000Z"
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_DMAB",
+      "title": "Bob",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_DMAB0000000000000000000001",
+       "conversation": "conv_DMAB",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "ÉCOLE deploy notes"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:04.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_DMAB0000000000000000000002",
+       "conversation": "conv_DMAB",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "user_alice",
+       "parts": [
+        {
+         "type": "text",
+         "text": "日本語のデプロイ deploy"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:06.000Z",
+       "reactions": []
+      }
+     ]
+    },
+    {
+     "head": {
+      "id": "conv_OTHR",
+      "title": "Private",
+      "participants": [
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "bob"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_OTHR0000000000000000000001",
+       "conversation": "conv_OTHR",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "secret deploy plan"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:09.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "reject": "invalid_limit"
+   }
+  }
+ ]
+}

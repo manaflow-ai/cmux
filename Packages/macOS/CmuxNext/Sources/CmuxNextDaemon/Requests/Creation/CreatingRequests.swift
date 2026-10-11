@@ -14,10 +14,6 @@ extension NewTabRequest: DaemonCreatingRequest {
     public func createdObjects(in response: SurfaceCreated) -> [DaemonCreatedObject] { response.createdObjects }
 }
 
-extension NewFrontendBrowserTabRequest: DaemonCreatingRequest {
-    public func createdObjects(in response: Response) -> [DaemonCreatedObject] { [DaemonCreatedObject(.tab, response.surface.description)] }
-}
-
 extension NewScreenRequest: DaemonCreatingRequest {
     public func createdObjects(in response: SurfaceCreated) -> [DaemonCreatedObject] { response.createdObjects }
 }
@@ -45,6 +41,12 @@ extension CreateTerminalRequest: DaemonCreatingRequest {
     public func createdObjects(in response: CreateTerminalResult) -> [DaemonCreatedObject] {
         (response.surface.map { [DaemonCreatedObject(.tab, $0.description)] } ?? [])
             + [DaemonCreatedObject(.terminal, response.terminalID.rawValue)]
+    }
+}
+
+extension NewFrontendBrowserTabRequest: DaemonCreatingRequest {
+    public func createdObjects(in response: Response) -> [DaemonCreatedObject] {
+        [DaemonCreatedObject(.tab, response.surface.description)]
     }
 }
 

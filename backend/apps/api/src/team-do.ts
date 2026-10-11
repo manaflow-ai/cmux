@@ -1,0 +1,498 @@
+import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
+import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
+import { teamDomain, type TeamState } from "./domains/team.ts"
+import type { Env } from "./env.ts"
+import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { teamRead, teamVmAccountsFence } from "./team-reads.ts"
+import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
+import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
+import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
+import { signInRulesOf, type SignInRules } from "./team-sign-in-rules.ts"
+import { noOwnerOf, StackTeamSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
+import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
+import { nextRecheckAt } from "./domains/team-domains.ts"
+import { ssoExternal } from "./team-sso-external.ts"
+import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { stackServer, type StackServer } from "./stack-server.ts"
+import { connectionForDomain } from "./domains/team-sso.ts"
+import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
+import { vmAdminExternal } from "./team-vm-taint-admin.ts"
+import { memberAdminExternal } from "./team-member-admin.ts"
+import type { SshPresence } from "./team-ssh-presence.ts"
+import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
+
+/** TeamDO: membership cache and the account directory of hosts (U2). */
+export type { SignInRules } from "./team-sign-in-rules.ts"
+/** The principal of the plain member view in event effects (no user: no own devices). */
+const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
+
+export class TeamDO extends OwnerDO<TeamState> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    // Members see each other's public ids and display name in events, never email,
+    // Stack id, grant or token data.
+    super(ctx, env, teamDomain, "team", (p) => ({
+      identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
+      ...(p.kind ? { kind: p.kind } : {}),
+      ...(p.user ? { user: p.user } : {}),
+      ...(p.team ? { team: p.team } : {}),
+      ...(p.install ? { install: p.install } : {}),
+      ...(p.display_name ? { display_name: p.display_name } : {})
+    }), {
+      rowMode: { snapshotTable: TABLE_MEMBER, snapshotTail: 0 },
+      // Row-mode events and snapshots carry only the plain member view (review P1). Admin data
+      // (policy history, tokens, devices, SSO, domains) is read with team.policy.history and the admin reads.
+      redact: { privateTables: TEAM_PRIVATE_TABLES, state: (state) => ({ ...teamSubscriberView(state as TeamState, MEMBER_VIEW), managed_devices: {}, device_status: {} }) }
+    })
+  }
+
+  /** Members and hosts are rows ((f)); an old head moves its maps there on the first bind. */
+  protected override bind(entity: string) {
+    const engine = super.bind(entity)
+    // The key carries the head seq: a later head that again holds maps (a rollback) migrates again.
+    if (engine.currentState.members !== undefined || engine.currentState.hosts !== undefined) this.submitSystem("team.rows_migrate", {}, `rows-migrate:${engine.currentSeq}`)
+    return engine
+  }
+
+  private get rows() {
+    return this.boundEngine?.rows
+  }
+
+  protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
+    return teamRead(state, op, params, principal, this.rows)
+  }
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); return (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r }
+
+  /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
+  private syncRetryAt: number | null = null
+  private syncAttempts = 0
+
+  /** Backoff after a failed run-policy push to SchedulerDO (in memory). */
+  private runSyncRetryAt: number | null = null
+  private runSyncAttempts = 0
+
+  /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
+  protected override nextWakeAt(state: TeamState, now: number): number | null {
+    const stackAt = this.stackSync.nextWakeAt(state, now)
+    if (!state.team) return stackAt
+    if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
+    if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
+    const times = [
+      nextRecheckAt(state),
+      stackAt,
+      integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null,
+      runSyncPending(state) ? Math.max(now, this.runSyncRetryAt ?? now) : null
+    ].filter((t): t is number => t !== null)
+    return times.length === 0 ? null : Math.min(...times)
+  }
+
+  /**
+   * Pushes the run class of agents.allowedClasses to SchedulerDO (team-run-sync.ts), then records
+   * the acknowledgement. Idempotent on both sides (keys carry the version and the bit). A failure
+   * backs off and never blocks the integration push.
+   */
+  private async syncRunPolicy(now: number): Promise<void> {
+    const state = this.boundEngine?.currentState
+    if (!state?.team || !runSyncPending(state)) return
+    if (this.runSyncRetryAt !== null && now < this.runSyncRetryAt) return
+    const team = state.team.id
+    const push = runSyncPush(state)
+    try {
+      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team)) as unknown as { applyRunPolicy(e: string, p: typeof push): Promise<{ ok: boolean; message?: string }> }
+      const r = await stub.applyRunPolicy(team, push)
+      if (!r.ok) throw new Error(r.message ?? "refused")
+      this.requireCommitted(this.submitSystem("team.policy.runs_synced", push, `runs-synced:${push.version}:${push.runs_allowed ? 1 : 0}`))
+      this.runSyncAttempts = 0
+      this.runSyncRetryAt = null
+    } catch (e) {
+      this.runSyncAttempts += 1
+      this.runSyncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.runSyncAttempts)
+      console.error(JSON.stringify({ msg: "run policy push to SchedulerDO failed", team, error: String(e) }))
+    }
+  }
+
+  /**
+   * Seeds TeamPolicy from ConnectionDO's current integration policy once,
+   * then pushes the integration slice only when it changed, and records the
+   * acknowledged slice. Every step is idempotent (seed once, push keyed by
+   * version, synced by version and hash), so a crash between steps replays.
+   */
+  protected override async onWake(now: number): Promise<void> {
+    // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
+    if (this.boundEngine) await this.stackSync.wake(now)
+    if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
+    if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
+    await this.recheckDomains(now)
+    try {
+      await this.syncIntegration(now)
+    } finally {
+      // After the integration push, so a slow SchedulerDO never delays it (review P3).
+      await this.syncRunPolicy(now)
+    }
+  }
+
+  async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
+  /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
+  async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
+    return runSyncPush(this.bind(entity).currentState)
+  }
+
+  private async syncIntegration(now: number): Promise<void> {
+    const engine = this.boundEngine
+    let state = engine?.currentState
+    if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return
+    if (this.syncRetryAt !== null && now < this.syncRetryAt) return
+    const team = state.team.id
+    const stub = this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team))
+    try {
+      if (releasePending(state)) {
+        // An admin released the SSO/MDM lock (audited in team.integration.release_lock). ConnectionDO's
+        // lock notice then comes back through integrationLockChanged and TeamDO pushes its policy.
+        const request = state.integration_release_requested ?? 0
+        const r = (await stub.releaseManagedLock(team, state.integration_release_by ?? `team_policy:release:${request}`, `release-lock:${team}:${request}`)) as { ok: boolean; message?: string }
+        if (!r.ok) throw new Error(`release refused: ${r.message}`)
+        this.requireCommitted(this.submitSystem("team.integration.release_done", { request }, `release-done:${request}`))
+        state = this.boundEngine!.currentState
+        if (!integrationSyncPending(state)) return this.resetSyncBackoff()
+      }
+      if (!state.integration_seeded) {
+        const adopted = (await stub.adoptIntegrationPolicy(team)) as { ok: true; policy: IntegrationFields; managed_by: "sso" | "mdm" | null } | { ok: false; message: string }
+        if (!adopted.ok) throw new Error(`adopt refused: ${adopted.message}`)
+        this.requireCommitted(this.submitSystem("team.policy.integration_seed", { policy: adopted.policy, managed_by: adopted.managed_by }, `integration-seed:v2:${team}`))
+        state = this.boundEngine!.currentState
+        if (!state.integration_seeded) throw new Error("seed did not commit")
+        if (!integrationSyncPending(state)) return this.resetSyncBackoff()
+      }
+      const policy = currentPolicy(state)
+      const slice = integrationSlice(policy.values)
+      // The same version is pushed again after a lock change, so keys carry ConnectionDO's lock version.
+      const lockVersion = state.integration_lock_version ?? 0
+      const lockEpoch = state.integration_lock_epoch ?? ""
+      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v4:${team}:v${policy.version}:${lockEpoch}:l${lockVersion}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
+      if (!r.ok) throw new Error(r.message ?? "refused")
+      // Under an SSO or MDM lock nothing changed in ConnectionDO; the version is still settled (no retry loop) and reported.
+      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by, lock_version: lockVersion, lock_epoch: lockEpoch }, `integration-synced:v5:${policy.version}:${lockEpoch}:l${lockVersion}`))
+      this.resetSyncBackoff()
+    } catch (e) {
+      this.syncAttempts += 1
+      this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
+      throw e
+    }
+  }
+
+  /** Weekly DNS re-check of verified domains (spec 3.4; team-domain-external.ts recheckDomains). */
+  private async recheckDomains(now: number) {
+    const state = this.boundEngine?.currentState
+    if (state?.team) await recheckDue({ state, team: state.team.id, http: this.http, domainStub: (d) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d)), current: () => this.boundEngine!.currentState, commit: (op, params, key) => this.requireCommitted(this.submitSystem(op, params, key)) }, now)
+  }
+
+  /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
+  protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+    if (op === "team.member.remove") this.cleanupMembers()
+    // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
+    const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
+    if (op === "team.member.remove" && v?.removed && v.user) this.closeSockets((p) => p.user === v.user, "left the team")
+    if (op === "team.stack_mirror" && v?.deleted) this.closeSockets((p) => p.kind !== "system", "team deleted")
+  }
+
+  private cleanupMembers() {
+    const engine = this.boundEngine
+    if (!engine) return
+    try {
+      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key), stackProjectId: this.env.STACK_PROJECT_ID })
+      this.cleanupAttempts = 0
+      this.cleanupRetryAt = null
+    } catch (e) {
+      // The removal is committed either way; the alarm retries with backoff until the cleanup commits.
+      this.cleanupAttempts += 1
+      this.cleanupRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.cleanupAttempts)
+      console.error(JSON.stringify({ msg: "member cleanup failed", error: String(e) }))
+    }
+  }
+
+  /** Backoff after a failed member cleanup (in memory: a restart retries at once). */
+  private cleanupRetryAt: number | null = null
+  private cleanupAttempts = 0
+
+  /** A rejected system op must back off, not re-fire the alarm at once (review P2-1). */
+  private requireCommitted(res: { frames: ReadonlyArray<OwnerFrame> }) {
+    const rej = res.frames.find((f) => f.t === "reject")
+    if (rej && rej.t === "reject") throw new Error(`${rej.code}: ${rej.message}`)
+  }
+
+  private resetSyncBackoff() {
+    this.syncAttempts = 0
+    this.syncRetryAt = null
+  }
+
+  protected override subscriberView(state: TeamState, principal: Principal): unknown {
+    return teamSubscriberView(state, principal, this.rows)
+  }
+
+  protected override mayReceive(state: TeamState, event: EventFrame, principal: Principal): boolean {
+    return teamEventVisible(state, event, principal, this.rows)
+  }
+
+  /**
+   * RPC from ConnectionDO: its SSO/MDM lock changed (appeared, changed source,
+   * released). Recorded by version, so a late or repeated notice changes nothing.
+   */
+  async integrationLockChanged(team: string, managedBy: "sso" | "mdm" | null, version: number, epoch: string): Promise<{ ok: boolean; message?: string }> {
+    this.bind(team)
+    const res = this.submitSystem("team.policy.integration_lock", { managed_by: managedBy, version, epoch }, `integration-lock:${epoch}:${version}`)
+    const rej = res.frames.find((f) => f.t === "reject")
+    return rej && rej.t === "reject" ? { ok: false, message: rej.message } : { ok: true }
+  }
+
+  /** Outbound fetch for DNS over HTTPS; tests replace it. */
+  http: Http = (r) => fetch(r)
+
+  /** RPC from the Worker: domain.verify and domain.release (DNS and DomainDO, then a system op). */
+  async domainOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return domainExternal(
+      {
+        state: engine.currentState,
+        rows: engine.rows,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        domainStub: (domain) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(domain)),
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+        now: Date.now()
+      },
+      principal,
+      frame
+    )
+  }
+
+  /** RPC from the Worker: sso.connection.set_secret and sso.connection.activate (sealing, OIDC discovery). */
+  async ssoOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return ssoExternal(
+      {
+        state: engine.currentState,
+        rows: engine.rows,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      },
+      principal,
+      frame
+    )
+  }
+
+  /** RPC from the Worker: team_vm.ssh_cert.challenge, team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate (the team SSH CA, team-ssh-ca.ts). */
+  async sshOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity) }, principal, frame)
+  }
+
+  /** The team SSH CA's view of this object (team-ssh-ca.ts). */
+  private sshDeps(entity: string): SshCaDeps {
+    const engine = this.bind(entity)
+    return {
+      state: () => this.boundEngine?.currentState ?? engine.currentState,
+      rows: engine.rows,
+      team: entity,
+      stream: engine.stream,
+      kek: this.env.INTEGRATIONS_KEK,
+      sql: this.ctx.storage.sql,
+      now: () => Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+      running: this.sshRunning,
+      vmTaint: () => this.teamVm(entity).taintStatus(entity)
+    }
+  }
+
+  /** cx-q4f3: team_vm.taint.accept, team_vm.rebuild, team_vm.retired.delete (team-vm-taint-admin.ts). */
+  async vmAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return vmAdminExternal({ ...this.sshDeps(entity), teamVm: this.teamVm(entity) }, principal, frame) }
+  async memberAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return memberAdminExternal({ ...this.sshDeps(entity), stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env) }, principal, frame) }
+  private teamVm = (team: string) => this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(team))
+
+  /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
+  private readonly sshRunning = new Set<string>()
+
+  /** The person's UserDO checks presence proofs (keys, nonces, App Attest counters live there); tests replace it. */
+  presenceOwner = (team: string): SshPresence => ({
+    challenge: (user, install, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceChallenge(user, team, install, purpose),
+    assert: (user, proof, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceAssert(user, team, proof, purpose)
+  })
+
+  /**
+   * RPC from UserDO only (S4): `user` revoked `install`. Every unexpired team SSH certificate of
+   * that install (and only that user's) goes into the KRL, and the install gets no new one.
+   */
+  async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
+    // A team that never existed here issued nothing; never create its storage for a notice (cx-44j.50).
+    if (!this.isBound(entity)) return { ok: true, revoked: [] }
+    return revokeInstallCerts(this.sshDeps(entity), user, install)
+  }
+
+  /**
+   * RPC from sign-in discovery (unauthenticated): whether this team serves
+   * `domain` through an active connection. Answers only yes or no, never the
+   * team or the connection, so discovery does not enumerate customers.
+   */
+  async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
+    const engine = this.boundEngine ?? this.bind(entity)
+    return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
+  }
+
+  /** Sign-in rules of this team for one user (enterprise P17-4; team-sign-in-rules.ts); read by the Worker, cached briefly. */
+  async signInRules(entity: string, user: string, domain?: string): Promise<SignInRules> {
+    return signInRulesOf(this.bind(entity).currentState, this.rows, user, domain)
+  }
+
+  /** Whether this team's SSO created the Stack session `refreshTokenId` for `stackUser` (sso.enforce, P17-4). */
+  async ssoSession(entity: string, refreshTokenId: string, stackUser: string): Promise<boolean> {
+    const state = this.bind(entity).currentState
+    const connection = ssoSessionConnection(this.ctx.storage.sql, refreshTokenId, stackUser, Date.now(), ssoMaxAgeMs(state))
+    // A disabled or deleted connection ends its sessions' standing.
+    return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
+  }
+
+  async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
+  /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
+  /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */
+  async teamVmInstallOwner(entity: string): Promise<string | null> {
+    const state = this.bind(entity).currentState
+    return state.team?.id === entity ? (firstOwner(state, this.rows) ?? null) : null
+  }
+
+  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
+    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows)
+  }
+
+  /**
+   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2),
+   * after UserDO registered the server's install. `server.enrolled` checks the
+   * approver's role in the same commit as the host; when the role is gone it
+   * commits a refusal and the install's revocation instead, which this call
+   * pushes to UserDO at once (the alarm retries). Keyed by the pairing code, so
+   * a retried approval replays the same host or the same refusal.
+   */
+  async enrollServer(
+    entity: string,
+    principal: Principal,
+    params: { install: string; name: string; platform: string; wg_public_key: string },
+    idempotencyKey: string
+  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
+    this.bind(entity)
+    if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
+    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+    const value = reply.value as { id: string } | ServerEnrollRefused
+    if ("refused" in value) {
+      // Push this install's revocation now unless pushes are backing off; the alarm retries the rest.
+      if (this.revokeRetryAt === null || Date.now() >= this.revokeRetryAt) await this.flushServerRevocations(entity, value.install)
+      return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
+    }
+    return { ok: true, host: value.id }
+  }
+
+  /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
+  userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
+    this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+
+  /** Backoff after a failed revocation push (in memory: a restart retries at once). */
+  private revokeRetryAt: number | null = null
+  private revokeAttempts = 0
+
+  /**
+   * Pushes every pending server install revocation to its owner's UserDO
+   * (`install.revoke_by_team`, which also closes the install's sockets), then
+   * records the confirmation. Called by the Worker right after `server.revoke`
+   * and by the alarm until it succeeds (`only`: one install, after a refused
+   * enrollment). Returns the installs revoked now.
+   */
+  async flushServerRevocations(entity: string, only?: string): Promise<{ revoked: Array<string> }> {
+    if (!entity) return { revoked: [] }
+    const engine = this.bind(entity)
+    const pending = Object.values(engine.currentState.server_revocations ?? {}).filter((r) => only === undefined || r.install === only)
+    const revoked: Array<string> = []
+    for (const r of pending) {
+      const user = this.userOwner(r.owner_user)
+      let res: { ok: boolean; code?: string }
+      try {
+        res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
+      } catch (e) {
+        // A thrown RPC keeps the item in the retried set and never stops the rest of onWake.
+        res = { ok: false, code: `rpc:${String(e)}` }
+      }
+      // Done or permanently impossible (not bound, unknown): stop retrying either way; failures are logged.
+      if (!res.ok && res.code !== "auth.forbidden" && res.code !== "selector.not_found") {
+        this.revokeAttempts += 1
+        this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+        console.error(JSON.stringify({ msg: "server install revocation failed", install: r.install, code: res.code }))
+        continue
+      }
+      if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
+      if (res.ok) revoked.push(r.install)
+    }
+    if (Object.keys(this.boundEngine?.currentState.server_revocations ?? {}).length === 0) {
+      this.revokeAttempts = 0
+      this.revokeRetryAt = null
+    }
+    return { revoked }
+  }
+
+  /** Stack server access for SSO sign-in; tests replace it. */
+  stack: StackServer | undefined = undefined
+
+  private loginDeps(entity: string): LoginDeps {
+    const engine = this.bind(entity)
+    return {
+      state: engine.currentState,
+      team: entity,
+      sql: this.ctx.storage.sql,
+      http: this.http,
+      kek: this.env.INTEGRATIONS_KEK,
+      stack: this.stack ?? stackServer(this.env),
+      now: Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }
+  }
+
+  /** RPCs from the unauthenticated SSO routes (sso-routes.ts). */
+  async ssoStart(entity: string, email: string, callbackBase: string, returnTo: string, clientChallenge: string) {
+    return ssoStart(this.loginDeps(entity), email, callbackBase, returnTo, clientChallenge)
+  }
+
+  async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
+    return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoRedeem(entity: string, code: string, clientVerifier: string) {
+    this.bind(entity)
+    return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
+  }
+
+  /** Home reach (home-reach.ts): which of `targets` (at most HOME_REACH_MAX_TARGETS) share this team with `adder`. Never binds a team it does not serve. */
+  async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
+    return this.boundEntity() === entity ? homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets) : []
+  }
+
+  /** RPC from the Worker (team-select.ts): the user's role in this live team with its name and kind, or null. Never creates a team. */
+  async membership(entity: string, user: string): Promise<{ role: string; display_name: string; kind: "personal" | "stack" } | null> {
+    const state = this.isBound(entity) ? this.bind(entity).currentState : undefined
+    const role = state?.team?.id === entity && state.team.deleted_at === undefined ? roleOf(state, this.rows, user) : undefined
+    return role && state?.team ? { role, display_name: state.team.display_name, kind: state.team.kind } : null
+  }
+  async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
+  async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
+  async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
+    this.bind(entity)
+    return this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
+  }
+
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")] }))
+
+  protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
+}

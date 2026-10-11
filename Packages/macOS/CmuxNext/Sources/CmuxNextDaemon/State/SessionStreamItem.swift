@@ -3,11 +3,13 @@ import Foundation
 /// One change to a state resource the app mirrors, from a `session.events`
 /// delta. A nil payload removes the record.
 public enum SessionStateChange: Sendable, Hashable {
-    case workspace(ResourceID, ephemeral: Bool)
+    /// A workspace upsert: its ephemeral flag and its agent folder (`extra.agent_folder`).
+    case workspace(ResourceID, ephemeral: Bool, agentFolder: String?)
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
-    case terminal(ResourceID, TerminalProgressReport?)
+    /// A terminal's OSC 9;4 progress and OSC 7501 program status records.
+    case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [])
     case closed(ClosedItem)
     case closedRemoved(String)
     case status(WorkspaceStatus)
@@ -20,9 +22,6 @@ public enum SessionStateChange: Sendable, Hashable {
 public enum SessionStreamItem: Sendable, Hashable {
     /// The full state: replaces the mirror.
     case snapshot(SessionStateMirror)
-    /// The daemon's snapshot lists no state resources (`extra.state`): it
-    /// predates them, so the app keeps its own paths.
-    case unsupported
     case delta([SessionStateChange])
     /// The stream ended (`stream_end`), e.g. `gap` after the app fell behind.
     case ended(reason: String)
@@ -30,7 +29,7 @@ public enum SessionStreamItem: Sendable, Hashable {
     /// The stream needs the connection's attention: cancel or reopen it.
     var endsStream: Bool {
         switch self {
-        case .unsupported, .ended: true
+        case .ended: true
         case .snapshot, .delta: false
         }
     }
@@ -43,7 +42,7 @@ public enum SessionStreamItem: Sendable, Hashable {
         switch item.kind {
         case "snapshot":
             guard let snapshot = item.snapshot else { return nil }
-            guard let state = snapshot.extra?.state else { return .unsupported }
+            guard let state = snapshot.extra?.state else { return nil }
             return .snapshot(snapshot.mirror(state))
         case "delta":
             return .delta(item.changes?.compactMap(\.change) ?? [])
@@ -75,6 +74,8 @@ enum SessionWire {
         var extra: [String: JSONValue]?
 
         var ephemeral: Bool { extra?["ephemeral"] == .bool(true) }
+        /// The folder new agent chats start in (`workspace.agent_folder.set`).
+        var agentFolder: String? { extra?["agent_folder"]?.stringValue }
 
         var screenState: SessionStateMirror.ScreenState {
             SessionStateMirror.ScreenState(pinned: extra?["pinned"] == .bool(true), color: extra?["color"]?.stringValue,
@@ -88,16 +89,20 @@ enum SessionWire {
             }
             var zoom: Double?
             if case .number(let value)? = extra?["zoom"] { zoom = value }
-            return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"))
+            return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"),
+                                                icon: extra?["icon"]?.stringValue)
         }
 
         var progress: TerminalProgressReport? {
             guard case .object(let object)? = extra?["progress"],
                   let state = object["state"]?.stringValue.flatMap(TerminalProgressReport.State.init(rawValue:)) else { return nil }
             var value: Int?
-            if case .number(let number)? = object["value"] { value = Int(number) }
+            if case .number(let number)? = object["value"] { value = number.saturatedInteger(Int.self) }
             return TerminalProgressReport(state: state, value: value)
         }
+
+        /// OSC 7501 records (`extra.program_status`).
+        var programStatus: [ProgramStatusRecord] { ProgramStatusRecord.records(extra) }
     }
 
     struct StateLists: Decodable {
@@ -125,15 +130,18 @@ enum SessionWire {
 
         func mirror(_ state: StateLists) -> SessionStateMirror {
             var mirror = SessionStateMirror()
-            for workspace in workspaces?.compactMap(\.value) ?? [] where workspace.ephemeral {
-                mirror.ephemeralWorkspaces.insert(workspace.id)
+            for workspace in workspaces?.compactMap(\.value) ?? [] {
+                if workspace.ephemeral { mirror.ephemeralWorkspaces.insert(workspace.id) }
+                if let folder = workspace.agentFolder { mirror.agentFolders[workspace.id] = folder }
             }
-            for screen in screens?.compactMap(\.value) ?? [] { mirror.screens[screen.id] = screen.screenState }
-            for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs[tab.id] = tab.tabRecord }
-            for terminal in terminals?.compactMap(\.value) ?? [] { mirror.terminalProgress[terminal.id] = terminal.progress }
+            for screen in screens?.compactMap(\.value) ?? [] { mirror.screens.updateValue(screen.screenState, forKey: screen.id) }
+            for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs.updateValue(tab.tabRecord, forKey: tab.id) }
+            for terminal in terminals?.compactMap(\.value) ?? [] {
+                mirror.apply(.terminal(terminal.id, terminal.progress, programStatus: terminal.programStatus))
+            }
             mirror.closed = Array((state.closed?.compactMap(\.value) ?? []).prefix(SessionStateMirror.closedLimit))
-            for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus[status.workspaceID] = status }
-            for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups[group.id] = group }
+            for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus.updateValue(status, forKey: status.workspaceID) }
+            for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups.updateValue(group, forKey: group.id) }
             return mirror
         }
     }
@@ -151,13 +159,17 @@ enum SessionWire {
             let id = try c.decode(String.self, forKey: .id)
             let rid = ResourceID(rawValue: id)
             switch (kind, resource) {
-            case ("upsert", "workspace"): change = .workspace(rid, ephemeral: try c.decode(Entity.self, forKey: .value).ephemeral)
+            case ("upsert", "workspace"):
+                let workspace = try c.decode(Entity.self, forKey: .value)
+                change = .workspace(rid, ephemeral: workspace.ephemeral, agentFolder: workspace.agentFolder)
             case ("delete", "workspace"): change = .workspaceRemoved(rid)
             case ("upsert", "screen"): change = .screen(rid, try c.decode(Entity.self, forKey: .value).screenState)
             case ("delete", "screen"): change = .screen(rid, nil)
             case ("upsert", "tab"): change = .tab(rid, try c.decode(Entity.self, forKey: .value).tabRecord)
             case ("delete", "tab"): change = .tab(rid, nil)
-            case ("upsert", "terminal"): change = .terminal(rid, try c.decode(Entity.self, forKey: .value).progress)
+            case ("upsert", "terminal"):
+                let terminal = try c.decode(Entity.self, forKey: .value)
+                change = .terminal(rid, terminal.progress, programStatus: terminal.programStatus)
             case ("delete", "terminal"): change = .terminal(rid, nil)
             case ("state_upsert", "closed"): change = .closed(try c.decode(ClosedItem.self, forKey: .value))
             case ("state_delete", "closed"): change = .closedRemoved(id)

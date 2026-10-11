@@ -104,6 +104,7 @@ jobs:
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -169,6 +170,12 @@ jobs:
 
   screenshots:
     needs: [resolve-ref, runner]
+    # Off by default: the capture ran the legacy app's snapshot UI test
+    # (cmuxUITests/SnapshotUITests), which was deleted with that app. The
+    # rewritten app (ios/CmuxiOS) has no snapshot test yet; see
+    # ios/fastlane/Snapfile. Unset, the job is skipped (a release run stays
+    # green); remove this condition when a snapshot test lands.
+    if: ${{ vars.CMUX_IOS_SNAPSHOT_CAPTURE == '1' }}
     # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
@@ -177,6 +184,10 @@ jobs:
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
     timeout-minutes: 300
+    # Only an upload dispatch reads the App Store Connect key, which lives in
+    # the release environment (main and v* tags). Capture-only runs, including
+    # the call from release.yml, enter no environment and read no secret.
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && 'release' || '' }}
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as

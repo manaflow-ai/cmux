@@ -23,6 +23,7 @@ axum.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-pty.workspace = true
+cmux-link.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
 cmux-wg = { workspace = true, optional = true }
@@ -59,6 +60,7 @@ cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
+cmux-unix-socket = { workspace = true, features = ["test-support"] }
 cmux-wg.workspace = true
 rcgen = "0.14"
 tempfile = "3"

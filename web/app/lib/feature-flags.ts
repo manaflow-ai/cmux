@@ -29,7 +29,7 @@ export const FEATURE_FLAGS = {
     owner: "lawrencecchen",
     description:
       "Shows public Pro/pricing navigation and in-app upgrade entrypoints. Off in release until checkout dogfood is approved.",
-    reviewBy: "2026-10-01",
+    reviewBy: "2026-11-01",
     defaultWhenUnavailable: false,
   },
   iosArtifactChip: {

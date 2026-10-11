@@ -23,7 +23,7 @@ struct UpdateSheetView: View {
                     .font(.system(size: Metrics.iconSize * 1.6, weight: .regular))
                     .foregroundStyle(Color(nsColor: Palette.textSecondary))
                     .frame(width: Metrics.iconSize * 2)
-                    .symbolEffect(.rotate, isActive: content.progress == .indeterminate)
+                    .modifier(IndeterminateSymbolEffect(isActive: content.progress == .indeterminate))
                 VStack(alignment: .leading, spacing: Metrics.space2) {
                     Text(content.title)
                         .font(Font(Typography.bodyEmphasized))
@@ -69,7 +69,7 @@ struct UpdateSheetView: View {
                 ForEach(Array(content.buttons.enumerated()), id: \.element) { index, button in
                     let isDefault = index == content.buttons.count - 1
                     Button(button.title) { press(button) }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                         .font(Font(isDefault ? Typography.bodyEmphasized : Typography.body))
                         .keyboardShortcut(isDefault ? .defaultAction : (button.dismisses ? .cancelAction : nil))
                 }
@@ -80,5 +80,19 @@ struct UpdateSheetView: View {
     private func press(_ button: UpdateSheetButton) {
         source.perform(button)
         if button.dismisses { dismiss() }
+    }
+}
+
+/// The indeterminate-progress symbol effect: rotate on macOS 15 and newer,
+/// pulse on macOS 14 (no rotate effect there).
+private struct IndeterminateSymbolEffect: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.symbolEffect(.rotate, isActive: isActive)
+        } else {
+            content.symbolEffect(.pulse, isActive: isActive)
+        }
     }
 }

@@ -35,6 +35,8 @@ GLOBAL_INPUTS = (
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
+    "scripts/ci/package_input_key.py",
+    "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/ci/verify-binary-archs.sh",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",

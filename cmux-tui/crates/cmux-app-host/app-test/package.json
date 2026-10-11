@@ -1,0 +1,10 @@
+{
+  "name": "@cmux/app-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test harness for cmux apps: fake host, op fixtures and grants, palette sessions on the shared navigation vectors. Never published.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "bun test" }
+}

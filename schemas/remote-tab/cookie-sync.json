@@ -1,0 +1,97 @@
+{
+  "description": "Cookie sync conflict rule between two profile owners (plans/cmux-next/remote-tab-protocol.md section 5.4). resolve(local, remote, context) must return exactly `expect`. Both machines must agree: with local and remote swapped, keep_local and take_remote swap and every other outcome stays the same (the test checks this for every case). null = the cookie is absent on that side. Implementations: cmux-tui/crates/cmux-remote-browser (cookie.rs).",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a site the user did not grant is dropped",
+      "local": {"value": "a", "last_update_us": 10, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "b", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["other.com"], "phase": "live", "now_us": 1000000},
+      "expect": "drop_not_granted"
+    },
+    {
+      "name": "equal values are a no-op whatever their times (echo suppression)",
+      "local": {"value": "a", "last_update_us": 10, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "a", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "noop_equal"
+    },
+    {
+      "name": "live: the newer remote version wins",
+      "local": {"value": "a", "last_update_us": 10, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "b", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "take_remote"
+    },
+    {
+      "name": "live: the newer local version wins",
+      "local": {"value": "a", "last_update_us": 30, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "b", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "keep_local"
+    },
+    {
+      "name": "live: on equal times the larger origin wins",
+      "local": {"value": "a", "last_update_us": 10, "origin": "mac-1", "deleted": false, "expires_us": null},
+      "remote": {"value": "b", "last_update_us": 10, "origin": "vm-1", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "take_remote"
+    },
+    {
+      "name": "live: on equal times and origins a deletion beats a value",
+      "local": {"value": "", "last_update_us": 10, "origin": "m", "deleted": true, "expires_us": null},
+      "remote": {"value": "x", "last_update_us": 10, "origin": "m", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "keep_local"
+    },
+    {
+      "name": "initial: two different signed-in values ask the user (maybe two accounts)",
+      "local": {"value": "session-alice", "last_update_us": 10, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "session-bob", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "initial", "now_us": 1000000},
+      "expect": "prompt"
+    },
+    {
+      "name": "initial: equal values do not prompt",
+      "local": {"value": "s", "last_update_us": 10, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "s", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "initial", "now_us": 1000000},
+      "expect": "noop_equal"
+    },
+    {
+      "name": "initial: a cookie absent locally is taken",
+      "local": null,
+      "remote": {"value": "s", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "initial", "now_us": 1000000},
+      "expect": "take_remote"
+    },
+    {
+      "name": "initial: a newer remote deletion wins over a local value (no prompt)",
+      "local": {"value": "s", "last_update_us": 10, "origin": "mac", "deleted": false, "expires_us": null},
+      "remote": {"value": "", "last_update_us": 20, "origin": "vm", "deleted": true, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "initial", "now_us": 1000000},
+      "expect": "take_remote"
+    },
+    {
+      "name": "live: an older remote value loses to a newer local deletion",
+      "local": {"value": "", "last_update_us": 30, "origin": "mac", "deleted": true, "expires_us": null},
+      "remote": {"value": "s", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": null},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "keep_local"
+    },
+    {
+      "name": "an expired remote cookie equals an absent local one",
+      "local": null,
+      "remote": {"value": "s", "last_update_us": 20, "origin": "vm", "deleted": false, "expires_us": 500},
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "noop_equal"
+    },
+    {
+      "name": "both absent is a no-op",
+      "local": null,
+      "remote": null,
+      "context": {"site": "example.com", "granted_sites": ["example.com"], "phase": "live", "now_us": 1000000},
+      "expect": "noop_equal"
+    }
+  ]
+}

@@ -20,8 +20,8 @@ actor MobileCompatTerminalStream {
     private(set) var nextSeq: UInt64
     private var pump: Task<Void, Never>?
     private var ended = false
-    /// The phone's grid, and whether the phone still holds geometry (tmux
-    /// "window-size latest"): false once the stream announced another
+    /// The phone's grid, and whether the phone still holds geometry (the latest
+    /// active client holds it): false once the stream announced another
     /// client's grid.
     private var viewport: CellSize?
     private var holdsGeometry = false
@@ -87,16 +87,19 @@ actor MobileCompatTerminalStream {
         case .output(let data, _):
             guard replay != nil, !data.isEmpty else { return }
             let seq = nextSeq
-            nextSeq += UInt64(data.count)
+            nextSeq += UInt64(clamping: data.count)
             await emit(surfaceID, seq, data)
         case .resized(let snapshot):
             if CellSize(cols: snapshot.cols, rows: snapshot.rows) != viewport { holdsGeometry = false }
             replay = snapshot
             let bytes = MobileCompatReplayBytes.replacement(snapshot)
             let seq = nextSeq
-            nextSeq += UInt64(bytes.count)
+            nextSeq += UInt64(clamping: bytes.count)
             await emit(surfaceID, seq, bytes)
         case .colorsChanged, .scrollChanged:
+            break
+        case .snapshot:
+            // The phone compat attach never asks for snapshots (no snapshotVersion).
             break
         case .closed:
             finish()

@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One extension action: Chromium's icon, which already carries the badge
-/// and the disabled look laid out on the whole button (as Chrome's toolbar
-/// draws it), with gray hover and press fills.
+/// and the disabled look laid out on the whole button, with gray hover
+/// and press fills.
 final class ExtensionActionButton: NSButton {
     let actionID: String
     var onRun: (() -> Void)?
@@ -15,7 +16,7 @@ final class ExtensionActionButton: NSButton {
     var onDragEnded: ((CGFloat) -> Void)?
 
     private let density = DensityBinding()
-    private var isHovering = false { didSet { updateFill() } }
+    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
     private var tracking: NSTrackingArea?
 
     init(actionID: String) {
@@ -35,7 +36,8 @@ final class ExtensionActionButton: NSButton {
             density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
         ])
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             layer?.cornerRadius = OmnibarStyle.buttonCornerRadius
             needsLayout = true
         }
@@ -51,7 +53,9 @@ final class ExtensionActionButton: NSButton {
             icon.size = NSSize(width: size, height: size)
             image = icon
         } else {
-            image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: action.name)
+            let icon = NSImage.icon(.extension, size: .iconRowSize(forLabelPointSize: OmnibarStyle.buttonSymbolSize))
+            icon.accessibilityDescription = action.name
+            image = icon
         }
         toolTip = action.title.isEmpty ? action.name : action.title
         setAccessibilityLabel(action.name)
@@ -63,7 +67,7 @@ final class ExtensionActionButton: NSButton {
     @objc private func run() { onRun?() }
 
     /// A click runs the action; a horizontal drag past 3 pt reorders the
-    /// pinned buttons (Chrome's toolbar drag).
+    /// pinned buttons.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled, let window else { return super.mouseDown(with: event) }
         let start = event.locationInWindow
@@ -112,10 +116,10 @@ final class ExtensionActionButton: NSButton {
         updateFill()
     }
 
-    private func updateFill() {
-        let color: NSColor = isHighlighted ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = color.cgColor
+    private func updateFill(animated: Bool = false) {
+        performWithTheme {
+            let color: NSColor = isHighlighted ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
+            if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
     }
 }

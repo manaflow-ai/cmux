@@ -1,11 +1,14 @@
 import AppKit
+import class CmuxNextAgentPane.AgentPaneLaunchTimings
+import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
-import enum CmuxNextDaemon.DaemonLaunchTimings
+import CmuxNextUpdater
+import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette open,
@@ -27,11 +30,6 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
-    /// Milliseconds since the process started (kernel start time).
-    nonisolated static var sinceProcessStart: Double {
-        Date().timeIntervalSince(processStart) * 1_000
-    }
-
     private nonisolated static let processStart: Date = {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
@@ -43,20 +41,36 @@ enum DebugTimings {
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread.
-    nonisolated static func markLaunch(_ name: String) {
-        let ms = sinceProcessStart
-        launchMarks.withLock { marks in
-            guard !marks.contains(where: { $0.name == name }) else { return }
+    nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
+        let ms = date.timeIntervalSince(processStart) * 1_000
+        let first = launchMarks.withLock { marks in
+            guard !marks.contains(where: { $0.name == name }) else { return false }
             marks.append((name, ms))
+            return true
+        }
+        if first {
+            LaunchMarkSink.shared.write(name: name, ms: ms)
+            #if DEBUG
+            UpdateHarness.mark("launch.\(name)", at: date)
+            #endif
         }
     }
 
     static func install() {
-        DaemonLaunchTimings.install { markLaunch($0) }
+        DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
+        AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
             markLaunch("first_terminal_surface_created")
+        }
+    }
+
+    /// Marks `reveal.<region>` when each launch region shows (its data
+    /// landed, or the reveal deadline passed).
+    static func markReveal(_ reveal: LaunchReveal) {
+        for region in LaunchRegion.allCases {
+            reveal.whenReady(region) { markLaunch("reveal.\(region.rawValue)") }
         }
     }
 

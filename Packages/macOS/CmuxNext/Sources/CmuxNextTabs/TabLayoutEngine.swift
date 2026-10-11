@@ -1,10 +1,11 @@
 public import CoreGraphics
 
 /// Pure tab geometry. The view diffs successive results and animates between them.
-public enum TabLayoutEngine {
+public struct TabLayoutEngine {
+    public init() {}
     /// Lays out `items` in order.
     ///
-    /// - Parameter closingModeWidth: Chrome's deferred relayout. While the user
+    /// - Parameter closingModeWidth: the deferred relayout. While the user
     ///   closes tabs with the mouse, the strip pretends to be only this wide so
     ///   the remaining tabs keep their width and the next close button slides
     ///   under the pointer. Nil outside closing mode.
@@ -110,7 +111,7 @@ public enum TabLayoutEngine {
     }
 
     /// Splits `total` into `count` whole-point widths. Leftover points go to
-    /// the leading tabs, as Chrome does, so the strip edge stays crisp.
+    /// the leading tabs, so the strip edge stays crisp.
     static func distribute(_ total: CGFloat, count: Int) -> [CGFloat] {
         guard count > 0 else { return [] }
         guard total.isFinite, total > 0 else { return Array(repeating: 0, count: count) }

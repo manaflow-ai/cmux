@@ -1,5 +1,5 @@
 // DevTools of a page browser. Every way Chromium opens DevTools (our
-// commands, Chrome's IDC_DEV_TOOLS_* commands, the page context menu's
+// commands, Chromium's IDC_DEV_TOOLS_* commands, the page context menu's
 // Inspect) reaches OnBeforeDevToolsPopup of the page's client, which asks
 // the host where DevTools goes (a docked parent view in the pane, or its
 // own window) and gives the DevTools browser its own client. That client
@@ -156,7 +156,7 @@ int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
       return 1;
     case CMUX_SHIM_DEVTOOLS_CONSOLE:
     case CMUX_SHIM_DEVTOOLS_INSPECT: {
-      // Chrome's own commands on the page's Browser (its active tab is
+      // Chromium's own commands on the page's Browser (its active tab is
       // the page: the host activates the shown tab).
       int id = command == CMUX_SHIM_DEVTOOLS_CONSOLE ? IDC_DEV_TOOLS_CONSOLE : IDC_DEV_TOOLS_INSPECT;
       if (page->CanExecuteChromeCommand(id)) {

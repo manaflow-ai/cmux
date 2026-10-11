@@ -24,6 +24,9 @@ CHECKOUT_ACTION = "actions/checkout@"
 SETUP_ZIG_ACTION = "mlugg/setup-zig@"
 SETUP_ZIG_VERSION = "${{ steps.ghostty-zig-version.outputs.version }}"
 TUI_WORKFLOW_NAMES = frozenset({"cmux-tui-build-package.yml", "cmux-tui.yml"})
+# Either Ghostty source satisfies the guard: the classic `ghostty` (the Mac
+# app's GhosttyKit) or `ghostty-next` (libghostty-vt; GHOSTTY_ZIG_SOURCE).
+GHOSTTY_SUBMODULES = frozenset({"ghostty", "ghostty-next"})
 SHELL_INTERPRETERS = {"bash", "sh", "zsh"}
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 QUOTED_HEREDOC = re.compile(r"(<<-?\s*)(['\"])([A-Za-z_][A-Za-z0-9_]*)(\2)")
@@ -279,7 +282,7 @@ def _is_ghostty_init(words: list[str]) -> bool:
         and _command_name(words[0]) == "git"
         and words[1:3] == ["submodule", "update"]
         and "--init" in words[3:]
-        and "ghostty" in words[3:]
+        and bool(GHOSTTY_SUBMODULES & set(words[3:]))
     )
 
 

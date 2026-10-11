@@ -1,0 +1,87 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "local/notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "description": "Palette fixture.",
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "contributes": {
+    "paletteScopes": [
+      {
+        "id": "s0",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s1",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s2",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s3",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s4",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s5",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s6",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s7",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      },
+      {
+        "id": "s8",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        }
+      }
+    ]
+  }
+}

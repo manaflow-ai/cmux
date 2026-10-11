@@ -15,6 +15,5 @@ extension TabStripView {
         var selectedID: TabID?
         var style: TabStripStyle
         var showsNewTabButton: Bool
-        var trailingButtons: [TabStripButton]
     }
 }

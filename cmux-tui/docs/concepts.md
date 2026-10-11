@@ -54,7 +54,7 @@ every frontend, and the flag follows the tab across panes and restarts. Each
 PTY tab also reports its working directory and the git branch of the
 repository containing it, read on the machine that runs the terminal.
 
-Tabs in one pane can form Chrome-style tab groups: a name (possibly empty),
+Tabs in one pane can form tab groups: a name (possibly empty),
 one of nine colors, and a shared collapsed flag. Members are contiguous in
 the strip, pinned tabs cannot join, and a whole group moves as one: within a
 strip, to another pane, or into a new split, column, or workspace. A saved
@@ -84,7 +84,7 @@ tab back instead of closing the pane it created.
 
 ## Collapse Behavior
 
-Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements. The owner ends a terminal that has had zero placements for the reap grace period (default 30 seconds, `--terminal-reap-grace-seconds`; 0 ends it at once) unless it is marked kept (`set-terminal-keep`, `keep` on `new-tab`/`split`/`create-terminal`, or `cmux terminal <term_id> keep on`). A placement restored within the grace period, such as a layout undo, cancels the reap, and a restart of the owner starts the grace period again. `terminal.close` ends a terminal at once. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
+Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements. An owner started with `--terminal-reap-grace-seconds <n>` (or `cmux daemon ensure --terminal-reap-grace-seconds <n>`) ends a terminal that has had zero placements for `n` seconds (0 ends it at once); without the option no terminal is reaped. The reaper skips a terminal that is marked kept (`set-terminal-keep`, `keep` on `new-tab`/`split`/`create-terminal`, or `cmux terminal <term_id> keep on`). A placement restored within the grace period, such as a layout undo, cancels the reap, and a restart of the owner starts the grace period again. `terminal.close` ends a terminal at once. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
 
 If a pane loses its last tab, that pane is removed from the split tree and its parent split collapses to the remaining child. If that empties the screen, the screen is removed. A canonical workspace remains in the durable registry when its final screen or terminal view disappears; it becomes an empty workspace and is still projected to every frontend. Only an explicit `close-workspace` mutation tombstones it. If every workspace is explicitly closed, mux emits an `empty` event.
 

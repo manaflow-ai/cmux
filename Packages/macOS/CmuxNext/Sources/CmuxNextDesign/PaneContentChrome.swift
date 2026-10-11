@@ -11,6 +11,9 @@ public import CoreGraphics
 public protocol PaneContentChrome: AnyObject {
     /// Points from the view's top edge to its content area.
     var paneHeaderHeight: CGFloat { get }
+    /// Points from the content area to the view's bottom edge (a tab bar at
+    /// the bottom, `tabs.barPosition`); 0 without one.
+    var paneFooterHeight: CGFloat { get }
     /// Called whenever `paneHeaderHeight` changes (a toolbar hides, the tab
     /// strip height token changes, another tab's content is shown).
     var onPaneHeaderHeightChange: (() -> Void)? { get set }
@@ -20,8 +23,13 @@ public protocol PaneContentChrome: AnyObject {
     /// or hide, column scroll), so window-relative chrome can re-check
     /// itself (a tab strip under the traffic lights).
     func paneFrameInWindowDidChange()
+    /// How strongly the view's own chrome (its tab strip) draws: full in
+    /// the focused pane, subtle in the others (`appearance.focusIndicator`).
+    func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool)
 }
 
 extension PaneContentChrome {
+    public var paneFooterHeight: CGFloat { 0 }
     public func paneFrameInWindowDidChange() {}
+    public func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {}
 }

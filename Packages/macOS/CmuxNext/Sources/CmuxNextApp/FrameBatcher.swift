@@ -13,18 +13,31 @@ import CmuxNextWakeups
 @MainActor
 final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     private var pending: [@MainActor @Sendable () -> Void] = []
-    private var client: FrameClient!
+    private let owner: String
+    private let scheduler: FrameScheduler
+    /// Built in init (lazy because its callback captures self; no IUO).
+    private lazy var client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in
+        self?.drain() ?? false
+    }
 
     /// `owner` names the batcher in the wakeup ledger and debug.wakeups.
     init(owner: String, scheduler: FrameScheduler = .app) {
-        client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in
-            self?.drain() ?? false
-        }
+        self.owner = owner
+        self.scheduler = scheduler
+        _ = client  // built here, as before
     }
 
+    /// Hops through the main run loop in the common modes, not a main-actor
+    /// task: a native menu tracks inside a main-queue callout, where no
+    /// main-actor job runs until the menu closes (``MainRunLoopHop``).
     nonisolated func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
-        // task-owner: the frame hop itself; runs once
-        Task { @MainActor in self.enqueue(work) }
+        MainRunLoopHop().perform { self.enqueue(work) }
+    }
+
+    /// The next main run loop turn, without waiting for a display frame
+    /// (the control work queue's first request after idle).
+    nonisolated func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
+        MainRunLoopHop().perform(work)
     }
 
     func enqueue(_ work: @escaping @MainActor @Sendable () -> Void) {

@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -42,6 +43,10 @@ MAX_MANIFEST_BYTES = 1 << 20
 # Raw binaries are intentionally bounded. This prevents a malformed public
 # manifest from turning the post-publish verifier into an unbounded download.
 MAX_ARTIFACT_BYTES = 512 << 20
+# A wrong binary read is fetched again this many times, from a fresh URL, before it fails.
+BINARY_READ_ATTEMPTS = 3
+RETRY_PAUSE_SECONDS = 5
+DIAGNOSTIC_HEADERS = ("Content-Length", "ETag", "Last-Modified", "CF-Cache-Status", "CF-Ray", "Age")
 
 
 class ManifestError(ValueError):
@@ -329,7 +334,9 @@ def _validate_manifest(
             raise ManifestError(f"{source} has invalid cmux-tui SHA-256 for {artifact}")
 
 
-def _read_url(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES) -> bytes:
+def _read_url(
+    url: str, *, max_bytes: int = MAX_MANIFEST_BYTES, headers_out: dict[str, str] | None = None
+) -> bytes:
     request = urllib.request.Request(
         url,
         headers={
@@ -340,7 +347,14 @@ def _read_url(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES) -> bytes:
     )
     try:
         with urlopen(request, timeout=30) as response:
-            content_length = getattr(response, "headers", {}).get("Content-Length")
+            response_headers = getattr(response, "headers", {})
+            if headers_out is not None:
+                headers_out.clear()
+                for name in DIAGNOSTIC_HEADERS:
+                    value = response_headers.get(name)
+                    if value is not None:
+                        headers_out[name] = str(value)
+            content_length = response_headers.get("Content-Length")
             if content_length is not None:
                 try:
                     if int(content_length) > max_bytes:
@@ -364,6 +378,31 @@ def _read_url(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES) -> bytes:
             return b"".join(chunks)
     except (OSError, urllib.error.URLError) as error:
         raise ManifestError(f"could not fetch {url}: {error}") from error
+
+
+def _verify_remote_binary(url: str, artifact: str, expected: str, *, source: str) -> None:
+    """Compare a published binary with its digest, reading it again from a fresh URL on a mismatch.
+
+    Write-once objects never change, so a wrong read is a transient fetch problem, not a
+    different build. Run 37505519359 failed on one such read while R2 held the right bytes.
+    """
+
+    reads: list[str] = []
+    for attempt in range(BINARY_READ_ATTEMPTS):
+        headers: dict[str, str] = {}
+        fetch_url = url if attempt == 0 else f"{url}?verify={time.time_ns()}"
+        payload = _read_url(fetch_url, max_bytes=MAX_ARTIFACT_BYTES, headers_out=headers)
+        actual = hashlib.sha256(payload).hexdigest()
+        if actual.lower() == expected.lower():
+            return
+        details = ", ".join(f"{name} {value}" for name, value in headers.items())
+        reads.append(f"read {attempt + 1}: got {actual}, size {len(payload)}" + (f", {details}" if details else ""))
+        if attempt + 1 < BINARY_READ_ATTEMPTS:
+            print(f"warning: {source} digest mismatch for {artifact} on {reads[-1]}; reading again", file=sys.stderr)
+            time.sleep(RETRY_PAUSE_SECONDS)
+    raise ManifestError(
+        f"{source} digest mismatch for {artifact}: expected {expected} after {BINARY_READ_ATTEMPTS} reads ({'; '.join(reads)})"
+    )
 
 
 def _read_file(path: Path, *, max_bytes: int = MAX_ARTIFACT_BYTES) -> bytes:
@@ -401,10 +440,12 @@ def _verify_binary_digests(
     for artifact, expected in binaries.items():
         if artifact_base_url is not None:
             base = artifact_base_url.rstrip("/")
-            payload = _read_url(f"{base}/{quote(artifact, safe='')}", max_bytes=MAX_ARTIFACT_BYTES)
-        else:
-            assert artifact_directory is not None
-            payload = _read_file(artifact_directory / artifact)
+            _verify_remote_binary(
+                f"{base}/{quote(artifact, safe='')}", artifact, str(expected), source=source
+            )
+            continue
+        assert artifact_directory is not None
+        payload = _read_file(artifact_directory / artifact)
         actual = hashlib.sha256(payload).hexdigest()
         if actual.lower() != str(expected).lower():
             raise ManifestError(

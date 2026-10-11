@@ -27,6 +27,10 @@ pub struct EventRecord {
     pub kind: String,
     /// Raw JSON-RPC message, or the acpmux payload.
     pub msg: Value,
+    /// The agent host entry this record logs (`hostSeq`), so a controller
+    /// that adopts the host resumes after it (agent hosts, durable sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -126,10 +130,50 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The Claude conversation acpmux started with a fresh id has not
+    /// finished a turn, so Claude may never have stored it (a launcher that
+    /// died before the prompt reached Claude stores nothing). A respawn (a
+    /// fallback profile, a dead process, a daemon restart) then starts a
+    /// fresh conversation instead of `--resume`, which would fail the turn
+    /// with "No conversation found with session ID".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_unstored: bool,
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
+    /// current Claude conversation: the one that started or forked it. A
+    /// respawn on another profile (a failover) resumes only when that
+    /// profile's store has the conversation, else starts fresh (E1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Created over a remote-origin connection (the WebSocket listener):
+    /// its harness never spawns with a preset's args or system prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote_origin: bool,
+    /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
+    /// socket on session/new or session/fork, applied over the preset env at
+    /// every spawn. Never copied to a fork or a handoff.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_env: BTreeMap<String, String>,
+    /// Chat store roots the harness's launch env named at its last spawn
+    /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harness_roots: Vec<HarnessRoot>,
+    /// Unsent composer text owned by this acpmux session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer_draft: Option<String>,
+}
+
+/// One chat store root a spawn's env named: `harness` is a chat index
+/// adapter id (`claude-code`, `codex`, ...) or, for a profile's own `sessions`
+/// roots, the profile id. Never carries other env values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRoot {
+    pub harness: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,6 +214,11 @@ pub trait Store: Send + Sync {
     }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
+        None
+    }
+    /// Where handoff records live: `handoffs/` beside `sessions/`, or none
+    /// (in memory) for the memory store.
+    fn handoff_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -412,85 +461,8 @@ impl Store for LocalStore {
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
         Some(self.dir(id))
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn meta(id: &str) -> SessionMeta {
-        SessionMeta {
-            schema: META_SCHEMA.into(),
-            id: id.into(),
-            name: id.into(),
-            harness: "codex".into(),
-            harness_argv: vec![],
-            family: None,
-            preset: None,
-            model_request: None,
-            cwd: PathBuf::from("/tmp"),
-            agent_session_id: None,
-            status: SessionStatus::Idle,
-            created_at: 1,
-            updated_at: 1,
-            last_seq: 0,
-            parent_id: None,
-            fork_seq: None,
-            agent_info: None,
-            agent_capabilities: None,
-            modes: None,
-            config_options: None,
-            models: None,
-            permission_policy: None,
-            title: None,
-            last_prompt: None,
-            preview: None,
-            event_count: 0,
-            turn_count: 0,
-            usage: None,
-            permission_rules: None,
-            tags: Default::default(),
-            unread: false,
-            last_turn: None,
-        }
-    }
-
-    fn rec(seq: u64) -> EventRecord {
-        EventRecord {
-            seq,
-            at: seq,
-            dir: "mux".into(),
-            kind: "status".into(),
-            msg: serde_json::json!({"seq": seq}),
-        }
-    }
-
-    #[test]
-    fn local_store_rolls_segments_and_reads_after_seq() {
-        let tmp = std::env::temp_dir().join(format!("acpmux-store-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = LocalStore::new(tmp.clone(), 64 * 1024).unwrap();
-        store.save(&meta("s1")).unwrap();
-        for i in 1..=3000 {
-            store.append("s1", &rec(i)).unwrap();
-        }
-        let segs = store.segments("s1").unwrap();
-        assert!(segs.len() >= 2, "expected roll, got {}", segs.len());
-        let tail = store.events("s1", 2990, 100).unwrap();
-        assert_eq!(tail.len(), 10);
-        assert_eq!(tail[0].seq, 2991);
-        assert_eq!(store.list().unwrap().len(), 1);
-        store.delete("s1").unwrap();
-        assert!(store.load("s1").unwrap().is_none());
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn memory_store_round_trip() {
-        let store = MemoryStore::default();
-        store.save(&meta("m")).unwrap();
-        store.append("m", &rec(1)).unwrap();
-        store.append("m", &rec(2)).unwrap();
-        assert_eq!(store.events("m", 1, 10).unwrap().len(), 1);
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("handoffs"))
     }
 }

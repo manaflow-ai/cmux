@@ -1,0 +1,70 @@
+{
+  "agent-pane.changes-tree": {
+    "a": {
+      "run": "hq5c-tree-disclosure",
+      "engine": "chromium",
+      "frames": 20,
+      "p50": 16.7,
+      "p95": 50,
+      "max": 50,
+      "over16": 7,
+      "planMs": 0,
+      "strip": "strips/agent-pane.changes-tree--a-chromium.png"
+    },
+    "b": {
+      "run": "hq5c-tree-disclosure",
+      "engine": "chromium",
+      "frames": 54,
+      "p50": 16.7,
+      "p95": 66.7,
+      "max": 66.7,
+      "over16": 30,
+      "planMs": 12.3,
+      "strip": "strips/agent-pane.changes-tree--b-chromium.png"
+    },
+    "c": {
+      "run": "hq5c-tree-disclosure",
+      "engine": "chromium",
+      "frames": 58,
+      "p50": 16.7,
+      "p95": 33.3,
+      "max": 33.3,
+      "over16": 28,
+      "planMs": 15.6,
+      "strip": "strips/agent-pane.changes-tree--c-chromium.png"
+    },
+    "d": {
+      "run": "hq5c-tree-disclosure",
+      "engine": "chromium",
+      "frames": 53,
+      "p50": 16.7,
+      "p95": 33.3,
+      "max": 33.3,
+      "over16": 18,
+      "planMs": 9.8,
+      "strip": "strips/agent-pane.changes-tree--d-chromium.png"
+    },
+    "e": {
+      "run": "hq5c-tree-disclosure",
+      "engine": "chromium",
+      "frames": 234,
+      "p50": 16.7,
+      "p95": 33.4,
+      "max": 33.4,
+      "over16": 91,
+      "planMs": 0,
+      "strip": "strips/agent-pane.changes-tree--e-chromium.png"
+    },
+    "f": {
+      "run": "hq5c-tree-disclosure",
+      "engine": "chromium",
+      "frames": 52,
+      "p50": 16.7,
+      "p95": 33.4,
+      "max": 33.4,
+      "over16": 20,
+      "planMs": 11.4,
+      "strip": "strips/agent-pane.changes-tree--f-chromium.png"
+    }
+  }
+}

@@ -17,6 +17,8 @@ public nonisolated enum OmnibarEndReason: Equatable, Sendable {
     /// Enter in an extension keyword session: the extension gets `text`
     /// (`chrome.omnibox.onInputEntered`) and decides what loads.
     case keyword(extensionID: String, text: String, disposition: OmnibarDisposition)
+    /// Enter or a click on a Switch to Tab row: the App reveals tab `key`.
+    case switchToTab(key: String)
 }
 
 /// Editing boundaries the App routes (focus handoff between the omnibar and

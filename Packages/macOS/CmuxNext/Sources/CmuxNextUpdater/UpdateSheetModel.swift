@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxUpdater
 import Observation
+import CmuxNextCompat
 
 /// What the update sheet renders and where its buttons go.
 @MainActor
@@ -22,7 +23,8 @@ public final class UpdateSheetModel: UpdateSheetSource {
 
     public var content: UpdateSheetContent? {
         if let controller = service.controller, service.disabledReason == nil {
-            return UpdateSheetContent.sparkle(controller.model.effectiveState, current: service.identity)
+            let content = UpdateSheetContent.sparkle(controller.model.effectiveState, current: service.identity)
+            return service.requiredMinimumVersion.map { content?.requiring($0) } ?? content
         }
         return UpdateSheetContent.probe(result: service.lastProbe, error: service.lastProbeError,
                                         probing: service.isProbing, disabledReason: service.disabledReason)
@@ -41,23 +43,7 @@ public final class UpdateSheetModel: UpdateSheetSource {
         case .relaunch:
             if case .installing(let installing) = state { installing.retryTerminatingApplication() }
         case .releaseNotes(let url):
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.openInBackground(url)
         }
-    }
-}
-
-/// A fixed sheet for demos and screenshots.
-@MainActor
-@Observable
-public final class StaticUpdateSheetSource: UpdateSheetSource {
-    public var content: UpdateSheetContent?
-    public private(set) var pressed: [UpdateSheetButton] = []
-
-    public init(_ content: UpdateSheetContent?) {
-        self.content = content
-    }
-
-    public func perform(_ button: UpdateSheetButton) {
-        pressed.append(button)
     }
 }

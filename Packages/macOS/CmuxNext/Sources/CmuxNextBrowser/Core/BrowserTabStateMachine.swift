@@ -25,6 +25,10 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case processExited(BrowserProcessExit)
     /// The content process stopped (true) or resumed (false) handling input.
     case unresponsiveChanged(Bool)
+    /// The page's media report (`BrowserMediaState+Scripts`); nil when it stopped.
+    case mediaChanged(BrowserMediaState?)
+    /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
+    case audioMutedChanged(Bool)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -45,7 +49,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     public private(set) var state: BrowserTabState
 
     /// URL of the last committed document. A load stopped before it commits
-    /// reverts the address to this, like Chrome.
+    /// reverts the address to this.
     private var committedURL: URL?
 
     public init(state: BrowserTabState = BrowserTabState()) {
@@ -83,6 +87,8 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
                 state.faviconURL = nil
             }
             state.title = nil
+            // A new document plays nothing until its script reports.
+            state.media = nil
             state.phase = .committed
             state.security = Self.security(for: state.url)
             committedURL = state.url
@@ -156,6 +162,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             // opens what the user asked for.
             state.processExit = exit
             state.isUnresponsive = false
+            state.media = nil
             state.progress = 0
             state.activeNavigation = nil
             if state.phase != .finished { state.phase = state.url == nil ? .idle : .finished }
@@ -163,6 +170,12 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .unresponsiveChanged(let unresponsive):
             guard state.processExit == nil else { return }
             state.isUnresponsive = unresponsive
+
+        case .mediaChanged(let media):
+            state.media = media
+
+        case .audioMutedChanged(let muted):
+            state.isAudioMuted = muted
         }
     }
 
@@ -192,5 +205,15 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case "file", "about", "data", "blob": .local
         default: .none
         }
+    }
+
+    /// The security of a committed page from what the engine knows: mixed
+    /// content, and a page loaded past an untrusted certificate the user
+    /// proceeded through, which is broken ("Not secure"), as in Chrome.
+    public static func security(for url: URL?, hasOnlySecureContent: Bool, certificateBypassed: Bool) -> BrowserSecurityState {
+        let security = Self.security(for: url)
+        guard security == .secure else { return security }
+        if certificateBypassed { return .broken }
+        return hasOnlySecureContent ? .secure : .mixedContent
     }
 }

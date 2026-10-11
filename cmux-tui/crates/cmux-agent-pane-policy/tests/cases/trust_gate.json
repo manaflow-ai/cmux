@@ -1,0 +1,497 @@
+{
+ "description": "AGENT-TRUST-GATE: what a cmux host must do so acpmux's folder-trust gate (cmux-tui/crates/acpmux/src/server/trust_gate.rs `gated`: LocalApp and Web origins are gated, a peer only for `_meta.acpmux.via` app or web) holds for the agent pane. The host makes the pane LocalApp-origin (the token goes into the first frame only, after the rules read the page's frame: AcpmuxPaneMethods.swift `decide`, `withLocalAppToken`; AgentPaneTransport+Check.swift `checkOne`), the page cannot write the token or a forward mark (P1: AcpmuxPaneMethods.swift `knownParams`, `breaksParamsRule`), Trust needs a gesture and Don't trust does not (`gestureRules`, `needsGesture`), and the gate's refusals reach the page as acpmux wrote them (AcpmuxRequestIds.swift `toPage`: only `replyShapes` methods are rebuilt), where direct.ts `isTrustRefusal` reads data.reason.",
+ "frames": [
+  {
+   "name": "trust gate: the first initialize gets the host's LocalApp token (LocalApp origin, gated)",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1,\"params\":{\"protocolVersion\":1}}",
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expect": {
+    "send": {
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "id": 1,
+     "params": {
+      "protocolVersion": 1,
+      "_meta": {
+       "acpmux": {
+        "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "trust gate: a page token in the first frame is replaced by the host's",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1,\"params\":{\"_meta\":{\"acpmux\":{\"localAppToken\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}}}",
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expect": {
+    "send": {
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "id": 1,
+     "params": {
+      "_meta": {
+       "acpmux": {
+        "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "trust gate: a later initialize is refused (no second token, no origin change)",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":2,\"params\":{}}",
+   "first": false,
+   "token": null,
+   "expect": {
+    "refuse": "transport.method_refused",
+    "method": "initialize",
+    "id": "2"
+   }
+  },
+  {
+   "name": "trust gate: a later frame never gets the token",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"acp.trust.get\",\"id\":3,\"params\":{\"cwd\":\"/x\"}}",
+   "first": false,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expect": {
+    "send": "unchanged"
+   }
+  },
+  {
+   "name": "trust gate: acp.trust.set is a request",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"acp.trust.set\",\"id\":4,\"params\":{\"cwd\":\"/x\",\"level\":\"trusted\"}}",
+   "first": false,
+   "token": null,
+   "expect": {
+    "send": "unchanged"
+   }
+  },
+  {
+   "name": "trust gate: acp.trust.set as a notification is refused",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"acp.trust.set\",\"params\":{\"cwd\":\"/x\",\"level\":\"trusted\"}}",
+   "first": false,
+   "token": null,
+   "expect": {
+    "refuse": "transport.method_refused",
+    "method": "acp.trust.set"
+   }
+  },
+  {
+   "name": "trust gate: the first frame cannot be a prompt",
+   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/prompt\",\"id\":1,\"params\":{\"sessionId\":\"s\",\"prompt\":[]}}",
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expect": {
+    "refuse": "transport.first_frame",
+    "method": "session/prompt",
+    "id": "1"
+   }
+  }
+ ],
+ "params": [
+  {
+   "name": "trust gate: initialize may not carry the LocalApp token from the page",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+     "_meta": {
+      "acpmux": {
+       "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: initialize may not carry any _meta",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {}
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: prompt may not carry a forward mark (via app)",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/prompt",
+    "id": 5,
+    "params": {
+     "sessionId": "s",
+     "prompt": [],
+     "_meta": {
+      "acpmux": {
+       "via": "app"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: prompt may not carry a forward mark (via web)",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/prompt",
+    "id": 5,
+    "params": {
+     "sessionId": "s",
+     "prompt": [],
+     "_meta": {
+      "acpmux": {
+       "via": "web"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: prompt may not name a peer",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/prompt",
+    "id": 5,
+    "params": {
+     "sessionId": "s",
+     "prompt": [],
+     "_meta": {
+      "acpmux": {
+       "peer": "p"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: prompt with its promptId only passes",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/prompt",
+    "id": 5,
+    "params": {
+     "sessionId": "s",
+     "prompt": [],
+     "_meta": {
+      "acpmux": {
+       "promptId": "p1"
+      }
+     }
+    }
+   },
+   "breaks": false
+  },
+  {
+   "name": "trust gate: session/new may not carry a forward mark",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/new",
+    "id": 6,
+    "params": {
+     "cwd": "/x",
+     "_meta": {
+      "acpmux": {
+       "via": "app"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: session/new may name a peer (the peer gates it: trust_gate.rs `check`, requests.rs `session/new` peer branch)",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/new",
+    "id": 6,
+    "params": {
+     "cwd": "/x",
+     "_meta": {
+      "acpmux": {
+       "peer": "p"
+      }
+     }
+    }
+   },
+   "breaks": false
+  },
+  {
+   "name": "trust gate: handoff_start may not carry _meta",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "_acpmux/handoff_start",
+    "id": 7,
+    "params": {
+     "handoffId": "h",
+     "revision": 1,
+     "_meta": {
+      "acpmux": {
+       "via": "app"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: prewarm may not carry a forward mark",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "_acpmux/prewarm",
+    "id": 8,
+    "params": {
+     "harness": "codex",
+     "cwd": "/x",
+     "_meta": {
+      "acpmux": {
+       "via": "web"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: set_mode may not carry a forward mark",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/set_mode",
+    "id": 9,
+    "params": {
+     "sessionId": "s",
+     "modeId": "m",
+     "_meta": {
+      "acpmux": {
+       "via": "app"
+      }
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: acp.trust.get with cwd passes",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.get",
+    "id": 10,
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "breaks": false
+  },
+  {
+   "name": "trust gate: acp.trust.set with cwd and level passes",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 11,
+    "params": {
+     "cwd": "/x",
+     "level": "trusted"
+    }
+   },
+   "breaks": false
+  },
+  {
+   "name": "trust gate: acp.trust.set may not carry _meta",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 11,
+    "params": {
+     "cwd": "/x",
+     "level": "trusted",
+     "_meta": {
+      "acpmux": {}
+     }
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: acp.trust.set may not name a harness",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 11,
+    "params": {
+     "cwd": "/x",
+     "level": "trusted",
+     "harness": "claude"
+    }
+   },
+   "breaks": true
+  },
+  {
+   "name": "trust gate: acp.trust.set with the page's sessionId (direct.ts `trustSet`) passes the params rule (its scope: sessions.json)",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 11,
+    "params": {
+     "cwd": "/x",
+     "level": "trusted",
+     "sessionId": "s"
+    }
+   },
+   "breaks": false
+  },
+  {
+   "name": "trust gate: acp.trust.get with the page's sessionId (direct.ts `trustGet`) passes the params rule (its scope: sessions.json)",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.get",
+    "id": 10,
+    "params": {
+     "cwd": "/x",
+     "sessionId": "s"
+    }
+   },
+   "breaks": false
+  }
+ ],
+ "gestures": [
+  {
+   "name": "trust gate: Trust needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "level": "trusted"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: Don't trust needs none",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "level": "untrusted"
+    }
+   },
+   "denies": [],
+   "needs": false
+  },
+  {
+   "name": "trust gate: back to unknown needs none",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "level": "unknown"
+    }
+   },
+   "denies": [],
+   "needs": false
+  },
+  {
+   "name": "trust gate: no level needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: a level that is not a string needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "level": 1
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: a level in another case needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.set",
+    "id": 1,
+    "params": {
+     "cwd": "/x",
+     "level": "Untrusted"
+    }
+   },
+   "denies": [],
+   "needs": true
+  },
+  {
+   "name": "trust gate: reading trust needs none",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "acp.trust.get",
+    "id": 1,
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "denies": [],
+   "needs": false
+  },
+  {
+   "name": "trust gate: the gated prompt needs a gesture",
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/prompt",
+    "id": 1,
+    "params": {
+     "sessionId": "s",
+     "prompt": []
+    }
+   },
+   "denies": [],
+   "needs": true
+  }
+ ],
+ "unfiltered": [
+  "session/new",
+  "session/prompt",
+  "session/set_mode",
+  "session/set_config_option",
+  "acp.session.fork",
+  "_acpmux/prewarm",
+  "_acpmux/handoff_prepare",
+  "_acpmux/handoff_start",
+  "acp.trust.get",
+  "acp.trust.set"
+ ],
+ "page_reasons": [
+  "trust.pending",
+  "trust.untrusted"
+ ]
+}

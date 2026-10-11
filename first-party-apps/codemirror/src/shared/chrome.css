@@ -1,0 +1,26 @@
+/* Editor pane chrome (shared by the editor apps; identical copies). Colors come
+   from CSS variables set from the terminal theme (shared/theme.ts). */
+html, body { margin: 0; height: 100%; background: var(--cmux-bg); color: var(--cmux-fg); overflow: hidden; }
+body { font: 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+#app { display: flex; flex-direction: column; height: 100%; }
+.cmux-editor { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.cmux-header, .cmux-status { display: flex; align-items: center; gap: 10px; padding: 0 10px; flex: none; white-space: nowrap; overflow: hidden; }
+.cmux-header { height: 30px; border-bottom: 1px solid var(--cmux-border); font-weight: 600; }
+.cmux-status { height: 22px; border-top: 1px solid var(--cmux-border); background: var(--cmux-status-bg); color: var(--cmux-muted); font-size: 11px; }
+.cmux-spacer { flex: 1; }
+.cmux-name { overflow: hidden; text-overflow: ellipsis; }
+.cmux-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cmux-accent); flex: none; }
+.cmux-dot[hidden] { display: none; }
+.cmux-notice { color: var(--cmux-muted); }
+.cmux-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex: none; border-bottom: 1px solid var(--cmux-border); background: var(--cmux-status-bg); }
+.cmux-banner[hidden], .cmux-header[hidden], .cmux-status[hidden], .cmux-empty[hidden] { display: none; }
+.cmux-banner .cmux-icon { width: 8px; height: 8px; border-radius: 2px; background: var(--cmux-warning); flex: none; }
+.cmux-banner.error .cmux-icon { background: var(--cmux-danger); }
+.cmux-banner .cmux-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.cmux-button { font: inherit; color: var(--cmux-fg); background: transparent; border: 1px solid var(--cmux-border); border-radius: 5px; padding: 2px 8px; cursor: default; }
+button.cmux-button:hover { background: var(--cmux-border); }
+button.cmux-button:focus-visible { outline: 1px solid var(--cmux-accent); outline-offset: 1px; }
+.cmux-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--cmux-muted); text-align: center; padding: 20px; }
+.cmux-empty strong { color: var(--cmux-fg); font-size: 13px; }
+.cmux-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--cmux-border); color: var(--cmux-muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

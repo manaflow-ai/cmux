@@ -361,7 +361,7 @@ class AffectedChecksTests(unittest.TestCase):
             (repo / "Resources").mkdir()
             (repo / "Resources" / "odd name\nstrings.xcstrings").write_text("{}")
             selected, evidence = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["xcstrings", "localization", "feature-flags"])
+            self.assertEqual(selected, ["xcstrings", "localization", "localization-defaults", "feature-flags"])
             self.assertEqual(evidence["paths"], ["Resources/odd name\nstrings.xcstrings"])
             self.assertIn("time_sensitive", evidence["reasons"]["feature-flags"])
 

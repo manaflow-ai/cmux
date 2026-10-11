@@ -12,19 +12,66 @@ extension AppActions {
             return nil
         }
         let commands: [(String, BrowserChromeCommand)] = [
-            ("browserBack", .goBack), ("browserForward", .goForward), ("browserReload", .reload),
+            ("browserBack", .goBack), ("browserForward", .goForward), ("browserReload", .reload), ("browserStop", .stop),
             ("browserZoomIn", .zoomIn), ("browserZoomOut", .zoomOut), ("browserZoomReset", .resetZoom),
             ("focusBrowserAddressBar", .focusAddressBar),
         ]
         for (id, command) in commands where command != .focusAddressBar {
-            registry.bind(ActionID(rawValue: id), isEnabled: { chrome() != nil }, invoke: { chrome($0)?.perform(command) })
+            registry.bind(ActionID(rawValue: id), isEnabled: { chrome() != nil }, invoke: { invocation in
+                guard let browser = chrome(invocation) else { return }
+                browser.perform(command)
+                if command == .zoomIn || command == .zoomOut || command == .resetZoom {
+                    SurfaceZoomIndicator.show(percent: Int((browser.tab.state.zoom * 100).rounded()),
+                                              in: services.windows.active?.window)
+                }
+            })
+        }
+        // Cmd-Return / Shift-Cmd-Return in the address bar: the typed URL or
+        // search opens in a new tab (Chrome, Safari) through the tab's
+        // `onOpenURL` (`BrowserPageRequests.openFromOmnibar`).
+        let omnibarOpens: [(ActionID, OmnibarDisposition)] = [
+            ("omnibar.openInBackgroundTab", .newBackgroundTab), ("omnibar.openInForegroundTab", .newForegroundTab),
+        ]
+        for (id, disposition) in omnibarOpens {
+            registry.bind(id, isEnabled: { chrome()?.addressBar.isEditing == true }, invoke: { chrome($0)?.addressBar.commit(disposition) })
+        }
+        // Shift-Cmd-G in a browser: the same Find Previous as Cmd-Opt-G.
+        registry.bind("browser.findPrevious", isEnabled: { chrome() != nil }, invoke: { invocation in
+            registry.perform("findPrevious", invocation: invocation)
+        })
+        // Cmd-Shift-C (Arc, Chrome extensions): the page's URL, as the
+        // omnibar's Copy writes it (the full URL, never the elided text).
+        registry.bind("browser.copyURL", isEnabled: { chrome()?.tab.state.url != nil }, invoke: { _ = chrome($0)?.copyPageURL() })
+        // A machine browser tab that is not ready: this Mac's page in its place (cx-2cob).
+        registry.bind("browser.openLocally", isEnabled: { chrome()?.tab is MachineBrowserPageTab },
+                      invoke: { (chrome($0)?.tab as? MachineBrowserPageTab)?.openLocally() })
+        // This Mac's tab in a machine's workspace: its page on the machine (the This Mac chip's menu).
+        registry.bind("browser.openOnMachine", isEnabled: {
+            guard let chrome = chrome(), !(chrome.tab is MachineBrowserPageTab), let key = chrome.addressBar.tabKey else { return false }
+            return services.daemon(ofBrowserTab: key)?.isLocal == false
+        }, invoke: { invocation in
+            guard let key = chrome(invocation)?.addressBar.tabKey else { return }
+            _ = services.openTabOnMachine(key: key)
+        })
+        // Site settings of the site that blocked the newest download (the
+        // blocked-download notice's button, without the mouse).
+        registry.bind("browser.download.openBlockedSiteSettings", isEnabled: { services.cache.pageRequests.canOpenLatestBlockedSiteSettings },
+                      invoke: { _ in
+                          let requests = services.cache.pageRequests
+                          if let latest = requests.downloads.latestBlocked { requests.openBlockedSiteSettings(site: latest.site, tab: latest.tab) }
+                      })
+        // The prompt bar's permission question, answered without the mouse.
+        let promptAnswers: [(ActionID, BrowserPrompt.PermissionChoice)] = [("browser.prompt.allow", .allow), ("browser.prompt.block", .block)]
+        for (id, choice) in promptAnswers {
+            registry.bind(id, isEnabled: { chrome().flatMap { BrowserPrompt.firstPermission(in: $0.tab.pendingPrompts) } != nil },
+                          invoke: { _ = chrome($0).map { BrowserPrompt.answerFirstPermission(choice, in: $0.tab.pendingPrompts) } })
         }
         // Cmd-L goes through the window's focus coordinator, which also takes
         // key back from a focused Chromium page window.
         registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in
             guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
                   let window = services.windowController(showing: pane) else { return }
-            // Chrome `OmniboxViewViews::SetFocus(is_user_initiated=true)`:
+            // Chromium `OmniboxViewViews::SetFocus(is_user_initiated=true)`:
             // Cmd-L while the omnibar already has focus shows the full URL
             // and selects all again. The responder stays; focusing the pane
             // first would hand focus to the page and back.

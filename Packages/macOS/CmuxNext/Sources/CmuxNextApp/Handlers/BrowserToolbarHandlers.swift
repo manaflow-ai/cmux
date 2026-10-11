@@ -1,0 +1,182 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextBrowser
+
+/// The browser toolbar's trailing buttons (`BrowserToolbarButtonsView`).
+/// Every press runs a catalog action, so the palette, `cmux action run`,
+/// the socket and the menus reach the same handler:
+///
+/// | button | action |
+/// | --- | --- |
+/// | media hub | `browser.media.show`, the media hub (`BrowserMediaMenu`) |
+/// | zoom | `browserZoomReset` |
+/// | Favorites | `bookmark.manager` |
+/// | Downloads | `browser.downloads.show`, the downloads menu (`BrowserDownloadsMenu`) |
+/// | design mode | `toggleBrowserDesignMode` |
+/// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
+/// | theme | a menu of `browserTheme` system, light, dark |
+/// | DevTools | `toggleBrowserDeveloperTools` |
+/// | More | `browser.overflow.menu` |
+enum BrowserToolbarHandlers {
+    /// The action a press runs. The theme button runs `browserTheme` from
+    /// its menu, one item per scheme.
+    static func actionID(for button: BrowserToolbarButton) -> ActionID {
+        switch button {
+        case .media: "browser.media.show"
+        case .zoom: "browserZoomReset"
+        case .favorites: "bookmark.manager"
+        case .downloads: "browser.downloads.show"
+        case .designMode: "toggleBrowserDesignMode"
+        case .profile: "browser.profile.choose"
+        case .theme: "browserTheme"
+        case .devTools: "toggleBrowserDeveloperTools"
+        case .overflow: "browser.overflow.menu"
+        }
+    }
+
+    /// The `theme` argument of `browserTheme`; a missing or unknown
+    /// value follows the app.
+    static func colorScheme(_ invocation: ActionInvocation) -> BrowserColorScheme {
+        invocation["theme"]?.stringValue.flatMap(BrowserColorScheme.init(rawValue:)) ?? .system
+    }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("browser.profile.choose", run: { invocation in
+            let entry = try context.page(invocation)
+            entry.chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
+        })
+        registry.bind("browser.media.show", run: { invocation in
+            let entry = try context.page(invocation)
+            entry.chrome.toolbarButtons.present(BrowserMediaMenu.menu(context.services), from: .media)
+        })
+        registry.bind("browser.downloads.show", run: { invocation in
+            let entry = try context.page(invocation)
+            let menu = BrowserDownloadsMenu.menu(context.services.cache.pageRequests.downloads, target: tabTarget(entry), registry: registry)
+            entry.chrome.toolbarButtons.present(menu, from: .downloads)
+        })
+        registry.bind("browser.overflow.menu", run: { invocation in
+            let entry = try context.page(invocation)
+            entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry), from: .overflow)
+        })
+    }
+
+    /// Wires a new browser page's buttons (`TabContentCache.onBrowserEntryCreated`).
+    static func install(on entry: BrowserEntry, services: AppServices) {
+        let key = entry.tab.id.rawValue
+        let buttons = entry.chrome.toolbarButtons
+        buttons.onPress = { [weak services, weak entry] button in
+            guard let services, let entry else { return }
+            press(button, entry: entry, registry: services.registry)
+        }
+        buttons.shortcutHint = { [weak services] button in
+            guard [.media, .zoom, .favorites, .downloads, .designMode, .devTools].contains(button) else { return nil }
+            return services?.registry.shortcutDisplay(for: actionID(for: button))
+        }
+        buttons.profileName = profileName(forTab: key, services: services)
+        buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
+        buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
+    }
+
+    static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
+        let target = tabTarget(entry)
+        if button == .theme {
+            return entry.chrome.toolbarButtons.present(themeMenu(target: target, registry: registry), from: .theme)
+        }
+        registry.perform(actionID(for: button), invocation: ActionInvocation(target: target, origin: .user))
+    }
+
+    static func profileName(forTab key: String, services: AppServices) -> String {
+        services.browserProfiles.displayName(services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:)))
+    }
+
+    private static func tabTarget(_ entry: BrowserEntry) -> ActionTargetRef {
+        ActionTargetRef(kind: .tab, id: entry.tab.id.rawValue)
+    }
+
+    /// System, Light and Dark, each running `browserTheme`; the
+    /// current scheme is checked (`ThemeCoordinator.currentChoice`).
+    static func themeMenu(target: ActionTargetRef, registry: ActionRegistry) -> NSMenu {
+        let built = registry.makeContextMenu(for: .browserPage, target: target, entries: [.choices("browserTheme")])
+        // The registry keeps the choices' hover-preview delegate alive as
+        // long as this submenu, so the submenu itself is shown.
+        guard let item = built.items.first, let submenu = item.submenu else { return built }
+        item.submenu = nil
+        return submenu
+    }
+
+    /// One item per browser profile (the tab's checked), each moving the tab
+    /// with `browserProfile.moveTab`; then New Browser Profile, Import from
+    /// Browser and Rename Browser Profile for the tab's profile.
+    static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
+        let registry = services.registry
+        let target = tabTarget(entry)
+        let profiles = services.browserProfiles
+        let current = services.cache.tabModel(entry.tab.id.rawValue).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        let menu = NSMenu()
+        for record in profiles.ordered {
+            let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
+            item.state = record.id == current ? .on : .off
+            let closure = ActionMenuClosure { [weak registry] in
+                guard record.id != current else { return }
+                registry?.perform("browserProfile.moveTab", invocation: ActionInvocation(
+                    target: target, arguments: ["browserProfile": .string(record.id)], origin: .user))
+            }
+            item.target = closure
+            item.action = #selector(ActionMenuClosure.run)
+            item.representedObject = closure
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
+        let entries: [ContextMenuEntry] = [.action("browserProfile.new"), .action("importFromBrowser")]
+        move(registry.makeContextMenu(for: .browserPage, target: target, entries: entries), into: menu)
+        move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, entries: [.action("browserProfile.rename")]), into: menu)
+        return menu
+    }
+
+    private static func move(_ source: NSMenu, into menu: NSMenu) {
+        for item in source.items {
+            source.removeItem(item)
+            menu.addItem(item)
+        }
+    }
+
+    /// The More menu, Edge's three-dot menu (cx-6qwm): the collapsed
+    /// buttons' actions first, then new tab and windows, zoom and full
+    /// screen, the browser's own pages (bookmarks, history, tab groups,
+    /// the Downloads menu, extensions, passwords, clearing data), page tools (split,
+    /// screenshot, find), more tools, then Settings and Help. Every row is a
+    /// catalog action; one the tab cannot run drops out. No print row: no
+    /// engine exposes printing yet.
+    static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry) -> NSMenu {
+        var entries: [ContextMenuEntry] = []
+        for button in entry.chrome.toolbarButtons.collapsedButtons {
+            switch button {
+            case .designMode: entries.append(.action("toggleBrowserDesignMode"))
+            case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
+            case .profile: entries.append(.action("browser.profile.choose"))
+            case .theme: entries.append(.choices("browserTheme"))
+            // Zoom, Bookmark Manager and Downloads are rows of their own below.
+            // The media hub only while a tab has media.
+            case .media: if entry.chrome.toolbarButtons.hasContent(.media) { entries.append(.action("browser.media.show")) }
+            case .zoom, .favorites, .downloads, .overflow: break
+            }
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries += [
+            .action("newTab.default"), .action("newWindow"), .action("newIncognitoWindow"), .separator,
+            .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
+            .action("bookmark.manager"), .action("browserShowHistory"),
+            .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
+            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"),
+            .action("history.clear"), .separator,
+            .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,
+            .folder(.tools, [
+                .action("toggleBrowserFocusMode"), .action("palette.browserOpenDefault"),
+                .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"), .action("importFromBrowser"),
+            ]), .separator,
+            .action("openSettings"), .action("help.documentation"),
+        ]
+        return registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
+    }
+}

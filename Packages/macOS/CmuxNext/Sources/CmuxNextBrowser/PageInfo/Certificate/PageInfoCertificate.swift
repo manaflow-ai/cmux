@@ -1,7 +1,7 @@
 import CryptoKit
 public import Foundation
 
-/// A distinguished name's fields Chrome's certificate viewer shows.
+/// A distinguished name's fields the certificate viewer shows.
 public nonisolated struct CertificateName: Hashable, Sendable {
     public var commonName: String?
     public var organization: String?
@@ -79,18 +79,12 @@ public nonisolated struct PageInfoCertificate: Hashable, Sendable {
         subjectAlternativeNames = try Self.alternativeNames(in: tbs.dropFirst(6).first { $0.tag == 0xA3 })
     }
 
-    /// Lowercase hex SHA-256 of the whole certificate (Chrome's
-    /// "SHA-256 Fingerprints: Certificate").
+    /// Lowercase hex SHA-256 of the whole certificate ("SHA-256
+    /// Fingerprints: Certificate").
     public var sha256Fingerprint: String { Self.hex(SHA256.hash(data: der)) }
     /// Lowercase hex SHA-256 of SubjectPublicKeyInfo ("Public Key").
     public var publicKeySHA256: String { Self.hex(SHA256.hash(data: subjectPublicKeyInfo)) }
     public var sha1Fingerprint: String { Self.hex(Insecure.SHA1.hash(data: der)) }
-
-    /// Valid at `date` by its validity period only (not chain trust).
-    public func isWithinValidity(at date: Date = Date()) -> Bool {
-        guard let notBefore, let notAfter else { return false }
-        return notBefore <= date && date <= notAfter
-    }
 
     /// PEM text of the certificate.
     public var pem: String {

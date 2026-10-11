@@ -1,0 +1,20 @@
+/* Keycaps inside controls (Keycap.tsx): the key that runs the control, in monospace like the
+   menus' hints, tinted from the control's own text color so they read on any theme. */
+.acpmux-keycap {
+  display: inline-block;
+  min-width: 16px;
+  margin-right: 6px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+}
+
+/* A permission ask is a fieldset (PermissionCard.tsx) so its keys belong to a group; drop the
+   fieldset's own box so it draws as the card. */
+fieldset.acpmux-permission-card {
+  margin: 0;
+  min-inline-size: 0;
+}

@@ -1,0 +1,19 @@
+{
+  "oracle": {
+    "after-alert": "after alert",
+    "after-confirm": "confirm false",
+    "after-prompt": "prompt typed answer",
+    "dialogs": [
+      "alert:Alert text:",
+      "confirm:Confirm text:",
+      "prompt:Prompt text:default"
+    ],
+    "none-open": null,
+    "wait-for-event": [
+      "confirm",
+      "Confirm text"
+    ],
+    "after-wait-accept": "confirm true"
+  },
+  "cmux": {}
+}

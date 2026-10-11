@@ -198,6 +198,8 @@ import Testing
         } catch {
             Issue.record("Expected requestTimedOut, got \(error)")
         }
+        // The provider task may start after the 1 ns timeout returns.
+        await tokenProvider.waitUntilStartCount(1)
         #expect(await tokenProvider.startCount == 1)
 
         // Poisoned: fails fast, no new provider.
@@ -234,6 +236,8 @@ import Testing
         } catch {
             Issue.record("Expected requestTimedOut, got \(error)")
         }
+        // The provider task may start after the 1 ns timeout returns.
+        await tokenProvider.waitUntilStartCount(1)
         #expect(await tokenProvider.startCount == 1)
 
         do {
@@ -245,6 +249,8 @@ import Testing
         } catch {
             Issue.record("Expected requestTimedOut, got \(error)")
         }
+        // The provider task may start after the 1 ns timeout returns.
+        await tokenProvider.waitUntilStartCount(2)
         #expect(await tokenProvider.startCount == 2)
 
         do {
@@ -437,6 +443,8 @@ import Testing
         } catch {
             Issue.record("Expected requestTimedOut, got \(error)")
         }
+        // The provider task may start after the 1 ns timeout returns.
+        await tokenProvider.waitUntilStartCount(2)
         #expect(await tokenProvider.startCount == 2)
 
         do {
@@ -459,7 +467,10 @@ import Testing
     private func waitForReleasedToken(gate: RPCStackTokenGate, tokenProvider: CancellationIgnoringTokenProvider) async throws -> String {
         for _ in 0..<200 {
             do {
-                return try await gate.token(timeoutNanoseconds: 1) {
+                // A long timeout: the released provider answers at once, so only the
+                // gate's own suppression (thrown without waiting) can fail this call. A
+                // 1 ns timeout raced the released provider and started a fourth one.
+                return try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
                     try await tokenProvider.token()
                 }
             } catch MobileShellConnectionError.requestTimedOut {

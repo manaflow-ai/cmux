@@ -113,4 +113,24 @@ if ! awk '
   exit 1
 fi
 
+if GHOSTTY_ZIG_SOURCE=ghostty-fork ghostty_minimum_zig_version "$ROOT_DIR" >/dev/null 2>&1; then
+  echo "GHOSTTY_ZIG_SOURCE accepted an unknown source directory" >&2
+  exit 1
+fi
+
+# cmux-tui builds libghostty-vt from the ghostty-next submodule. When it is
+# checked out, the override must read that manifest, not the Mac app fork's.
+next_manifest="$ROOT_DIR/ghostty-next/build.zig.zon"
+if [[ -f "$next_manifest" ]]; then
+  next_expected="$(
+    sed -nE 's/^[[:space:]]*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+      "$next_manifest" | head -1
+  )"
+  next_actual="$(GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$ROOT_DIR")"
+  if [[ -z "$next_expected" || "$next_actual" != "$next_expected" ]]; then
+    echo "ghostty-next Zig version mismatch: expected '$next_expected', helper returned '$next_actual'" >&2
+    exit 1
+  fi
+fi
+
 echo "PASS: cmux build scripts use Ghostty's declared Zig version ($actual)"

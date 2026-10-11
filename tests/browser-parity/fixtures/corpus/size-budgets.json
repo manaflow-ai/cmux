@@ -1,0 +1,12 @@
+{
+ "_about": "Byte budget for the snapshot tree of each frozen corpus page (scenario 27). A snapshot over its budget fails the size check.",
+ "wikipedia": 75504,
+ "hackernews": 13065,
+ "github": 67798,
+ "mdn": 31276,
+ "mdn-iframe": 62001,
+ "npr": 5318,
+ "bbc": 17752,
+ "books": 16471,
+ "vercel": 11437
+}

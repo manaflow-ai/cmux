@@ -37,18 +37,18 @@ extension DaemonConnection {
     public static func uuidForm(_ raw: String) -> String {
         let hex = raw.replacingOccurrences(of: "-", with: "").uppercased()
         guard hex.count == 32, hex.allSatisfy(\.isHexDigit) else { return raw }
-        let h = Array(hex)
-        return [h[0..<8], h[8..<12], h[12..<16], h[16..<20], h[20..<32]].map { String($0) }.joined(separator: "-")
+        var rest = Substring(hex)
+        return [8, 4, 4, 4, 12].map { n -> Substring in defer { rest = rest.dropFirst(n) }; return rest.prefix(n) }.joined(separator: "-")
     }
 
-    var supportsPlacementEnv: Bool { identity?.supports(DaemonCapabilities.terminalPlacementEnv) == true }
+    var supportsPlacementEnv: Bool { identity?.supports(DaemonCapabilities.shared.terminalPlacementEnv) == true }
 
     /// `options` for one daemon: `keep` only where `terminal-reap-v1` is
     /// served, and a caller `terminalID` only with `terminal-placement-env-v1`.
     func served(_ options: SpawnOptions) -> SpawnOptions {
         var options = options
-        if identity?.supports(DaemonCapabilities.terminalReap) != true { options.keep = nil }
-        if !supportsPlacementEnv { options.terminalID = nil }
+        if identity?.supports(DaemonCapabilities.shared.terminalReap) != true { options.keep = nil }
+        options.drop(callerTerminal: !supportsPlacementEnv, clientKeys: identity?.supports(DaemonCapabilities.shared.splitClientKeys) != true)
         return options
     }
 
@@ -77,7 +77,7 @@ extension DaemonConnection {
     /// workspace or the daemon lacks `terminal-env-v1` (the caller then
     /// sends the plain command).
     func spawnPlacedByMove(_ options: SpawnOptions, into placement: Placement) async throws -> SurfaceCreated? {
-        guard let workspace = options.workspace, identity?.supports(DaemonCapabilities.terminalEnv) == true else { return nil }
+        guard let workspace = options.workspace, identity?.supports(DaemonCapabilities.shared.terminalEnv) == true else { return nil }
         let options = served(options)
         let terminal = TerminalID.generate()
         var env = await terminalEnvironment(options.env) ?? [:]

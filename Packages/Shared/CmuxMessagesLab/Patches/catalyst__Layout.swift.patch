@@ -1,0 +1,77 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+@@ -61,9 +61,14 @@
+                 }
+             }
+             if r.mention != nil { traits.insert(.traitBold) }
+-            // The bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
++            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+             if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
+                 a.addAttribute(.font, value: f, range: range)
++            }
++            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
++            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
++            if r.style?.contains("code") == true {
++                a.addAttribute(.font, value: HomeFonts.code, range: range)
+             }
+             if r.link != nil {
+                 a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
+@@ -789,7 +794,8 @@
+                                         gap: 1, height: 14))
+                 }
+                 if case .failed = m.status {
+-                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: Strings.notDelivered, outgoing: outgoing, color: .failure),
++                    // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
++                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
+                                         gap: 1, height: 14))
+                 }
+                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
+@@ -801,6 +807,10 @@
+                 }
+             }
+             prev = m; prevIndex = idx
++        }
++        // cmux: the host's notice, centered like the date row, under the newest message.
++        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
++            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+         }
+         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
+             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+@@ -883,7 +893,7 @@
+ enum Format {
+     private static let timeFormatter: DateFormatter = {
+         let f = DateFormatter()
+-        f.locale = Locale(identifier: "en_US")
++        f.locale = Instant.locale
+         f.timeZone = Instant.zone
+         f.dateFormat = "h:mm\u{202F}a"
+         return f
+@@ -902,7 +912,7 @@
+     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
+     private static func formatter(_ f: String) -> DateFormatter {
+         let d = DateFormatter()
+-        d.locale = Locale(identifier: "en_US")
++        d.locale = Instant.locale
+         d.timeZone = Instant.zone
+         d.dateFormat = f
+         return d
+@@ -952,7 +962,8 @@
+ enum MessagesLabLocalization {
+     private final class Token {}
+     private static let lock = NSLock()
+-    private static var current = Bundle(for: Token.self)
++    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's).
++    private static var current = Bundle.module
+     static var bundle: Bundle {
+         get { lock.lock(); defer { lock.unlock() }; return current }
+         set { lock.lock(); current = newValue; lock.unlock() }
+@@ -985,7 +996,8 @@
+         default: return MessagesLabLocalization.string("file.kind.document", "Document")
+         }
+     }
+-    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "iMessage") }
++    // cmux: not "iMessage" (Apple's service name).
++    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "Message") }
+     static var replyPlaceholder: String { MessagesLabLocalization.string("compose.placeholder.reply", "Reply") }
+     static var menuReply: String { MessagesLabLocalization.string("menu.reply", "Reply") }
+     static var menuCopy: String { MessagesLabLocalization.string("menu.copy", "Copy") }

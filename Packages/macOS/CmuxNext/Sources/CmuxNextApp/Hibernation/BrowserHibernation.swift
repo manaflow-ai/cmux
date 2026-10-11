@@ -1,14 +1,15 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
 import os
 
-/// Hibernates hidden browser pages and restores them when shown (Chrome's
-/// Memory Saver; plans/cmux-next/tab-lifecycle.md). Configured by
+/// Hibernates hidden browser pages and restores them when shown
+/// (plans/cmux-next/tab-lifecycle.md). Configured by
 /// `browser.hibernation`; "off" disables it completely.
 ///
 /// Triggers are events only: a page hides (a one-shot deadline for the
@@ -52,7 +53,7 @@ final class BrowserHibernation {
         source.setEventHandler { [weak self, weak source] in
             guard let event = source?.data else { return }
             let level: MemoryPressureLevel = event.contains(.critical) ? .critical : event.contains(.warning) ? .warning : .normal
-            MainActor.assumeIsolated { self?.pressureDidChange(level) }
+            MainActor.assumeIsolated { self?.pressureDidChange(level) } // main-proof: dispatch source on queue: .main
         }
         source.activate()
         pressureSource = source
@@ -69,7 +70,7 @@ final class BrowserHibernation {
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
         settingsObservation = Task { [weak self] in
-            for await setting in Observations({ settings.snapshot.browserHibernation }) {
+            for await setting in ObservationStream({ settings.snapshot.browserHibernation }) {
                 self?.apply(setting)
             }
         }
@@ -185,7 +186,7 @@ final class BrowserHibernation {
 
     private static func snapshot(_ tab: any BrowserTab, cached: CGImage?) async -> CGImage? {
         if let cached { return cached }
-        return try? await ControlDeadline.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
+        return try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.snapshot()
         }
     }
@@ -202,7 +203,7 @@ final class BrowserHibernation {
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
             favicon: page.favicon, restoreState: saved.state, snapshot: saved.snapshot
         )
-        placeholder.onWake = { [weak self] url in self?.wakeForNavigation(key, url: url) }
+        placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         if let snapshot = saved.snapshot { cache.previews.insert(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
@@ -213,14 +214,16 @@ final class BrowserHibernation {
 
     // MARK: Restore
 
-    /// The user navigated or reloaded a hibernated page: restore it, then load.
-    private func wakeForNavigation(_ key: String, url: URL?) {
+    /// The user navigated, reloaded or went back or forward in a hibernated
+    /// page: restore it, then apply that request.
+    private func wakeForNavigation(_ key: String, _ wake: HibernatedBrowserTab.Wake) {
         guard let cache else { return }
-        pendingLoads[key] = url
+        pendingWakes[key] = wake
         cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
     }
 
-    private var pendingLoads: [String: URL?] = [:]
+    /// At most one per hibernated page; dropped when it restores.
+    private var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
 
     /// The user's Wake Tab action (restores in the background).
     func wake(_ key: String) -> Bool {
@@ -239,7 +242,7 @@ final class BrowserHibernation {
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: placeholder.profileID, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
-            let tab = cache.webKit.makeWebKitTab(configuration)
+            let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
             if !tab.restore(placeholder.restoreState), let url = placeholder.state.url { tab.load(url) }
             finishRestore(key, token: token, page: tab)
         case .cef:
@@ -272,9 +275,14 @@ final class BrowserHibernation {
         cache.dormantTabs.set(key, false)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
-        // A navigation that woke the page runs once its history is back
-        // (reload and back/forward just wake it).
-        if case .some(.some(let url)) = pendingLoads.removeValue(forKey: key) { page.load(url) }
+        // A navigation or history step that woke the page runs once its
+        // history is back (a reload just wakes it: restoring loads the page).
+        switch pendingWakes.removeValue(forKey: key) {
+        case .load(let url)?: page.load(url)
+        case .goBack?: page.goBack()
+        case .goForward?: page.goForward()
+        case .reload?, nil: break
+        }
     }
 }
 
@@ -288,7 +296,7 @@ struct PageProbe {
     }
 
     /// Unmuted media playing, or form fields whose value differs from the
-    /// page's default (Chrome's "form interaction"). A page that does not
+    /// page's default (form interaction). A page that does not
     /// answer within the deadline is treated as busy and kept.
     static let script = """
     (() => {
@@ -305,12 +313,14 @@ struct PageProbe {
 
     static func run(_ tab: any BrowserTab) async -> PageProbe {
         do {
-            let value = try await ControlDeadline.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
+            let value = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
                 try await tab.evaluate(script, world: .isolated)
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
-            return PageProbe(playingMedia: object["media"] ?? true, editedForm: object["form"] ?? true)
+            // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
+            let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: object["form"] ?? true)
         } catch {
             return PageProbe(playingMedia: true)
         }

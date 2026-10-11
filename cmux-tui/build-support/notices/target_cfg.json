@@ -1,0 +1,175 @@
+{
+  "comment": "`rustc --print cfg --target <triple>` for every triple the notices tools accept, from rustc 1.95.0 (59807616e 2026-04-14) on a Blacksmith Testbox (cmux-tui toolchain). Regenerate there; never hand-edit. cargo_inputs.target_info reads this table, so cfg(...) follows rustc (x86_64-pc-windows-gnullvm is target_env=\"gnu\", target_abi=\"llvm\").",
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "",
+      "target_family": "unix",
+      "target_os": "macos",
+      "target_pointer_width": "64",
+      "target_vendor": "apple"
+    },
+    "aarch64-apple-ios": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "",
+      "target_family": "unix",
+      "target_os": "ios",
+      "target_pointer_width": "64",
+      "target_vendor": "apple"
+    },
+    "aarch64-apple-ios-sim": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "sim",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "sim",
+      "target_family": "unix",
+      "target_os": "ios",
+      "target_pointer_width": "64",
+      "target_vendor": "apple"
+    },
+    "aarch64-pc-windows-gnullvm": {
+      "flags": [
+        "windows"
+      ],
+      "target_abi": "llvm",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "gnu",
+      "target_family": "windows",
+      "target_os": "windows",
+      "target_pointer_width": "64",
+      "target_vendor": "pc"
+    },
+    "aarch64-pc-windows-msvc": {
+      "flags": [
+        "windows"
+      ],
+      "target_abi": "",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "msvc",
+      "target_family": "windows",
+      "target_os": "windows",
+      "target_pointer_width": "64",
+      "target_vendor": "pc"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "gnu",
+      "target_family": "unix",
+      "target_os": "linux",
+      "target_pointer_width": "64",
+      "target_vendor": "unknown"
+    },
+    "aarch64-unknown-linux-musl": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "aarch64",
+      "target_endian": "little",
+      "target_env": "musl",
+      "target_family": "unix",
+      "target_os": "linux",
+      "target_pointer_width": "64",
+      "target_vendor": "unknown"
+    },
+    "x86_64-apple-darwin": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "x86_64",
+      "target_endian": "little",
+      "target_env": "",
+      "target_family": "unix",
+      "target_os": "macos",
+      "target_pointer_width": "64",
+      "target_vendor": "apple"
+    },
+    "x86_64-pc-windows-gnu": {
+      "flags": [
+        "windows"
+      ],
+      "target_abi": "",
+      "target_arch": "x86_64",
+      "target_endian": "little",
+      "target_env": "gnu",
+      "target_family": "windows",
+      "target_os": "windows",
+      "target_pointer_width": "64",
+      "target_vendor": "pc"
+    },
+    "x86_64-pc-windows-gnullvm": {
+      "flags": [
+        "windows"
+      ],
+      "target_abi": "llvm",
+      "target_arch": "x86_64",
+      "target_endian": "little",
+      "target_env": "gnu",
+      "target_family": "windows",
+      "target_os": "windows",
+      "target_pointer_width": "64",
+      "target_vendor": "pc"
+    },
+    "x86_64-pc-windows-msvc": {
+      "flags": [
+        "windows"
+      ],
+      "target_abi": "",
+      "target_arch": "x86_64",
+      "target_endian": "little",
+      "target_env": "msvc",
+      "target_family": "windows",
+      "target_os": "windows",
+      "target_pointer_width": "64",
+      "target_vendor": "pc"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "x86_64",
+      "target_endian": "little",
+      "target_env": "gnu",
+      "target_family": "unix",
+      "target_os": "linux",
+      "target_pointer_width": "64",
+      "target_vendor": "unknown"
+    },
+    "x86_64-unknown-linux-musl": {
+      "flags": [
+        "unix"
+      ],
+      "target_abi": "",
+      "target_arch": "x86_64",
+      "target_endian": "little",
+      "target_env": "musl",
+      "target_family": "unix",
+      "target_os": "linux",
+      "target_pointer_width": "64",
+      "target_vendor": "unknown"
+    }
+  }
+}

@@ -1,7 +1,6 @@
 /// What moved the focus. A pointer click never centers: the column under the
 /// pointer only scrolls far enough to be fully visible, so content does not
-/// slide away under the click (a divergence from niri, which centers on
-/// click in `always` mode).
+/// slide away under the click (also in `always` mode).
 public nonisolated enum ColumnFocusSource: Hashable, Sendable {
     case keyboard
     case pointer

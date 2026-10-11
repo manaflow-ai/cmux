@@ -36,14 +36,14 @@ Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.
 `npx cmux` exposes the same commands when using the npm distribution:
 
 ```sh
-npx cmux server start --session dev --iroh
+npx cmux daemon start --session dev --iroh
 ```
 
-Use `cmux server stop --session dev` to stop the local owner, its workspaces,
-and the authenticated remote listeners embedded by `server start`. `cmux
+Use `cmux daemon stop --session dev` to stop the local owner, its workspaces,
+and the authenticated remote listeners embedded by `daemon start`. `cmux
 remote stop --session dev` stops only a replaceable SSH sidecar; it refuses to
 stop an embedded listener because that action would also terminate the local
-owner and its workspaces. Use `cmux server status|reload-config|stop` for the
+owner and its workspaces. Use `cmux daemon status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Outbound remote-client
@@ -387,6 +387,18 @@ Headless clients, port forwards, and headless daemons exit with the terminal run
 Transport diagnostics have two perspectives. The client snapshot owns its selected outbound provider and Iroh's live direct or relay path. The daemon snapshot owns generation, resume state, and authenticated lane bindings. The daemon does not infer the outbound provider because SSH reaches it through a Unix sidecar and a TLS proxy can deliver WSS as plaintext WebSocket ingress. Snapshotting is opt-in and takes no locks on the normal keystroke scheduling path.
 
 Direct plaintext WebSocket binds are loopback-only unless explicitly enabled. Prefer a TLS reverse proxy for a public endpoint. The direct listener bounds raw HTTP sockets and requires an upgrade within ten seconds. Native and Cloudflare relays enforce global and per-slot admission, short-lived scoped tickets, join deadlines, circuit idle expiry, and bounded queues.
+
+## Embedded clients
+
+`crates/cmux-terminal-client` exposes the client side of this protocol as a C
+ABI for programs that cannot spawn `cmux-tui` (the iOS app). It connects by
+`ws://`, `wss://`, or `iroh://` route with a persistent device identity under a
+caller-owned state directory, optionally dials private addresses through an
+in-process WireGuard tunnel (`cmux-wg`), delivers raw terminal bytes to the
+embedding renderer, and reads the terminal catalog over the mux control
+service. `MuxLineClient` in `cmux-remote` is the request/response form of the
+mux control bridge that makes the catalog possible without a local socket. See
+the crate README for the contract.
 
 ## Terms
 

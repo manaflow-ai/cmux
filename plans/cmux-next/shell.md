@@ -411,7 +411,7 @@ SwiftUI inside `NSHostingView` (`SwiftUI.swiftinterface:12074`). Menus can use
 `NSHostingMenu` (macOS 14.4, `:5198`). Set `NSHostingView.sizingOptions` to
 avoid layout feedback loops inside AppKit containers.
 
-**Tab animation.** Chrome-style strip as a layer-backed NSView with one
+**Tab animation.** The strip is a layer-backed NSView with one
 `CALayer` (or light NSView) per tab; widths are computed by a pure layout
 function of (count, available width, pinned) so open/close animate by diffing
 frames. Use `NSAnimationContext.animate(.spring(...))` (macOS 15.0,

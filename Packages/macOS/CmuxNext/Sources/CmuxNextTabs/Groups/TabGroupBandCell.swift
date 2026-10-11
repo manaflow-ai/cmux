@@ -8,7 +8,7 @@ final class TabGroupBandCell {
     let washLayer = CALayer()
     let lineLayer = CALayer()
     var color: GroupColor { didSet { if oldValue != color { updateColors() } } }
-    var appearance = NSAppearance.currentDrawing() { didSet { if oldValue !== appearance { updateColors() } } }
+    var themeScope: ThemeScope = .app { didSet { updateColors() } }
 
     init(color: GroupColor) {
         self.color = color
@@ -45,9 +45,10 @@ final class TabGroupBandCell {
     }
 
     private func updateColors() {
-        appearance.performAsCurrentDrawingAppearance {
-            washLayer.backgroundColor = color.wash.cgColor
-            lineLayer.backgroundColor = color.swatch.cgColor
+        themeScope.perform {
+            // The theme's palette color, as the sidebar's groups draw it (GroupColor.headerFill).
+            washLayer.backgroundColor = color.headerFill.withAlphaComponent(0.09).cgColor
+            lineLayer.backgroundColor = color.headerFill.cgColor
         }
     }
 }

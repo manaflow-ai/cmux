@@ -1,47 +1,39 @@
+public import AppKit
 public import CmuxNextBrowserImport
-public import CmuxNextDesign
 public import Foundation
 
-/// Onboarding services with canned data, for the demo and tests. Records
-/// what the flow asked for; never touches settings, browsers or macOS.
+/// Tool-window services with canned data, for tests. Records what the
+/// window asked for; never touches browsers or macOS.
 @MainActor
 public final class MockOnboardingServices: OnboardingServices {
-    public var ghosttyTheme: ThemeInput = .ghosttyDefault
-    public var selectedThemeName: String?
-    public var density: Density = .compact
-    public var themeChoices: [ThemeChoice] = []
     public var sources: [BrowserSource] = []
     public var summary = ImportSummary(batches: [])
     /// When set, `runImport` waits here until the test resumes it.
     public var importGate: CheckedContinuation<Void, Never>?
     public var holdsImport = false
-    public var browserProfilesAvailable = false
-    public let defaultApps: any DefaultAppRegistering
+    /// The progress reports `runImport` sends; nil: one, the first profile starting on bookmarks.
+    public var reports: [ImportProgress]?
+    public var passwordStore = false
+    /// The computer use step's grants; nil: this build has no computer use.
+    public var computerUseSource: MockComputerUsePermissionSource?
 
-    public private(set) var appliedAppearance: [(String?, Density)] = []
-    public private(set) var installed: [String] = []
-    public private(set) var openedTabs: [ImportedTab] = []
     public private(set) var opened: [URL] = []
-    public private(set) var ended: Bool?
     public private(set) var plans: [ImportPlan] = []
 
-    public init(defaultApps: any DefaultAppRegistering = RecordingDefaultApps(appBundleURL: URL(fileURLWithPath: "/Applications/cmux.app"))) {
-        self.defaultApps = defaultApps
+    public init() {}
+
+    /// How many times browsers were detected (each one reads other apps' data).
+    public private(set) var detections = 0
+    public func detectBrowsers() async -> [BrowserSource] {
+        detections += 1
+        return sources
     }
-
-    public func loadThemeChoices() async -> [ThemeChoice] { themeChoices }
-
-    public func applyAppearance(themeName: String?, density: Density) {
-        appliedAppearance.append((themeName, density))
-        selectedThemeName = themeName
-        self.density = density
-    }
-
-    public func detectBrowsers() async -> [BrowserSource] { sources }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
-        if let profile = plan.items.first?.profile {
+        if let reports {
+            reports.forEach(progress)
+        } else if let profile = plan.items.first?.profile {
             progress(ImportProgress(profileIndex: 0, profileCount: plan.items.count, profile: profile, kind: .bookmarks,
                                     fraction: 0.5, counts: ImportCounts(bookmarks: 1)))
         }
@@ -50,13 +42,28 @@ public final class MockOnboardingServices: OnboardingServices {
         return summary
     }
 
-    public func installExtension(_ item: ImportedExtension) { installed.append(item.id) }
-    public func openTabs(_ tabs: [ImportedTab]) { openedTabs += tabs }
-    public func openExternal(_ url: URL) { opened.append(url) }
-
-    public func shortcutDisplay(for actionID: String) -> String? {
-        ["commandPalette": "⇧⌘P", "splitRight": "⌘D", "splitDown": "⇧⌘D"][actionID]
+    public func canImportPasswords() async -> Bool { passwordStore }
+    /// What the Touch ID sheet answers, and the reasons it was shown with.
+    public var passwordAuthorization = true
+    public private(set) var authorizationReasons: [String] = []
+    /// While true, a Touch ID request waits for ``answerAuthorizations()``
+    /// (the sheet is up).
+    public var holdsAuthorization = false
+    private var pendingAuthorizations: [CheckedContinuation<Void, Never>] = []
+    public func authorizePasswordRead(reason: String) async -> Bool {
+        authorizationReasons.append(reason)
+        if holdsAuthorization { await withCheckedContinuation { pendingAuthorizations.append($0) } }
+        return passwordAuthorization
     }
 
-    public func onboardingDidEnd(completed: Bool) { ended = completed }
+    /// Ends every Touch ID sheet that is up, with `passwordAuthorization`.
+    public func answerAuthorizations() {
+        let pending = pendingAuthorizations
+        pendingAuthorizations = []
+        for continuation in pending { continuation.resume() }
+    }
+
+    public func openExternal(_ url: URL) { opened.append(url) }
+
+    public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
 }

@@ -1,0 +1,35 @@
+{
+  "grant": [
+    "account:read",
+    "account:write",
+    "notification:write",
+    "mcp:expose",
+    "actions:run"
+  ],
+  "scopes": {
+    "account.list": {
+      "scope": "account:read",
+      "class": "read"
+    },
+    "account.usage": {
+      "scope": "account:read",
+      "class": "read"
+    },
+    "account.refresh": {
+      "scope": "account:write",
+      "class": "mutation"
+    },
+    "app.settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "account.list": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "account.list is not supported by this host yet"
+      }
+    }
+  }
+}

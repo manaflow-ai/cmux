@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class SizeParticipant implements WireValue {
     private final boolean counts;
     private final Boolean countsOverride;
+    private final String deviceId;
     private final SizeDeviceKind deviceKind;
     private final String deviceName;
     private final String displayName;
@@ -27,6 +28,8 @@ public final class SizeParticipant implements WireValue {
         this.counts = builder.counts;
         if (!builder.countsOverrideSet) throw new IllegalArgumentException("counts_override is required");
         this.countsOverride = builder.countsOverride;
+        if (!builder.deviceIdSet) throw new IllegalArgumentException("device_id is required");
+        this.deviceId = builder.deviceId;
         if (!builder.deviceKindSet) throw new IllegalArgumentException("device_kind is required");
         this.deviceKind = Wire.nonNull(builder.deviceKind, "device_kind");
         if (!builder.deviceNameSet) throw new IllegalArgumentException("device_name is required");
@@ -49,6 +52,7 @@ public final class SizeParticipant implements WireValue {
 
     public boolean counts() { return counts; }
     public Boolean countsOverride() { return countsOverride; }
+    public String deviceId() { return deviceId; }
     public SizeDeviceKind deviceKind() { return deviceKind; }
     public String deviceName() { return deviceName; }
     public String displayName() { return displayName; }
@@ -65,6 +69,8 @@ public final class SizeParticipant implements WireValue {
         builder.counts(Wire.bool(rawCounts, "SizeParticipant.counts"));
         Object rawCountsOverride = Wire.required(object, "counts_override");
         builder.countsOverride(rawCountsOverride == null ? null : Wire.bool(rawCountsOverride, "SizeParticipant.counts_override"));
+        Object rawDeviceId = Wire.required(object, "device_id");
+        builder.deviceId(rawDeviceId == null ? null : Wire.string(rawDeviceId, "SizeParticipant.device_id"));
         Object rawDeviceKind = Wire.required(object, "device_kind");
         builder.deviceKind(SizeDeviceKind.fromWire(rawDeviceKind));
         Object rawDeviceName = Wire.required(object, "device_name");
@@ -89,6 +95,7 @@ public final class SizeParticipant implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "counts", counts);
         Wire.put(object, "counts_override", countsOverride);
+        Wire.put(object, "device_id", deviceId);
         Wire.put(object, "device_kind", deviceKind);
         Wire.put(object, "device_name", deviceName);
         Wire.put(object, "display_name", displayName);
@@ -103,11 +110,11 @@ public final class SizeParticipant implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SizeParticipant that)) return false;
-        return Objects.equals(counts, that.counts) && Objects.equals(countsOverride, that.countsOverride) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(id, that.id) && Objects.equals(priorityKey, that.priorityKey) && Objects.equals(userId, that.userId) && Objects.equals(via, that.via) && Objects.equals(viewport, that.viewport);
+        return Objects.equals(counts, that.counts) && Objects.equals(countsOverride, that.countsOverride) && Objects.equals(deviceId, that.deviceId) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(id, that.id) && Objects.equals(priorityKey, that.priorityKey) && Objects.equals(userId, that.userId) && Objects.equals(via, that.via) && Objects.equals(viewport, that.viewport);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(counts, countsOverride, deviceKind, deviceName, displayName, id, priorityKey, userId, via, viewport); }
+    public int hashCode() { return Objects.hash(counts, countsOverride, deviceId, deviceKind, deviceName, displayName, id, priorityKey, userId, via, viewport); }
 
     @Override
     public String toString() { return "SizeParticipant" + toWire(); }
@@ -117,6 +124,8 @@ public final class SizeParticipant implements WireValue {
         private boolean countsSet;
         private Boolean countsOverride;
         private boolean countsOverrideSet;
+        private String deviceId;
+        private boolean deviceIdSet;
         private SizeDeviceKind deviceKind;
         private boolean deviceKindSet;
         private String deviceName;
@@ -142,6 +151,11 @@ public final class SizeParticipant implements WireValue {
         public Builder countsOverride(Boolean value) {
             this.countsOverride = value;
             this.countsOverrideSet = true;
+            return this;
+        }
+        public Builder deviceId(String value) {
+            this.deviceId = value;
+            this.deviceIdSet = true;
             return this;
         }
         public Builder deviceKind(SizeDeviceKind value) {

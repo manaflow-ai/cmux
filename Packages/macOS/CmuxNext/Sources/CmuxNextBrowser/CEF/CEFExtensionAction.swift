@@ -14,7 +14,7 @@ public nonisolated struct CEFExtensionAction: Hashable, Sendable, Identifiable {
     public var isPinned: Bool
     public var hasPopup: Bool
     /// PNG bytes at 2x of the toolbar button: the icon centered with
-    /// Chromium's badge and disabled state, as Chrome's toolbar draws it.
+    /// the badge and disabled state Chromium's toolbar draws.
     public var iconPNG: Data?
 
     /// The icon size to request: the toolbar button at 2x.

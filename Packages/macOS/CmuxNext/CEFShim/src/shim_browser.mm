@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 
 #include "include/cef_parser.h"
+#include "include/cef_values.h"
 #include "shim_internal.h"
 
 using namespace cmux_shim;
@@ -37,7 +38,14 @@ int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int act
   return fork_api().tab_add ? fork_api().tab_add(window_browser_id, url ? url : "", index, activate) : 0;
 }
 
+int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index) {
+  return fork_api().tab_duplicate ? fork_api().tab_duplicate(browser_id, window_browser_id, index) : 0;
+}
+
 int cmux_shim_tab_activate(int browser_id) {
+  // The tab's Browser may not exist yet in OnAfterCreated: watch its side
+  // panel once it is shown (the fork ignores a Browser it already watches).
+  if (fork_api().side_panel_watch) fork_api().side_panel_watch(browser_id);
   return fork_api().tab_activate ? fork_api().tab_activate(browser_id) : 0;
 }
 
@@ -121,6 +129,10 @@ void cmux_shim_set_focus(int browser_id, int focus) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetFocus(focus != 0);
 }
 
+void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
+  host().focus_request = handler;
+}
+
 void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
 }
@@ -158,7 +170,9 @@ int cmux_shim_devtools_call(int browser_id, const char* method, const char* para
     }
     params = value->GetDictionary();
   }
-  return host->ExecuteDevToolsMethod(0, method, params);
+  // An explicit id below 2^30 (the raw-send range starts there).
+  int id = NextInternalDevToolsId(browser_id);
+  return id ? host->ExecuteDevToolsMethod(id, method, params) : 0;
 }
 
 char* cmux_shim_ext_actions(int browser_id, int icon_px) {
@@ -252,3 +266,41 @@ void cmux_shim_free(char* s) {
 }
 
 }  // extern "C"
+
+namespace {
+
+// Collects the navigation entries in order (CEF calls the visitor
+// synchronously on the UI thread).
+class EntryCollector : public CefNavigationEntryVisitor {
+ public:
+  bool Visit(CefRefPtr<CefNavigationEntry> entry, bool current, int index, int total) override {
+    CefRefPtr<CefDictionaryValue> item = CefDictionaryValue::Create();
+    item->SetString("url", entry->GetDisplayURL());
+    item->SetString("title", entry->GetTitle());
+    entries->SetDictionary(entries->GetSize(), item);
+    if (current) current_index = index;
+    return true;
+  }
+  CefRefPtr<CefListValue> entries = CefListValue::Create();
+  int current_index = -1;
+  IMPLEMENT_REFCOUNTING(EntryCollector);
+};
+
+}  // namespace
+
+char* cmux_shim_tab_navigation_entries(int browser_id) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser) return nullptr;
+  CefRefPtr<EntryCollector> collector = new EntryCollector();
+  browser->GetHost()->GetNavigationEntries(collector, false);
+  CefRefPtr<CefDictionaryValue> root = CefDictionaryValue::Create();
+  root->SetInt("current", collector->current_index);
+  root->SetList("entries", collector->entries);
+  CefRefPtr<CefValue> value = CefValue::Create();
+  value->SetDictionary(root);
+  return strdup(CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString().c_str());
+}
+
+int cmux_shim_tab_go_to_entry(int browser_id, int offset) {
+  return fork_api().tab_go_to_offset ? fork_api().tab_go_to_offset(browser_id, offset) : 0;
+}

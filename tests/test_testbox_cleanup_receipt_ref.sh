@@ -102,3 +102,47 @@ if errors:
     raise SystemExit(1)
 PYCHK
 echo "ok: receipt-bound cleanup preview accepts a main-warmed box benchmarked from a branch"
+
+# cmux-tui builds from the ghostty-next gitlink, so a new receipt records
+# ghostty_next_gitlink_sha. The old receipt above (ghostty_gitlink_sha) stays
+# valid for one transition. The preview repeats the field the receipt used and
+# never relabels a classic SHA as a ghostty-next SHA.
+python3 - "$evidence/cleanup-preview.json" "$ghostty" <<'PYCHK'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if record.get("ghostty_gitlink_sha") != sys.argv[2] or "ghostty_next_gitlink_sha" in record:
+    raise SystemExit(f"FAIL: old receipt preview relabeled its Ghostty field: {record}")
+PYCHK
+next_evidence="$work/evidence-next"
+mkdir -p "$next_evidence"
+python3 - "$evidence/testbox-receipt.json" "$next_evidence/testbox-receipt.json" <<'PYREC'
+import json
+import pathlib
+import sys
+
+receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+receipt["ghostty_next_gitlink_sha"] = receipt.pop("ghostty_gitlink_sha")
+pathlib.Path(sys.argv[2]).write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+PYREC
+set +e
+PATH="$stub:$PATH" "$cleanup" "$tbx" "$next_evidence" "$token" PREVIEW >"$work/preview-next.log" 2>&1
+status=$?
+set -e
+if (( status != 75 )); then
+  echo "FAIL: cleanup preview of a ghostty-next receipt exited $status, expected 75" >&2
+  sed -n '1,20p' "$work/preview-next.log" >&2
+  exit 1
+fi
+python3 - "$next_evidence/cleanup-preview.json" "$ghostty" <<'PYCHK'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if record.get("ghostty_next_gitlink_sha") != sys.argv[2] or "ghostty_gitlink_sha" in record:
+    raise SystemExit(f"FAIL: ghostty-next receipt preview lost its Ghostty field: {record}")
+PYCHK
+echo "ok: receipt-bound cleanup preview accepts a ghostty-next receipt"

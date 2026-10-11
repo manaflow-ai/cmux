@@ -1,0 +1,1420 @@
+[
+ {
+  "name": "initialize first gets the token",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+  "first": true,
+  "token": "abc",
+  "expect": {
+   "send": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "_meta": {
+      "acpmux": {
+       "localAppToken": "abc"
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "initialize keeps other meta and gets the token",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"x\":1},\"y\":2}}}",
+  "first": true,
+  "token": "abc",
+  "expect": {
+   "send": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {
+      "acpmux": {
+       "x": 1,
+       "localAppToken": "abc"
+      },
+      "y": 2
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "initialize without a token is sent as written",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+  "first": true,
+  "token": null,
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "first frame not initialize",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{}}",
+  "first": true,
+  "token": "abc",
+  "expect": {
+   "refuse": "transport.first_frame",
+   "method": "session/new",
+   "id": "1"
+  }
+ },
+ {
+  "name": "first initialize without id",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{}}",
+  "first": true,
+  "token": "abc",
+  "expect": {
+   "refuse": "transport.first_frame",
+   "method": "initialize",
+   "id": null
+  }
+ },
+ {
+  "name": "first frame string id",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":\"a/b\",\"method\":\"session/new\",\"params\":{}}",
+  "first": true,
+  "token": null,
+  "expect": {
+   "refuse": "transport.first_frame",
+   "method": "session/new",
+   "id": "\"a\\/b\""
+  }
+ },
+ {
+  "name": "later initialize refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"initialize\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "initialize",
+   "id": "7"
+  }
+ },
+ {
+  "name": "later _acpmux/peer_add refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"_acpmux/peer_add\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peer_add",
+   "id": "7"
+  }
+ },
+ {
+  "name": "later _acpmux/preset_set refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"_acpmux/preset_set\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/preset_set",
+   "id": "7"
+  }
+ },
+ {
+  "name": "later git.diff refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"git.diff\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "git.diff",
+   "id": "7"
+  }
+ },
+ {
+  "name": "later file.search refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"file.search\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "file.search",
+   "id": "7"
+  }
+ },
+ {
+  "name": "later session/load refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"session/load\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/load",
+   "id": "7"
+  }
+ },
+ {
+  "name": "listed request as notification",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/new\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/new",
+   "id": null
+  }
+ },
+ {
+  "name": "listed notification as request",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/cancel\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/cancel",
+   "id": "2"
+  }
+ },
+ {
+  "name": "a response",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": "3"
+  },
+  "swift_expect": {
+   "refuse": "transport.method_refused",
+   "method": null,
+   "id": null
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
+ },
+ {
+  "name": "junk",
+  "text": "not json",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "empty",
+  "text": "",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "array top level",
+  "text": "[1]",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "jsonrpc 1.0",
+  "text": "{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"session/new\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "jsonrpc number",
+  "text": "{\"jsonrpc\":2.0,\"id\":1,\"method\":\"session/new\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "method not a string",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":5}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "trailing comma",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "trailing garbage",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{}}x",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "lone surrogate in a value",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"a\":\"\\ud800\"}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "leading zero number",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":01,\"method\":\"session/new\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": null
+  }
+ },
+ {
+  "name": "request _acpmux/attach passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/attach\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/detach passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/detach\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/events passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/events\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/handoff_discard passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/handoff_discard\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/handoff_draft passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/handoff_draft\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/handoff_get passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/handoff_get\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/handoff_prepare passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/handoff_prepare\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/handoff_start passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/handoff_start\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/harnesses passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/harnesses\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/kill passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/kill\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/models passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/models\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/permission_chat_revoke passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/permission_chat_revoke\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/permission_group_respond passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/permission_group_respond\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/permission_groups passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/permission_groups\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/permission_respond passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/permission_respond\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/prewarm passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/prewarm\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/status passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/status\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/warm passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/warm\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/watch passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/watch\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request acp.session.fork passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"acp.session.fork\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request acp.trust.get passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"acp.trust.get\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request acp.trust.set passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"acp.trust.set\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request session/new passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request session/prompt passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/prompt\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request session/set_config_option passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/set_config_option\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request session/set_mode passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/set_mode\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request session/set_model passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/set_model\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "notification session/cancel passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "escaped '_acpmux/defaults' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0064\\u0065\\u0066\\u0061\\u0075\\u006c\\u0074\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/defaults",
+   "id": "501"
+  }
+ },
+ {
+  "name": "notification '_acpmux/defaults' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/defaults\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/defaults",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/presets' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0070\\u0072\\u0065\\u0073\\u0065\\u0074\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/presets",
+   "id": "502"
+  }
+ },
+ {
+  "name": "notification '_acpmux/presets' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/presets\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/presets",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/preset_set' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":503,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0070\\u0072\\u0065\\u0073\\u0065\\u0074\\u005f\\u0073\\u0065\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/preset_set",
+   "id": "503"
+  }
+ },
+ {
+  "name": "notification '_acpmux/preset_set' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/preset_set\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/preset_set",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/peer_add' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":504,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0070\\u0065\\u0065\\u0072\\u005f\\u0061\\u0064\\u0064\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peer_add",
+   "id": "504"
+  }
+ },
+ {
+  "name": "notification '_acpmux/peer_add' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/peer_add\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peer_add",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/peers' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":505,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0070\\u0065\\u0065\\u0072\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peers",
+   "id": "505"
+  }
+ },
+ {
+  "name": "notification '_acpmux/peers' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/peers\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peers",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/export' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":506,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0065\\u0078\\u0070\\u006f\\u0072\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/export",
+   "id": "506"
+  }
+ },
+ {
+  "name": "notification '_acpmux/export' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/export\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/export",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/import' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0069\\u006d\\u0070\\u006f\\u0072\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/import",
+   "id": "507"
+  }
+ },
+ {
+  "name": "notification '_acpmux/import' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/import\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/import",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/set_policy' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":508,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0073\\u0065\\u0074\\u005f\\u0070\\u006f\\u006c\\u0069\\u0063\\u0079\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/set_policy",
+   "id": "508"
+  }
+ },
+ {
+  "name": "notification '_acpmux/set_policy' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/set_policy\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/set_policy",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/set_rules' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":509,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0073\\u0065\\u0074\\u005f\\u0072\\u0075\\u006c\\u0065\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/set_rules",
+   "id": "509"
+  }
+ },
+ {
+  "name": "notification '_acpmux/set_rules' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/set_rules\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/set_rules",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/reload_config' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":510,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0072\\u0065\\u006c\\u006f\\u0061\\u0064\\u005f\\u0063\\u006f\\u006e\\u0066\\u0069\\u0067\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/reload_config",
+   "id": "510"
+  }
+ },
+ {
+  "name": "notification '_acpmux/reload_config' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/reload_config\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/reload_config",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/sessions' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/sessions",
+   "id": "511"
+  }
+ },
+ {
+  "name": "notification '_acpmux/sessions' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/sessions\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/sessions",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/schema' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":512,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0073\\u0063\\u0068\\u0065\\u006d\\u0061\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/schema",
+   "id": "512"
+  }
+ },
+ {
+  "name": "notification '_acpmux/schema' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/schema\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/schema",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/web_modes' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":513,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0077\\u0065\\u0062\\u005f\\u006d\\u006f\\u0064\\u0065\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/web_modes",
+   "id": "513"
+  }
+ },
+ {
+  "name": "notification '_acpmux/web_modes' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/web_modes\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/web_modes",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session/load' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":514,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u006c\\u006f\\u0061\\u0064\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/load",
+   "id": "514"
+  }
+ },
+ {
+  "name": "notification 'session/load' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/load\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/load",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session/list' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u006c\\u0069\\u0073\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/list",
+   "id": "515"
+  }
+ },
+ {
+  "name": "notification 'session/list' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/list\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/list",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session/foo' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":516,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u0066\\u006f\\u006f\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/foo",
+   "id": "516"
+  }
+ },
+ {
+  "name": "notification 'session/foo' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/foo\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/foo",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/foo' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":517,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0066\\u006f\\u006f\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/foo",
+   "id": "517"
+  }
+ },
+ {
+  "name": "notification '_acpmux/foo' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/foo\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/foo",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'acp.foo' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":518,\"method\":\"\\u0061\\u0063\\u0070\\u002e\\u0066\\u006f\\u006f\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "acp.foo",
+   "id": "518"
+  }
+ },
+ {
+  "name": "notification 'acp.foo' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"acp.foo\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "acp.foo",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'Session/Prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":519,\"method\":\"\\u0053\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u0050\\u0072\\u006f\\u006d\\u0070\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "Session/Prompt",
+   "id": "519"
+  }
+ },
+ {
+  "name": "notification 'Session/Prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"Session/Prompt\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "Session/Prompt",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'SESSION/NEW' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":520,\"method\":\"\\u0053\\u0045\\u0053\\u0053\\u0049\\u004f\\u004e\\u002f\\u004e\\u0045\\u0057\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "SESSION/NEW",
+   "id": "520"
+  }
+ },
+ {
+  "name": "notification 'SESSION/NEW' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"SESSION/NEW\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "SESSION/NEW",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_ACPMUX/STATUS' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":521,\"method\":\"\\u005f\\u0041\\u0043\\u0050\\u004d\\u0055\\u0058\\u002f\\u0053\\u0054\\u0041\\u0054\\u0055\\u0053\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_ACPMUX/STATUS",
+   "id": "521"
+  }
+ },
+ {
+  "name": "notification '_ACPMUX/STATUS' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_ACPMUX/STATUS\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_ACPMUX/STATUS",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/Status' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":522,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0053\\u0074\\u0061\\u0074\\u0075\\u0073\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/Status",
+   "id": "522"
+  }
+ },
+ {
+  "name": "notification '_acpmux/Status' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/Status\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/Status",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session/prompt ' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":523,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u0070\\u0072\\u006f\\u006d\\u0070\\u0074\\u0020\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/prompt ",
+   "id": "523"
+  }
+ },
+ {
+  "name": "notification 'session/prompt ' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/prompt \",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/prompt ",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped ' session/prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":524,\"method\":\"\\u0020\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u0070\\u0072\\u006f\\u006d\\u0070\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": " session/prompt",
+   "id": "524"
+  }
+ },
+ {
+  "name": "notification ' session/prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\" session/prompt\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": " session/prompt",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session//prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":525,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u002f\\u0070\\u0072\\u006f\\u006d\\u0070\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session//prompt",
+   "id": "525"
+  }
+ },
+ {
+  "name": "notification 'session//prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session//prompt\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session//prompt",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session/prompt/' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":526,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u0070\\u0072\\u006f\\u006d\\u0070\\u0074\\u002f\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/prompt/",
+   "id": "526"
+  }
+ },
+ {
+  "name": "notification 'session/prompt/' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/prompt/\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/prompt/",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '_acpmux/status\\x00' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":527,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0073\\u0074\\u0061\\u0074\\u0075\\u0073\\u0000\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/status\u0000",
+   "id": "527"
+  }
+ },
+ {
+  "name": "notification '_acpmux/status\\x00' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/status\\u0000\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/status\u0000",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped 'session\\\\/prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":528,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u005c\\u002f\\u0070\\u0072\\u006f\\u006d\\u0070\\u0074\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session\\/prompt",
+   "id": "528"
+  }
+ },
+ {
+  "name": "notification 'session\\\\/prompt' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session\\\\/prompt\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session\\/prompt",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped '' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":529,\"method\":\"\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "",
+   "id": "529"
+  }
+ },
+ {
+  "name": "notification '' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "",
+   "id": null
+  }
+ },
+ {
+  "name": "escaped allowed method passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u002f\\u006e\\u0065\\u0077\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "duplicate top-level key",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"method\":\"_acpmux/peer_add\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.duplicate_key",
+   "method": "session/new",
+   "id": "1"
+  }
+ },
+ {
+  "name": "duplicate top-level id: the refusal names the first, as Foundation keeps it",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"id\":2,\"method\":\"session/new\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.duplicate_key",
+   "method": "session/new",
+   "id": "1"
+  }
+ },
+ {
+  "name": "duplicate nested key",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/new\",\"params\":{\"cwd\":\"/a\",\"cwd\":\"/b\"}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.duplicate_key",
+   "method": "session/new",
+   "id": "4"
+  }
+ },
+ {
+  "name": "duplicate key by escape",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/new\",\"params\":{\"cwd\":\"/a\",\"\\u0063wd\":\"/b\"}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.duplicate_key",
+   "method": "session/new",
+   "id": "4"
+  }
+ },
+ {
+  "name": "duplicate key canonically equal",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/new\",\"params\":{\"é\":1,\"é\":2}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.duplicate_key",
+   "method": "session/new",
+   "id": "4"
+  }
+ },
+ {
+  "name": "same key in two objects is fine",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/new\",\"params\":{\"a\":{\"x\":1},\"b\":{\"x\":2}}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "mcpServers non-empty",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"cwd\":\"/a\",\"mcpServers\":[{\"command\":\"sh\"}]}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.mcp_servers_refused",
+   "method": "session/new",
+   "id": "1"
+  }
+ },
+ {
+  "name": "mcpServers empty passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"cwd\":\"/a\",\"mcpServers\":[]}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "mcpServers not a list",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"mcpServers\":{}}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.mcp_servers_refused",
+   "method": "session/new",
+   "id": "1"
+  }
+ },
+ {
+  "name": "mcpServers deep",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/prompt\",\"params\":{\"prompt\":[{\"x\":{\"mcpServers\":[1]}}]}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.mcp_servers_refused",
+   "method": "session/prompt",
+   "id": "1"
+  }
+ },
+ {
+  "name": "mcpServers on the first frame",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"mcpServers\":[1]}}",
+  "first": true,
+  "token": null,
+  "expect": {
+   "refuse": "transport.mcp_servers_refused",
+   "method": "initialize",
+   "id": "1"
+  }
+ },
+ {
+  "name": "mcpServers outside params ignored",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"mcpServers\":[1]}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "session/new",
+   "id": "1"
+  },
+  "swift_expect": {
+   "send": "unchanged"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
+ },
+ {
+  "name": "string id",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":\"r-1\",\"method\":\"_acpmux/peer_add\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peer_add",
+   "id": "\"r-1\""
+  }
+ },
+ {
+  "name": "float id",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1.5,\"method\":\"_acpmux/peer_add\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "_acpmux/peer_add",
+   "id": "1.5"
+  }
+ },
+ {
+  "name": "bool id is no id",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":\"session/new\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.method_refused",
+   "method": "session/new",
+   "id": null
+  }
+ },
+ {
+  "name": "null id is no id",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"session/cancel\",\"params\":{}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "unknown top-level key result is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"_acpmux/harnesses\",\"params\":{},\"result\":1}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "30"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "unknown top-level key error is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"_acpmux/harnesses\",\"params\":{},\"error\":{\"code\":1}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "30"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "unknown top-level key session is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"_acpmux/harnesses\",\"params\":{},\"session\":\"s1\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "30"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
+   "send": "unchanged"
+  }
+ }
+]

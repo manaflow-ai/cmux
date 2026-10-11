@@ -128,7 +128,7 @@ public actor AppLog {
         else {
             return nil
         }
-        return Int64(stamp)
+        return Int64(stamp, radix: 10)
     }
 
     private static func archiveURLs(for fileURL: URL) -> [URL] {
@@ -179,7 +179,7 @@ public actor AppLog {
         let extensionSuffix = fileURL.pathExtension.isEmpty
             ? ""
             : ".\(fileURL.pathExtension)"
-        let milliseconds = Int64(date.timeIntervalSince1970 * 1_000)
+        let milliseconds = (date.timeIntervalSince1970 * 1_000).saturatedInteger(Int64.self) ?? 0
         let stamp = String(format: "%013lld", milliseconds)
         let unique = String(UUID().uuidString.prefix(8))
         return fileURL.deletingLastPathComponent()
@@ -1135,13 +1135,14 @@ public actor AppLog {
         private struct ActiveEntry {
             let name: String
             let localHeaderOffset: UInt32
-            var byteCount: UInt64 = 0
+            var byteCount: UInt32 = 0
             var checksum: UInt32 = 0xffff_ffff
         }
 
         private let archiveURL: URL
         private let handle: FileHandle
-        private var offset: UInt64 = 0
+        /// Bytes written so far; every ZIP offset field is 32 bits.
+        private var offset: UInt32 = 0
         private var activeEntry: ActiveEntry?
         private var centralEntries: [ZipEntry] = []
 
@@ -1158,10 +1159,10 @@ public actor AppLog {
         func beginEntry(_ name: String) -> Bool {
             guard activeEntry == nil,
                   let nameData = name.data(using: .utf8),
-                  nameData.count <= Int(UInt16.max),
-                  offset <= UInt64(UInt32.max) else {
+                  let nameLength = UInt16(exactly: nameData.count) else {
                 return false
             }
+            let localHeaderOffset = offset
             var header = Data()
             appendUInt32(0x0403_4b50, to: &header)
             appendUInt16(20, to: &header) // version needed to extract
@@ -1172,48 +1173,40 @@ public actor AppLog {
             appendUInt32(0, to: &header) // CRC follows in descriptor
             appendUInt32(0, to: &header)
             appendUInt32(0, to: &header)
-            appendUInt16(UInt16(nameData.count), to: &header)
+            appendUInt16(nameLength, to: &header)
             appendUInt16(0, to: &header) // extra field length
             header.append(nameData)
             guard write(header) else { return false }
-            activeEntry = ActiveEntry(
-                name: name,
-                localHeaderOffset: UInt32(offset - UInt64(header.count))
-            )
+            activeEntry = ActiveEntry(name: name, localHeaderOffset: localHeaderOffset)
             return true
         }
 
         func append(_ data: Data) -> Bool {
             guard var activeEntry,
-                  activeEntry.byteCount <= UInt64(UInt32.max) - UInt64(data.count),
-                  offset <= UInt64(UInt32.max) - UInt64(data.count),
-                  write(data) else {
+                  let addedBytes = UInt32(exactly: data.count) else {
                 return false
             }
-            for byte in data {
-                let index = Int((activeEntry.checksum ^ UInt32(byte)) & 0xff)
-                activeEntry.checksum = (activeEntry.checksum >> 8) ^ crc32Table[index]
-            }
-            activeEntry.byteCount += UInt64(data.count)
+            let (byteCount, overflow) = activeEntry.byteCount.addingReportingOverflow(addedBytes)
+            guard !overflow, write(data) else { return false }
+            activeEntry.checksum = crc32Update(activeEntry.checksum, data)
+            activeEntry.byteCount = byteCount
             self.activeEntry = activeEntry
             return true
         }
 
         func finishEntry() -> Bool {
-            guard let activeEntry,
-                  activeEntry.byteCount <= UInt64(UInt32.max),
-                  offset <= UInt64(UInt32.max) else {
+            guard let activeEntry else {
                 return false
             }
             var descriptor = Data()
             appendUInt32(0x0807_4b50, to: &descriptor)
             appendUInt32(~activeEntry.checksum, to: &descriptor)
-            appendUInt32(UInt32(activeEntry.byteCount), to: &descriptor)
-            appendUInt32(UInt32(activeEntry.byteCount), to: &descriptor)
+            appendUInt32(activeEntry.byteCount, to: &descriptor)
+            appendUInt32(activeEntry.byteCount, to: &descriptor)
             guard write(descriptor) else { return false }
             centralEntries.append(ZipEntry(
                 name: activeEntry.name,
-                byteCount: UInt32(activeEntry.byteCount),
+                byteCount: activeEntry.byteCount,
                 crc32: ~activeEntry.checksum,
                 localHeaderOffset: activeEntry.localHeaderOffset
             ))
@@ -1223,14 +1216,13 @@ public actor AppLog {
 
         func finish() -> URL? {
             guard activeEntry == nil,
-                  offset <= UInt64(UInt32.max) else {
+                  let entryCount = UInt16(exactly: centralEntries.count) else {
                 return nil
             }
-            let centralDirectoryOffset = UInt32(offset)
-            var centralDirectorySize: UInt64 = 0
+            let centralDirectoryOffset = offset
             for entry in centralEntries {
                 guard let nameData = entry.name.data(using: .utf8),
-                      nameData.count <= Int(UInt16.max) else {
+                      let nameLength = UInt16(exactly: nameData.count) else {
                     return nil
                 }
                 var central = Data()
@@ -1244,7 +1236,7 @@ public actor AppLog {
                 appendUInt32(entry.crc32, to: &central)
                 appendUInt32(entry.byteCount, to: &central)
                 appendUInt32(entry.byteCount, to: &central)
-                appendUInt16(UInt16(nameData.count), to: &central)
+                appendUInt16(nameLength, to: &central)
                 appendUInt16(0, to: &central) // extra field length
                 appendUInt16(0, to: &central) // comment length
                 appendUInt16(0, to: &central) // disk number
@@ -1253,19 +1245,16 @@ public actor AppLog {
                 appendUInt32(entry.localHeaderOffset, to: &central)
                 central.append(nameData)
                 guard write(central) else { return nil }
-                centralDirectorySize += UInt64(central.count)
             }
-            guard centralDirectorySize <= UInt64(UInt32.max),
-                  offset <= UInt64(UInt32.max) else {
-                return nil
-            }
+            // write() refuses past 4 GiB, so the directory ends at or after its start.
+            let centralDirectorySize = offset - centralDirectoryOffset
             var end = Data()
             appendUInt32(0x0605_4b50, to: &end)
             appendUInt16(0, to: &end) // disk number
             appendUInt16(0, to: &end) // central directory disk
-            appendUInt16(UInt16(centralEntries.count), to: &end)
-            appendUInt16(UInt16(centralEntries.count), to: &end)
-            appendUInt32(UInt32(centralDirectorySize), to: &end)
+            appendUInt16(entryCount, to: &end)
+            appendUInt16(entryCount, to: &end)
+            appendUInt32(centralDirectorySize, to: &end)
             appendUInt32(centralDirectoryOffset, to: &end)
             appendUInt16(0, to: &end) // archive comment length
             guard write(end) else { return nil }
@@ -1278,10 +1267,15 @@ public actor AppLog {
             try? FileManager.default.removeItem(at: archiveURL)
         }
 
+        /// Refuses (writes nothing) when the archive would pass the 4 GiB a
+        /// 32-bit ZIP offset can address.
         private func write(_ data: Data) -> Bool {
+            guard let byteCount = UInt32(exactly: data.count) else { return false }
+            let (end, overflow) = offset.addingReportingOverflow(byteCount)
+            guard !overflow else { return false }
             do {
                 try handle.write(contentsOf: data)
-                offset += UInt64(data.count)
+                offset = end
                 return true
             } catch {
                 return false
@@ -1332,11 +1326,9 @@ public actor AppLog {
             guard !line.isEmpty, lines != nil else { return }
             let value = String(decoding: line, as: UTF8.self)
             lines?.insert(value)
-            if let opening = value.firstIndex(of: "[") {
-                let remainder = value[opening...]
-                if remainder.contains("] ") {
-                    mirroredLines?.insert(String(remainder))
-                }
+            let remainder = value.drop { $0 != "[" }
+            if remainder.contains("] ") {
+                mirroredLines?.insert(String(remainder))
             }
         }
     }
@@ -1438,22 +1430,24 @@ public actor AppLog {
         appendUInt16(UInt16(truncatingIfNeeded: value >> 16), to: &data)
     }
 
-    private static let crc32Table: [UInt32] = (0..<256).map { index in
-        var value = UInt32(index)
+    /// CRC-32 (ZIP) of `data` continued from `checksum` (start with 0xffff_ffff,
+    /// invert the result).
+    private static func crc32Update(_ checksum: UInt32, _ data: Data) -> UInt32 {
+        var checksum = checksum
+        for byte in data {
+            // The table index is the low byte, 0...255, of a 256-entry table.
+            // The low byte indexes a 256-entry table, so the lookup always finds an entry.
+            checksum = (checksum >> 8) ^ (crc32Table[checked: Int(clamping: UInt8(truncatingIfNeeded: checksum) ^ byte)] ?? 0)
+        }
+        return checksum
+    }
+
+    private static let crc32Table: [UInt32] = ((0 as UInt32)..<256).map { index in
+        var value = index
         for _ in 0..<8 {
             value = (value >> 1) ^ (0xedb8_8320 &* (value & 1))
         }
         return value
-    }
-
-    private static func crc32(_ data: Data) -> UInt32 {
-        var checksum: UInt32 = 0xffff_ffff
-        let table = crc32Table
-        for byte in data {
-            let index = Int((checksum ^ UInt32(byte)) & 0xff)
-            checksum = (checksum >> 8) ^ table[index]
-        }
-        return ~checksum
     }
 
     private func writeEvent(_ event: DiagnosticEvent, wall: Date) {
@@ -1532,6 +1526,7 @@ public extension DiagnosticEventCode {
              .admissionSucceeded, .admissionFailed,
              .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent,
+             .transportPathInventory,
              .transportDialPlanBuilt, .transportPrivateAddressJoin,
              .transportLANDiscovery, .transportDialLegSucceeded,
              .transportDialLegFailed, .lanPublicationState,

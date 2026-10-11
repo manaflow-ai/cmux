@@ -1,0 +1,8 @@
+# SHA-256 of each CI Zig tarball, from https://ziglang.org/download/index.json
+# (the same source install-zig-ci.sh reads at run time). With a pin the
+# installer needs no index download, and a cached tarball is checked against it.
+# Add the lines for a new ci_version (toolchains.json) when it is reviewed.
+b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489  zig-aarch64-macos-0.16.0.tar.xz
+0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7  zig-x86_64-macos-0.16.0.tar.xz
+70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  zig-x86_64-linux-0.16.0.tar.xz
+ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17  zig-aarch64-linux-0.16.0.tar.xz

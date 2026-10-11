@@ -8,8 +8,8 @@ extension DaemonConnection {
     /// Marks a terminal kept (outlives its last tab) or reapable.
     @discardableResult
     public func setTerminalKeep(_ target: SetTerminalKeepRequest.Target, keep: Bool) async throws -> SetTerminalKeepRequest.Response {
-        guard identity?.supports(DaemonCapabilities.terminalReap) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.terminalReap])
+        guard identity?.supports(DaemonCapabilities.shared.terminalReap) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.terminalReap])
         }
         return try await request(SetTerminalKeepRequest(target, keep: keep))
     }

@@ -58,6 +58,9 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
     /// `true` keeps the terminal after its last tab closes (`terminal-reap-v1`).
     public var keep: Bool?
     public var mutation: MutationIdentity?
+    /// Arguments for the terminal's shell (`terminal-shell-args-v1`), set by
+    /// `DaemonConnection` from `env`; never with `argv` or `command`.
+    public var shellArgs: [String]?
 
     public init(workspace: WorkspaceRef, argv: [String]? = nil, command: String? = nil, cwd: String? = nil,
                 name: String? = nil, size: CellSize? = nil, terminalID: TerminalID? = nil, env: [String: String]? = nil,
@@ -74,7 +77,10 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case argv, command, cwd, name, cols, rows, terminalID, env, keep }
+    enum CodingKeys: String, CodingKey {
+        case argv, command, cwd, name, cols, rows, terminalID, env, keep
+        case shellArgs = "shell_args"
+    }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(argv, forKey: .argv)
@@ -86,6 +92,7 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
         try c.encodeIfPresent(terminalID, forKey: .terminalID)
         try c.encodeIfPresent(env, forKey: .env)
         try c.encodeIfPresent(keep, forKey: .keep)
+        try c.encodeIfPresent(shellArgs, forKey: .shellArgs)
         try WorkspaceRefFields(ref: workspace).encode(to: encoder)
         try MutationFields(identity: mutation).encode(to: encoder)
     }

@@ -1,0 +1,67 @@
+{
+  "oracle": {
+    "content": true,
+    "$": "Surface",
+    "$$": 3,
+    "frames": 3,
+    "main-frame": true,
+    "video": null,
+    "viewport": {
+      "width": 900,
+      "height": 700
+    },
+    "bring-to-front": true,
+    "off": 0,
+    "page-click-fill": [
+      "Count 1",
+      "q"
+    ],
+    "type-press": "acd",
+    "focus-blur": "focus;blur;",
+    "check": [
+      true,
+      false,
+      true
+    ],
+    "scrolled-into-view": true,
+    "inner-html": "<summary>More</summary><p>Details body</p>",
+    "hidden-disabled": [
+      true,
+      true
+    ],
+    "wait-for": true,
+    "dispatch-event": "Count 2",
+    "chained": "More",
+    "placeholder-testid": [
+      "q",
+      "Count 2"
+    ],
+    "scoped-getby": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "expand": true,
+    "nested-frames": [
+      "nested",
+      1,
+      1,
+      "Inner text",
+      1
+    ],
+    "keyboard-primitives": "qAé",
+    "mouse-down-up": [
+      "1",
+      "1"
+    ],
+    "mouse-dblclick": "pad dbl",
+    "mouse-drag": "Dropped mouse",
+    "export-content": true,
+    "untrusted": []
+  },
+  "cmux": {
+    "tap": "Count 3"
+  }
+}

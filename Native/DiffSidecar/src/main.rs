@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 #[cfg(feature = "benchmark")]
 use cmux_diff_sidecar::benchmark;
-use cmux_diff_sidecar::server::{self, ServerConfig};
+use cmux_diff_sidecar::server::{self, ResourceScheme, ServerConfig};
 
 #[tokio::main]
 async fn main() {
@@ -33,6 +33,7 @@ async fn run() -> Result<(), String> {
                 root,
                 cmux_executable,
                 executable_path,
+                resource_scheme: ResourceScheme::DiffViewer,
             })
             .await
         }
@@ -40,11 +41,18 @@ async fn run() -> Result<(), String> {
             let mut root = None;
             let mut cmux = None;
             let mut process_group_ready = false;
+            let mut resource_scheme = ResourceScheme::DiffViewer;
             while let Some(argument) = args.next() {
                 match argument.as_str() {
                     "--root" => root = args.next().map(PathBuf::from),
                     "--cmux" => cmux = args.next().map(PathBuf::from),
                     "--process-group-ready" => process_group_ready = true,
+                    "--resource-scheme" => {
+                        let value = args
+                            .next()
+                            .ok_or_else(|| "--resource-scheme requires a value".to_owned())?;
+                        resource_scheme = ResourceScheme::parse(&value)?;
+                    }
                     _ => return Err(format!("unexpected argument: {argument}")),
                 }
             }
@@ -58,6 +66,7 @@ async fn run() -> Result<(), String> {
                 root,
                 cmux_executable,
                 executable_path,
+                resource_scheme,
             })
             .await
         }

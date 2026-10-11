@@ -1,7 +1,7 @@
 public import AppKit
 
-/// Pages that can save their history for hibernation (Chrome's Memory
-/// Saver): the App closes the page and later recreates it from the state.
+/// Pages that can save their history for hibernation: the App closes the
+/// page and later recreates it from the state.
 public protocol BrowserHibernationSource: AnyObject {
     /// The history to recreate this page with, or nil when this engine or
     /// build cannot restore it (then the page is not hibernated, because a

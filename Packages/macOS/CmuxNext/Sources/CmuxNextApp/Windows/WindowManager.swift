@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -20,7 +22,7 @@ import Observation
 /// membership exists and is registered once it receives workspaces. Both persist in
 /// the daemon's `personal` frontend projection (architecture.md 1), written
 /// on every selection or focus change (geometry 500 ms after it settles)
-/// and flushed on quit (WindowManager+Saving).
+/// and flushed on quit (WindowRecordSaver).
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
@@ -30,10 +32,8 @@ final class WindowManager {
     private weak var lastActive: WindowController?
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
-    /// Debounced save of window geometry (architecture.md 1: 500 ms).
-    let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
-    /// Coalesced saves of the window records (WindowManager+Saving).
-    var saves = WindowRecordSaves()
+    /// Writes the window records (WindowRecordSaver).
+    lazy var recordSaver = WindowRecordSaver(manager: self)
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
@@ -42,6 +42,8 @@ final class WindowManager {
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
     var pendingClaims: [String: String] = [:]
+    /// Pending claims not to show on arrival; windows to open behind (automation, Option).
+    var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -61,25 +63,31 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
-    /// The window opened at launch, before the saved state loaded: it shows
-    /// the connecting state outside the registry, then becomes the frontmost
-    /// restored window (or the window of the first workspaces). Nil once it
-    /// is registered.
+    /// The window opened at launch before the saved state loaded: it shows the connecting state
+    /// outside the registry, then becomes the frontmost restored window (or the window of the
+    /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    /// Restore finished: windows saved in full screen may enter it.
+    var fullScreenRestoreReady = false
+    /// A restored window is entering full screen (one at a time).
+    var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
+    /// One-shot work for a workspace a reveal is still mounting, by window
+    /// id; dropped when the window shows another workspace or closes.
+    private var contentWaiters: [String: [(workspaceID: String, body: () -> Void)]] = [:]
     /// The incognito session's off-the-record browser profile while any
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
     /// Workspaces of open incognito windows, closed at the next launch when
     /// this run ends without closing them.
-    private(set) lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+    lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// Incognito windows waiting for the ephemeral workspace created for
     /// them (`WindowManager+Ephemeral`).
     var pendingEphemeralWindows: [String] = []
@@ -93,7 +101,7 @@ final class WindowManager {
     }
 
     var active: WindowController? {
-        if let key = NSApp.keyWindow, let controller = owner(of: key) { return controller }
+        if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
     }
 
@@ -143,20 +151,20 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens one window at once (it shows the connecting state until the
-    /// daemon answers; it is not a registry window, since it has no
-    /// workspace yet), then restores the saved windows once the first
-    /// snapshot arrives, the launch window becoming the frontmost of them.
-    /// Creates a workspace only when the daemon tree is empty.
+    /// Opens one window at once (from the launch snapshot, else in the
+    /// connecting state, outside the registry), then restores the saved
+    /// windows once the first live snapshot arrives, the launch window
+    /// becoming the frontmost. Creates a workspace only for an empty tree.
     func restoreWhenLoaded() {
-        if controllers.isEmpty {
+        registry.isLaunching = !restored
+        if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
-            for await loaded in Observations({ store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
                 await self?.restore()
                 return
             }
@@ -166,21 +174,23 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
         if let windowState = services.daemon.windowState {
             document = (try? await windowState.load()) ?? WindowStateDocument()
         }
-        // Incognito workspaces a crashed run left: closed, never shown. The
-        // daemon flags its ephemeral ones; the ledger lists the others.
-        let leftover = await incognitoLedger.load() + ephemeralLeftovers()
+        // Incognito workspaces a crashed run left on a daemon without state
+        // resources: the app's ledger owns them, so they close, never shown.
+        // A daemon with state resources owns its ephemeral workspaces (it closes them at its
+        // next start); until then they show in an incognito window only, so wait for its flags.
+        let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
             discard(leftover)
         }
-        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) }) == false {
-            _ = await createWorkspace()
-        }
+        await EphemeralWorkspaces.awaitFlags(self)
+        let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -207,6 +217,10 @@ final class WindowManager {
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
         sessionRegistrar.start()
+        registry.isLaunching = false
+        fullScreenRestoreReady = true
+        enterRestoredFullScreens()
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -245,7 +259,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        services.dragSession.installWorkspaceHandoff(on: controller)
+        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
@@ -264,10 +278,24 @@ final class WindowManager {
         window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil }
     }
 
+    /// Runs `body` once `controller` next shows a workspace, if that is
+    /// `workspaceID`.
+    /// `body` keeps the view-change permission of the run that called this.
+    func afterNextContent(in controller: WindowController, showing workspaceID: String, _ body: @escaping () -> Void) {
+        let run = ActionRunScope.current
+        contentWaiters[controller.state.id, default: []].append((workspaceID, { ActionRunScope.carrying(run, body) }))
+    }
+
     /// The window installed its first workspace content: a window kept off
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
-        defer { onContentDidAppear?(controller) }
+        defer {
+            onContentDidAppear?(controller)
+            let shown = controller.content?.workspace.id
+            for waiter in contentWaiters.removeValue(forKey: controller.state.id) ?? [] where waiter.workspaceID == shown {
+                waiter.body()
+            }
+        }
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }
@@ -277,13 +305,17 @@ final class WindowManager {
     private func present(_ controller: WindowController) {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
-        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, .present) }
+        let behind = behindWindows.remove(controller.state.id) != nil
+        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
+        enterRestoredFullScreens()
     }
 
     /// Brings a window forward (not key and no activation under
     /// `CMUX_NEXT_NO_ACTIVATE=1`).
+    /// An action run without view-change permission brings nothing forward.
     func bringToFront(_ controller: WindowController) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
         if awaitingContent[controller.state.id] != nil {
             awaitingContent[controller.state.id] = true
             return
@@ -295,7 +327,9 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
+        if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
         awaitingContent[id] = nil
+        contentWaiters[id] = nil
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
@@ -309,13 +343,12 @@ final class WindowManager {
 
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
-        geometryTimer.cancel()
+        recordSaver.geometryTimer.cancel()
         await closeIncognitoWindowsForTermination()
-        await saveNow()
+        await recordSaver.flushSaves()
         isTerminating = true
         membershipObservation?.cancel()
-        // Close Chromium before exit without spinning the run loop (5a).
-        await services.cache.cef.shutdown()
+        // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
     /// Copies each open window's frame and display into the registry.

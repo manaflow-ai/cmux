@@ -50,7 +50,9 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
   return (
     <main className="connect-shell">
       <form className="connect-card" onSubmit={submit}>
-        <div className="brand-mark" aria-hidden="true">›_</div>
+        <div className="brand-mark" aria-hidden="true">
+          ›_
+        </div>
         <h1>{t("appName")}</h1>
         <p>{t("appTagline")}</p>
         <label>
@@ -73,7 +75,11 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
             <small>{t("pairingExpires", { seconds: pairing.expiresIn })}</small>
           </div>
         )}
-        {error && <div className="inline-error" role="alert">{error || t("unknownError")}</div>}
+        {error && (
+          <div className="inline-error" role="alert">
+            {error || t("unknownError")}
+          </div>
+        )}
         <button type="submit" disabled={connecting || pairing !== null}>
           {pairing ? t("waitingForApproval") : connecting ? t("connecting") : t("connect")}
         </button>

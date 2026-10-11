@@ -1,0 +1,524 @@
+//! Each subagent's cmux workspace (Lawrence, 2026-10-05: "subagent
+//! orchestration spawns workspaces that have the acp chat, so everything is
+//! monitorable and I can jump in deeper using cmux ui"). A workspace named
+//! after the subagent's task, whose selected tab is the agent chat of the
+//! SAME acpmux session the Chief drives: the user watches its chat and tool
+//! calls live and can write to it. The workspace stays after the subagent
+//! finishes, renamed with a done mark; closing it only detaches the tab.
+//!
+//! The app opens it (`agent.openSessionWorkspace` through `action.run` on
+//! its control socket, `CMUX_SOCKET_PATH`), with a workspace key chosen
+//! here, so the host can rename the workspace later through the session
+//! daemon (`rename-workspace` by key).
+
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use serde_json::{Value, json};
+
+/// The app action that opens a session's chat in a new workspace.
+pub const OPEN_ACTION: &str = "agent.openSessionWorkspace";
+/// Marks a finished subagent's workspace name.
+pub const DONE_MARK: &str = "✓";
+/// Characters of a task kept in a workspace name.
+const TITLE_CHARS: usize = 40;
+
+/// Where subagents' workspaces are made.
+pub trait Workspaces: Send + Sync {
+    /// Opens workspace `key` (a fresh `new_key`, chosen before the session
+    /// starts so the session can carry it as CMUX_WORKSPACE_ID) named `name`,
+    /// whose tab is acpmux session `session`'s chat (a terminal in `cwd`
+    /// beside it); returns its key.
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
+    /// Renames the workspace `key`.
+    fn rename(&self, key: &str, name: &str) -> Result<(), String>;
+    /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
+    /// goes to the closed history; the agent session stays.
+    fn close(&self, _key: &str) -> Result<(), String> {
+        Err("closing is not supported here".into())
+    }
+    /// Where its workspaces live, for the Chief to tell the user (for
+    /// example "the cmux app on this Mac").
+    fn place(&self) -> String;
+}
+
+/// A subagent's workspace name: its id and the task's first words.
+pub fn name(id: &str, task: &str) -> String {
+    let flat: String = task.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut title: String = flat.chars().take(TITLE_CHARS).collect();
+    if flat.chars().count() > TITLE_CHARS {
+        title.push('…');
+    }
+    format!("{id} · {title}")
+}
+
+/// The name of a finished subagent's workspace.
+pub fn done_name(name: &str) -> String {
+    format!("{DONE_MARK} {name}")
+}
+
+/// `key` as CMUX_WORKSPACE_ID: the uppercase UUID form a cmux terminal
+/// carries (the app's `DaemonConnection.uuidForm`).
+pub fn env_id(key: &str) -> String {
+    key.to_uppercase()
+}
+
+/// A fresh workspace key in the daemon's canonical form (a lowercase UUID v4).
+pub fn new_key() -> String {
+    let mut bytes = [0u8; 16];
+    let read = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut bytes));
+    if read.is_err() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        bytes = (nanos ^ (u128::from(std::process::id()) << 64)).to_le_bytes();
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// The app's control socket and the session daemon.
+pub struct AppWorkspaces {
+    pub control: PathBuf,
+    pub daemon: PathBuf,
+    /// The Chief home (`MUX_HOME`), whose own acpmux runs the subagents: the
+    /// tab's host is `chief:<home id>`, so the app attaches it there.
+    pub home: Option<PathBuf>,
+}
+
+impl AppWorkspaces {
+    /// From the host's env: `CMUX_SOCKET_PATH` (None without it) and the
+    /// app's daemon, where the app makes the workspaces.
+    pub fn from_env(daemon: &str) -> Option<AppWorkspaces> {
+        AppWorkspaces::resolve(daemon, &crate::cli::env)
+    }
+
+    /// `CMUX_SOCKET_PATH` from `env`, and the daemon that holds the app's
+    /// workspaces: `CMUX_APP_DAEMON_SOCKET` when the app sets it (the host's
+    /// `--daemon-socket` is then the Chief's conversation owner), else
+    /// `daemon` (cmux_env::app_daemon_socket).
+    pub fn resolve(daemon: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<AppWorkspaces> {
+        env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
+            control: control.into(),
+            daemon: crate::cmux_env::app_daemon_socket(daemon, env).into(),
+            home: None,
+        })
+    }
+
+    /// The same, for the Chief home `home`.
+    pub fn with_home(mut self, home: &Path) -> AppWorkspaces {
+        self.home = Some(home.to_owned());
+        self
+    }
+}
+
+/// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
+/// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
+/// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
+/// `chief:<home id>`); Home allows the form only for this Chief's own subagents. None when the
+/// tag names no home or the session id needs escaping.
+pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
+    let home = parent.strip_prefix("optchat-chief:")?;
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 200
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    (home.len() == 8
+        && home
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && token(session))
+    .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
+/// `text` with each mention of a known subagent (`a1`, or `[a1]` not already a link) written as
+/// its link (`subagent_link`), so every client shows it as a link whether or not the model
+/// wrote one (Lawrence 2026-10-10). `session_of` names a subagent's session (None: not one of
+/// this Chief's, left as written). Code spans and fences, existing links and words inside a
+/// longer token (`ma1`, `a1b`, `/a1`, `a1.txt`) are left alone.
+pub fn link_subagents(
+    text: &str,
+    parent: &str,
+    session_of: impl Fn(&str) -> Option<String>,
+) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut copied) = (0, 0);
+    let mut fence = false;
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let link_of = |id: &str| session_of(id).and_then(|s| subagent_link(parent, id, &s));
+    while i < b.len() {
+        let line_start = i == 0 || b[i - 1] == b'\n';
+        if line_start && text[i..].starts_with("```") {
+            fence = !fence;
+            i += 3;
+            continue;
+        }
+        if fence {
+            i += 1;
+            continue;
+        }
+        match b[i] {
+            b'`' => {
+                // An inline code span: to its closing backtick on this line.
+                let end = text[i + 1..]
+                    .find(['`', '\n'])
+                    .map_or(b.len(), |e| i + 1 + e);
+                i = if end < b.len() && b[end] == b'`' {
+                    end + 1
+                } else {
+                    i + 1
+                };
+            }
+            b'[' => {
+                let close = text[i + 1..].find([']', '\n']).map(|e| i + 1 + e);
+                match close {
+                    Some(c) if b[c] == b']' && b.get(c + 1) == Some(&b'(') => {
+                        // An existing link: skip it whole.
+                        i = text[c..].find(')').map_or(c + 1, |e| c + e + 1);
+                    }
+                    Some(c) if b[c] == b']' => {
+                        let id = &text[i + 1..c];
+                        if is_id(id)
+                            && let Some(link) = link_of(id)
+                        {
+                            out.push_str(&text[copied..i]);
+                            out.push_str(&link);
+                            copied = c + 1;
+                        }
+                        i = c + 1;
+                    }
+                    _ => i += 1,
+                }
+            }
+            b'a' if i == 0
+                || !(word(b[i - 1])
+                    || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
+            {
+                let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let id = &text[i..end];
+                let bounded = end > i + 1
+                    && !(end < b.len()
+                        && (word(b[end])
+                            || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c)))));
+                if bounded
+                    && is_id(id)
+                    && let Some(link) = link_of(id)
+                {
+                    out.push_str(&text[copied..i]);
+                    out.push_str(&link);
+                    copied = end;
+                }
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// A subagent id: `a` and 1 to 6 digits, no leading zero.
+fn is_id(id: &str) -> bool {
+    let digits = id.strip_prefix('a').unwrap_or("");
+    (1..=6).contains(&digits.len())
+        && !digits.starts_with('0')
+        && digits.bytes().all(|c| c.is_ascii_digit())
+}
+
+/// The agent tab host of a session in Chief home `home`'s acpmux.
+pub fn chief_host(home: &Path) -> String {
+    format!("chief:{}", crate::paths::home_id(home))
+}
+
+/// `open_request` whose tab names Chief home `home` as its session's host.
+pub fn open_request_for(home: &Path, session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    let mut request = open_request(session, name, key, cwd);
+    request["params"]["args"]["host"] = json!(chief_host(home));
+    request
+}
+
+/// The `action.run` request that opens `session` in workspace `key`.
+pub fn open_request(session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    json!({
+        "id": 1,
+        "method": "action.run",
+        "params": {
+            "action": OPEN_ACTION,
+            "args": {"session": session, "name": name, "key": key, "cwd": cwd.display().to_string()},
+            "wait": true,
+            // A script's run: it never takes focus or switches workspaces.
+            "origin": "script",
+            "idempotency_key": format!("optchat-subagent-workspace-{key}"),
+        }
+    })
+}
+
+/// One request on the app's control socket; Ok carries its result.
+pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result<Value, String> {
+    let mut stream = UnixStream::connect(socket)
+        .map_err(|e| format!("the app's control socket {}: {e}", socket.display()))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|e| e.to_string())?;
+    let mut line = request.to_string().into_bytes();
+    line.push(b'\n');
+    stream.write_all(&line).map_err(|e| e.to_string())?;
+    let mut answer = String::new();
+    BufReader::new(stream)
+        .read_line(&mut answer)
+        .map_err(|e| format!("reading the app's answer: {e}"))?;
+    let answer = answer.trim();
+    if !answer.starts_with('{') {
+        return Err(if answer.is_empty() {
+            "the app closed the control socket".to_owned()
+        } else {
+            answer.to_owned()
+        });
+    }
+    let value: Value = serde_json::from_str(answer).map_err(|e| format!("bad answer: {e}"))?;
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
+        _ => Err(value
+            .get("error")
+            .map(|e| {
+                e.get("message")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| e.to_string(), str::to_owned)
+            })
+            .unwrap_or_else(|| answer.to_owned())),
+    }
+}
+
+impl Workspaces for AppWorkspaces {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+        let key = key.to_owned();
+        match control_call(
+            &self.control,
+            &match &self.home {
+                Some(home) => open_request_for(home, session, name, &key, cwd),
+                None => open_request(session, name, &key, cwd),
+            },
+            Duration::from_secs(60),
+        ) {
+            Ok(_) => Ok(key),
+            // The action declares that it starts a terminal, so the app
+            // waits the terminal start deadline and answers once the
+            // workspace exists; past even that, its work goes on and the
+            // workspace still comes under the key chosen here (a done
+            // rename before then fails and is logged).
+            Err(e) if still_running(&e) => Ok(key),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
+    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
+        rename_by_key(&self.daemon, key, name)
+    }
+
+    fn place(&self) -> String {
+        "the cmux app on this Mac".to_owned()
+    }
+}
+
+/// A host without a cmux app (an always-on brain on a server): each
+/// subagent's workspace is made in this host's OWN session daemon. The
+/// subagent runs on this machine, so its workspace belongs to this machine's
+/// session (data-model.md 1.2); every cmux app connected to that session
+/// shows it, also while the user's laptop sleeps. An app on another machine
+/// shows the chat tab as running on `host_name` until it can attach to this
+/// host's acpmux.
+pub struct DaemonWorkspaces {
+    /// This host's session daemon.
+    pub daemon: PathBuf,
+    /// `install:<id>` of this machine: the install whose acpmux runs the session.
+    pub host: String,
+    /// This machine's display name.
+    pub host_name: String,
+    /// The subagent harness, shown on the tab.
+    pub harness: Option<String>,
+}
+
+impl DaemonWorkspaces {
+    fn client(&self) -> Result<cmux::raw::Client, String> {
+        use cmux::raw::{Client, ClientConfig};
+        Client::connect(ClientConfig::from_socket_path(&self.daemon))
+            .map_err(|e| format!("the session daemon: {e}"))
+    }
+}
+
+impl Workspaces for DaemonWorkspaces {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+        use cmux::raw::{
+            AgentSessionSource, CreateTerminalRequest, CreateWorkspaceRequest,
+            NewConversationTabRequest, Optional,
+        };
+        const TABS: &str = "agent-session-tabs-v1";
+        let mut client = self.client()?;
+        // Refused before any write: a workspace without its chat tab helps no one.
+        let supported = client.identify_server().map(|info| {
+            info.capabilities
+                .unwrap_or_default()
+                .iter()
+                .any(|c| c == TABS)
+        });
+        match supported {
+            Ok(true) => {}
+            Ok(false) => {
+                client.close();
+                return Err(format!("this host's session daemon has no {TABS}"));
+            }
+            Err(e) => {
+                client.close();
+                return Err(format!("identify: {e}"));
+            }
+        }
+        let key = key.to_owned();
+        let result = (|| {
+            let workspace = client
+                .create_workspace(CreateWorkspaceRequest {
+                    key: Optional::Value(key.clone()),
+                    name: Optional::Value(name.to_owned()),
+                    mutation_id: Optional::Value(format!("optchat-subagent-ws-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+                    ..Default::default()
+                })
+                .map_err(|e| format!("create-workspace: {e}"))?
+                .workspace;
+            let placement = client
+                .create_terminal(CreateTerminalRequest {
+                    workspace: Optional::Value(workspace),
+                    cwd: Optional::Value(cwd.display().to_string()),
+                    mutation_id: Optional::Value(format!("optchat-subagent-term-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+                    ..Default::default()
+                })
+                .map_err(|e| format!("create-terminal: {e}"))?;
+            let pane = placement
+                .pane
+                .into_option()
+                .ok_or("create-terminal placed no pane")?;
+            client
+                .new_conversation_tab(NewConversationTabRequest {
+                    pane: Optional::Value(pane),
+                    agent_session: Optional::Value(AgentSessionSource {
+                        host: self.host.clone(),
+                        host_name: Optional::Value(self.host_name.clone()),
+                        session: Optional::Value(session.to_owned()),
+                        harness: self
+                            .harness
+                            .clone()
+                            .map_or(Optional::Missing, Optional::Value),
+                    }),
+                    mutation_id: Optional::Value(format!("optchat-subagent-tab-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+                    ..Default::default()
+                })
+                .map_err(|e| format!("new-conversation-tab: {e}"))?;
+            Ok::<(), String>(())
+        })();
+        client.close();
+        result.map(|()| key)
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
+    fn rename(&self, key: &str, name: &str) -> Result<(), String> {
+        rename_by_key(&self.daemon, key, name)
+    }
+
+    fn place(&self) -> String {
+        // The Chief home's own owner daemon (tabs on `chief:<home id>`): the app shows it
+        // as the Chief's machine row.
+        if self.host.starts_with("chief:") {
+            return "the Chief's own cmux session on this Mac (the cmux app shows it under the Chief)"
+                .to_owned();
+        }
+        format!(
+            "the cmux session on {0} (a cmux app shows it only while connected to {0})",
+            self.host_name
+        )
+    }
+}
+
+/// This machine's short name (`hostname -s`), for the tabs other apps show.
+pub fn host_name() -> String {
+    std::process::Command::new("/bin/hostname")
+        .arg("-s")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "this machine".into())
+}
+
+/// The app's answer to a waiting run whose work goes on past its deadline.
+pub fn still_running(error: &str) -> bool {
+    error.contains("did not finish within")
+}
+
+/// The origin of this host's workspace mutations: the session daemon needs one with every
+/// mutation_id (server.rs workspace_mutation), so a retried create replays instead of doubling.
+const MUTATION_ORIGIN: &str = "optchat-chief";
+
+/// `rename-workspace` by key on the session daemon at `daemon`.
+/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// agent session is acpmux's and stays.
+fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let result = client
+        .close_workspace(CloseWorkspaceRequest {
+            end_terminals: Some(true),
+            expected_generation: Optional::Missing,
+            expected_revision: Optional::Missing,
+            key: Optional::Value(key.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-close-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            workspace: Optional::Missing,
+        })
+        .map(|_| ())
+        .map_err(|e| format!("close-workspace: {e}"));
+    client.close();
+    result
+}
+
+fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig, Optional, RenameWorkspaceRequest};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let result = client
+        .rename_workspace(RenameWorkspaceRequest {
+            expected_generation: Optional::Missing,
+            expected_revision: Optional::Missing,
+            key: Optional::Value(key.to_owned()),
+            mutation_id: Optional::Missing,
+            name: name.to_owned(),
+            origin: Optional::Missing,
+            workspace: Optional::Missing,
+        })
+        .map(|_| ())
+        .map_err(|e| format!("rename-workspace: {e}"));
+    client.close();
+    result
+}

@@ -101,6 +101,8 @@ fn device_kind_label(kind: TerminalDeviceKind, strings: &MenuMessages) -> &'stat
         TerminalDeviceKind::Ipad => strings.device_ipad,
         TerminalDeviceKind::Tui => strings.device_tui,
         TerminalDeviceKind::Browser => strings.device_browser,
+        TerminalDeviceKind::Linux => strings.device_linux,
+        TerminalDeviceKind::Windows => strings.device_windows,
         TerminalDeviceKind::Unknown => strings.device_unknown,
     }
 }
@@ -251,5 +253,13 @@ mod tests {
         let me = participant("c1", Some("Maya"), TerminalDeviceKind::Tui, None, 80, 24);
         let state = state(TerminalSizingMode::Latest, &[mac, me]);
         assert_eq!(priority_with_self_first(&state, Some("c1")), ["u_Maya/tui", "u_Maya/mac"]);
+    }
+
+    #[test]
+    fn linux_and_windows_devices_have_their_own_labels() {
+        let strings = strings();
+        assert_eq!(device_kind_label(TerminalDeviceKind::Linux, strings), "Linux");
+        assert_eq!(device_kind_label(TerminalDeviceKind::Windows, strings), "Windows");
+        assert_eq!(device_kind_label(TerminalDeviceKind::parse("quantum"), strings), "Device");
     }
 }

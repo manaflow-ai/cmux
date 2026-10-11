@@ -2,7 +2,7 @@ import Foundation
 
 /// A per-site permission or content setting Page Info can show
 /// (Chromium `ContentSettingsType`s listed in `PageInfo::kPermissionType`,
-/// in Chrome's display order).
+/// in Chromium's display order).
 public nonisolated enum SitePermissionKind: String, CaseIterable, Codable, CodingKeyRepresentable, Hashable, Sendable {
     case location
     case camera
@@ -29,7 +29,7 @@ public nonisolated enum SitePermissionKind: String, CaseIterable, Codable, Codin
     case thirdPartySignIn
     case insecureContent
 
-    /// The value a site gets until the user decides (Chrome's defaults).
+    /// The value a site gets until the user decides (Chromium's defaults).
     public var defaultSetting: SitePermissionSetting {
         switch self {
         case .javascript, .images, .sound, .sensors, .backgroundSync, .thirdPartySignIn: .allow

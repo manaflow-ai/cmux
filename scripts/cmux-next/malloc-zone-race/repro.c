@@ -1,6 +1,6 @@
 // Frees system-zone pointers on one thread while another dlopens the CEF
 // framework (whose PartitionAlloc constructor swaps the default zone).
-// argv[1] = "early" to register a delegating default zone first (Chrome's
+// argv[1] = "early" to register a delegating default zone first (Chromium's
 // EarlyMallocZoneRegistration), argv[2] = framework binary.
 #include <dlfcn.h>
 #include <pthread.h>

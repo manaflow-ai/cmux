@@ -13,6 +13,7 @@ import {
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
+import { dashboardReturnPath } from "../../../../services/billing/returnTo";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -96,15 +97,7 @@ export function makeBillingCompleteHandler(
               : "error";
             return NextResponse.redirect(new URL(`/pricing?billing=${reason}`, requestOrigin(request)));
           }
-          if (session.metadata?.plan === "team") {
-            return NextResponse.redirect(
-              new URL("/dashboard/billing?welcome=team", requestOrigin(request)),
-            );
-          }
-          const success = new URL("/billing/success", requestOrigin(request));
-          success.searchParams.set("session_id", session.id);
-          success.searchParams.set("cmux_scheme", scheme);
-          return NextResponse.redirect(success);
+          return NextResponse.redirect(paidSessionDestination(request, session, scheme));
         }
         return NextResponse.redirect(new URL("/pricing?welcome=pending", requestOrigin(request)));
       } catch (error) {
@@ -132,4 +125,45 @@ function expandedCustomer(
   return typeof session.customer === "object" && session.customer !== null
     ? session.customer
     : null;
+}
+
+/** Where a recorded, paid checkout lands: the team, the dashboard page that started it, or the success page. */
+function paidSessionDestination(request: NextRequest, session: Stripe.Checkout.Session, scheme: string): URL {
+  if (session.metadata?.plan === "team") return teamWelcomeURL(request, session);
+  const dashboardReturn = dashboardWelcomeURL(request, session);
+  if (dashboardReturn) return dashboardReturn;
+  const success = new URL("/billing/success", requestOrigin(request));
+  success.searchParams.set("session_id", session.id);
+  success.searchParams.set("cmux_scheme", scheme);
+  return success;
+}
+
+/**
+ * A dashboard upgrade returns to the page that started it, with a welcome
+ * for the plan it bought. The path was validated at checkout and is checked
+ * again here, so a session without one keeps the success page.
+ */
+function dashboardWelcomeURL(request: NextRequest, session: Stripe.Checkout.Session): URL | null {
+  const returnTo = dashboardReturnPath(session.metadata?.returnTo);
+  const plan = session.metadata?.plan;
+  if (!returnTo || (plan !== "go" && plan !== "pro" && plan !== "max")) return null;
+  const url = new URL(returnTo, requestOrigin(request));
+  url.searchParams.set("welcome", plan);
+  return url;
+}
+
+/**
+ * A Team purchase lands on that team's billing page. The id comes from the
+ * Stripe session we created, so it is trusted to select a page, and the page
+ * itself re-checks membership. Legacy sessions without an id keep the old
+ * dashboard billing destination.
+ */
+function teamWelcomeURL(request: NextRequest, session: Stripe.Checkout.Session): URL {
+  const stackTeamId = session.metadata?.stackTeamId;
+  const teamId = typeof stackTeamId === "string" ? stackTeamId.trim() : "";
+  const url = teamId
+    ? new URL(`/dashboard/teams/${encodeURIComponent(teamId)}/billing`, requestOrigin(request))
+    : new URL("/dashboard/billing", requestOrigin(request));
+  url.searchParams.set("welcome", "team");
+  return url;
 }

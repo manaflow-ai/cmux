@@ -33,9 +33,7 @@ export function splitRatioFromPointer(
 ): number | null {
   const extent = direction === "row" ? bounds.width : bounds.height;
   if (extent <= 0) return null;
-  const offset = direction === "row"
-    ? pointer.clientX - bounds.left
-    : pointer.clientY - bounds.top;
+  const offset = direction === "row" ? pointer.clientX - bounds.left : pointer.clientY - bounds.top;
   return clampSplitRatio(offset / extent);
 }
 

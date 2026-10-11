@@ -1,7 +1,7 @@
 public import Foundation
 
-/// Why a tab's content process ended while the page was open (Chrome's
-/// "Aw, Snap!" page). The tab keeps its URL and history; Reload starts a new
+/// Why a tab's content process ended while the page was open (the "sad
+/// tab" case). The tab keeps its URL and history; Reload starts a new
 /// process.
 public nonisolated struct BrowserProcessExit: Hashable, Sendable {
     public enum Reason: String, Hashable, Sendable, CaseIterable {
@@ -23,10 +23,14 @@ public nonisolated struct BrowserProcessExit: Hashable, Sendable {
     public var reason: Reason
     /// Exit code or signal number, when the engine reports one.
     public var code: Int?
+    /// The engine whose content process ended: the sad tab uses that
+    /// browser's wording (Chrome's "Aw, Snap!" for Chromium).
+    public var engine: BrowserEngineKind?
 
-    public init(reason: Reason, code: Int? = nil) {
+    public init(reason: Reason, code: Int? = nil, engine: BrowserEngineKind? = nil) {
         self.reason = reason
         self.code = code
+        self.engine = engine
     }
 
     /// Maps CEF's `cef_termination_status_t` (TS_ABNORMAL_TERMINATION = 0,
@@ -41,10 +45,10 @@ public nonisolated struct BrowserProcessExit: Hashable, Sendable {
         case 5: .integrityFailure
         default: .abnormal
         }
-        return BrowserProcessExit(reason: reason, code: code == 0 ? nil : code)
+        return BrowserProcessExit(reason: reason, code: code == 0 ? nil : code, engine: .cef)
     }
 
-    /// Error code text like Chrome's sad tab: "SIGSEGV" when the process
+    /// Error code text for the sad tab: "SIGSEGV" when the process
     /// ended from a signal, "exit 3" for an exit status. CEF reports the raw
     /// `waitpid` status on macOS; plain small numbers are read as signals.
     public var codeDescription: String? {

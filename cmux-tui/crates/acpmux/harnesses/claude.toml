@@ -1,0 +1,26 @@
+# Claude Code through acpmux's own adapter (Claude's stream-json protocol).
+# Install: https://docs.claude.com/en/docs/claude-code/setup
+schema = 1
+id = "claude"
+name = "Claude Code"
+icon = "claude"
+protocol = "claude-stdio"
+command = "claude"
+
+[capabilities]
+effort = ["low", "medium", "high", "xhigh", "max"]
+fast = true
+permission_modes = true
+resume = true
+
+[auth]
+login = "claude /login"
+docs = "https://docs.claude.com/en/docs/claude-code/setup"
+check = ["claude", "--version"]
+
+[sessions]
+adapter = "claude-code"
+roots = ["${CLAUDE_CONFIG_DIR:-~/.claude}/projects"]
+[sessions.resume]
+argv = ["claude", "--resume", "{id}"]
+cwd = "{cwd}"

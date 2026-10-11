@@ -118,9 +118,19 @@ export function withLocalValues(options: SessionOption[], local: Record<string, 
 }
 
 export function cycleSelect(option: SessionOption, onChange: (id: string, value: OptionValue) => void) {
-  const choices = visibleChoices(option);
-  if (option.kind !== "select" || !choices.length || option.disabled) return;
+  const choices = visibleChoices(option).filter((choice) => !choice.disabled);
+  if (option.kind !== "select" || !choices.length || option.disabled) return false;
   const i = choices.findIndex((c) => c.value === option.value);
   const next = choices[(i + 1 + choices.length) % choices.length];
-  if (next) onChange(option.id, next.value);
+  if (!next) return false;
+  onChange(option.id, next.value);
+  return true;
+}
+
+export function planToggleValue(option?: SessionOption): string | undefined {
+  if (!option || option.kind !== "select" || option.disabled) return undefined;
+  const choices = visibleChoices(option).filter((choice) => !choice.disabled);
+  if (option.value !== "plan") return choices.find((choice) => choice.value === "plan")?.value;
+  return choices.find((choice) => choice.value === "build")?.value
+    ?? choices.find((choice) => choice.value === "default")?.value;
 }

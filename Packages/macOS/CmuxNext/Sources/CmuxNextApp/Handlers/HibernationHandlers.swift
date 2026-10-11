@@ -22,7 +22,7 @@ enum HibernationHandlers {
         })
         registry.bind("wakeTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
-            if !hibernation.wake(id.rawValue) { context.refuse(RefusalStrings.wakeNotHibernated) }
+            if !hibernation.wake(id.rawValue) { context.refuseQuietly(RefusalStrings.wakeNotHibernated) }
         })
     }
 

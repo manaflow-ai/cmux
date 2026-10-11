@@ -1,0 +1,148 @@
+import CmuxNextControl
+import CmuxNextSettings
+import CmuxNextHistory
+import Foundation
+import Observation
+
+/// `history.list {kind?, text?, limit?, range?}` for `cmux history list`
+/// and `cmux history search` (plans/cmux-next/history.md 5.3). The main
+/// actor only parses; the merge (SQLite reads, journal reads) runs as a
+/// follow-up under the request deadline.
+enum HistoryControl {
+    static func methods(services: AppServices) -> [ControlMethod] {
+        [
+            .mainActor("history.list") { [weak services] call in
+                let query = try query(from: call.params)
+                guard let services else { return .value(.null) }
+                return .followUp { await list(services, query) }
+            },
+        ] + debugMethods(services: services)
+    }
+
+    /// `debug.history_cookie_backups {action: show|hide|delete_all}` (DEBUG
+    /// builds only; the router drops `debug.*` in Release): drives the
+    /// History page's cookie backups sheet of the active window's selected
+    /// tab through the page model. `delete_all` skips the sheet's
+    /// confirmation, so in a DEV build an agent with the debug socket could
+    /// delete backups; a Release build has no such path.
+    static func debugMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG
+        return [
+            .mainActor("debug.history_cookie_backups") { [weak services] call in
+                guard let services else { throw ControlError.invalidParams("the app is closing") }
+                let action = call.params["action"]?.stringValue ?? "show"
+                guard ["show", "hide", "delete_all"].contains(action) else {
+                    throw ControlError.invalidParams("action must be show, hide or delete_all")
+                }
+                // Selects the window's History tab (or opens one), as Show History does.
+                services.historyPage.open()
+                return .followUp {
+                    guard let model = await historyPageModel(services) else {
+                        throw ControlError.invalidParams("the active window shows no History page")
+                    }
+                    return await debugCookieBackups(model, action: action)
+                }
+            },
+        ]
+        #else
+        return []
+        #endif
+    }
+
+    #if DEBUG
+    /// The page model of the active window's History tab, once its page is
+    /// installed (at most 5 s).
+    @MainActor
+    static func historyPageModel(_ services: AppServices) async -> HistoryPageModel? {
+        let find = { () -> HistoryPageModel? in
+            _ = services.cache.pageInstalls.revision
+            for pane in services.windows.active?.content?.panes.values.map({ $0 }) ?? [] {
+                for tab in pane.pane.tabs where HistoryPageAddress.matches(tab.url.flatMap(URL.init(string:))) {
+                    if let page = services.cache.existingBrowser(tab.id)?.tab as? HistoryPageTab { return page.model }
+                }
+            }
+            return nil
+        }
+        if let model = find() { return model }
+        _ = try? await ControlDeadline.shared.run(method: "debug.history_cookie_backups", deadline: .now + .seconds(5)) { @MainActor in
+            for await found in Observations({ find() != nil }) where found { return true }
+            return false
+        }
+        return find()
+    }
+    #endif
+
+    #if DEBUG
+    @MainActor
+    static func debugCookieBackups(_ model: HistoryPageModel, action: String) async -> JSONValue {
+        switch action {
+        case "show":
+            model.showsCookieBackups = true
+            await model.refreshCookieBackups()
+        case "hide": model.showsCookieBackups = false
+        default: await model.deleteCookieBackupsNow(await model.refreshCookieBackups().map(\.id))
+        }
+        return .object([
+            "shown": .bool(model.showsCookieBackups),
+            "backups": .array(model.cookieBackups.map { .object(["id": .string($0.id), "site": $0.site.map(JSONValue.string) ?? .null]) }),
+        ])
+    }
+    #endif
+
+    static func query(from params: [String: JSONValue]) throws -> HistoryQuery {
+        var query = HistoryQuery(limit: 100)
+        if let text = params["text"]?.stringValue { query.text = text }
+        if let limit = params["limit"]?.intValue { query.limit = max(1, min(limit, 5_000)) }
+        if let kind = params["kind"]?.stringValue, kind != "all" {
+            guard let parsed = HistoryEntry.Kind(rawValue: kind) else {
+                throw ControlError.invalidParams("kind must be one of all, \(HistoryEntry.Kind.allCases.map(\.rawValue).joined(separator: ", "))")
+            }
+            query.kinds = [parsed]
+        }
+        if let range = params["range"]?.stringValue {
+            guard let parsed = HistoryRange(rawValue: range) else { throw ControlError.invalidParams("range must be hour, today, week, month or all") }
+            query.range = parsed
+        }
+        return query
+    }
+
+    @MainActor
+    static func list(_ services: AppServices, _ query: HistoryQuery) async -> JSONValue {
+        let entries = await services.history.entries(query)
+        return .object(["entries": .array(entries.map(json))])
+    }
+
+    static func json(_ entry: HistoryEntry) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "id": .string(entry.id), "kind": .string(entry.kind.rawValue),
+            "time": .string(ISO8601DateFormatter().string(from: entry.time)), "title": .string(entry.title),
+            "available": .bool(entry.isAvailable),
+        ]
+        if let detail = entry.detail { object["detail"] = .string(detail) }
+        if let machine = entry.machineName { object["machine"] = .string(machine) }
+        switch entry.payload {
+        case .page(let url, let profile):
+            object["url"] = .string(url)
+            object["browser_profile"] = .string(profile)
+        case .location(let location, let isCurrent):
+            object["tab"] = .string(location.key.tab)
+            object["workspace"] = .string(location.workspace)
+            object["current"] = .bool(isCurrent)
+        case .closed(let item):
+            object["closed_id"] = .string(item.id)
+            if let url = item.url { object["url"] = .string(url) }
+            if let cwd = item.cwd { object["cwd"] = .string(cwd) }
+        case .agent(let session):
+            object["provider"] = .string(session.provider)
+            object["session_id"] = .string(session.sessionID)
+            object["running"] = .bool(session.endedAt == nil)
+            if let cwd = session.cwd { object["cwd"] = .string(cwd) }
+            if let command = session.resumeCommand { object["resume_command"] = .string(command) }
+        case .command(let command):
+            if let text = command.command { object["command"] = .string(text) }
+            if let cwd = command.cwd { object["cwd"] = .string(cwd) }
+            if let code = command.exitCode { object["exit_code"] = .number(Double(code)) }
+        }
+        return .object(object)
+    }
+}

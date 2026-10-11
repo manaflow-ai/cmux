@@ -18,9 +18,22 @@ public struct PaletteSection: Hashable, Sendable {
         PaletteSection(id: "recent", title: PaletteStrings.sectionRecent, order: -100)
     }
 
+    /// The catalog's first-use commands on the empty query, after Recent.
+    public static var suggested: PaletteSection {
+        PaletteSection(id: "suggested", title: PaletteStrings.sectionSuggested, order: -90)
+    }
+
     /// Unsectioned results, such as the submit row of a text entry page.
     public static var results: PaletteSection {
         PaletteSection(id: "results", title: "", order: 0)
+    }
+}
+
+extension PaletteCommand {
+    /// The command runs and keeps the palette open (a toggle row).
+    public var togglesInPlace: Bool {
+        if case .performKeepingOpen = effect { return true }
+        return false
     }
 }
 
@@ -32,6 +45,9 @@ public enum PaletteEffect {
     case performKeepingOpen(@MainActor () -> Void)
     /// Open a nested list inside the palette.
     case push(PalettePageSpec)
+    /// Show this page in the current one's place, keeping the palette open
+    /// (a tree page's step, ``PaletteHierarchy``).
+    case replace(PalettePageSpec)
     /// Replace the list with inline text entry ("Rename Tab…").
     case textInput(PaletteTextInputSpec)
     /// Decided when the command runs, not when the row is built: rows are

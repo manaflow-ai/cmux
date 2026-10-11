@@ -1,0 +1,170 @@
+{
+  "description": "Host session state of one remote tab (plans/cmux-next/remote-tab-protocol.md section 5.1). Each case starts from an idle session and applies the steps in order; after each step the reducer must return exactly these effects (in order) or this reject, and reach this state and capture flag. A reject leaves the session unchanged. Implementations: cmux-tui/crates/cmux-remote-browser (session.rs).",
+  "version": 1,
+  "cases": [
+    {
+      "name": "first viewer opens and the first frame makes the session live",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [
+           {"effect": "notify_state", "state": "live"}]}}
+      ]
+    },
+    {
+      "name": "a hidden pane pauses the stream and a shown pane resumes it",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [{"effect": "notify_state", "state": "live"}]}},
+        {"input": {"op": "visibility", "viewer": "v1", "visible": false},
+         "expect": {"state": "paused", "capturing": false, "reject": null, "effects": [
+           {"effect": "stop_capture"},
+           {"effect": "notify_state", "state": "paused"}]}},
+        {"input": {"op": "visibility", "viewer": "v1", "visible": true},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_capture"},
+           {"effect": "notify_state", "state": "live"}]}}
+      ]
+    },
+    {
+      "name": "the smallest visible viewer sets the screen, width and height independently, largest scale",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [{"effect": "notify_state", "state": "live"}]}},
+        {"input": {"op": "open", "viewer": "v2", "screen": {"css_width": 900, "css_height": 1000, "scale": 1.0}},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [
+           {"effect": "apply_screen", "css_width": 900, "css_height": 800, "scale": 2.0}]}},
+        {"input": {"op": "visibility", "viewer": "v2", "visible": false},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0}]}},
+        {"input": {"op": "screen", "viewer": "v1", "screen": {"css_width": 1000, "css_height": 700, "scale": 2.0}},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [
+           {"effect": "apply_screen", "css_width": 1000, "css_height": 700, "scale": 2.0}]}},
+        {"input": {"op": "screen", "viewer": "v2", "screen": {"css_width": 500, "css_height": 500, "scale": 1.0}},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": []}},
+        {"input": {"op": "leave", "viewer": "v2"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": []}}
+      ]
+    },
+    {
+      "name": "the last visible viewer leaves: the stream pauses, the page stays, a new viewer resumes it",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [{"effect": "notify_state", "state": "live"}]}},
+        {"input": {"op": "leave", "viewer": "v1"},
+         "expect": {"state": "paused", "capturing": false, "reject": null, "effects": [
+           {"effect": "stop_capture"},
+           {"effect": "notify_state", "state": "paused"}]}},
+        {"input": {"op": "open", "viewer": "v2", "screen": {"css_width": 800, "css_height": 600, "scale": 2.0}},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [
+           {"effect": "apply_screen", "css_width": 800, "css_height": 600, "scale": 2.0},
+           {"effect": "start_capture"},
+           {"effect": "notify_state", "state": "live"}]}}
+      ]
+    },
+    {
+      "name": "a renderer crash stops capture; reload opens the page again",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [{"effect": "notify_state", "state": "live"}]}},
+        {"input": {"op": "renderer_crashed"},
+         "expect": {"state": "crashed", "capturing": false, "reject": null, "effects": [
+           {"effect": "stop_capture"},
+           {"effect": "notify_state", "state": "crashed"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "crashed", "capturing": false, "reject": "unexpected", "effects": []}},
+        {"input": {"op": "reload"},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [{"effect": "notify_state", "state": "live"}]}}
+      ]
+    },
+    {
+      "name": "a first frame while every viewer is hidden pauses at once",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "visibility", "viewer": "v1", "visible": false},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": []}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "paused", "capturing": false, "reject": null, "effects": [
+           {"effect": "stop_capture"},
+           {"effect": "notify_state", "state": "paused"}]}}
+      ]
+    },
+    {
+      "name": "close stops capture and the page; later inputs are rejected",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "live", "capturing": true, "reject": null, "effects": [{"effect": "notify_state", "state": "live"}]}},
+        {"input": {"op": "close"},
+         "expect": {"state": "closed", "capturing": false, "reject": null, "effects": [
+           {"effect": "stop_capture"},
+           {"effect": "stop_page"}]}},
+        {"input": {"op": "visibility", "viewer": "v1", "visible": true},
+         "expect": {"state": "closed", "capturing": false, "reject": "closed", "effects": []}},
+        {"input": {"op": "open", "viewer": "v2", "screen": {"css_width": 800, "css_height": 600, "scale": 2.0}},
+         "expect": {"state": "closed", "capturing": false, "reject": "closed", "effects": []}}
+      ]
+    },
+    {
+      "name": "inputs before open are rejected; closing an idle session starts and stops nothing",
+      "steps": [
+        {"input": {"op": "first_frame"},
+         "expect": {"state": "idle", "capturing": false, "reject": "not_open", "effects": []}},
+        {"input": {"op": "visibility", "viewer": "v1", "visible": true},
+         "expect": {"state": "idle", "capturing": false, "reject": "not_open", "effects": []}},
+        {"input": {"op": "close"},
+         "expect": {"state": "closed", "capturing": false, "reject": null, "effects": []}}
+      ]
+    },
+    {
+      "name": "an unknown viewer is rejected and changes nothing",
+      "steps": [
+        {"input": {"op": "open", "viewer": "v1", "screen": {"css_width": 1200, "css_height": 800, "scale": 2.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": null, "effects": [
+           {"effect": "start_page"},
+           {"effect": "apply_screen", "css_width": 1200, "css_height": 800, "scale": 2.0},
+           {"effect": "start_capture"}]}},
+        {"input": {"op": "screen", "viewer": "vx", "screen": {"css_width": 400, "css_height": 300, "scale": 1.0}},
+         "expect": {"state": "opening", "capturing": true, "reject": "unknown_viewer", "effects": []}},
+        {"input": {"op": "leave", "viewer": "vx"},
+         "expect": {"state": "opening", "capturing": true, "reject": "unknown_viewer", "effects": []}}
+      ]
+    }
+  ]
+}

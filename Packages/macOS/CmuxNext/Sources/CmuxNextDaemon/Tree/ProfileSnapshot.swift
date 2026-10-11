@@ -10,7 +10,7 @@ import Foundation
 public struct ProfileSnapshot: Sendable, Hashable, Decodable, Identifiable {
     public var id: ProfileID
     public var name: String
-    /// Palette token (the 9 Chrome group color names) or `#RRGGBB[AA]`.
+    /// Palette token (the 9 group color names) or `#RRGGBB[AA]`.
     public var color: String?
     /// SF Symbol name or one emoji.
     public var icon: String?
