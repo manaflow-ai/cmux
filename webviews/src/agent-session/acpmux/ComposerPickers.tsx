@@ -472,6 +472,8 @@ function AccessMenu({
   onMode(modeId: string): void;
 }) {
   const [open, setOpen] = useState(false);
+  // Right-click and automation open it by its label (pickerOpeners.ts).
+  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
   const [optimistic, setOptimistic] = useState<{ sessionId?: string; modeId: string }>();
   useEffect(() => {
     if (optimistic && optimistic.sessionId !== sessionId) setOptimistic(undefined);

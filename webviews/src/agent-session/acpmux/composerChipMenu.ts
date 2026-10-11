@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react";
+import { openPicker } from "./pickerOpeners";
 
 /// A right-click on one of the composer's menu buttons (the + menu, model, effort, access, the
 /// folder and computer chips) opens that button's own menu, as a click does (cx-2lm4): wherever a
@@ -13,5 +14,9 @@ export function openChipMenu(event: MouseEvent<HTMLElement>) {
   if (host && host.querySelectorAll("button[aria-haspopup]").length === 1) return;
   event.preventDefault();
   event.stopPropagation();
-  if (!trigger.disabled && trigger.getAttribute("aria-expanded") !== "true") trigger.click();
+  if (trigger.disabled || trigger.getAttribute("aria-expanded") === "true") return;
+  // A menu that opens on a press, not a click (the access and effort menus), opens through its
+  // registered opener (pickerOpeners.ts), by the name automation finds it by.
+  const name = trigger.dataset.menu ?? trigger.getAttribute("aria-label");
+  if (!name || !openPicker(name)) trigger.click();
 }
