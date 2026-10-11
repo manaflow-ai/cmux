@@ -151,10 +151,12 @@ final class CloudPortAccessModel {
             }
         case .loopback:
             let previousForwardTarget = activeForwardTarget
-            run { [self, wake, startForward, stopForward, target, previousForwardTarget, stopForwardForTarget] in
-                if let previousForwardTarget {
-                    if let stopForwardForTarget { await stopForwardForTarget(previousForwardTarget) }
-                    else { await stopForward() }
+            run { [self, wake, startForward, target, previousForwardTarget, stopForwardForTarget] in
+                // A per-target route (SSH) closes the old listener first. A
+                // shared Cloud forwarder retargets its existing listener, so
+                // stopping it here would hand the page a new port.
+                if let previousForwardTarget, let stopForwardForTarget {
+                    await stopForwardForTarget(previousForwardTarget)
                     if activeForwardTarget == previousForwardTarget { activeForwardTarget = nil }
                 }
                 try Task.checkCancellation()
