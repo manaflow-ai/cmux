@@ -1,34 +1,72 @@
+import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The composer's + > Attach Screenshot… and Attach Window… (cx-ncc.71, the Codex app's Attach):
 /// `composer.capture {mode: "screen" | "window"}`. After a click in the pane, macOS `screencapture`
 /// runs its own region pick (`-i`) or window pick (`-iW`), so the selection UI and the Screen
-/// Recording permission are the system's. It answers `{name, mimeType, data}` (a base64 PNG) for
-/// the page to attach as an image, or `{cancelled: true}` when the person presses Esc.
+/// Recording permission are the system's. It answers `{name, mimeType, data}` (base64) for the
+/// page to attach as an image, or `{cancelled: true}` when the person presses Esc.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
+    /// The page's cap on an attached image (attachments.ts `MAX_IMAGE_BYTES`).
+    nonisolated static let maxBytes = 5 * 1024 * 1024
+    /// A Retina capture over the cap is scaled to this longest side first, then sent as JPEG.
+    nonisolated static let maxSide = 2560
 
     @MainActor static func reply(to mode: String?, in model: AgentPaneModel) async -> [String: Any] {
         guard let mode, mode == "screen" || mode == "window" else { return AgentPaneModel.unsupported("composer.capture") }
         // The screen goes to the agent: only a click in the pane starts a capture.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        guard let png = await capture(window: mode == "window") else { return AgentPaneReply.success(["cancelled": true]) }
-        return AgentPaneReply.success(["name": "Screenshot.png", "mimeType": "image/png", "data": png.base64EncodedString()])
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
+        guard await capture(window: mode == "window", to: file) else { return AgentPaneReply.success(["cancelled": true]) }
+        let image = await Task.detached { () -> (data: Data, mimeType: String)? in
+            defer { try? FileManager.default.removeItem(at: file) }
+            return (try? Data(contentsOf: file)).flatMap(fit)
+        }.value
+        guard let image else { return AgentPaneReply.success(["cancelled": true]) }
+        let name = image.mimeType == "image/png" ? "Screenshot.png" : "Screenshot.jpg"
+        return AgentPaneReply.success(["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()])
     }
 
-    /// The PNG `screencapture` wrote, or nil when the pick was cancelled or the tool failed.
-    nonisolated static func capture(window: Bool) async -> Data? {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
-        defer { try? FileManager.default.removeItem(at: file) }
+    /// Runs the pick; false when `screencapture` could not start.
+    nonisolated static func capture(window: Bool, to file: URL) async -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         // -x: no shutter sound; -o: no window shadow.
         process.arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
-        let ran: Bool = await withCheckedContinuation { done in
+        return await withCheckedContinuation { done in
             process.terminationHandler = { _ in done.resume(returning: true) }
             do { try process.run() } catch { done.resume(returning: false) }
         }
-        guard ran else { return nil }
-        return try? Data(contentsOf: file)
+    }
+
+    /// The capture as an image under ``maxBytes``: the PNG as written, else scaled to ``maxSide`` as
+    /// PNG, else as JPEG; nil for an empty file (Esc) or an image that still does not fit.
+    nonisolated static func fit(_ png: Data) -> (data: Data, mimeType: String)? {
+        guard !png.isEmpty else { return nil }
+        if png.count <= maxBytes { return (png, "image/png") }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxSide,
+        ]
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        if let scaled = encode(image, as: .png), scaled.count <= maxBytes { return (scaled, "image/png") }
+        if let jpeg = encode(image, as: .jpeg, quality: 0.85), jpeg.count <= maxBytes { return (jpeg, "image/jpeg") }
+        return nil
+    }
+
+    private nonisolated static func encode(_ image: CGImage, as type: UTType, quality: Double? = nil) -> Data? {
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil) else { return nil }
+        let properties = quality.map { quality -> CFDictionary in
+            let lossy: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality]
+            return lossy as CFDictionary
+        }
+        CGImageDestinationAddImage(destination, image, properties)
+        return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 }

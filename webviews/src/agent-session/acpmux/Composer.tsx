@@ -1048,7 +1048,8 @@ export function Composer({
                 {
                   choices: [
                     { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
-                    ...(capture
+                    // A harness without images would refuse the capture after the whole pick.
+                    ...(capture && allowImages
                       ? [
                           {
                             id: "screenshot",
