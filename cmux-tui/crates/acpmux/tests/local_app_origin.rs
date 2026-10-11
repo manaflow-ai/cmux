@@ -254,6 +254,22 @@ async fn a_sigterm_right_after_the_ready_line_is_a_clean_stop() {
     assert!(!d.home.join("daemon.pid").exists(), "the pid file is removed too");
 }
 
+/// A stop does not leave the daemon lock to a child. A forked child shares
+/// the daemon's descriptors until it execs, and startup forks model probes
+/// and agent hosts right after the ready line. On a loaded runner a stop in
+/// that window left the lock held after the daemon exited, and the next
+/// launch exited with "another acpmux daemon holds" (the token test above
+/// failed that way on Linux CI). The debug-only seam forks a child that
+/// sleeps without exec, as such a spawn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relaunch_after_a_stop_is_not_held_off_by_a_forked_child() {
+    let mut d = Daemon::start_with("fork-hold", &[("ACPMUX_TEST_FORK_HOLD_MS", "4000")]);
+    d.stop();
+    d.env.clear();
+    d.launch();
+    assert!(d.home.join("run/localapp.token").exists(), "the relaunched daemon serves");
+}
+
 fn unix_status(home: &Path) -> String {
     use std::io::Write;
     let mut s = std::os::unix::net::UnixStream::connect(home.join("s.sock")).unwrap();
