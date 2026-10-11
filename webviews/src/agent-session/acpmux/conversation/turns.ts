@@ -96,13 +96,63 @@ export function turnView(
     loadedFromStart,
   );
   turns.forEach(({ user, turn, held }, at) => {
-    if (dated[at]) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
     // Only the last turn can still be running.
     const last = at === turns.length - 1;
     const live = working && last;
-    out.push(user, ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset), ...held);
+    const shaped = shapedTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, dated[at]);
+    for (const row of shaped) out.push(row);
+    for (const row of held) out.push(row);
   });
   return out;
+}
+
+/// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
+/// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
+/// the same objects, so the row memos and the height cache keep them.
+type ShapedTurn = {
+  turn: readonly AcpmuxRow[];
+  open: boolean;
+  last: boolean;
+  retryable: boolean;
+  clockOffset: number;
+  dated: boolean;
+  rows: AcpmuxRow[];
+};
+const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
+
+function shapedTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  expanded: ReadonlySet<string>,
+  live: boolean,
+  last: boolean,
+  retryable: boolean,
+  clockOffset: number,
+  dated: boolean,
+): AcpmuxRow[] {
+  const shape = () => [
+    ...(dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : []),
+    user,
+    ...shapeTurn(user, turn, expanded, live, last, retryable, clockOffset),
+  ];
+  // A running turn changes with every event.
+  if (live) return shape();
+  const open = expanded.has(`${WORKED}-${user.id}`);
+  const cached = shapedTurns.get(user);
+  if (
+    cached &&
+    cached.open === open &&
+    cached.last === last &&
+    cached.retryable === retryable &&
+    cached.clockOffset === clockOffset &&
+    cached.dated === dated &&
+    cached.turn.length === turn.length &&
+    cached.turn.every((row, index) => row === turn[index])
+  )
+    return cached.rows;
+  const rows = shape();
+  shapedTurns.set(user, { turn, open, last, retryable, clockOffset, dated, rows });
+  return rows;
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";

@@ -15,6 +15,7 @@ import { applyAgentTheme } from "../shared/theme";
 import {
   diffRows,
   layoutConversation,
+  type RowHeights,
   paneHeader,
   placeRows,
   transcriptRowWidth,
@@ -904,12 +905,15 @@ export function VirtualTranscript({
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
+  /// Estimated heights by row object, for the registry they were measured with.
+  const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
   const measurementSession = useRef(sessionId);
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
     // prepared markdown and DOM heights from the old transcript must never place the new one.
     measurementSession.current = sessionId;
     measurementCache.current.clear();
+    rowHeights.current = { registry, heights: new WeakMap() };
     pendingDrawn.current.clear();
   }
   const drawnRef = useRef(drawn);
@@ -1066,8 +1070,13 @@ export function VirtualTranscript({
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
-    const layout = layoutConversation(rows, transcriptRowWidth(width), cache, (row, rowWidth) =>
-      registry[rowKind(row)]?.measure?.(row, rowWidth),
+    if (rowHeights.current.registry !== registry) rowHeights.current = { registry, heights: new WeakMap() };
+    const layout = layoutConversation(
+      rows,
+      transcriptRowWidth(width),
+      cache,
+      (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth),
+      measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
     );
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, width]);

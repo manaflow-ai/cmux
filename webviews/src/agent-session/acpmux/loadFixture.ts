@@ -1,3 +1,4 @@
+// l10n-allow-file: a debug load fixture (debug.agent_pane load_seed), never shown to a user.
 // A long, heavy session for `debug.agent_pane load_seed` / `load_run` (loadDebug.ts): thousands
 // of turns shaped like a real coding agent's, each with Markdown, a read, and every few turns a
 // large edit diff and a long shell log, as ACP events the mock daemon (mock.ts) records and

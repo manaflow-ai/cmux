@@ -512,23 +512,35 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   return Math.max(34, 16 + chromeHeight(row) + contentHeight);
 }
 
+/// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a
+/// new object), so a long chat's layout measures only the rows that changed since the last one.
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number }>;
+
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
   rows: AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
+  known?: RowHeights,
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
   let top = 0;
   for (let index = 0; index < rows.length; index += 1) {
     tops[index] = top;
-    const customHeight = measureOverride?.(rows[index], width);
-    const height =
-      customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
-        ? customHeight
-        : measuredRowHeight(rows[index], width, cache);
+    const row = rows[index]!;
+    const kept = known?.get(row);
+    let height: number;
+    if (kept && kept.width === width) height = kept.height;
+    else {
+      const customHeight = measureOverride?.(row, width);
+      height =
+        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
+          ? customHeight
+          : measuredRowHeight(row, width, cache);
+      known?.set(row, { width, height });
+    }
     heights[index] = height;
     top += height;
   }
