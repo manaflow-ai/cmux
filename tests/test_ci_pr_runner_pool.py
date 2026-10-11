@@ -555,9 +555,12 @@ def warm_lane(index: str = "") -> str:
     names its first label, the root label.
     """
     placed = "needs.admission-placement.outputs.runner"
+    # An overflow run's compile may take the free 12vcpu slot the picker names, on attempt 1 only.
+    borrowed = ("(github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && "
+                f"inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner){index} || inputs.pr_retry_runner)")
     return root_lane("' admission '").replace(
         "&& inputs.pr_retry_runner || inputs.pr_root_runner",
-        f"&& inputs.pr_retry_runner || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
+        f"&& {borrowed} || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
         f"&& fromJSON({placed}){index} || github.run_attempt == 1 && inputs.pr_admission_runner "
         f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
 
@@ -2742,9 +2745,10 @@ class Wiring(unittest.TestCase):
                       "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) "
                       "|| github.run_attempt == 1 && inputs.pr_admission_runner && "
                       "fromJSON(inputs.pr_admission_runner) ||", admission["runs-on"])
-        # Only admission reads it; its consumers follow its root label.
+        # Only admission reads it (warm pin and overflow borrow, in runs-on and
+        # CMUX_PRODUCT_RUNNER); its consumers follow its root label.
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
+        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 4)
         self.assertEqual(text.count("fromJSON(needs.admission-placement.outputs.runner)"), 2)
 
     def test_admission_uploads_its_warm_keys(self):
