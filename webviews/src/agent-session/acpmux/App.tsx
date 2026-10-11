@@ -729,11 +729,14 @@ export function VirtualTranscript({
   githubRepository,
   find,
   working = false,
+  jumpButton = false,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
   /// A reply is streaming: Jump to latest shows its dots while the reader is scrolled up.
   working?: boolean;
+  /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
+  jumpButton?: boolean;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   expanded: Set<string>;
@@ -747,8 +750,10 @@ export function VirtualTranscript({
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
-  /// The reader is scrolled up from the latest message: Jump to latest shows.
-  const [behind, setBehind] = useState(false);
+  /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
+  /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
+  /// so a reply growing below or a session switch updates it without a scroll.
+  const [following, setFollowing] = useState(true);
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
@@ -1104,7 +1109,7 @@ export function VirtualTranscript({
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       node.scrollTop = latest;
       setScroll({ top: latest, delta: 0 });
-      setBehind(false);
+      setFollowing(true);
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
@@ -1151,10 +1156,9 @@ export function VirtualTranscript({
     pacing.scrolled();
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
-    const away = layout.totalHeight - event.currentTarget.clientHeight - next;
     flushSync(() => {
       setScroll((current) => ({ top: next, delta: next - current.top }));
-      setBehind(!scrolledTo.current.atLatest && away > JUMP_LATEST_DISTANCE);
+      setFollowing(scrolledTo.current.atLatest);
     });
   };
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
@@ -1165,15 +1169,29 @@ export function VirtualTranscript({
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const target = Math.max(0, layout.totalHeight - node.clientHeight);
     node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
+    // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
+    // reply grew past it. Only the reader's own scroll meanwhile cancels it.
     clearTimeout(settle.current);
     settle.current = setTimeout(() => {
-      // Only a jump that arrived: a reader who scrolled up meanwhile stays where they went.
+      settle.current = undefined;
       const scroller = ref.current;
-      if (scroller && scroller.scrollTop >= target - 1)
-        scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     }, JUMP_LATEST_SETTLE_MS);
   };
-  useEffect(() => () => clearTimeout(settle.current), []);
+  useEffect(() => {
+    const node = ref.current;
+    const reader = () => {
+      clearTimeout(settle.current);
+      settle.current = undefined;
+    };
+    const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
+    for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
+    return () => {
+      clearTimeout(settle.current);
+      for (const name of inputs) node?.removeEventListener(name, reader);
+    };
+  }, []);
+  const behind = !following && layout.totalHeight - height - scroll.top > JUMP_LATEST_DISTANCE;
   return (
     <>
       <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
@@ -1234,7 +1252,7 @@ export function VirtualTranscript({
           </div>
         </div>
       </div>
-      <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />
+      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
     </>
   );
 }
@@ -2992,6 +3010,8 @@ function AcpmuxPane() {
               <VirtualTranscript
                 rows={transcriptRows}
                 working={snapshot.isWorking}
+                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                jumpButton={!quick}
                 find={quick ? undefined : find}
                 sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                 canLoadOlder={snapshot.canLoadOlder}

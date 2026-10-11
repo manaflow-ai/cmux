@@ -86,7 +86,9 @@ test("scrolled up, a button above the composer jumps to the latest message, with
   const root = createRoot(dom.window.document.getElementById("root")!);
   const rows = turnView(turns, new Set());
   const render = (working: boolean) =>
-    root.render(<VirtualTranscript rows={rows} working={working} onToggleActivity={() => {}} expanded={new Set()} />);
+    root.render(
+      <VirtualTranscript rows={rows} working={working} jumpButton onToggleActivity={() => {}} expanded={new Set()} />,
+    );
   try {
     await act(async () => render(false));
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -118,6 +120,23 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     expect(button()?.dataset.shown).toBeUndefined();
     // Hidden, it is inert: out of the tab order and the accessibility tree.
     expect(button()?.hasAttribute("inert")).toBe(true);
+
+    // Scrolled up again, then the transcript changes to one that fits the viewport (another chat):
+    // nothing is below, so the button hides without a scroll.
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(button()?.dataset.shown).toBe("");
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns.slice(0, 3), new Set())}
+          jumpButton
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    expect(button()?.dataset.shown).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
