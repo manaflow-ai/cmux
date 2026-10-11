@@ -49,8 +49,20 @@ struct ClassicImportTests {
         #expect(shapes.contains("right(api,logs|web)"), "\(shapes)")
     }
 
+    /// An SSH or Cloud VM workspace stays in classic: its terminals ran on
+    /// another machine, and a local shell in its folder is the wrong place.
+    @Test func aRemoteWorkspaceStaysInClassic() async throws {
+        let title = "\"customTitle\":\"split api\""
+        let shapes = try await importedShapes { session in
+            #expect(session.contains(title), "the fixture's split workspace changed")
+            return session.replacingOccurrences(of: title, with: title + ",\"remote\":{\"destination\":\"dev.example.test\"}")
+        }
+        #expect(shapes.isEmpty, "\(shapes)")
+    }
+
     /// Runs the action on the fixture (after `edit`) and returns the pane
-    /// trees of the workspace holding classic's web tab.
+    /// trees of the workspace holding classic's web tab (none when no
+    /// workspace holds it).
     private func importedShapes(_ edit: (String) -> String) async throws -> [String] {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-classic-\(UUID().uuidString.prefix(8))")
@@ -84,12 +96,26 @@ struct ClassicImportTests {
             services.daemon.shutdownConnection()
             for controller in services.windows.controllers { controller.window?.close() }
         }
+        // The daemon ends with its terminals on every path, a failed expectation included.
+        let shapes: Result<[String], any Error>
+        do { shapes = .success(try await Self.importAndRead(services)) } catch { shapes = .failure(error) }
+        if let connection = services.daemon.connection, let identity = services.daemon.identity {
+            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                              timeout: .seconds(10))
+        }
+        return try shapes.get()
+    }
+
+    /// Waits for the launch, runs the action and returns the pane trees of
+    /// the workspace holding classic's web tab, if one does.
+    private static func importAndRead(_ services: AppServices) async throws -> [String] {
         let deadline = ContinuousClock.now + .seconds(90)
         // The launch is ready once restore has made its first terminal.
-        while !services.daemon.store.workspaces.contains(where: { $0.screens.contains { !$0.panes.isEmpty } }),
-              ContinuousClock.now < deadline {
+        func ready() -> Bool { services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }
+        while !ready(), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        try #require(ready(), "the launch made no terminal")
         let connection = try #require(services.daemon.connection)
 
         var ran = false
@@ -98,14 +124,10 @@ struct ClassicImportTests {
         for task in work { #expect(await task.value == nil) }
 
         let tree = try await connection.listWorkspaces()
-        let screen = try #require(tree.workspaces.first { workspace in
+        guard let screen = tree.workspaces.first(where: { workspace in
             workspace.screens.contains { $0.panes.contains { $0.tabs.contains { ($0.name ?? $0.title) == "web" } } }
-        }?.screens.first, "no imported workspace holds classic's web tab")
+        })?.screens.first else { return [] }
         let trees = [screen.layout] + screen.columns.flatMap { [$0.layout] + $0.rows.map(\.layout) }
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
-        }
-        return trees.map { Self.shape($0, screen.panes) }
+        return trees.map { shape($0, screen.panes) }
     }
 }
