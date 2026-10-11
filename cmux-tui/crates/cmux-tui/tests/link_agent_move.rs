@@ -106,6 +106,8 @@ struct Source {
     lose_begin_answer: bool,
     /// The tab now shows another chat (its session id), not [`SESSION`].
     rebound: Option<String>,
+    /// `agent-session-attach` calls (each marks the chat seen).
+    attached: usize,
 }
 
 impl Source {
@@ -115,7 +117,11 @@ impl Source {
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         let transfer = request["transfer_id"].as_str().map(str::to_string);
-        if self.rebound.is_some() && cmd != "agent-session-attach" {
+        if cmd == "agent-session-attach" {
+            // Attaching marks the chat seen and logs it: a pump must not.
+            self.attached += 1;
+        }
+        if self.rebound.is_some() && cmd != "agent-transfer-source" {
             // The tab's chat is another one, in no move.
             return match cmd {
                 "agent-transfer-commit" | "agent-transfer-abort" => {
@@ -125,10 +131,9 @@ impl Source {
             };
         }
         match cmd {
-            "agent-session-attach" => {
+            "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
-                Reply::Data(json!({"session": {"sessionId": session}, "events": [],
-                                   "hasMore": false, "lastSeq": 0}))
+                Reply::Data(json!({"session": session}))
             }
             "agent-transfer-begin" => {
                 if self.committed.is_some() {
@@ -154,7 +159,7 @@ impl Source {
                     .iter()
                     .map(|(path, bytes)| json!({"path": path, "size": bytes.len()}))
                     .collect();
-                Reply::Data(json!({"transfer_id": id, "manifest": {
+                Reply::Data(json!({"transfer_id": id, "source_session": SESSION, "manifest": {
                     "schema": "acpmux.transfer.v1", "transferId": id, "sessionId": SESSION,
                     "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}}))
             }
@@ -427,6 +432,7 @@ impl World {
             "one JSON line on stdout: {stdout}{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        assert_eq!(self.source.lock().unwrap().attached, 0, "the pump never attaches the chat");
         (output.status.code().unwrap(), serde_json::from_str(lines[0]).unwrap())
     }
 

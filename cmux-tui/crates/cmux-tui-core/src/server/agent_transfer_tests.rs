@@ -143,6 +143,7 @@ fn every_verb(surface: u64, cwd: &str) -> Vec<Value> {
         json!({"id":6,"cmd":"agent-transfer-commit","surface":surface,"transfer_id":"xfer_1",
                "to":{"machine":"vm"}}),
         json!({"id":7,"cmd":"agent-transfer-abort","surface":surface,"transfer_id":"xfer_1"}),
+        json!({"id":8,"cmd":"agent-transfer-source","surface":surface}),
     ]
 }
 
@@ -857,4 +858,63 @@ fn a_receive_abort_during_a_running_finish_cannot_say_yet() {
     // Once it settled, the question gets an answer.
     let asked = asker.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
     assert_eq!(ok_data(&asked)["forgotten"], json!(true));
+}
+
+#[test]
+fn a_finish_that_cannot_reach_acpmux_leaves_the_receive_askable_and_finishable() {
+    let fake = FakeAcpmux::start("xfinconn");
+    let home = Home::new("finconn");
+    let mux = transfer_mux(&fake, "atx-finconn", &home, true);
+    let mut client = Client::connect(&mux, "xfinconn");
+    let mut landing = manifest();
+    landing["transferId"] = json!("xfer_landed");
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":landing,
+                                         "cwd":home.text("work/project")}));
+    ok_data(&received);
+    let _ = fake.frame();
+    // acpmux restarts: the finish cannot connect.
+    mux.set_acpmux_socket(Some(home.path.join("gone.sock")));
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unavailable");
+    mux.set_acpmux_socket(Some(fake.socket.clone()));
+    // The pump runs again: the finish can be sent again and lands.
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
+    let asked = client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked)["landed"], json!(true));
+}
+
+#[test]
+fn a_receive_abort_after_a_finish_that_could_not_connect_gets_a_real_answer() {
+    let fake = FakeAcpmux::start("xfinconn2");
+    let home = Home::new("finconn2");
+    let mux = transfer_mux(&fake, "atx-finconn2", &home, true);
+    let mut client = Client::connect(&mux, "xfinconn2");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    mux.set_acpmux_socket(Some(home.path.join("gone.sock")));
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unavailable");
+    mux.set_acpmux_socket(Some(fake.socket.clone()));
+    let asked = client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked), &json!({"dropped": true, "forgotten": true, "landed": false}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_forget"));
+}
+
+#[test]
+fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
+    let fake = FakeAcpmux::start("xsource");
+    let home = Home::new("source");
+    let mux = transfer_mux(&fake, "atx-source", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xsource");
+    let read = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
+    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    // Begin answers the same session it froze, so a pump can pin it.
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
+    assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
+    skip_begin(&fake);
+    let read = client.request(json!({"cmd":"agent-transfer-source","surface":999_999}));
+    assert_code(&read, "agent_transfer.unknown_tab");
+    fake.no_frame();
 }
