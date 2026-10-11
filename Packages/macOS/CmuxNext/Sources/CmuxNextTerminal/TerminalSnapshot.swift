@@ -90,8 +90,12 @@ public final class TerminalMirrorView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        if holdsDemand { session?.mirrorDemand -= 1 }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if holdsDemand { session?.mirrorDemand -= 1 }
+        }
     }
 
     public override func viewDidMoveToWindow() {

@@ -87,6 +87,7 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
+      retention_days: 30  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: true

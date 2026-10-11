@@ -12,6 +12,9 @@ struct SidebarGroupEditing {
 
     /// The id of the editor's trailing row that shows the group's full menu.
     static let moreActionsItem = "sidebar.group.moreActions"
+    /// Not a row: the editor is about to give way to another picker (the
+    /// color panel) that still edits this group, so a new empty group stays.
+    static let keepGroupItem = "sidebar.group.keep"
 
     /// The editor's rows when the App gives none: the shared group actions.
     static func standardItems() -> [[SidebarGroupEditorItem]] {
@@ -78,8 +81,8 @@ struct SidebarGroupEditing {
         open(group.id)
     }
 
-    /// The group's full menu (every group action), under its chip.
-    private func showMenu(_ id: GroupID) {
+    /// The group's full menu under its chip: its more button, a right-click, the editor's last row.
+    func showMenu(_ id: GroupID) {
         guard let menu = list.contextMenuProvider?(.group(id)), let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
         _ = menu.popUp(positioning: nil, at: NSPoint(x: view.labelFrame.minX, y: view.labelFrame.maxY + Metrics.space1), in: view)
     }

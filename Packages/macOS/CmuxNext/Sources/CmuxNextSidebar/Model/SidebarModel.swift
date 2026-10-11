@@ -323,6 +323,7 @@ public final class SidebarModel {
         o.filterMatches = filterMatches
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
+        o.activeWorkspaceID = activeWorkspaceID
         o.workspaceRow = workspaceRow
         o.minimal = minimal
         o.flattensMachines = !groupsByComputer

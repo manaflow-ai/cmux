@@ -6,12 +6,12 @@
  *   dense (:root[data-settings-look="dense"], a gallery variant): no cards, hairline rows, tighter type.
  * The render rule holds: containers stay transparent; only controls and interaction states fill,
  * with --input-bg, --accent-soft, or --accent for an on control (a switch, a default button).
- * The accent is neutral (the no-blue rule): the theme's text color, never the palette hue the app
- * theme derives for --cmux-app-accent; the knob on it is the window surface.
+ * The accent is --cmux-accent: neutral by default (the no-blue rule: the theme's text color), the
+ * theme's own hue with appearance.accent; the knob on it is --cmux-on-accent.
  */
 :root {
-  --accent: var(--text);
-  --on-accent: var(--cmux-app-window, var(--cmux-surface-token, Canvas));
+  --accent: var(--cmux-accent, var(--text));
+  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-token, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
   --row-pad-y: 7px;

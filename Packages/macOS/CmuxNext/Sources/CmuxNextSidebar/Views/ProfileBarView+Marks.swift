@@ -68,7 +68,7 @@ extension ProfileBarView {
     /// the sidebar chrome (less for the current space, so its color reads).
     // theme-scoped: called only from drawMarks(), inside performWithTheme
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
-        let base = profile.color?.swatch ?? Palette.textPrimary
+        let base = profile.color?.markColor ?? Palette.textPrimary
         return Self.markColor(base: base, step: Palette.stripStep, active: active)
     }
 
@@ -89,6 +89,18 @@ extension ProfileBarView {
     }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
+    /// The History dot (cx-zlnl): a clock, dim like the "+" until hovered.
+    func drawHistory(in rect: NSRect) {
+        // A compact strip's narrow slot gets a smaller clock, so it never overlaps the dots beside it.
+        let config = NSImage.SymbolConfiguration(pointSize: min(Metrics.smallIconSize - Metrics.space1, rect.width - 4), weight: .regular)
+        guard let image = NSImage(systemSymbolName: "clock", accessibilityDescription: Strings.history)?.withSymbolConfiguration(config) else { return }
+        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.historyIndex ? 0.6 : 0.35)
+        let tinted = image.tinted(color.withAlphaComponent(1))
+        let size = tinted.size
+        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+    }
+
     func drawPlus(in rect: NSRect) {
         let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
         image.accessibilityDescription = Strings.newProfile

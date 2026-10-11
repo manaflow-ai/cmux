@@ -2343,6 +2343,22 @@ impl std::fmt::Debug for WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    /// The registry id stored for `session_name` under the state root `root`,
+    /// read without the session's locks (its owner may be running). `None`:
+    /// no registry exists there, so no owner of that state dir is running.
+    pub fn stored_registry_id(root: &Path, session_name: &str) -> anyhow::Result<Option<String>> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let db_path = platform::normalize_filesystem_path(
+            persistent_session_state_dir(&root, session_name).join(WORKSPACE_REGISTRY_FILE),
+        );
+        if !db_path.is_file() {
+            return Ok(None);
+        }
+        let connection = open_registry_database_read_only(&db_path)?;
+        connection.busy_timeout(std::time::Duration::from_millis(500))?;
+        meta_value(&connection, "registry_id")
+    }
+
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(

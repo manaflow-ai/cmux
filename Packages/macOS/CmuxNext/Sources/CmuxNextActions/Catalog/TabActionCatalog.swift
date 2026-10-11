@@ -23,12 +23,31 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square.on.square", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.tab]
             ),
+            // Chrome's New Tab to the Right (cx-d0d.58): Cmd-T's tab, right after this tab
+            // whatever `tabs.newTabPosition` says.
+            ActionDescriptor(
+                id: "newTab.toRight",
+                title: String(localized: "action.newTab.toRight", defaultValue: "New Tab to the Right", bundle: .module),
+                keywords: ["tab", "new", "right", "after", "next to", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
+                targets: [.tab]
+            ),
             ActionDescriptor(
                 id: "newTab.page",
                 title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),
                 keywords: ["tab", "terminal", "browser", "agent", "chat", "new tab page"],
                 category: .tab, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "tab new-page"
+            ),
+            // New Horizontal Tab (cx-soza): a tab in the focused pane, turning its tab bar on first,
+            // where Cmd-T opens a workspace from a pane that hides it. No default key (Cmd-N stays
+            // New Workspace until Lawrence decides).
+            ActionDescriptor(
+                id: "newTab.horizontal",
+                title: String(localized: "action.newTab.horizontal", defaultValue: "New Horizontal Tab", bundle: .module),
+                keywords: ["tab", "tab bar", "strip", "horizontal", "inside", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.pane]
             ),
             ActionDescriptor(
                 id: "newTab.submit",
@@ -149,6 +168,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "workspace", "switch", "previous", "sidebar"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
+            ),
+            // Hint mode (cx-zjtn.1): label every clickable control in the
+            // window, type a label to click it. A preview feature for now;
+            // its key is the leader chord Cmd-J F (LeaderLayer).
+            ActionDescriptor(
+                id: "hints.show",
+                title: String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module),
+                keywords: ["hint", "vimium", "keyboard", "click", "jump", "label"],
+                category: .window, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard]
             ),
             ActionDescriptor(
                 id: "nextSurface",

@@ -52,7 +52,20 @@ const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux ch
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
 
+/// The daemon settings owner (cx-9ce.10) has no CLI verb or MCP policy yet:
+/// `cmux settings` stays on the app socket with its user confirm sheet, and
+/// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
+/// policy decision cx-ncc.32.
+const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("settings.schema", SETTINGS_REASON),
+    ("settings.list", SETTINGS_REASON),
+    ("settings.get", SETTINGS_REASON),
+    ("settings.snapshot", SETTINGS_REASON),
+    ("settings.set", SETTINGS_REASON),
+    ("settings.reset", SETTINGS_REASON),
+    ("settings.reset_all", SETTINGS_REASON),
     ("credential.verify", CREDENTIAL_REASON),
     ("credential.mint", CREDENTIAL_REASON),
     ("credential.rotate", CREDENTIAL_REASON),

@@ -506,6 +506,12 @@
       ]
     },
     {
+      "name": "agent-presence-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bell",
       "streams": [
         "subscribe"

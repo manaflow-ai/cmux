@@ -4,12 +4,20 @@
 Each scenario starts `debug.window_record` (the window as composited, one JPEG
 per display frame plus frames.json), runs one sidebar change through the
 control socket, and keeps the frames in OUT/<scenario>/. `sidebar.json` holds
-the sidebar's width in window points, for cropping. Scenarios: new workspace,
-new workspace below, a tab row insert (Show Tabs Under Workspaces on), move
-workspace up and down, move to a new group, group up, and a row drag reorder
-(`debug.mouse`). The script attaches to an app already running (a capture
-slot's `capture-host launch`, or a tagged build) through its debug socket and
-never launches or quits it.
+the sidebar's width in window points, for cropping. Scenarios run with default
+settings: new workspace, new workspace below, move workspace up and down, move
+to a new group, group up, a row drag reorder and a drag onto a workspace
+(`debug.mouse`). Show Tabs Under Workspaces is off by default, so it is turned
+on only for the tab-row scenarios (a tab row insert, and a drag with a
+workspace's tab rows on its card) and off again after them. The drag onto a
+workspace runs last: its drop opens the new group's name editor. The setting
+lives in the user's cmux.json, which a capture mini's slots share, so the
+script sets it rather than toggling it, and unsets it at the start and the
+end. The script attaches to an app already running (a capture slot's
+`capture-host launch`, or a tagged build) through its debug socket and never
+launches or quits it.
+
+Strips: scripts/cmux-next/motion-frame-strip.py OUT SCENARIO [EVERY] [COUNT].
 
 Usage: sidebar-motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR [--only NAME ...]
 """
@@ -74,24 +82,71 @@ def center(row):
     return frame.get("x", 0) + frame.get("width", 0) / 2, frame.get("y", 0) + frame.get("height", 0) / 2
 
 
-def record(name, trigger):
+def drag_onto(dragged, target):
+    """Drags `dragged` down toward `target` a step at a time and releases
+    once the card's head (the grabbed row, centred on the pointer) sits
+    mid-row on a loose workspace, the band where a drop groups
+    (SidebarGroupBand)."""
+    x, y = center(dragged)
+    _, target_y = center(target)
+    to = target_y - 40
+    rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to, "steps": 20, "release": False})
+    for _ in range(60):
+        over = [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")
+                and r.get("key") != dragged.get("key") and not r.get("group") and not r.get("suppressed")]
+        hit = next((r for r in over if 0.4 <= (to - (r.get("window_frame") or {}).get("y", 0))
+                    / max(1, (r.get("window_frame") or {}).get("height", 1)) <= 0.6), None)
+        if hit:
+            break
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": to, "to_x": x, "to_y": to + 2, "steps": 1, "press": False, "release": False})
+        to += 2
+    print(f"drag-onto: released at {to} over {hit and hit.get('title')}", flush=True)
+    time.sleep(0.3)  # test harness: the onto highlight shows before the drop
+    return rpc("debug.mouse", {"action": "up", "x": x, "y": to})
+
+
+def record(name, trigger, seconds=None):
+    seconds = seconds or opts.seconds
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, name)
     os.makedirs(directory, exist_ok=True)
-    started = rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
+    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
     time.sleep(0.15)  # test harness: a few still frames before the change
     reply = trigger()
-    time.sleep(opts.seconds + 0.6)  # test harness: the recording stops by itself
+    time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{name}: {frames} frames; record={json.dumps(started)[:120]} reply={json.dumps(reply)[:160]}", flush=True)
     time.sleep(0.5)  # test harness: let the list settle before the next scenario
+
+
+def set_tab_rows(on):
+    """Show Tabs Under Workspaces on, or back to its default (off, the key
+    unset). Set, not toggled: the cmux.json a capture mini's slots share
+    may hold another run's choice."""
+    if on:
+        rpc("settings.set", {"path": "sidebar.showWorkspaceTabs", "value": True})
+    else:
+        rpc("settings.unset", {"path": "sidebar.showWorkspaceTabs"})
+    wait(lambda: bool(rows("tab")) == on, 5)
+    time.sleep(0.5)  # test harness: the list settles
+
+
+def drag_reorder(suffix=""):
+    """A loose workspace dropped between two others: a reorder."""
+    workspace_rows = [r for r in rows("workspace") if not r.get("group")]
+    if len(workspace_rows) >= 5:
+        x, y = center(workspace_rows[1])
+        to_y = (workspace_rows[4].get("window_frame") or {}).get("y", 0) - 2
+        record("drag-reorder" + suffix, lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
+        time.sleep(0.5)  # test harness: the drop settles
 
 
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
+    set_tab_rows(False)  # the default
     action("workspace.selectFirst")
     while len(rows("workspace")) < 6:
         action("newTab")
@@ -109,17 +164,21 @@ def main():
     record("move-up", lambda: action("moveWorkspaceUp"))
     record("new-group", lambda: action("workspace.moveToNewGroup"))
     record("group-up", lambda: action("workspaceGroup.moveUp"))
-    if not rows("tab"):
-        action("sidebar.workspaceTabs.toggle")
-        time.sleep(1.0)  # test harness: tab rows appear
-    action("workspace.selectFirst")
-    time.sleep(0.5)  # test harness: selection settles
-    record("new-tab-row", lambda: action("newSurface"))
-    workspace_rows = rows("workspace")
-    if len(workspace_rows) >= 3:
-        x, y = center(workspace_rows[0])
-        _, to_y = center(workspace_rows[2])
-        record("drag-reorder", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y + 4, "steps": 30}))
+    drag_reorder()
+    # Tab rows only for these scenarios, and off again after them.
+    set_tab_rows(True)
+    try:
+        action("workspace.selectFirst")
+        time.sleep(0.5)  # test harness: selection settles
+        record("new-tab-row", lambda: action("newSurface"))
+        drag_reorder("-tab-rows")
+    finally:
+        set_tab_rows(False)
+    # Last: a drop onto a workspace groups the two and opens the group's
+    # name editor, which a scenario after it would record over.
+    workspace_rows = [r for r in rows("workspace") if not r.get("group")]
+    if len(workspace_rows) >= 4:
+        record("drag-onto", lambda: drag_onto(workspace_rows[1], workspace_rows[3]), seconds=3)
     print("\nRESULT PASS (recorded)")
 
 

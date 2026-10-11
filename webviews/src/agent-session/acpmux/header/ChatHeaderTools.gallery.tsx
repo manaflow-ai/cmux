@@ -9,6 +9,11 @@ type HeaderToolsProps = {
   onTerminal: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
+  sideTabs?: boolean;
+  hasChanges?: boolean;
+  onChanges?: (mode: "toggle" | "open") => void;
+  previewUrl?: string;
+  onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
@@ -20,12 +25,14 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: () => undefined },
   {
     key: "pin",
-    label: "Pin tab",
+    label: "Pin",
     icon: "action.pin",
     shortcutAction: "palette.toggleTabPin",
     onSelect: () => undefined,
   },
   "separator",
+  { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
   {
     key: "continue",
     label: "Continue in",
@@ -35,11 +42,23 @@ const menuRows = (): ChatMenuItem[] => [
       { key: "claude", label: "Claude Code", onSelect: () => undefined },
     ],
   },
-  { key: "copy-link", label: "Copy link", icon: "link", onSelect: () => undefined },
   "separator",
-  { key: "move-right", label: "Move to pane right", icon: "pane.split.right", onSelect: () => undefined },
+  {
+    key: "copy",
+    label: "Copy",
+    icon: "action.copy",
+    children: [
+      { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
+      { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
+      { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+    ],
+  },
+  "separator",
+  { key: "move-right", label: "Move to right pane", icon: "pane.split.right", onSelect: () => undefined },
   { key: "new-workspace", label: "Move to new workspace", icon: "workspace.new", onSelect: () => undefined },
+  { key: "new-window", label: "Open in new window", icon: "app.open.external", onSelect: () => undefined },
   "separator",
+  { key: "archive", label: "Archive", icon: "inbox", onSelect: () => undefined },
   // The tab-owned close action stays the last row, like Chrome's tab actions.
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
@@ -54,6 +73,14 @@ const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+};
+
+// The App reports Terminal's, Browser's, Changes' and Preview's panels open and panes beside the chat
+// (its headerState push).
+const panelsOpen: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer", "preview"], sideTabs: true });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
 const keyboardMenu: Play = async (ctx) => {
@@ -124,6 +151,18 @@ export default componentEntry<HeaderToolsProps>({
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
       props: base,
+    },
+    "panels-open": {
+      note: "Terminal, Browser, Changes, Preview and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      props: {
+        ...base,
+        sideTabs: true,
+        hasChanges: true,
+        onChanges: () => undefined,
+        previewUrl: "http://localhost:5173/",
+        onPreview: () => undefined,
+      },
+      play: panelsOpen,
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",

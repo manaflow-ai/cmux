@@ -218,7 +218,7 @@ nonisolated enum ChiefMigration {
     // MARK: Locks
 
     /// The flock(2) a host holds on its `state/host.lock` for its whole life.
-    final class HostLock {
+    nonisolated final class HostLock {
         private var descriptor: Int32
 
         init?(path: URL) {
