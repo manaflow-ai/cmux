@@ -129,6 +129,16 @@ extension AgentPaneView {
         case .keyNotHeld:
             reason = String(localized: "agentPane.remoteApprovals.failure.notHeld",
                             defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .module)
+        case .daemonTooOld:
+            reason = String(localized: "agentPane.remoteApprovals.failure.tooOld",
+                            defaultValue: "the agent daemon there is too old for approvals from cmux. Update the machine, then try again",
+                            bundle: .module)
+        case .machineNotRunning:
+            reason = String(localized: "agentPane.remoteApprovals.failure.notRunning",
+                            defaultValue: "the machine is not running", bundle: .module)
+        case .notSingleOwner:
+            reason = String(localized: "agentPane.remoteApprovals.failure.notOwner",
+                            defaultValue: "approvals from cmux work only on a Cloud machine that you alone own", bundle: .module)
         case .failed(let message):
             reason = message
         }
