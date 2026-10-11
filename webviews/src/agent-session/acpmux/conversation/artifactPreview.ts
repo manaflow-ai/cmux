@@ -30,5 +30,23 @@ export function previewHtml(artifact: Artifact): string {
   return `<style>body{display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center}svg{max-width:100%;height:auto}</style>${artifact.code}`;
 }
 
+/// The name a saved document is offered under: an HTML or SVG `<title>`, a Markdown document's first
+/// heading; empty when it has none (the host names it).
+export function documentName(artifact: Artifact): string {
+  if (artifact.kind === "markdown") {
+    // A `#` line inside a code fence is code, not a heading.
+    const prose = artifact.code.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, "");
+    const heading = /^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m.exec(prose);
+    return (heading?.[1] ?? "").replace(/\s+/g, " ").trim();
+  }
+  const title = /<title[^>]*>([^<]*)<\/title>/i.exec(artifact.code)?.[1] ?? "";
+  return title
+    .replace(/&(amp|lt|gt|quot|#39);/g, (_, name: string) => ENTITIES[name])
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
+
 /// Opens a fence in the side panel; unset where the page has none (a gallery, a test).
 export const ArtifactContext = createContext<((artifact: Artifact) => void) | undefined>(undefined);

@@ -127,10 +127,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public internal(set) var chosenFolder: String?
     @ObservationIgnored internal(set) var handshakeCwd: String?
 
-    /// Saves the inspector's exported log (text, suggested file name) where
-    /// the user picks; true when saved, false when the user cancelled. Nil
-    /// leaves the page to copy the log instead.
-    @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
+    /// Saves the inspector's exported log or a side panel document where the user picks; true
+    /// when saved, false when the user cancelled. Nil leaves the page to copy the text instead.
+    @ObservationIgnored public var onSaveFile: (@MainActor (AgentPaneSave) async throws -> Bool)?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
@@ -303,7 +302,7 @@ public final class AgentPaneModel {
         case .gitPullRequest(let request): return await AgentPaneGitPullRequest.reply(to: request, in: self)
         case .projectInstructions(let request): return await AgentPaneProjectInstructions.reply(to: request, in: self)
         case .reply(let reply): return await respond(to: reply)
-        case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
+        case .saveFile(let save): return await saveFile(save)
         case .showContextUsage(let show): return await showContextUsage(show)
         case .unsupported(let method): return Self.unsupported(method)
         }
