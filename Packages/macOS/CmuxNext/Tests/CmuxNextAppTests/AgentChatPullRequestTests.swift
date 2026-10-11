@@ -18,7 +18,7 @@ struct AgentChatPullRequestTests {
         """
 
     /// A folder and a fake `gh` that prints `view` when run there with the expected arguments.
-    private static func rig() throws -> (folder: String, gh: String) {
+    private static func rig(view: String = view) throws -> (folder: String, gh: String) {
         let base = FileManager.default.temporaryDirectory.appending(path: "header-pr-\(UUID().uuidString)").path
         let folder = base + "/repo", gh = base + "/gh"
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -69,6 +69,19 @@ struct AgentChatPullRequestTests {
         _ = pullRequests.badge(cwd: elsewhere)
         try await Task.sleep(for: .milliseconds(300))
         #expect(pullRequests.badge(cwd: elsewhere) == nil)
+    }
+
+    /// While checks run, the chat asks again on its own once the answer is stale, so the dot turns
+    /// when they finish even if nothing else changes the header.
+    @Test func pendingChecksAreAskedAgain() async throws {
+        let rig = try Self.rig(view: #"{"url":"https://github.com/o/r/pull/8","number":8,"state":"OPEN","isDraft":false,"statusCheckRollup":[{"status":"IN_PROGRESS","conclusion":""}]}"#)
+        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh), freshness: .milliseconds(100))
+        _ = pullRequests.badge(cwd: rig.folder)
+        for _ in 0..<200 where Self.calls(rig.gh) < 3 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(Self.calls(rig.gh) >= 3)
+        #expect(AgentPanePullRequest.checks([["status": "COMPLETED", "conclusion": "STALE"]]).state == "pending")
     }
 
     /// The header state always names the pull request, `null` when there is none, so the page drops
