@@ -33,7 +33,6 @@ import {
   type VmCreateInProgressError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
-  type VmOperationDeadlineError,
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
@@ -77,7 +76,7 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderTlsRuleLimitError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
@@ -917,6 +916,9 @@ export const vmWorkflowErrorResponders = {
     if (providerCauseIs(error.cause, ProviderGuestUnresponsiveError)) {
       return vmGuestUnresponsiveResponse(error, context.locale);
     }
+    if (providerCauseIs(error.cause, ProviderReadDeadlineError)) {
+      return vmProviderTimeoutResponse(error, context.locale);
+    }
     if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
       return vmNetworkFullResponse(error);
     }
@@ -1148,14 +1150,15 @@ export const vmWorkflowErrorResponders = {
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,
-  VmOperationDeadlineError: (error, context) => vmOperationDeadlineResponse(error, context.locale),
 } as const satisfies VmWorkflowErrorResponders;
 
 /**
- * A read's answer deadline passed (routeDeadline.ts): a retryable provider
- * timeout, not the generic outage.
+ * A provider read did not answer within the route's budget and was aborted
+ * (routeDeadline.ts): a retryable provider timeout, not the generic outage.
+ * Not an operator fault per request (observability.ts); its rate is read from
+ * the `cmux.vm.error_code` span attribute.
  */
-async function vmOperationDeadlineResponse(error: VmOperationDeadlineError, locale: Locale): Promise<Response> {
+async function vmProviderTimeoutResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmProviderTimeoutCopy(locale);
   return vmErrorResponse({
     error: "vm_provider_timeout",
@@ -1167,7 +1170,8 @@ async function vmOperationDeadlineResponse(error: VmOperationDeadlineError, loca
     retryAfterSeconds: 5,
     displayTitle: copy.title,
     displayMessage: copy.message,
-    details: { operation: error.operation, retryable: true, waitedMs: error.waitedMs },
+    details: { operation: error.operation, retryable: true },
+    diagnostics: { provider: error.provider },
   });
 }
 

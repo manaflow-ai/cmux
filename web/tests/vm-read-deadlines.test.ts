@@ -1,121 +1,128 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Option from "effect/Option";
-import * as TestClock from "effect/TestClock";
-import * as TestContext from "effect/TestContext";
-import { ProviderError } from "../services/vms/drivers/types";
-import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
-import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { VM_READ_ROUTE_DEADLINES, withVmReadDeadline, type VmReadRouteOperation } from "../services/vms/routeDeadline";
+import * as Layer from "effect/Layer";
+import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
+import { isOperatorFaultVmError } from "../services/vms/observability";
+import { VmProviderGatewayLive } from "../services/vms/providerGateway";
+import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
+import { VM_READ_ROUTE_DEADLINES, vmReadAnswerBudgetMs } from "../services/vms/routeDeadline";
+import { runVmRoute } from "../services/vms/routeWorkflow";
+import { getVmStats } from "../services/vms/workflows";
 
-// Production 2026-10-11: GET /api/vm/[id]/stats and other reads waited on a
-// hung provider call long after the Mac client (30 s) gave up. A read now
-// answers inside its client's budget. Stage A of the reland after #19467:
-// the deadline is inline. The provider call is interrupted at the budget,
-// nothing is forked, nothing continues after the response.
+// Production 2026-10-11: GET /api/vm/[id]/stats waited on a hung provider
+// read long after the Mac client (30 s) gave up. Stage A of the reland after
+// #19467: a read route bounds only its provider reads, inline. At the budget
+// the read is interrupted, its requests' AbortSignal fires, and the route
+// answers 504 vm_provider_timeout. Nothing is forked or continues.
+//
+// These tests drive the real path: runVmRoute, the workflow, the Effect
+// gateway (providerEffect), the Freestyle driver and SDK. Only the HTTP
+// transport (global fetch) and the owned-row repository are fixtures.
 
-/** Runs `program` under the read deadline on the test clock. */
-async function underReadDeadline<A>(operation: VmReadRouteOperation, program: Effect.Effect<A, VmWorkflowError>, elapsedMs = 0, stepMs = 250) {
-  return await Effect.runPromise(Effect.gen(function* () {
-    const fiber = yield* Effect.fork(withVmReadDeadline(program, { operation, elapsedMs }).pipe(Effect.either));
-    let virtualMs = 0;
-    while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 300_000) {
-      yield* TestClock.adjust(stepMs);
-      virtualMs += stepMs;
-      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+type FetchRecord = { path: string; signal: AbortSignal | undefined };
+let fetches: FetchRecord[] = [];
+let hangingVmIds = new Set<string>();
+const savedEnv = { key: process.env.FREESTYLE_API_KEY, url: process.env.FREESTYLE_API_URL };
+
+beforeEach(() => {
+  fetches = [];
+  hangingVmIds = new Set();
+  process.env.FREESTYLE_API_KEY = "test-only";
+  process.env.FREESTYLE_API_URL = "https://freestyle.test";
+  spyOn(globalThis, "fetch").mockImplementation(((input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+    const signal = init?.signal ?? undefined;
+    fetches.push({ path, signal });
+    const vmId = path.split("/").pop() ?? "";
+    if (!hangingVmIds.has(vmId)) {
+      return Promise.resolve(Response.json({ id: vmId, state: "running", resources: { cpu: 2, memory: 4096, storage: 16384 } }));
     }
-    const answer = yield* Fiber.poll(fiber);
-    if (Option.isNone(answer)) {
-      yield* Fiber.interrupt(fiber);
-      return { answer: null, virtualMs };
-    }
-    return { answer: yield* Fiber.join(fiber), virtualMs };
-  }).pipe(Effect.provide(TestContext.TestContext)));
+    // A hung provider: it answers only by failing when its request is aborted.
+    return new Promise<Response>((_resolve, reject) => {
+      if (signal?.aborted) reject(signal.reason);
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  }) as typeof fetch);
+});
+
+afterEach(() => {
+  (globalThis.fetch as unknown as { mockRestore?: () => void }).mockRestore?.();
+  process.env.FREESTYLE_API_KEY = savedEnv.key;
+  process.env.FREESTYLE_API_URL = savedEnv.url;
+});
+
+function statsRoute(providerVmId: string, remainingBudgetMs: number) {
+  const row = {
+    id: `row-${providerVmId}`, userId: "owner", ownerTeamId: "owner", billingTeamId: null,
+    provider: "freestyle", providerVmId, status: "running", providerMetadata: {},
+  } as CloudVmRow;
+  const repo = {
+    findUserVm: (input: { providerVmId: string }) => Effect.succeed(input.providerVmId === providerVmId ? row : null),
+  } as unknown as VmRepositoryShape;
+  const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), VmProviderGatewayLive, Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
+  const elapsedMs = VM_READ_ROUTE_DEADLINES.stats.clientTimeoutMs - 5_000 - remainingBudgetMs;
+  return runVmRoute(getVmStats({ userId: "owner", providerVmId }).pipe(Effect.provide(layer)), {
+    locale: "en",
+    readDeadline: { operation: "stats", elapsedMs },
+  });
 }
 
-const budgets: Array<[VmReadRouteOperation, number]> = [
-  ["stats", 25_000],
-  ["networkRead", 25_000],
-  ["snapshotList", 55_000],
-  ["getVm", 55_000],
-  ["filesRead", 55_000],
-  ["tunnelRead", 55_000],
-];
-
-describe("VM read deadlines", () => {
-  test.each(budgets)("%s answers a provider timeout at %i ms and interrupts the provider call", async (operation, budgetMs) => {
-    let interrupted = false;
-    const hung = Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; })));
-    const { answer, virtualMs } = await underReadDeadline(operation, hung as Effect.Effect<string, VmWorkflowError>);
-    expect(virtualMs).toBeGreaterThanOrEqual(budgetMs);
-    expect(virtualMs).toBeLessThanOrEqual(budgetMs + 250);
-    const error = answer?._tag === "Left" ? answer.left : null;
-    expect(error).toBeInstanceOf(VmOperationDeadlineError);
-    expect((error as VmOperationDeadlineError).mutating).toBe(false);
-    // Inline: the provider call is stopped at the answer, nothing runs on.
-    expect(interrupted).toBe(true);
-  });
-
-  test("a provider failure before the deadline keeps its own error", async () => {
-    const failed = new VmProviderOperationError({ provider: "freestyle", operation: "getStats", cause: new ProviderError("freestyle", "getStats") });
-    const { answer } = await underReadDeadline("stats", Effect.fail(failed));
-    expect(answer?._tag === "Left" ? answer.left : null).toBe(failed);
-  });
-
-  test("a finished read answers its value", async () => {
-    const { answer } = await underReadDeadline("stats", Effect.succeed("awake"));
-    expect(answer?._tag === "Right" ? answer.right : null).toBe("awake");
-  });
-
-  test("the window is measured from the request's start, with a 10 s floor", async () => {
-    expect((await underReadDeadline("stats", Effect.never, 5_000)).virtualMs).toBeLessThanOrEqual(20_250);
-    expect((await underReadDeadline("stats", Effect.never, 60_000)).virtualMs).toBeLessThanOrEqual(10_250);
-  });
-
-  test("every legacy budget leaves the client 5 s", () => {
-    expect(VM_READ_ROUTE_DEADLINES.stats.clientTimeoutMs - 5_000).toBe(25_000);
-  });
-});
-
-describe("concurrent reads share nothing", () => {
-  // The real helper and runtime with many requests in flight at once: hung
-  // reads time out on their own budgets, the others answer their own values
-  // as soon as their provider answers, and no request sees another's result.
-  test("hung reads do not delay or cross other reads", async () => {
-    const results = await Effect.runPromise(Effect.gen(function* () {
-      const fibers = yield* Effect.forEach(Array.from({ length: 60 }, (_, index) => index), (index) => Effect.fork(
-        withVmReadDeadline(
-          index % 3 === 0
-            ? (Effect.never as Effect.Effect<string, VmWorkflowError>)
-            : Effect.sleep(`${100 + index} millis`).pipe(Effect.as(`vm-${index}`)),
-          { operation: "stats", elapsedMs: 0 },
-        ).pipe(Effect.either),
-      ));
-      // The answering reads finish within a second of virtual time.
-      yield* TestClock.adjust(1_000);
-      const early = yield* Effect.forEach(fibers, (fiber) => Fiber.poll(fiber));
-      yield* TestClock.adjust(25_000);
-      const late = yield* Effect.forEach(fibers, (fiber) => Fiber.join(fiber));
-      return { early, late };
-    }).pipe(Effect.provide(TestContext.TestContext)));
-    results.late.forEach((answer, index) => {
-      if (index % 3 === 0) {
-        expect(answer._tag).toBe("Left");
-      } else {
-        expect(answer._tag === "Right" ? answer.right : null).toBe(`vm-${index}`);
-        expect(Option.isSome(results.early[index])).toBe(true);
-      }
-    });
-  });
-});
-
-describe("VM read deadline answer", () => {
-  test("a read past its deadline answers a retryable 504 provider timeout", async () => {
-    const response = await vmWorkflowErrorResponse(new VmOperationDeadlineError({ operation: "stats", mutating: false, waitedMs: 25_000 }));
-    expect(response?.status).toBe(504);
-    const payload = await response!.json() as Record<string, unknown>;
+describe("VM read deadlines through the real route path", () => {
+  test("a hung provider read is aborted at the deadline and answers 504 vm_provider_timeout", async () => {
+    hangingVmIds.add("vm-hung");
+    const run = await statsRoute("vm-hung", 150);
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.response.status).toBe(504);
+    const payload = await run.response.json() as Record<string, unknown>;
     expect(payload).toMatchObject({ error: "vm_provider_timeout", retryable: true });
-    expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable/i);
+    // The request the read made was aborted when the route answered: no fetch outlives the 504.
+    const request = fetches.find((entry) => entry.path === "/v5/vms/vm-hung");
+    expect(request?.signal?.aborted).toBe(true);
+  });
+
+  test("a read that answers in time is unaffected and its request is never aborted", async () => {
+    const run = await statsRoute("vm-ok", 5_000);
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.value).toMatchObject({ state: "awake", cpus: 2 });
+    expect(fetches.find((entry) => entry.path === "/v5/vms/vm-ok")?.signal?.aborted).toBe(false);
+  });
+
+  // Many requests at once through the same path: hung reads time out on their
+  // own budgets, the others answer their own machine, and no abort crosses
+  // from one request to another.
+  test("60 concurrent reads, 20 hung, share nothing", async () => {
+    const ids = Array.from({ length: 60 }, (_, index) => `vm-${index}`);
+    for (const [index, id] of ids.entries()) if (index % 3 === 0) hangingVmIds.add(id);
+    const runs = await Promise.all(ids.map((id) => statsRoute(id, 300)));
+    for (const [index, run] of runs.entries()) {
+      const id = ids[index]!;
+      const request = fetches.find((entry) => entry.path === `/v5/vms/${id}`);
+      if (hangingVmIds.has(id)) {
+        expect(run.ok).toBe(false);
+        if (!run.ok) expect(run.response.status).toBe(504);
+        expect(request?.signal?.aborted).toBe(true);
+      } else {
+        expect(run.ok).toBe(true);
+        expect(request?.signal?.aborted).toBe(false);
+      }
+    }
+  });
+});
+
+describe("VM read deadline budget", () => {
+  test("every read leaves its client 5 s, measured from the request's start", () => {
+    expect(vmReadAnswerBudgetMs("stats", 0)).toBe(25_000);
+    expect(vmReadAnswerBudgetMs("stats", 4_000)).toBe(21_000);
+    expect(vmReadAnswerBudgetMs("getVm", 0)).toBe(55_000);
+  });
+
+  test("the answer never goes past the client's limit, even when auth spent the budget", () => {
+    expect(vmReadAnswerBudgetMs("stats", 30_000)).toBe(0);
+  });
+
+  test("a provider timeout is not a per-request operator fault", () => {
+    expect(isOperatorFaultVmError({ error: "vm_provider_timeout", status: 504 })).toBe(false);
   });
 });

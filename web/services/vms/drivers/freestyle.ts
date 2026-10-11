@@ -54,6 +54,7 @@ import {
   type VMStats,
   type VMResourceStatsResult,
   type VMStatus,
+  type ProviderReadOptions,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -205,7 +206,8 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
  * snapshot owns it, see NO-WORK INVARIANT above).
  */
 export type FreestyleProviderDependencies = {
-  readonly client: (timeoutMs?: number) => Freestyle;
+  /** `signal` aborts every request of a bounded read (an uncached client). */
+  readonly client: (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
 };
 
 const FREESTYLE_CLIENT_CACHE_LIMIT = 8;
@@ -228,7 +230,7 @@ const globalForFreestyle = globalThis as typeof globalThis & {
  * warm-up, and a failed probe is best-effort so provider errors remain typed.
  */
 /** Exported for the publication provider, which shares this account-wide client. */
-export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Freestyle {
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
@@ -236,11 +238,13 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const credentialKind = apiKey ? "api-key" : stackAccessToken && teamId ? "stack" : "missing";
   const cacheKey = `${baseUrl ?? "https://api.freestyle.sh"}|${credentialKind}|${timeoutMs}`;
   const clients = globalForFreestyle.__cmuxFreestyleClients ??= new Map<string, Freestyle>();
-  const cached = clients.get(cacheKey);
+  const cached = signal ? undefined : clients.get(cacheKey);
   if (cached) return cached;
 
   const longFetch = freestyleRequestFetch({
     timeoutMs,
+    // A bounded read's own client: its requests end when the route answers.
+    ...(signal ? { signal } : {}),
     record: process.env.NODE_ENV === "development" ? (event) => {
       const traceId = currentVmRequestContext()?.traceId;
       console.info("cmux.vm.freestyle.request", JSON.stringify({
@@ -259,6 +263,8 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
       "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
     );
   }
+  // A signal-bound client belongs to one read and is never cached.
+  if (signal) return client;
   // Exec accepts a caller-selected timeout; bound the account-wide wrapper
   // cache so arbitrary timeout values cannot retain clients indefinitely.
   if (clients.size >= FREESTYLE_CLIENT_CACHE_LIMIT) {
@@ -1236,14 +1242,14 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async getStatus(vmId: string): Promise<VMStatus> {
+  async getStatus(vmId: string, options?: ProviderReadOptions): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
       "provider",
       spanAttributes(vmId, "get_status"),
       async (span) => {
         try {
-          const data = await this.deps.client().vms.get(vmId);
+          const data = await this.deps.client(undefined, options?.signal).vms.get(vmId);
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           return status;
@@ -1373,16 +1379,16 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async listFiles(vmId: string, path: string): Promise<VMFileEntry[]> {
-    const entries = await this.deps.client().vms.ref(vmId).fs.readDir(path);
+  async listFiles(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileEntry[]> {
+    const entries = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.readDir(path);
     return entries.map((entry) => ({
       name: entry.name,
       kind: entry.kind === "directory" || entry.kind === "symlink" ? entry.kind : "file",
     }));
   }
 
-  async readFile(vmId: string, path: string): Promise<VMFileContents> {
-    const data = await this.deps.client().vms.ref(vmId).fs.readFile(path);
+  async readFile(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileContents> {
+    const data = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.readFile(path);
     return { path, data: new Uint8Array(data), size: data.byteLength };
   }
 
@@ -1398,8 +1404,8 @@ export class FreestyleProvider implements VMProvider {
     await this.deps.client().vms.ref(vmId).fs.remove(path);
   }
 
-  async statFile(vmId: string, path: string): Promise<VMFileStat> {
-    const stat = await this.deps.client().vms.ref(vmId).fs.stat(path);
+  async statFile(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileStat> {
+    const stat = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.stat(path);
     const raw = stat as unknown as Record<string, unknown>;
     const kind = raw.isDirectory === true ? "directory" : raw.isSymlink === true ? "symlink" : "file";
     const permissions = typeof raw.permissions === "string" ? Number.parseInt(raw.permissions, 8) : undefined;
@@ -1414,14 +1420,14 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /** Read provisioned dimensions without waking the guest or inventing usage gauges. */
-  async getStats(vmId: string): Promise<VMStats> {
+  async getStats(vmId: string, options?: ProviderReadOptions): Promise<VMStats> {
     return withVmSpan(
       "cmux.vm.provider.get_stats",
       "provider",
       spanAttributes(vmId, "getStats"),
       async () => {
         try {
-          const data = await this.deps.client().vms.get(vmId);
+          const data = await this.deps.client(undefined, options?.signal).vms.get(vmId);
           return {
             state: data.state === "running"
               ? "awake"
@@ -1494,14 +1500,14 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async listSnapshots(vmId: string): Promise<SnapshotRef[]> {
+  async listSnapshots(vmId: string, options?: ProviderReadOptions): Promise<SnapshotRef[]> {
     return withVmSpan(
       "cmux.vm.provider.list_snapshots",
       "provider",
       spanAttributes(vmId, "listSnapshots"),
       async (span) => {
         try {
-          const fs = this.deps.client();
+          const fs = this.deps.client(undefined, options?.signal);
           const snapshots: SnapshotData[] = [];
           for (let offset = 0; offset < SNAPSHOT_LIST_MAX; offset += SNAPSHOT_LIST_PAGE) {
             const page = await fs.vms.snapshots.list({ sourceVmId: vmId, limit: SNAPSHOT_LIST_PAGE, offset });

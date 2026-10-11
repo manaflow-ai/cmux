@@ -29,7 +29,7 @@ export async function GET(
         teamIds: user.teamIds,
         providerVmId: id,
         callerPlanId: account.entitlements.planId,
-      }), { request, readDeadline: { operation: "networkRead" } });
+      }), { request });
       if (!run.ok) return run.response;
       return jsonResponse(await networkPolicyResponseBody(run.value, vmRequestLocale(request)));
     },

@@ -163,7 +163,7 @@ export async function GET(request: Request): Promise<Response> {
         deviceFingerprint,
         tunnelPurpose: parseTunnelPurpose(url.searchParams.get("tunnelPurpose")) ?? "browser",
         ...membership,
-      }), { request, readDeadline: { operation: "tunnelRead" } });
+      }), { request });
       if (!tunnel.ok) return tunnel.response;
       return jsonResponse(tunnelPayload(tunnel.value));
     },
