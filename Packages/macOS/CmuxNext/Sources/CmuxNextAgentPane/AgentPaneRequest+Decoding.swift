@@ -2,6 +2,17 @@ import CmuxNextDictation
 import Foundation
 
 extension AgentPaneRequest {
+    /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
+    /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
+    private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
+        let toggle = params?["mode"] as? String == "toggle"
+        guard let raw = params?["url"] else { return .preview(url: nil, toggle: toggle) }
+        guard let text = raw as? String, text.count <= maximumOpenTabText, URL(string: text)?.isAgentPanePreview == true else {
+            return .unsupported(method)
+        }
+        return .preview(url: text, toggle: toggle)
+    }
+
     /// Decodes a `WKScriptMessage.body` (a dictionary once bridged).
     public init(body: Any) {
         guard let object = body as? [String: Any], let method = object["method"] as? String else {
@@ -139,7 +150,9 @@ extension AgentPaneRequest {
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
             else { self = .unsupported(method) }
         case "pane.action":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
+            if params?["id"] as? String == AgentPaneModel.previewAction {
+                self = Self.preview(params, method: method)
+            } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
                 self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
