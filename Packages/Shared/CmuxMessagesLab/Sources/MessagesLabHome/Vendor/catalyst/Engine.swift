@@ -185,6 +185,7 @@ enum Reducer {
         case let .replaceWindow(msgs, start):
             s.conversation.messages = msgs
             s.windowStart = start
+            s.total = start + msgs.count // cmux: Home has no pager; its window always ends at the newest message (cx-7nf0)
             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
         case let .setCustomPart(id, pi, part):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
