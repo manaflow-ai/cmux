@@ -86,7 +86,11 @@ export function projectGroups(rows: AllChatsRow[]): ChatProject[] {
     const key = row.cwd ?? "";
     let group = groups.get(key);
     if (!group) {
-      group = { key, rows: [], ...(row.cwd ? { cwd: row.cwd, label: row.cwd.split("/").filter(Boolean).pop() } : {}) };
+      group = {
+        key,
+        rows: [],
+        ...(row.cwd ? { cwd: row.cwd, label: row.cwd.split("/").filter(Boolean).pop() || row.cwd } : {}),
+      };
       groups.set(key, group);
     }
     group.rows.push(row);
@@ -296,7 +300,9 @@ export function AllChatsList({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onBring, selected, clear]);
-  const count = entries.length + (nextCursor ? 1 : 0);
+  // With every project folded nothing scrolls the loader away: it would fetch page after page.
+  const pages = view === "chats" || entries.some((entry) => entry.kind === "chat");
+  const count = entries.length + (nextCursor && pages ? 1 : 0);
   const loadMore = useCallback(
     (element: HTMLElement | null) => {
       if (element && nextCursor) fetchPage(state.query, nextCursor);
@@ -326,14 +332,16 @@ export function AllChatsList({
             data-focus-ring="row"
             aria-expanded={open}
             title={project.cwd ?? label}
-            onClick={() =>
+            onClick={() => {
+              // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
+              selection.clear();
               setFolded((current) => {
                 const next = new Set(current);
                 if (open) next.add(project.key);
                 else next.delete(project.key);
                 return next;
-              })
-            }
+              });
+            }}
           >
             <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
               <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -416,7 +424,10 @@ export function AllChatsList({
             type="button"
             className={`nt-chats-tab${view === choice ? " is-selected" : ""}`}
             aria-pressed={view === choice}
-            onClick={() => setView(choice)}
+            onClick={() => {
+              selection.clear();
+              setView(choice);
+            }}
           >
             {nt(choice)}
           </button>
