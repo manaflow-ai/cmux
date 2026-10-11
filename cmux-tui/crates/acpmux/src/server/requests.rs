@@ -325,7 +325,7 @@ async fn dispatch_request(
                 control: super::remote_guard::control_of(conn.origin, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
-                interrupt: flag("interrupt") == Some(true),
+                interrupt: steer && flag("interrupt") == Some(true),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }

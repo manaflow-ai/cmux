@@ -120,42 +120,46 @@ impl Hub {
     }
 
     /// Sends a waiting prompt now. With no turn running it goes next (`next`); into a running turn
-    /// of an agent that steers it is steered in (`steer`); otherwise it goes next and the running
-    /// turn stops (`interrupt`). `None` when it no longer waits.
+    /// of an agent that steers it is steered in (`steer`) by the task that waits with it, so its
+    /// `session/prompt` answers how it ran; otherwise it goes next and the running turn stops
+    /// (`interrupt`). `None` when it no longer waits.
     async fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
     ) -> Result<Option<&'static str>, RpcError> {
-        let Some(q) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id) else {
-            return Ok(None);
-        };
-        if session.turn().is_none() {
+        let Some(running) = session.turn().map(|t| t.turn_id) else {
             return Ok(self.move_queued(session, prompt_id, 0).then_some("next"));
-        }
+        };
         if session.steering.load(Ordering::SeqCst) {
-            // The steer runs under the stricter rules of the prompt and of who sent it now.
-            let control = stricter(q.run.control, control);
-            self.check_steer(session, control)?;
-            if !self.remove_queued(session, prompt_id) {
+            let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
+            else {
                 return Ok(None);
+            };
+            // The steer runs under the stricter rules of the prompt and of who sent it now.
+            let control = stricter(waiting.run.control, control);
+            self.check_steer(session, control)?;
+            {
+                let mut queue =
+                    session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
+                    return Ok(None);
+                };
+                let run = PromptRun {
+                    blocks: q.run.blocks.clone(),
+                    control,
+                    trust_gate: q.run.trust_gate,
+                };
+                (q.run, q.steer) = (Arc::new(run), true);
             }
-            let (hub, session) = (self.clone(), session.clone());
-            tokio::spawn(async move {
-                let opts =
-                    PromptOptions { control, trust_gate: q.run.trust_gate, ..Default::default() };
-                let blocks = q.run.blocks.clone();
-                if let Err(e) = hub.prompt_with(&session, blocks, &q.client, true, opts).await {
-                    tracing::warn!(session = %session.id, "send now as a steer: {}", e.message);
-                }
-            });
+            session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
         if !self.move_queued(session, prompt_id, 0) {
             return Ok(None);
         }
-        self.cancel(session).await?;
+        self.cancel_turn(session, &running).await;
         Ok(Some("interrupt"))
     }
 }

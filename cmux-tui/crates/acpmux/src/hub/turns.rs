@@ -7,7 +7,10 @@ use std::sync::atomic::Ordering;
 /// turn our internal document block into Anthropic's native document. Strict
 /// ACP adapters (including Codex) instead get a stable workspace file and a
 /// resource link, plus a short note telling the agent where to open it.
-fn acp_prompt_blocks(session: &Session, blocks: &[Value]) -> Result<Vec<Value>, RpcError> {
+pub(super) fn acp_prompt_blocks(
+    session: &Session,
+    blocks: &[Value],
+) -> Result<Vec<Value>, RpcError> {
     let is_claude = session.meta().family.as_deref() == Some("claude");
     let mut out = Vec::with_capacity(blocks.len());
     for block in blocks {
@@ -234,50 +237,9 @@ impl Hub {
             .with_data(json!({"reason": "steer.unavailable"})));
         }
         if steer_now {
-            self.check_steer(session, control)?;
-            // A running turn has a live agent.
-            let child = self.child_for(session).await?;
-            let agent_sid = session
-                .meta()
-                .agent_session_id
-                .ok_or_else(|| RpcError::internal("no agent session"))?;
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
-            self.append(
-                session,
-                "mux",
-                "user_message",
-                json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-            );
-            accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
-            );
-            // The turn may end between this check and the agent: without
-            // steerOnly the message then becomes the next prompt, as before.
-            let fallback = (!opts.steer_only).then(|| blocks.clone());
-            let wire_blocks = acp_prompt_blocks(session, &blocks)?;
-            let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
-            params["_meta"] = json!({"steer": true});
-            let mut r =
-                match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
-                {
-                    Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
-                        let Some(blocks) = fallback else { return Err(e) };
-                        let opts = PromptOptions {
-                            prompt_id: Some(prompt_id),
-                            control,
-                            trust_gate,
-                            ..PromptOptions::default()
-                        };
-                        return Box::pin(self.run_prompt(session, blocks, client, false, opts))
-                            .await;
-                    }
-                    r => r?,
-                };
-            merge_mux_meta(
-                &mut r,
-                json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),
-            );
-            return Ok(r);
+            let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
+            return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
         }
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
@@ -287,18 +249,16 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: steer && opts.interrupt,
+            interrupt: opts.interrupt,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
             Ok(slot) => slot,
-            Err(withdrawn) => return Ok(withdrawn),
+            Err(done) => return done,
         };
-        // A prompt that waited runs what its queue entry holds now (`queue_edit.rs` may edit it).
-        let (mut blocks, text, control, trust_gate) = match run {
-            Some(r) => (r.blocks.clone(), prompt_text(&r.blocks), r.control, r.trust_gate),
-            None => (blocks, text, control, trust_gate),
-        };
+        // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
+        let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let text = prompt_text(&blocks);
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
