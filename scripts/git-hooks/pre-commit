@@ -133,7 +133,8 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 )); then
     else
         (
             cd "$REPO_ROOT/webviews"
-            "$VP_BIN" fmt "${STAGED_WEB_PATHS[@]}"
+            # A commit of only fmt-ignored files (webviews CSS) matches nothing.
+            "$VP_BIN" fmt --no-error-on-unmatched-pattern "${STAGED_WEB_PATHS[@]}"
         )
         git add -- "${STAGED_WEB_PATHS[@]/#/webviews/}"
     fi

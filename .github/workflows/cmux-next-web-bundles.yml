@@ -102,6 +102,11 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # The browser-lane suites fail in CI without these engines (requireBrowserLane.ts).
+      - name: Install headless engines
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+
       # One bun process per file, as ci-web.yml does: a single `bun test` was SIGKILLed
       # (exit 137) or cascaded from one slow file into hundreds of failures.
       - name: bun test
