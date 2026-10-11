@@ -9299,7 +9299,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         var payload: [String: Any] = [
             "hoverActive": wordPathHoverActive ? "1" : "0",
-            "suppressed": suppressCommandPathHover ? "1" : "0"
+            "suppressed": suppressCommandPathHover ? "1" : "0",
+            // Ghostty's mouse-over-link arrives on a later main-queue turn, so
+            // this is the link the previous hover reported.
+            "linkHoverURL": terminalSurface?.hostedView.linkHoverIndicatorView.url ?? ""
         ]
         if let resolution {
             payload["resolvedPath"] = resolution.path
