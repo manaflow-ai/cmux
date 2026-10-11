@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2c685987febb7265e1900f43ce5673a5c6508761e54ee727e580be3755afa962. */
+/* cmux-tui mux protocol 12, IR a964546aebe8fe061b7bef49cf01448c1d1fb2f5e48184d1f46e4a8dd16f2ab7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2c685987febb7265e1900f43ce5673a5c6508761e54ee727e580be3755afa962" as const;
+export const SDK_IR_SHA256 = "a964546aebe8fe061b7bef49cf01448c1d1fb2f5e48184d1f46e4a8dd16f2ab7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1105,6 +1105,16 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "get-blob": {
+    "authority": "control",
+    "since": 12,
+    "capability": "icon-assets-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "get-browser-provider": {
     "authority": "local-admin",
     "since": 10,
@@ -1890,6 +1900,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "PTY surfaces only."
+    ]
+  },
+  "put-blob": {
+    "authority": "control",
+    "since": 12,
+    "capability": "icon-assets-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "media_type is image/png, image/jpeg, image/webp, or image/svg+xml; data is standard base64.",
+      "See spec/commands.md for the limits and the result object."
     ]
   },
   "put-frontend-projection": {
@@ -16362,6 +16383,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "get-blob": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "blob": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "get-browser-provider": {
     "request": {
       "additional_properties": false,
@@ -19558,6 +19599,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ProcessInfoResult"
+    }
+  },
+  "put-blob": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "media_type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "put-frontend-projection": {

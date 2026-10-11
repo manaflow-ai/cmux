@@ -1487,6 +1487,7 @@ export class AcpmuxDirectClient {
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             steering: summary.steering === true,
+            queuePaused: summary.queuePaused === true,
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,

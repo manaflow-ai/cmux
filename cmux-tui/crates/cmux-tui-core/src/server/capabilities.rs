@@ -109,6 +109,7 @@ pub(super) fn advertised_capabilities(
         BOOKMARKS_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
+        icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         conversations::CONVERSATION_DRAFT_CAPABILITY,

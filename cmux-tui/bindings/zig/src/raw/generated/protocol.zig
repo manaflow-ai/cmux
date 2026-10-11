@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2c685987febb7265e1900f43ce5673a5c6508761e54ee727e580be3755afa962";
+pub const ir_sha256 = "a964546aebe8fe061b7bef49cf01448c1d1fb2f5e48184d1f46e4a8dd16f2ab7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4971,6 +4971,25 @@ pub fn forgetSession(client: anytype, request: ForgetSessionRequest) !wire.Decod
     );
 }
 
+pub const GetBlobRequest = struct {
+    blob: []const u8,
+};
+
+pub const GetBlobResult = JsonValue;
+
+pub fn getBlob(client: anytype, request: GetBlobRequest) !wire.Decoded(GetBlobResult) {
+    return client.callTyped(
+        GetBlobResult,
+        .{
+            .name = "get-blob",
+            .authority = "control",
+            .since = 12,
+            .capability = "icon-assets-v1",
+        },
+        request,
+    );
+}
+
 pub const GetBrowserProviderRequest = struct {};
 
 pub const GetBrowserProviderResult = BrowserProviderSnapshot;
@@ -6474,6 +6493,26 @@ pub fn processInfo(client: anytype, request: ProcessInfoRequest) !wire.Decoded(P
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const PutBlobRequest = struct {
+    data: []const u8,
+    media_type: []const u8,
+};
+
+pub const PutBlobResult = JsonValue;
+
+pub fn putBlob(client: anytype, request: PutBlobRequest) !wire.Decoded(PutBlobResult) {
+    return client.callTyped(
+        PutBlobResult,
+        .{
+            .name = "put-blob",
+            .authority = "control",
+            .since = 12,
+            .capability = "icon-assets-v1",
         },
         request,
     );
@@ -9867,7 +9906,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 246;
+pub const command_count: usize = 248;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9958,6 +9997,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "get-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
@@ -10022,6 +10062,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2c685987febb7265e1900f43ce5673a5c6508761e54ee727e580be3755afa962.
+// cmux-tui mux protocol 12, IR a964546aebe8fe061b7bef49cf01448c1d1fb2f5e48184d1f46e4a8dd16f2ab7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1345,6 +1345,15 @@ pub struct ForgetSessionRequest {
 pub type ForgetSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetBlobRequest {
+    pub blob: String,
+}
+
+#[rustfmt::skip]
+pub type GetBlobResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetBrowserProviderRequest {
 }
@@ -2261,6 +2270,16 @@ pub struct PingRequest {
 pub struct ProcessInfoRequest {
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PutBlobRequest {
+    pub data: String,
+    pub media_type: String,
+}
+
+#[rustfmt::skip]
+pub type PutBlobResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3926,6 +3945,10 @@ impl CmuxClient {
         self.execute(&FORGET_SESSION_METADATA, &request)
     }
 
+    pub fn get_blob(&mut self, request: GetBlobRequest) -> Result<GetBlobResult> {
+        self.execute(&GET_BLOB_METADATA, &request)
+    }
+
     pub fn get_browser_provider(&mut self, request: GetBrowserProviderRequest) -> Result<GetBrowserProviderResult> {
         self.execute(&GET_BROWSER_PROVIDER_METADATA, &request)
     }
@@ -4324,6 +4347,10 @@ impl CmuxClient {
 
     pub fn process_info(&mut self, request: ProcessInfoRequest) -> Result<T::ProcessInfoResult> {
         self.execute(&PROCESS_INFO_METADATA, &request)
+    }
+
+    pub fn put_blob(&mut self, request: PutBlobRequest) -> Result<PutBlobResult> {
+        self.execute(&PUT_BLOB_METADATA, &request)
     }
 
     pub fn put_frontend_projection(&mut self, request: PutFrontendProjectionRequest) -> Result<PutFrontendProjectionResult> {

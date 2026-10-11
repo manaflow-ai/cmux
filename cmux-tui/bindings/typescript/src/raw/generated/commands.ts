@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2c685987febb7265e1900f43ce5673a5c6508761e54ee727e580be3755afa962. */
+/* cmux-tui mux protocol 12, IR a964546aebe8fe061b7bef49cf01448c1d1fb2f5e48184d1f46e4a8dd16f2ab7. */
 
 
 import type * as T from "./types.js";
@@ -934,6 +934,13 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
 }
 export type ForgetSessionResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface GetBlobRequest extends CmuxRequestBase {
+  cmd: "get-blob";
+  "blob": string;
+}
+export type GetBlobResult = T.JsonValue;
+
 /** Protocol v10; authority: local-admin. */
 export interface GetBrowserProviderRequest extends CmuxRequestBase {
   cmd: "get-browser-provider";
@@ -1568,6 +1575,14 @@ export interface ProcessInfoRequest extends CmuxRequestBase {
   cmd: "process-info";
   "surface": T.Id;
 }
+
+/** Protocol v12; authority: control. */
+export interface PutBlobRequest extends CmuxRequestBase {
+  cmd: "put-blob";
+  "data": string;
+  "media_type": string;
+}
+export type PutBlobResult = T.JsonValue;
 
 /** Protocol v7; authority: control. */
 export interface PutFrontendProjectionRequest extends CmuxRequestBase {
@@ -2520,6 +2535,7 @@ export type CmuxRequest =
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
+  | GetBlobRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
   | GetFrontendBrowserHistoryRequest
@@ -2584,6 +2600,7 @@ export type CmuxRequest =
   | PinWorkspaceRequest
   | PingRequest
   | ProcessInfoRequest
+  | PutBlobRequest
   | PutFrontendProjectionRequest
   | PutSessionRequest
   | ReadScreenRequest
@@ -3392,6 +3409,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "profiles-v1";
     stream: null;
   };
+  "get-blob": {
+    request: GetBlobRequest;
+    result: GetBlobResult;
+    authority: "control";
+    since: 12;
+    capability: "icon-assets-v1";
+    stream: null;
+  };
   "get-browser-provider": {
     request: GetBrowserProviderRequest;
     result: GetBrowserProviderResult;
@@ -3902,6 +3927,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "put-blob": {
+    request: PutBlobRequest;
+    result: PutBlobResult;
+    authority: "control";
+    since: 12;
+    capability: "icon-assets-v1";
     stream: null;
   };
   "put-frontend-projection": {
