@@ -98,11 +98,14 @@ extension RemoteTmuxController {
             newSessionEnvironment.reportFailure(host, .create, manager)
             return
         }
-        // Create a detached session and read back its (auto-assigned) name.
+        // Create a detached session with a unique name. Keeping the name known before
+        // the SSH round trip lets cancellation clean up even when runTmux throws before
+        // returning the command's stdout.
+        let requestedName = "cmux-new-\(UUID().uuidString.lowercased().prefix(12))"
         let name: String
         do {
             let result = try await transport(for: host).runTmux(
-                ["new-session", "-d", "-P", "-F", "#{session_name}"]
+                ["new-session", "-d", "-s", requestedName, "-P", "-F", "#{session_name}"]
             )
             let created = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             // A closed window no longer has a requester who can pick up this
@@ -124,6 +127,11 @@ extension RemoteTmuxController {
             }
             name = created
         } catch is CancellationError {
+            // The remote command may have created the session before local
+            // cancellation terminated ssh. The name is known up front, so a
+            // best-effort kill prevents a superseded request from stranding it.
+            _ = try? await transport(for: host)
+                .runTmux(["kill-session", "-t", "=\(requestedName)"])
             return
         } catch {
             #if DEBUG

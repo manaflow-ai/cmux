@@ -53,6 +53,24 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         return path
     }
 
+    /// A create command that has time to create a remote session before the
+    /// local task is cancelled. The kill path exits immediately so the test
+    /// can verify the cancellation cleanup without waiting for the delay.
+    private func makeSlowCreateStub(argvLog: String) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-slow-create-stub-\(UUID().uuidString).sh").path
+        try """
+        #!/bin/sh
+        echo "$@" >> "\(argvLog)"
+        case "$*" in *kill-session*) exit 0 ;; esac
+        echo created-by-cancellation-test
+        sleep 5
+
+        """.write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        return path
+    }
+
     private struct AttachRefused: LocalizedError {
         var errorDescription: String? { "control stream refused" }
     }
@@ -142,7 +160,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(run.failures == [
                 .attach(sessionName: "orphan", removed: true),
             ])
-            #expect(run.argv.contains("'new-session' '-d' '-P' '-F' '#{session_name}'"))
+            #expect(run.argv.contains("'new-session' '-d' '-s' 'cmux-new-"))
+            #expect(run.argv.contains("'-P' '-F' '#{session_name}'"))
             #expect(run.argv.contains("'kill-session' '-t' '=orphan'"))
             #expect(run.tabs == 0)
         }
@@ -169,6 +188,45 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             ])
             #expect(run.argv.contains("'kill-session' '-t' '=silent-miss'"))
             #expect(run.tabs == 0)
+        }
+    }
+
+    /// Cancelling an in-flight create can terminate ssh after tmux has already
+    /// created the session. The request uses a known unique name so the cleanup
+    /// still kills that session even though runTmux throws CancellationError.
+    @Test func cancellingCreateRemovesTheSessionThatMayAlreadyExist() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let appDelegate = try #require(AppDelegate.shared)
+            let argvLog = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-cancelled-create-argv-\(UUID().uuidString).log").path
+            let stub = try makeSlowCreateStub(argvLog: argvLog)
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
+            defer {
+                restoreSSH()
+                try? FileManager.default.removeItem(atPath: stub)
+                try? FileManager.default.removeItem(atPath: argvLog)
+            }
+            let controller = RemoteTmuxController()
+            let manager = TabManager()
+            _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
+                controller: controller, host: hostA, sessionName: "dev", into: manager
+            )
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                controller.detach(host: hostA, sessionName: "dev")
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+
+            let request = try #require(controller.newSessionRequest(in: manager))
+            let routed = Task { await controller.createAndMirrorSession(request, in: manager) }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            routed.cancel()
+            await routed.value
+
+            let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
+            #expect(argv.contains("'new-session' '-d' '-s' 'cmux-new-"))
+            #expect(argv.contains("'kill-session' '-t' '=cmux-new-"))
         }
     }
 
@@ -276,7 +334,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     }
 
     /// The full success path: the remote reports the created session's name,
-    /// the handler asked for exactly `new-session -d -P -F #{session_name}`,
+    /// the handler asked for a uniquely named detached `new-session`,
+    /// preserving the printed session name for attach,
     /// and the result is mirrored into the requesting manager and selected.
     @Test func routedNewWorkspaceMirrorsAndSelectsTheCreatedSession() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -316,7 +375,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             let recordedArgv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
             // RemoteTmuxHost.tmuxRemoteCommand single-quotes every word of the remote
             // command, so the flags arrive individually quoted, not as one bare run.
-            #expect(recordedArgv.contains("'new-session' '-d' '-P' '-F' '#{session_name}'"))
+            #expect(recordedArgv.contains("'new-session' '-d' '-s' 'cmux-new-"))
+            #expect(recordedArgv.contains("'-P' '-F' '#{session_name}'"))
             let created = try #require(manager.tabs.first { $0.title == "brand-new" })
             #expect(created.isRemoteTmuxMirror)
             #expect(manager.selectedTab?.id == created.id)
