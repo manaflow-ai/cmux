@@ -2525,6 +2525,7 @@ enum CmuxEmbeddedConfigSchema {
               "markAllNotificationsRead",
               "clearAllNotifications",
               "focusSidebar",
+              "showWindowHints",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",

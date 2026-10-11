@@ -17,6 +17,8 @@ extension ShortcutAction {
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .focusSidebar:
             return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
+        case .showWindowHints:
+            return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")

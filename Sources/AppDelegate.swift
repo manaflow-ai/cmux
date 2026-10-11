@@ -14981,6 +14981,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pendingConfiguredShortcutChord = nil
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 
+        // While hint labels show, every key belongs to hint mode first.
+        if WindowHintController.shared.isActive {
+            if matchConfiguredShortcut(event: event, action: .showWindowHints) {
+                WindowHintController.shared.cancel()
+                return true
+            }
+            if WindowHintController.shared.interceptKeyDown(event, in: resolvedShortcutEventWindow(event) ?? NSApp.keyWindow) {
+                return true
+            }
+        }
+
         if let textBoxShortcutTabManager = terminalTextShortcutBypassTabManagerBeforeContextResolution(
             event: event,
             normalizedFlags: flags.subtracting([.numericPad, .function, .capsLock])
@@ -15612,6 +15623,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .focusSidebar) {
             _ = focusSidebarForKeyboard(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        if CmuxFeatureFlags.shared.isWindowHintsEnabled,
+           matchConfiguredShortcut(event: event, action: .showWindowHints),
+           let window = mainWindowForShortcutEvent(event) {
+            _ = WindowHintController.shared.toggle(in: window)
             return true
         }
 
