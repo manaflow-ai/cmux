@@ -180,7 +180,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             } else {
                 for a in diff.actions {
                     if case .prependPage = a { olderRequested = false }
-                    controller.dispatch(a)
+                    controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
                 }
             }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
