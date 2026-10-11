@@ -4,7 +4,8 @@
 `workspaceGroup.addToSection` adds every workspace of a group to a sidebar section as workspace
 items (the same items Add to Sidebar makes for one workspace), in one undo step. A member already
 in that section is not added twice; when every member is there, the action is refused. An unknown
-section is refused.
+section is refused. Groups have no Show Group in Finder: a group is a set of workspaces, not a
+folder, so `workspaceGroup.revealInFinder` is an unknown action (`not_found`).
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It makes a two-workspace group and a titled section,
@@ -179,6 +180,10 @@ def main():
 
     unknown = action("workspaceGroup.addToSection", {"section": "no such section e2e"}, target="workspace-group:" + group)
     row("An unknown section is refused", "a refusal", f"reply {unknown}", refused(unknown))
+
+    finder = action("workspaceGroup.revealInFinder", target="workspace-group:" + group)
+    row("Groups have no Show Group in Finder", "an unknown-action error (not_found)", f"reply {finder}",
+        isinstance((finder or {}).get("error"), dict) and finder["error"].get("code") == "not_found")
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "workspace-group-section.png")})
 
 
