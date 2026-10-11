@@ -22,7 +22,7 @@ enum ImportCountsText {
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private var toggle: (() -> Void)?
-    private let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let box = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
     private let spinner = NSProgressIndicator()
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
