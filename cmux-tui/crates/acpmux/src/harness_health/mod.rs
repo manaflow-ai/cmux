@@ -9,6 +9,7 @@
 //! since). Without either it is `unknown`, never a guess from missing
 //! credential files.
 
+pub mod auto;
 pub mod channel;
 pub mod latest;
 pub mod probe;
@@ -61,6 +62,12 @@ pub struct HarnessHealth {
     /// Why a part of the check failed (not installed, `--version` failed).
     pub problem: Option<String>,
     pub checked_at: u64,
+    /// The person turned auto-update on for it (`auto.rs`; off by default).
+    #[serde(default)]
+    pub auto_update: bool,
+    /// The last update auto-update ran for it, since the daemon started.
+    #[serde(default)]
+    pub last_auto_update: Option<auto::AutoUpdateResult>,
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -90,6 +97,8 @@ pub struct Settings {
     pub cache: Option<PathBuf>,
     /// The user's home, where bun and the native installers live.
     pub home: PathBuf,
+    /// The harnesses with auto-update on (`<acpmux home>/harness-auto-update.json`); None: none.
+    pub auto_update: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -98,6 +107,8 @@ pub struct HealthService {
     rows: Mutex<Vec<HarnessHealth>>,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
+    /// What auto-update ran, by harness id.
+    ran: Mutex<HashMap<String, auto::AutoUpdateResult>>,
 }
 
 fn now_ms() -> u64 {
@@ -206,6 +217,7 @@ impl HealthService {
             row.outdated =
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
         }
+        self.mark_auto(&mut rows, &settings);
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
         }
@@ -268,5 +280,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         update,
         problem,
         checked_at: now_ms(),
+        auto_update: false,
+        last_auto_update: None,
     }
 }
