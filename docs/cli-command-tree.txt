@@ -643,6 +643,8 @@ command  join-pane  aliases=-
   arg  --window  kind=option  completion=custom
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
+command  jump-to-last-prompt  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  jump-to-unread  aliases=-
   arg  arguments  kind=argument  completion=-
 command  last-pane  aliases=-
