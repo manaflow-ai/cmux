@@ -7,6 +7,37 @@ use super::*;
 /// `default_policy`), so sessions on different harnesses compare; the
 /// harness's mode is only named in `detail`. Host isolation is never
 /// claimed, and no sandbox is inferred from a mode name.
+/// The session's status dot, decided here once so every client draws the
+/// same one (cx-zlox). First match wins:
+///
+/// - `input`: a permission or question waits for the person.
+/// - `working`: a turn runs.
+/// - `failed`: the last turn failed (also when the agent then exited).
+/// - `lost`: the agent process is gone (`disconnected`, or a peer's
+///   `unreachable`) and the last turn did not answer.
+/// - `done`: the last turn answered. Whether the person saw it is each
+///   client's own record.
+/// - null: nothing to show (no turn yet, a cancelled turn, closed).
+///
+/// Reads only the summary's own fields, so a summary whose `status` changes
+/// afterwards (a peer going unreachable) is re-decided from it.
+pub fn status_indicator(summary: &Value) -> Option<&'static str> {
+    let status = summary["status"].as_str().unwrap_or_default();
+    let last = summary["lastTurn"]["status"].as_str();
+    let answered = matches!(last, Some("completed" | "ok"));
+    match status {
+        "closed" => None,
+        _ if summary["pendingPermissions"].as_u64().unwrap_or(0) > 0 || status == "waiting" => {
+            Some("input")
+        }
+        "running" => Some("working"),
+        _ if last == Some("failed") => Some("failed"),
+        "disconnected" | "unreachable" if !answered => Some("lost"),
+        _ if answered => Some("done"),
+        _ => None,
+    }
+}
+
 pub(super) fn enforcement(m: &SessionMeta, default_policy: Option<PermissionPolicy>) -> Value {
     let policy = m
         .permission_policy
@@ -39,7 +70,7 @@ impl Hub {
     pub fn session_summary(&self, session: &Session) -> Value {
         let m = session.meta();
         let turn = session.turn();
-        json!({
+        let mut summary = json!({
             "sessionId": m.id,
             "name": m.name,
             "harness": m.harness,
@@ -77,7 +108,9 @@ impl Hub {
             "unread": m.unread,
             "lastTurn": m.last_turn,
             "attached": session.attached.load(Ordering::SeqCst),
-        })
+        });
+        summary["indicator"] = status_indicator(&summary).map_or(Value::Null, Value::from);
+        summary
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {

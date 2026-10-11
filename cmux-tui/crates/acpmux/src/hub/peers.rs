@@ -239,6 +239,8 @@ impl Hub {
                             .filter(|r| r.peer == peer)
                             .map(|r| {
                                 r.summary["status"] = Value::String("unreachable".into());
+                                r.summary["indicator"] = super::views::status_indicator(&r.summary)
+                                    .map_or(Value::Null, Value::from);
                                 r.summary.clone()
                             })
                             .collect()
