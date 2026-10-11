@@ -334,6 +334,13 @@ struct AnsweredBy {
     feed_item: String,
 }
 
+/// An `answered_by` field as acpmux takes it (`hub/person.rs` answered_by):
+/// 1 to 128 characters of `[A-Za-z0-9_.:-]`.
+fn is_answer_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+}
+
 /// 64 lowercase hex characters: a decision nonce or proof.
 fn is_hex64(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -928,7 +935,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 || !person_decision.as_deref().is_none_or(is_hex64)
                 || answered_by
                     .as_ref()
-                    .is_some_and(|a| a.device.len() > 128 || a.feed_item.len() > 128)
+                    .is_some_and(|a| !is_answer_id(&a.device) || !is_answer_id(&a.feed_item))
             {
                 return Err(Refusal::BadRequest);
             }

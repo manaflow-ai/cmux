@@ -7781,7 +7781,7 @@ sent again). The daemon never answers a request by itself.
 `decision_nonce` and `person_decision` (64 lowercase hex characters each) are
 the person's decision proof for this answer, which the app makes with the
 person key it gave acpmux (acpmux `hub/person.rs`); `answered_by`
-(`{device, feed_item}`, at most 128 bytes each) names the device the person
+(`{device, feed_item}`, each 1 to 128 characters of `[A-Za-z0-9_.:-]`) names the device the person
 answered on. The daemon checks only their shape, holds no person key, and
 passes them to acpmux unchanged as `_meta.acpmux` `decisionNonce`,
 `personDecision` and `answeredBy {device, feedItem}`; acpmux decides. A

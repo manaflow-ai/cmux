@@ -61,11 +61,23 @@ pub(super) async fn handle_request(
     }
     // Only the person allows or widens what runs without asking
     // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    hub.person_check(conn.is_person(), m, &params).await?;
+    let verdict = hub.person_check(conn.is_person(), m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
-    let mut reply = dispatch_request(hub, conn, m, params, resolved).await;
+    let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
+        // The check saw a peer's prompt: only the peer decides it. If the
+        // name no longer names a peer's session (renamed, killed, a new
+        // local session with that prefix), refuse; never handle it here.
+        match super::peer_forward::forward(hub, conn, m, &params).await {
+            Some(reply) => reply,
+            None => Err(crate::hub::person::person_required(
+                "answering a prompt whose session moved between this check and its forward",
+            )),
+        }
+    } else {
+        dispatch_request(hub, conn, m, params, resolved).await
+    };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
@@ -963,13 +975,12 @@ async fn dispatch_request(
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            // An allow that is not the person's connection counted on its
-            // decision proof (`hub/person.rs`): the answer spends its nonce.
-            let nonce = mux_meta(&params)
-                .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
-                .and_then(Value::as_str)
-                .filter(|_| option.is_some() && !conn.is_person());
-            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
+            // Who answers, for the person rule under the prompt's lock
+            // (`hub/person.rs`): an allow that is not the person's counts
+            // only on its decision proof, which the answer spends.
+            let answerer = crate::hub::person::Answerer::of(conn.is_person(), &params);
+            hub.respond_permission(&s, pid, option, answers, answered_by, answerer, control)
+                .await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
