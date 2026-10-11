@@ -18,6 +18,13 @@ export type TurnActions = {
   };
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
+  /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
+  /// that moves the chat to the model picked and sends the prompt again there.
+  retryWith?: {
+    models: readonly { id: string; name: string }[];
+    current?: string;
+    retry: (rowId: string, prompt: string, model: string) => void;
+  };
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.

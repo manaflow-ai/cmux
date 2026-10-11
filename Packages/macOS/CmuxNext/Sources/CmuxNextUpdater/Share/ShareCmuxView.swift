@@ -191,7 +191,7 @@ public final class ShareCmuxView: NSView {
             titleLabel.textColor = Palette.textPrimary
             bodyLabel.textColor = Palette.textSecondary
             messageView.textColor = Palette.textPrimary
-            messageView.insertionPointColor = Palette.textPrimary
+            messageView.insertionPointColor = Palette.caret
             messageScroll.layer?.backgroundColor = Palette.hoverFill.cgColor
             closeButton.contentTintColor = Palette.textSecondary
         }

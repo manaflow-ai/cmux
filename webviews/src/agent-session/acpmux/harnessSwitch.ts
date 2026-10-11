@@ -312,26 +312,31 @@ export class HarnessSwitch {
   }
 
   /// A model pick. While a switch is pending it is recorded for the new session; in a live
-  /// session it draws at once and goes to the agent, reverting if the agent refuses it.
-  pickModel(model: string, live?: { sessionId: string; model?: string }): Promise<void> {
+  /// session it draws at once and goes to the agent, reverting if the agent refuses it. Resolves
+  /// whether the pick holds: false when the agent refused it or there was no session to take it.
+  pickModel(model: string, live?: { sessionId: string; model?: string }): Promise<boolean> {
     const intent = this.intent;
     if (intent) {
       intent.config = { ...intent.config, model };
       this.changed();
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
     const port = this.port;
-    if (!port || !live) return Promise.resolve();
+    if (!port || !live) return Promise.resolve(false);
     const pick = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
     this.configPick = undefined;
     this.changed();
-    return port.setModel(model).catch((error) => {
-      if (this.modelPick !== pick) return;
-      this.modelPick = undefined;
-      this.changed();
-      this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
-    });
+    return port.setModel(model).then(
+      () => true,
+      (error) => {
+        if (this.modelPick !== pick) return false;
+        this.modelPick = undefined;
+        this.changed();
+        this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
+        return false;
+      },
+    );
   }
   /// A permission mode or config option picked while a switch is pending; false otherwise.
   /// A held pick takes a gesture ticket at once (pane-native transport); a live pick needs none.

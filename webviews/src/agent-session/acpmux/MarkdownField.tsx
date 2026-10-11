@@ -314,7 +314,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           bullet: "-" as const,
           emphasis: "*" as const,
         }));
-        ctx.update(editorViewOptionsCtx, (options) => ({ ...options, attributes: { class: "acpmux-md" } }));
+        // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
+        // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
+        ctx.update(editorViewOptionsCtx, (options) => ({
+          ...options,
+          attributes: { class: "acpmux-md", "data-focus-ring": "none" },
+        }));
       })
       .use(composerKeys)
       .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))

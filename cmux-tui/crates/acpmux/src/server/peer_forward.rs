@@ -104,13 +104,14 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter });
+                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
             } else {
                 super::requests::attach(hub, conn, &id);
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
-                let _ =
-                    peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
+                // The link is not a person: only a client's own attach or view shows the chat.
+                let attach = json!({"sessionId": id, "limit": 0, "visible": false});
+                let _ = peer.request(method::MUX_ATTACH, attach).await;
             }
         }
         let mut result = peer.request(m, p).await.map_err(|e| {

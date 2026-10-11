@@ -75,7 +75,8 @@ export function withMinimumContrast(
   if (rgb == null || bg == null || target == null) return color.trim();
   if (contrast(rgb, bg) >= minimumContrast) return toHex(rgb);
   for (let step = 1; step <= 20; step++) {
-    const mixed = mix(rgb, target, step / 20);
+    // Measured as the hex it becomes, so rounding never drops it below the minimum.
+    const mixed = parseHex(toHex(mix(rgb, target, step / 20))) ?? target;
     if (contrast(mixed, bg) >= minimumContrast) return toHex(mixed);
   }
   return toHex(target);

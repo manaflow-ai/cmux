@@ -89,6 +89,48 @@ fn backdate(file: &std::path::Path) {
     std::fs::File::options().write(true).open(file).unwrap().set_modified(hour_ago).unwrap();
 }
 
+/// A running process named like a harness (`python3 <dir>/<name>`, a script
+/// that sleeps), which names no session. A recent write counts as live only
+/// while some harness runs, so a test that expects "written" starts one
+/// rather than depend on what else runs on the builder. A copied `sleep`
+/// would not do: a multicall coreutils exits on an unknown argv[0].
+fn harness_stand_in(dir: &std::path::Path, name: &str) -> std::process::Child {
+    let script = dir.join(name);
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(&script, "import time\ntime.sleep(60)\n").unwrap();
+    std::process::Command::new("python3").arg(&script).spawn().unwrap()
+}
+
+/// A recent write is live only while a harness outside acpmux runs: with
+/// none, the chat's harness has ended (Lawrence P0 2026-10-11); an unreadable
+/// process table keeps the write live (fails closed); harnesses under an
+/// `acpmux` process are its own.
+#[test]
+fn a_recent_write_is_live_only_while_a_harness_runs() {
+    use acpmux::adopt_live::{LiveUse, Proc, live_use};
+    let root = std::env::temp_dir().join(format!("acpmux-adopt-live-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let transcript = root.join("chat.jsonl");
+    std::fs::write(&transcript, "{}\n").unwrap();
+    let now = std::time::SystemTime::now() + Duration::from_secs(5);
+    let id = session_id();
+    let proc = |pid, ppid, command: &str| Proc { pid, ppid, command: command.to_owned() };
+    let shell = proc(10, 1, "/bin/zsh -l");
+    let recent = |procs: &[Proc]| {
+        matches!(live_use(&id, &transcript, procs, now), Some(LiveUse::RecentWrite { .. }))
+    };
+    assert!(!recent(std::slice::from_ref(&shell)));
+    assert!(recent(&[shell.clone(), proc(11, 10, "/opt/homebrew/bin/codex")]));
+    assert!(recent(&[shell.clone(), proc(11, 10, "node /usr/local/bin/claude --verbose")]));
+    assert!(recent(&[]));
+    let ours =
+        [shell.clone(), proc(20, 1, "/Applications/x/acpmux daemon"), proc(21, 20, "claude")];
+    assert!(!recent(&ours));
+    backdate(&transcript);
+    assert!(!recent(&[shell, proc(11, 10, "codex")]));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[tokio::test]
 async fn adopt_loads_the_harness_session_in_its_recorded_cwd() {
     let (hub, mut c, root, project, chat) = adopt_setup().await;
@@ -158,7 +200,9 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let _ = other.kill();
     let _ = other.wait();
 
-    // No process names it, but its transcript was just written.
+    // No process names it, but its transcript was just written while a
+    // Codex harness runs.
+    let mut harness = harness_stand_in(&root.join("bin"), "codex");
     std::fs::File::options()
         .write(true)
         .open(&rollout)
@@ -168,6 +212,8 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let recent = c.request(method::SESSION_NEW, adopt("fakecodex", &live)).await.unwrap_err();
     assert!(recent.contains("written"), "{recent}");
     assert!(hub.sessions().is_empty());
+    let _ = harness.kill();
+    let _ = harness.wait();
 
     let opened =
         c.request(method::SESSION_NEW, adopt_if_live("fakecodex", &live, Some("open"))).await;
@@ -206,7 +252,8 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
         .await
         .unwrap();
 
-    // Just written: live.
+    // Just written while a Claude Code harness runs: live.
+    let mut harness = harness_stand_in(&root.join("bin"), "claude");
     let refused = c.request(method::SESSION_NEW, adopt("fakeclaude", &fork_id)).await.unwrap_err();
     assert!(refused.contains("written"), "{refused}");
     let forked =
@@ -221,5 +268,7 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     };
     assert_eq!(mux("adopted"), Some(json!({"agentSessionId": fork_id, "fork": true})));
     assert_eq!(mux("resumed"), Some(json!({"level": "fork"})));
+    let _ = harness.kill();
+    let _ = harness.wait();
     let _ = std::fs::remove_dir_all(root);
 }

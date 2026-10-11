@@ -31,7 +31,7 @@ public final class ThemedTextField: NSTextField {
             textColor = Palette.textPrimary
             guard let editor = currentEditor() as? NSTextView else { return }
             editor.textColor = Palette.textPrimary
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
     }

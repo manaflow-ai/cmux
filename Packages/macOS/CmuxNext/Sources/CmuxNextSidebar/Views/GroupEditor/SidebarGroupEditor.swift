@@ -337,7 +337,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
         nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
         }
     }
 

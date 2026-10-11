@@ -1,8 +1,9 @@
 // Pure derivations of the channels Home: the rail sections, the timeline rows (day lines, author
 // heads, thread summaries) and a thread's replies. Everything here is a view over the owner's
 // messages; nothing is stored. Threads come from the owner's thread root, else from the inline
-// reply target. A root's count comes from the owner's stats (HomeThreadStats, every reply) plus
-// the loaded replies the stats did not count yet; without stats, from the loaded window.
+// reply target. A root's count comes from the owner's stats (HomeThreadStats, every reply that is
+// not retracted) plus the loaded replies the stats did not count yet; without stats, from the
+// loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
 import type { HomeConversation, HomeMessage, HomePart, HomeThreadStats } from "./types";
 
@@ -134,7 +135,7 @@ export function threadSummaries(
   }
   for (const message of messages) {
     const root = threadOf(message);
-    if (!root) continue;
+    if (!root || message.retracted) continue;
     const stats = owner.get(root);
     const counted = stats !== undefined && message.seq <= (stats.lastReplySeq ?? 0);
     const summary = summaries.get(root) ?? { count: 0, lastAt: 0, authors: [], unread: 0 };
@@ -147,10 +148,12 @@ export function threadSummaries(
   return summaries;
 }
 
-/** A thread's reply count: the owner's stats plus the loaded replies after them, else the loaded replies. */
+/** A thread's reply count: the owner's stats plus the loaded replies after them, else the loaded
+ * replies; retracted replies never count. */
 export function replyCount(replies: readonly HomeMessage[], stats: HomeThreadStats | undefined): number {
-  if (!stats) return replies.length;
-  return stats.replyCount + replies.filter((reply) => reply.seq > (stats.lastReplySeq ?? 0)).length;
+  const live = replies.filter((reply) => !reply.retracted);
+  if (!stats) return live.length;
+  return stats.replyCount + live.filter((reply) => reply.seq > (stats.lastReplySeq ?? 0)).length;
 }
 
 /** Top-level messages with day lines, author heads and a "New" line before the first message that

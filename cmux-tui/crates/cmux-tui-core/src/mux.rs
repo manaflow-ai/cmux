@@ -697,6 +697,9 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
+    #[cfg(unix)]
+    pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,

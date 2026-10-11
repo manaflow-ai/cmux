@@ -96,8 +96,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     func setHover(_ id: String?) {
         let old = hoveredID
         hoveredID = id
-        refresh(old)
-        refresh(id)
+        // Moving from one row to the next retargets at once, with no fade gap; only entering the
+        // list and leaving it fade.
+        let animated = old == nil || id == nil
+        refresh(old, hoverAnimated: animated)
+        refresh(id, hoverAnimated: animated)
     }
 
     func scrollToSelection() {
@@ -111,11 +114,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
     }
 
-    private func refresh(_ id: String?) {
+    private func refresh(_ id: String?, hoverAnimated: Bool = true) {
         guard let id, let row = rowIndexByID[id] else { return }
         if let rowView = table.rowView(atRow: row, makeIfNecessary: false) as? PaletteTableRowView {
             rowView.isPaletteSelected = id == selectedID
-            rowView.setHovered(id == hoveredID, animated: true)
+            rowView.setHovered(id == hoveredID, animated: hoverAnimated)
         }
         (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? PaletteRowCell)?.setSelected(id == selectedID)
     }

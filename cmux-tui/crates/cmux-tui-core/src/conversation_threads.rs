@@ -3,7 +3,8 @@
 //! thread roots in a snapshot or history page. Both are computed at read time
 //! from an expression index over `message.thread_root`, as the cloud owner
 //! does over its rows, so no reducer or corpus change is needed. A retracted
-//! reply still counts (the thread shows "message deleted").
+//! reply stays in the thread read (shown as "message deleted") but does not
+//! count in the stats (cx-59n8.9).
 
 use cmux_conversation::{Message, Reject};
 use rusqlite::{Connection, params};
@@ -97,8 +98,9 @@ impl ConversationStore {
     }
 }
 
-/// The stats of root `root`: count, last reply, and the first distinct
-/// authors, read through `message_by_thread`.
+/// The stats of root `root` over its replies that are not retracted: count,
+/// last reply, and the first distinct authors, read through
+/// `message_by_thread`.
 fn summary(
     connection: &Connection,
     conversation: &str,
@@ -106,7 +108,8 @@ fn summary(
 ) -> anyhow::Result<ThreadSummary> {
     let (count, last_seq): (i64, Option<i64>) = connection.query_row(
         "SELECT count(*), max(seq) FROM message
-         WHERE conversation = ?1 AND json_extract(message_json, '$.thread_root') = ?2",
+         WHERE conversation = ?1 AND json_extract(message_json, '$.thread_root') = ?2
+           AND json_extract(message_json, '$.retracted_at') IS NULL",
         params![conversation, root],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
@@ -129,6 +132,7 @@ fn summary(
     let mut statement = connection.prepare(
         "SELECT json_extract(message_json, '$.author') AS author, min(seq) AS first FROM message
          WHERE conversation = ?1 AND json_extract(message_json, '$.thread_root') = ?2
+           AND json_extract(message_json, '$.retracted_at') IS NULL
          GROUP BY author ORDER BY first LIMIT ?3",
     )?;
     let limit = to_i64(SUMMARY_AUTHORS as u64)?;
