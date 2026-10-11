@@ -8171,10 +8171,21 @@ this daemon guarded; later writes and finishes of it are
 receive's own manifest (never from the frame), so acpmux drops the
 receive's files and refuses that move from then on, and answers
 `{dropped:true, forgotten, landed}` (`landed`: the chat had already arrived
-here). An acpmux that cannot forget leaves `forgotten:false`; its files are
-swept after 24 h. acpmux's forget is not a daemon command. A receive whose
+here). An acpmux that cannot forget (an error or no answer) leaves the
+receive as it was, live or settled, and answers `{dropped:false,
+forgotten:false, landed:null}`: whether the chat landed is unknown, and the
+question can be asked again. While a finish of the receive is running, a
+receive-abort sends no forget and answers the same "cannot say yet". acpmux's forget is not a daemon command. A receive whose
 manifest lacks a plain `transferId` and `sessionId` is
 `agent_transfer.bad_request`.
+
+A receive its finish ended (the finish succeeded, failed for good, or met a
+team VM) stays askable: its receive-abort sends the same forget again and
+answers `landed`, so a pump whose finish answer was lost learns whether the
+chat arrived before it commits or aborts the source. The daemon keeps the
+16 most recent such receives in memory, each for 24 h; a daemon restart
+forgets them (`agent_transfer.unknown_receive`). Writes and finishes of a
+settled receive stay `agent_transfer.unknown_receive`.
 
 ### agent-transfer-finish
 
@@ -8189,7 +8200,8 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 `{id, cmd:"agent-transfer-begin", surface, interrupt?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
-and answers `{transfer_id, manifest}`. The bundle's `manifest.json` is served
+and answers `{transfer_id, source_session, manifest}` (`source_session` as
+`agent-transfer-source`). The bundle's `manifest.json` is served
 without the absolute `source` paths of its native files, and its
 `session.json` without the source machine's launch settings (`sessionEnv`,
 `harnessArgv`, `harnessRoots`, `preset`, `tags`); its `cwd` stays, since the
@@ -8197,6 +8209,19 @@ target's import needs a folder and its finish replaces it. These names
 compare case-insensitively, and the manifest lists the scrubbed sizes. The
 event logs still carry the source machine's paths; the guarded finish never
 runs them.
+
+A begin of a chat that is already in a move is `agent_transfer.refused`
+(acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
+that move, so a pump that lost its begin answer can commit or abort the move
+it began. Only that refusal carries details.
+
+### agent-transfer-source
+
+`{id, cmd:"agent-transfer-source", surface}` answers `{session}`, the session
+an agent tab of this store is bound to, read from the tab's store record
+without reaching acpmux; any other surface is `agent_transfer.unknown_tab`.
+Unlike `agent-session-attach` it does not mark the chat seen or touch its
+log, so a pump can tell the tab still shows the chat its recorded move took.
 
 ### agent-transfer-read
 
