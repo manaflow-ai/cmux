@@ -32,11 +32,11 @@ extension SessionTransferService {
 
     /// Moves chat `item` from `peer` and opens it here; the source tab closes once the chat is
     /// here, even when its tab could not open (the source copy is closed by then).
-    func moveChat(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool) async throws {
+    func moveChat(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String? = nil) async throws {
         guard let services else { throw Failure.unavailable }
         // Nothing moves unless its tab can open here.
         guard services.agentTabs.canHost(on: services.daemon) else { throw Failure.agentNotOpened }
-        let session = try await takeChat(item, interrupt: interrupt)
+        let session = try await takeChat(item, interrupt: interrupt, cwd: cwd)
         do {
             _ = try await openChat(session, title: item.title)
         } catch {
@@ -47,8 +47,9 @@ extension SessionTransferService {
     }
 
     /// Brings chat `item` into this build's acpmux and returns its session here. Its running turn
-    /// stops when `interrupt`, else the move is refused. A failed move leaves it in the source.
-    private func takeChat(_ item: SessionTransferItem, interrupt: Bool) async throws -> String {
+    /// stops when `interrupt`, else the move is refused. It works in `cwd` here when given. A failed
+    /// move leaves it in the source.
+    private func takeChat(_ item: SessionTransferItem, interrupt: Bool, cwd: String?) async throws -> String {
         guard let session = item.agentSessionID, let socket = item.acpmuxSocket else { throw Failure.missingAgentID }
         guard let services, let own = acpmuxEnvironment() else { throw Failure.unavailable }
         if Self.sameFile(socket, own.socketPath) { return session }
@@ -63,12 +64,13 @@ extension SessionTransferService {
         environment["ACPMUX_SOCKET"] = socket
         if let home = item.acpmuxHome { environment["ACPMUX_HOME"] = home }
         let arguments = ["--json", "transfer", session, "--to", own.socketPath] + (interrupt ? ["--interrupt"] : [])
+            + (cwd.map { ["--cwd", $0] } ?? [])
         // A pull past its deadline starts no move nobody waits for.
         try Task.checkCancellation()
         guard let result = try await Self.runToEnd(own.executable, arguments, environment: environment, limit: Self.chatMoveLimit) else {
             throw Failure.chatInChats
         }
-        guard result.status == 0 else { throw Failure.chatNotMoved(Self.acpmuxReason(result.stderr, status: result.status)) }
+        guard result.status == 0 else { throw Self.acpmuxFailure(result.stderr, status: result.status) }
         let moved = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any]
         return moved?["sessionId"] as? String ?? session
     }
@@ -101,15 +103,18 @@ extension SessionTransferService {
         return info["status"] as? String != "closed"
     }
 
-    /// acpmux's message from its `--json` error line (the last line of `stderr`), else the text.
-    private nonisolated static func acpmuxReason(_ stderr: Data, status: Int32) -> String {
+    /// The failed move as acpmux's `--json` error line (the last line of `stderr`) tells it: a
+    /// refusal the app words itself by its `detail`, else acpmux's message, else the text.
+    private nonisolated static func acpmuxFailure(_ stderr: Data, status: Int32) -> Failure {
         let text = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let last = text.split(separator: "\n").last.map(String.init) ?? ""
-        if let line = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any],
-           let message = (line["error"] as? [String: Any])?["message"] as? String ?? line["error"] as? String {
-            return message
+        let line = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any]
+        let error = line?["error"] as? [String: Any]
+        if error?["detail"] as? String == "cwd_missing", let folder = (error?["data"] as? [String: Any])?["cwd"] as? String {
+            return .chatFolderMissing(folder)
         }
-        return text.isEmpty ? "acpmux exited with \(status)" : text
+        if let message = error?["message"] as? String ?? line?["error"] as? String { return .chatNotMoved(message) }
+        return .chatNotMoved(text.isEmpty ? "acpmux exited with \(status)" : text)
     }
 
     /// Whether two paths name one file (a socket reached as `/tmp/…` and `/private/tmp/…`).

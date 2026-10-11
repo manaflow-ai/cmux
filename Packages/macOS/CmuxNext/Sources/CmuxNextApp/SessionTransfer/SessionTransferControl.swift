@@ -70,8 +70,14 @@ enum SessionTransferControl {
                 let ids = Set(call.params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
                 // A chat running a turn moves only when its turn may stop.
                 let interrupt = call.params["interrupt"]?.boolValue == true
+                // A chat whose folder is not here (its failure's `missing_folder`) moves into `cwd`:
+                // that one chat only, so no other chat leaves its own folder.
+                let cwd = call.params["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+                if cwd != nil, ids.count != 1 {
+                    throw ControlError.invalidParams("cwd needs ids naming the one chat to move into it")
+                }
                 do {
-                    return try await transfer.pull(source: source, ids: ids, interrupt: interrupt)
+                    return try await transfer.pull(source: source, ids: ids, interrupt: interrupt, cwd: cwd)
                 } catch {
                     throw controlError(error)
                 }
@@ -105,6 +111,7 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.missingAgentID: "invalid_params"
     case SessionTransferService.Failure.agentNotOpened: "unavailable"
     case SessionTransferService.Failure.chatNotMoved: "unavailable"
+    case SessionTransferService.Failure.chatFolderMissing: "unavailable"
     case SessionTransferService.Failure.chatInChats: "unavailable"
     case SessionTransferService.Failure.sourceAgentsStopped: "unavailable"
     default: "internal_error"
