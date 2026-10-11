@@ -384,7 +384,12 @@ final class AgentTabStore {
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
             return await handler.listProjects(query)
         }
-        model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
+        model.onOpenChat = { [weak self] key in
+            guard let self else { return }
+            // From a New Tab page the chat takes that tab; elsewhere it opens through Open Chat.
+            let page = resolve(provisional)
+            if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
+        }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
         model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
         model.onAppAction = { [weak self] id in

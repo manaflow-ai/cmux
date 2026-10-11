@@ -47,7 +47,7 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 | --- | --- | --- | --- | --- |
 | Split right / down | Cmd-D / Cmd-Shift-D | `new_split:right` / `new_split:down` | Cmd-D `splitRight` / Cmd-Shift-D `splitDown` | match |
 | Focus pane in a direction | Cmd-Opt-arrows | Cmd-Opt-arrows `goto_split` | Cmd-Opt-arrows `focusLeft` etc. (also Ctrl-Cmd-H/J/K/L) | match |
-| Focus previous / next pane | none (Cmd-[ / Cmd-] are focus history) | Cmd-[ / Cmd-] `goto_split:previous/next` | none by key: in a terminal the key router consumes Cmd-[ / Cmd-] as browser-only chords (live: `dispatcher: consume`), so neither Ghostty's `goto_split` nor focus history runs; in a browser they are Back / Forward; focus history is Ctrl-- / Ctrl-Shift-- | differs; see Decisions |
+| Focus previous / next pane, focus history | Cmd-[ / Cmd-] focus history Back / Forward (no pane previous / next key) | Cmd-[ / Cmd-] `goto_split:previous/next` | Cmd-[ / Cmd-] `focusHistoryBack` / `focusHistoryForward` everywhere but a web page (Back / Forward there), also Ctrl-- / Ctrl-Shift-- outside a terminal. Before: the key router consumed Cmd-[ / Cmd-] outside a browser, so they did nothing in a terminal | FIXED (chief decision): matches the shipping cmux; a `super+[` / `super+]` keybind in the user's Ghostty config still wins |
 | Focus pane N | Ctrl-Cmd-1...9 | none | Ctrl-Cmd-1...9 `focusPaneByNumber` | match |
 | Resize pane | Ctrl-Shift-H/J/K/L; Ctrl-Cmd-arrows (Ghostty) | Ctrl-Cmd-arrows `resize_split` | both, `resizePane*` | match |
 | Zoom pane | Cmd-Shift-Return | Cmd-Shift-Return `toggle_split_zoom` | Cmd-Shift-Return `toggleSplitZoom` | match |
@@ -140,14 +140,16 @@ Cmd-A runs terminalCopy). The OWNER lines match the cmux-next column. The script
 first-terminal Cmd-K rows fail in both runs because that terminal is not first responder
 (child bead of cx-442); the Cmd-K rows in the focused split pass.
 
-## Decisions (earlier cmux-next choices that differ from the shipping cmux; not changed here)
+4. Cmd-[ / Cmd-] (chief decision 2026-10-11): `KeyBindingDefaults.focusHistoryAliases` bind
+   them to `focusHistoryBack` / `focusHistoryForward` with `when: surfaceKind != page && !codeEditorFocused`
+   (the code editor keeps outdent / indent). They
+   sit first in the default layer, so the browser's and the Markdown viewer's own Back /
+   Forward on the same keys (later, more specific) win in those surfaces, a user Ghostty
+   `super+[` keybind (Ghostty layer) wins everywhere, and a cmux.json override of the action
+   removes them. Proof: terminal-keys-e2e.py rows "terminal Cmd-[" and "terminal Cmd-]".
 
-- Cmd-[ / Cmd-]: the shipping cmux runs focus history (Back / Forward) in a terminal; Ghostty
-  runs `goto_split:previous/next`. cmux-next consumes both keys outside a browser
-  (keybindings.md step 5c) and moved focus history to Ctrl-- / Ctrl-Shift--, so in a terminal
-  they do nothing. Recommendation: bind `focusHistoryBack` / `focusHistoryForward` to
-  Cmd-[ / Cmd-] with `when: surfaceKind != page` (shipping cmux parity), keeping Back / Forward
-  in a browser.
+## Decisions (earlier cmux-next choices that differ from the shipping cmux; the chief kept them, 2026-10-11)
+
 - Workspace-wide terminal font size: the shipping cmux uses Ctrl-Cmd-=/-/0; cmux-next uses
   Cmd-=/-/0 outside a terminal and gives Ctrl-Cmd-=/-/0 to UI scale.
 - Cmd-Z in a terminal: the shipping cmux sends it to the program; cmux-next routes Ghostty's

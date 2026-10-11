@@ -89,3 +89,16 @@ pub(super) fn positional_rename(
     }
     Ok(())
 }
+
+/// A flag whose value must be one of `allowed`.
+pub(super) fn validate_one_of(
+    flag: &str,
+    value: &str,
+    allowed: &[&str],
+) -> Result<(), super::UsageError> {
+    if allowed.contains(&value) {
+        Ok(())
+    } else {
+        Err(super::UsageError::new(format!("{flag} must be one of {}", allowed.join(", "))))
+    }
+}
