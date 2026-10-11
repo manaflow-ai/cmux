@@ -19,12 +19,13 @@ enum DebugHints {
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
-                let menu = note.object as? NSMenu
+                // Delivered on main and only read there, so the menu never crosses actors.
+                nonisolated(unsafe) let menu = note.object as? NSMenu
                 MainActor.assumeIsolated { tracked = menu } // main-proof: observer on queue: .main
             },
             center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { note in
-                let menu = note.object as? NSMenu
-                MainActor.assumeIsolated { if tracked === menu { tracked = nil } } // main-proof: observer on queue: .main
+                let menu = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                MainActor.assumeIsolated { if tracked.map(ObjectIdentifier.init) == menu { tracked = nil } } // main-proof: observer on queue: .main
             },
         ]
     }
