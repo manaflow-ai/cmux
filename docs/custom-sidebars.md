@@ -102,9 +102,7 @@ hero+queue, `agents-dense` monospace), and
 `kitchen-sink` (every runtime feature on one panel) are right-panel-shaped
 examples.
 
-`TextField(value, opts)` opts: `placeholder`, `onSubmit(text)` (Return, or
-the field losing focus; only Return counts as a gesture for
-`clipboard.write`), `onCancel()`,
+`TextField(value, opts)` opts: `placeholder`, `onSubmit(text)`, `onCancel()`,
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields so mounting never steals focus).
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
@@ -239,13 +237,12 @@ Rules of the runtime:
   a handler.
 - Clipboard: `clipboard.write(text)` copies plain text, e.g. a Copy Workspace
   ID menu item: `Button("Copy Workspace ID", () => clipboard.write(w().id))`.
-  It only works while cmux is handling a click, double-click, menu item, or
-  the Return key in a text field for the sidebar, and only synchronously
-  inside that handler. Calls from load, data effects, drag/reorder
-  callbacks, a text field's submit when it fires because the field lost
-  focus, or a callback saved for later return `false` and log a
-  `clipboard.write rejected: ...` message, so a sidebar can't swap the clipboard behind your
-  back before you paste into a shell. Text is capped at 64 KB (UTF-8). It is
+  It only works while cmux is handling a click, double-click, or menu item
+  for the sidebar, and only synchronously inside that handler. Calls from
+  load, data effects, drag/reorder callbacks, text-field submit or edit
+  handlers, or a callback saved for later return `false` and log a
+  `clipboard.write rejected: ...` message, so a sidebar can't swap the
+  clipboard behind your back before you paste into a shell. Text is capped at 64 KB (UTF-8). It is
   write-only: there is no clipboard read. The remote renderer has no
   clipboard, so every call returns `false` there.
 - Containment: the context has no filesystem, network, or timers, and a
