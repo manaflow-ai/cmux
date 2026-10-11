@@ -18,6 +18,7 @@ struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
     let canMarkUnread: Bool
     let hasLatestNotification: Bool
     let allNotificationsMuted: Bool
+    let hasManualCustomColor: Bool
     let notifications: [TerminalNotification]
 
     @MainActor
@@ -59,6 +60,9 @@ struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
         )
         allNotificationsMuted = !targetWorkspaceIds.isEmpty && targetWorkspaceIds.allSatisfy {
             workspaceRowsById[$0]?.workspace.isMuted == true
+        }
+        hasManualCustomColor = targetWorkspaceIds.contains {
+            workspaceRowsById[$0]?.hasManualCustomColor == true
         }
         notifications = notificationIndex.contextMenuNotifications(
             workspaceIds: targetWorkspaceIds
