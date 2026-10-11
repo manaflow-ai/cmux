@@ -235,6 +235,7 @@ extension AgentPaneRequest {
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
         case "git.stage", "git.unstage":
             self = .gitStage(AgentPaneGitStage(method: method, params: params))
+        case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
                 self = .githubRepository(cwd: cwd)
