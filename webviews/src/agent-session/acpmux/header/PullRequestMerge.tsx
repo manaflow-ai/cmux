@@ -60,9 +60,8 @@ export function PullRequestMerge({
   return (
     <div ref={box} className="acpmux-pr-merge" data-step={merging.step}>
       {merging.step === "merged" || merging.step === "queued" ? (
-        <output tabIndex={-1} data-focus-next="">
-          {t(merging.step === "merged" ? "header.prMerged" : "header.prMergeQueued")}
-        </output>
+        // A status region: it says the result, and focus stays with the popover.
+        <output>{t(merging.step === "merged" ? "header.prMerged" : "header.prMergeQueued")}</output>
       ) : merging.step === "confirm" || merging.step === "merging" ? (
         <>
           <span className="acpmux-pr-merge-question">
