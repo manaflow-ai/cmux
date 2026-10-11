@@ -28877,6 +28877,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -28887,12 +28899,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -28913,16 +28919,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -31049,6 +31055,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -31059,12 +31077,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -31085,16 +31097,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -33065,6 +33077,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -33075,12 +33099,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -33101,16 +33119,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",

@@ -158,6 +158,22 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.accent" : {
+      "default" : "neutral",
+      "description" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
+      "enum" : [
+        "neutral",
+        "theme",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "title" : "Accent",
+      "type" : "string"
+    },
     "appearance.appTheme" : {
       "default" : "followTerminal",
       "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",

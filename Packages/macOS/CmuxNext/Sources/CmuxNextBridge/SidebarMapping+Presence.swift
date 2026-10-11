@@ -5,18 +5,16 @@ import Foundation
 
 extension SidebarMapping {
     /// The agents acting in `tabs` right now (cx-gg84), one per live tab with
-    /// presence, in pane order. Two agents of one kind are numbered by that
-    /// order (`Claude Code`, `Claude Code 2`) so their tooltips tell them apart.
-    func presence(_ tabs: [TabModel]) -> [SidebarPresence] {
-        var seen: [String: Int] = [:]
+    /// presence, in pane order; none while the presence toggle is off, so
+    /// hook traffic does no sidebar work then. Two agents of one kind share a
+    /// name and differ by color, the same in the sidebar, tab chip and pane tag.
+    func presence(_ tabs: [TabModel], enabled: Bool = SidebarTunables.presenceDots.value) -> [SidebarPresence] {
+        guard enabled else { return [] }
         return tabs.compactMap { tab -> SidebarPresence? in
             guard !tab.dead, let presence = tab.presence, let activity = presence.activity else { return nil }
-            let base = Self.agentName(presence.agent)
-            let count = (seen[base] ?? 0) + 1
-            seen[base] = count
             return SidebarPresence(
                 id: presence.session ?? "surface-\(presence.surface)",
-                name: count == 1 ? base : "\(base) \(count)",
+                name: Self.agentName(presence.agent),
                 activity: Self.activity(activity),
                 target: Self.target(path: presence.path, line: presence.line)
             )
