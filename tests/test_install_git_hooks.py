@@ -31,7 +31,10 @@ class InstallGitHooksTests(unittest.TestCase):
         self.repo = self.root / "repository"
         self.global_config = self.root / "gitconfig"
         self.global_config.write_text("")
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        # Fixture commits stand for a person: an agent or CI environment makes a
+        # missing formatter fatal, and these fixtures have none.
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith("GIT_") and key not in self.AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root))
         git_fixture_env.without_auto_maintenance(self.env)
@@ -219,7 +222,7 @@ class InstallGitHooksTests(unittest.TestCase):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -228,8 +231,7 @@ class InstallGitHooksTests(unittest.TestCase):
             fake = bin_dir / "rustfmt"
             fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
             fake.chmod(0o755)
-        env = {key: value for key, value in self.env.items() if key not in self.AGENT_VARS}
-        env.update(PATH=str(bin_dir), **extra)
+        env = dict(self.env, PATH=str(bin_dir), **extra)
         return env
 
     def stage_rust_package(self, root, edition, source="fn main() {}\n", config=None):
@@ -252,7 +254,13 @@ class InstallGitHooksTests(unittest.TestCase):
         result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.rustfmt_log.read_text().splitlines() if self.rustfmt_log.exists() else []
-        self.assertEqual(calls, [f"--edition 2024 {source.resolve()}"])
+        self.assertEqual(len(calls), 1, calls)
+        # No rustfmt.toml in the checkout: rustfmt's defaults, never a config
+        # found above the checkout.
+        edition_flag, edition, config_flag, config, path = calls[0].split(" ")
+        self.assertEqual((edition_flag, edition, config_flag, path),
+                         ("--edition", "2024", "--config-path", str(source.resolve())), calls)
+        self.assertFalse(Path(config).resolve().is_relative_to(self.repo.resolve()), config)
 
     def test_pre_commit_uses_the_package_rustfmt_config(self):
         self.assertEqual(self.install().returncode, 0)
