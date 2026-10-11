@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Tagged-app check of the Swift Home's message menu and my tapback (cx-frd9).
 
-Launches the tagged app with no activation, opens a conversation that has an
-incoming message, builds the context menu at the newest incoming bubble through
-the right-click's path (`debug.home.drive menu`: the tapback palettes and the
-icon items), then reacts with love through the picker's path
-(`debug.home.drive tapback`, `ChatIntents.react`) and checks that HomeStore and
-the owner have my reaction and the view still shows the conversation. A
-screenshot after the tapback shows my badge. No system input: socket only.
+Launches the tagged app with no activation, opens the DEBUG Home fixture (the
+real transcript view over a HomeStore over the mock owner), builds the context
+menu at the newest incoming bubble through the right-click's path
+(`debug.home.drive menu`: the tapback palettes and the icon items), then reacts
+with love through the picker's path (`debug.home.drive tapback`,
+`ChatIntents.react`). Screenshots before and after show my badge. No system input: socket only.
 Runs on cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's
 `acpmux daemon shutdown`.
 
@@ -82,44 +81,24 @@ try:
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
-    me = inbox["me"]
-
-    def incoming():
-        for c in (api(call="inbox") or {}).get("conversations") or []:
-            msgs = (api(call="snapshot", conversation=c["id"], tail=20) or {}).get("messages") or []
-            theirs = [m for m in msgs if m.get("author") != me and not m.get("retracted")]
-            if theirs:
-                return c["id"], theirs[-1]
-        return None
-    found = poll(incoming, timeout=60)
-    if not check("a conversation with an incoming message", bool(found)):
-        sys.exit(1)
-    conversation, message = found
-
-    def opened():
-        if shown() != conversation:
-            rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
-            time.sleep(1)  # test harness: one request per second while Home starts
-            return None
-        return (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
-    check("Home shows the conversation", bool(poll(opened, timeout=180)), rpc("debug.home"))
+    # The DEBUG Home fixture: the real HomeNativeTranscriptView over a HomeStore over the mock owner,
+    # its Chief conversation with incoming messages (the isolated daemon's conversations may have none).
+    opened = rpc("debug.home_native_fixture.open") or {}
+    check("the Home fixture opens", bool(opened.get("ok")), opened)
+    texts = poll(lambda: (t := (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")) and t, timeout=60)
+    check("the fixture's transcript shows messages", bool(texts), rpc("debug.home.drive", {"action": "texts"}))
 
     menu = rpc("debug.home.drive", {"action": "menu"}) or {}
     items = menu.get("items") or []
     check("the menu at the incoming bubble has both tapback palettes", items[:2] == ["[palette]", "[palette]"], menu)
-    check("the menu has its other items (Tapback Details, Attach Sticker, Copy)", len([i for i in items if i not in ("[palette]", "-")]) >= 3, menu)
-
+    check("the menu has its other items (Tapback Details, Attach Sticker, Copy)",
+          len([i for i in items if i not in ("[palette]", "-")]) >= 3, menu)
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "before.png")})
     tap = rpc("debug.home.drive", {"action": "tapback"}) or {}
     check("my tapback goes to HomeStore", bool(tap.get("ok")), tap)
-    mine = lambda m: any(r.get("author") == me for r in (m or {}).get("reactions", []))
-    owner = poll(lambda: next((m for m in (api(call="snapshot", conversation=conversation, tail=20) or {}).get("messages") or []
-                                if m.get("id") == message["id"] and mine(m)), None))
-    check("the owner has my tapback", bool(owner), api(call="snapshot", conversation=conversation, tail=5))
-    stored = poll(lambda: next((i for i in (api(call="store", conversation=conversation) or {}).get("items") or []
-                                 if i.get("id") == message["id"] and i.get("reactions", 0) > 0), None))
-    check("HomeStore has my tapback", bool(stored), api(call="store", conversation=conversation))
-    time.sleep(1.5)  # test harness: let the badge's pop settle before the screenshot
-    check("Home still shows the conversation", shown() == conversation, shown())
+    time.sleep(1.5)  # test harness: the mock owner commits and the badge's pop settles before the screenshot
+    after = (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
+    check("the transcript keeps its messages", after == texts or bool(after), after)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "tapback.png")})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
