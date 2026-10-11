@@ -74,7 +74,9 @@ enum PanePlacementRouting {
     static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, from focused: PaneController?) -> ActionInvocation {
         var aimed = invocation
         aimed.target = ActionTargetRef(kind: .pane, id: pane.id)
-        if aimed["cwd"]?.stringValue == nil, let tab = focused?.selectedTab, tab.kind == .pty, let cwd = tab.cwd {
+        // Not when Ghostty's `split-inherit-working-directory` is false: the split starts at home.
+        if aimed["cwd"]?.stringValue == nil, NewTerminalStart.uninherited(.split) == nil,
+           let tab = focused?.selectedTab, tab.kind == .pty, let cwd = tab.cwd {
             aimed.arguments["cwd"] = .string(cwd)
         }
         return aimed
