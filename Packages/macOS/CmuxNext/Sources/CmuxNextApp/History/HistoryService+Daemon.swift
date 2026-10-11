@@ -50,6 +50,21 @@ extension HistoryService {
         }
     }
 
+    /// The local daemon usually connects after launch attached the profiles, so `attach` read the
+    /// app-local logs. On the first connection, a daemon that serves `history-v1` takes over every
+    /// attached profile: it imports the profile's old log and seeds the omnibox from its store.
+    func adoptDaemonHistoryOnFirstConnection() {
+        let local = services.machines.local
+        // task-owner: one wait for the local daemon's first connection; ends with it or a failed startup
+        Task { [weak self, weak local] in
+            if let local, local.connection == nil { await local.firstConnection() }
+            guard let self, let daemon = self.daemonHistory else { return }
+            let cache = self.services.cache
+            self.seedFromDaemon(cache.history, profile: .default, daemon)
+            for (profile, entry) in cache.profileHistories { self.seedFromDaemon(entry.history, profile: profile, daemon) }
+        }
+    }
+
     /// Seeds a profile's omnibox from the daemon's visit summaries, after the daemon took over the
     /// profile's app-local log from before it owned page history (`legacyLog`).
     func seedFromDaemon(_ history: InMemoryBrowserHistory, profile: BrowserProfileID, _ daemon: DaemonHistoryClient) {
