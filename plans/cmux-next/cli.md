@@ -169,6 +169,19 @@ On `feat-cmux-next-browser-tabs` (browser group 2):
   [URL] | select | close [--no-wait]`, the old `cmux browser tab list|new|switch|close`
   (by tab id; the old index form is gone).
 
+On `feat-cmux-next-browser-input` (browser group 4):
+
+- `browser.page.press|hover|scroll|scroll_into_view|select|check|uncheck` and the CLI verbs
+  `press KEY [--selector S]`, `hover`, `scroll [SELECTOR] [--dx N] [--dy N]`,
+  `scroll-into-view`, `select SELECTOR VALUE`, `check`, `uncheck`: page scripts like
+  `click`, with the old app's events and errors (`not_checkable`, `disabled`,
+  `not_changed`). `press` is the old app's page-world fallback for every key, with its key table
+  (`BrowserPressKey`: names, punctuation codes, legacy keyCode, location; unknown names pass
+  through); the old app replayed mapped keys as trusted native
+  events, which needs engine input support (not done; temporary until browser step e routes
+  `press` to the host's `input.key`). `select` with words is this verb; bare `select` is the
+  tab verb. Selector actions do not retry for an element that has not appeared yet.
+
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 
 - `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
