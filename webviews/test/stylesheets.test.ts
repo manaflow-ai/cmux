@@ -16,7 +16,8 @@ function stylesheets(dir: string): string[] {
 
 /** The line of the first brace that does not balance, or undefined when every rule closes. */
 function unbalanced(css: string): number | undefined {
-  const code = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "))
+  const code = css
+    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "))
     .replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/g, (text) => " ".repeat(text.length));
   const open: number[] = [];
   let line = 1;
