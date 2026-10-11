@@ -559,6 +559,7 @@ impl Hub {
         option_id: Option<String>,
         answers: Option<Value>,
         answered_by: Option<Value>,
+        decision_nonce: Option<&str>,
         control: Control,
     ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
@@ -570,6 +571,13 @@ impl Hub {
             let p = map.get(permission_id).ok_or_else(|| {
                 RpcError::not_found(format!("no pending permission {permission_id}"))
             })?;
+            // A relayed allow (`person.rs`): the nonce its proof covers is
+            // this prompt's, and it is spent below only if the answer counts.
+            if let Some(n) = decision_nonce
+                && !cmux_local_auth::tokens_match(n, &p.decision_nonce)
+            {
+                return Err(super::person::person_required("allowing a permission"));
+            }
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
             if let Some(o) = &option_id {
@@ -607,6 +615,11 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
+            if let Some(n) = decision_nonce
+                && !self.person.spend_decision(n)
+            {
+                return Err(super::person::person_required("allowing a permission"));
+            }
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {

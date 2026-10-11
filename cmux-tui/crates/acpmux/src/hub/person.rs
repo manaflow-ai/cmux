@@ -46,9 +46,12 @@
 //!   `personDecision` = lowercase hex HMAC-SHA256(key,
 //!   "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option
 //!   0 nonce) ([`decision_proof`]), for the prompt that is pending with that
-//!   nonce. A nonce counts once: the prompt is answered, and a bounded store
-//!   of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses it
-//!   again. A restarted daemon has a new instance, so an old proof proves
+//!   nonce. A nonce counts once: the answer that counts spends it under
+//!   the prompt's lock, together with taking the prompt (so a refused answer
+//!   spends nothing, and of two racing answers one counts), and a bounded
+//!   store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses
+//!   it again. A prompt the next daemon adopts gets a new nonce under the
+//!   new run (`permission_reissued`, also a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
 //!   nothing. A proof never covers question answers, a group's allow, a
 //!   policy, a rule or a mode: those widen and stay the person's own.
 //!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
@@ -174,9 +177,10 @@ impl PersonGate {
     }
 
     /// Whether `proof` is the person's decision for this exact prompt,
-    /// option and nonce on this daemon run (constant time). A match spends
-    /// the nonce: the same nonce never counts again.
-    pub fn decides(
+    /// option and nonce on this daemon run (constant time), with a nonce that
+    /// has not counted yet. It spends nothing: the answer spends the nonce
+    /// when it counts ([`Self::spend_decision`]).
+    pub fn decision_proves(
         &self,
         session: &str,
         permission: &str,
@@ -191,9 +195,20 @@ impl PersonGate {
         else {
             return false;
         };
-        if !cmux_local_auth::tokens_match(proof, &expected) {
-            return false;
-        }
+        cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
+    }
+
+    fn spent(&self, nonce: &str) -> bool {
+        self.spent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(|(n, _)| n == nonce)
+    }
+
+    /// Spends a decision nonce; false when it was spent already. Called
+    /// under the prompt's lock by the answer that counts.
+    pub fn spend_decision(&self, nonce: &str) -> bool {
         let mut spent = self.spent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = std::time::Instant::now();
         while spent.front().is_some_and(|(_, at)| now.duration_since(*at) > SPENT_TTL) {
@@ -579,7 +594,7 @@ impl Hub {
             p.decision_nonce.clone()
         };
         cmux_local_auth::tokens_match(nonce, &pending_nonce)
-            && self.person.decides(&s.id, pid, option, nonce, proof)
+            && self.person.decision_proves(&s.id, pid, option, nonce, proof)
     }
 
     /// Whether `option` is a reject the pending permission offered. Unknown
