@@ -427,11 +427,7 @@ function ToolsSection({
                       align="end"
                     >
                       {tool.menu.map((id) => (
-                        <MenuItem
-                          className="nt-tool-menu-item"
-                          key={id}
-                          onSelect={() => onRunAction?.(id)}
-                        >
+                        <MenuItem className="nt-tool-menu-item" key={id} onSelect={() => onRunAction?.(id)}>
                           {toolMenuTitle(t, id)}
                         </MenuItem>
                       ))}

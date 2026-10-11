@@ -83,25 +83,54 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "with-tools": {
-      note: "Tools use the host action catalog and keep menu focus in keyboard order.",
+      note: "Tools use the host action catalog and shortcut labels.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
+    },
+    "tool-menu-open": {
+      note: "Terminal actions open above the page without clipping the menu or moving the tools.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The tool menu must be opaque, unclipped, and above the page." },
+        layoutShiftMax: { value: 0, reason: "Opening a portaled menu must not move page content." },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".nt-tool-menu-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
+      },
+    },
+    "tool-menu-keyboard": {
+      note: "Arrow keys and Home/End focus each action; Escape returns to the trigger; ArrowUp reopens on the last action.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "Keyboard menus must stay on top and within the viewport." },
+        layoutShiftMax: { value: 0, reason: "Menu navigation must not move page content." },
+      },
       play: async (ctx) => {
         const trigger = { selector: ".nt-tool-menu-button" };
-        await ctx.click(trigger);
-        await ctx.waitFor(() => ctx.document.activeElement?.getAttribute("role") === "menuitem");
+        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
+        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
+        await ctx.focus(trigger);
         await ctx.press("ArrowDown");
-        await ctx.press("End");
+        await ctx.waitFor(() => focused(0));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(1));
         await ctx.press("Home");
-        await ctx.press("Escape");
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-button[aria-expanded="false"]'));
+        await ctx.waitFor(() => focused(0));
+        await ctx.press("End");
+        await ctx.waitFor(() => focused(1));
         await ctx.press("ArrowUp");
-        await ctx.waitFor(() => {
-          const active = ctx.document.activeElement;
-          const items = ctx.document.querySelectorAll('[role="menuitem"]');
-          return active === items[items.length - 1];
-        });
+        await ctx.waitFor(() => focused(0));
         await ctx.press("Escape");
+        await ctx.waitFor(
+          () =>
+            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
+            ctx.document.activeElement === ctx.find(trigger),
+        );
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => focused(1));
       },
     },
     "typed-prompt": {

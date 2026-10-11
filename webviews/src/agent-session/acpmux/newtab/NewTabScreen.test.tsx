@@ -158,17 +158,21 @@ test("tool overflow menus expose disclosure state and dismiss on Escape or outsi
   expect(menu).not.toBeNull();
   const item = menu.querySelector<HTMLButtonElement>("[role=menuitem]")!;
   expect(item).not.toBeNull();
+  expect(dom.window.document.activeElement === item).toBe(true);
 
   await act(async () => {
     item.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(dom.window.document.activeElement === trigger).toBe(true);
 
   await act(async () => {
     trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   });
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
-  expect(dom.window.document.querySelector('.nt-tool-menu-popover[role="menu"]')).not.toBeNull();
+  const reopenedItem = dom.window.document.querySelector('.nt-tool-menu-popover[role="menu"] [role="menuitem"]');
+  expect(reopenedItem).not.toBeNull();
+  expect(dom.window.document.activeElement === reopenedItem).toBe(true);
 
   await act(async () => {
     dom.window.document.body.dispatchEvent(new dom.window.PointerEvent("pointerdown", { bubbles: true }));
@@ -184,27 +188,40 @@ test("multi-item tool menus keep roving keyboard focus in menu order", async () 
   const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu-button")!;
 
   await act(async () => trigger.click());
-  const menu = dom.window.document.querySelector<HTMLElement>('.nt-tool-menu-popover[role="menu"]')!;
-  const items = () => [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  // The popup unmounts on close. Re-query after reopening instead of retaining detached nodes.
+  const items = () => [...dom.window.document.querySelectorAll<HTMLElement>('.nt-tool-menu-popover [role="menuitem"]')];
   expect(items()).toHaveLength(2);
+  expect(dom.window.document.activeElement === items()[0]).toBe(true);
 
   await act(async () => {
     items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   });
-  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(dom.window.document.activeElement === items()[1]).toBe(true);
 
   await act(async () => {
     items()[1]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
   });
-  expect(menu.querySelectorAll('[role="menuitem"]').length).toBe(2);
+  expect(dom.window.document.activeElement === items()[0]).toBe(true);
+
+  await act(async () => {
+    items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  });
+  expect(dom.window.document.activeElement === items()[1]).toBe(true);
+
+  await act(async () => {
+    items()[1]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  });
+  expect(dom.window.document.activeElement === items()[0]).toBe(true);
 
   await act(async () => {
     items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
+  expect(dom.window.document.activeElement === trigger).toBe(true);
   await act(async () => {
     trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
   });
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(dom.window.document.activeElement === items()[1]).toBe(true);
 
   await act(async () => root.unmount());
 });
