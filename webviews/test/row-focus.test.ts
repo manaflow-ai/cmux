@@ -19,6 +19,11 @@ await requireBrowserLane("row-focus.test.ts", async () => {
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 
+  // The agent pane: desktop.css first, then the pane's own sheets (agent-session/acpmux/main.tsx).
+  const paneCss = ["pages/shared/desktop.css", "agent-session/shared/styles.css", "agent-session/acpmux/styles.css"]
+    .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
+    .join("\n");
+
   const engines: [string, BrowserType][] = [];
   for (const engine of [
     ["chromium", chromium],
@@ -78,6 +83,61 @@ await requireBrowserLane("row-focus.test.ts", async () => {
         expect(row.background).not.toContain("196");
         // The bar is off: no shadow, or one whose every length is zero.
         expect(row.shadow === "none" || !/[1-9]/.test(row.shadow.replace(/rgba?\([^)]*\)/g, ""))).toBe(true);
+        await page.close();
+      });
+
+      const look = (page: Page, selector: string) =>
+        page.$eval(selector, (node) => {
+          const computed = getComputedStyle(node);
+          return `${computed.backgroundColor} ${computed.backgroundImage} ${computed.outlineStyle}`;
+        });
+
+      test("a selected session row still changes when it takes keyboard focus, with no ring", async () => {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html style="${HOST}"><head><style>${paneCss}</style></head><body>
+<div class="acpmux-shell"><button class="acpmux-session-row is-selected" data-focus-ring="row" id="session">Fix the build</button></div>
+</body></html>`);
+        const resting = await look(page, "#session");
+        await page.keyboard.press("Tab");
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe("session");
+        const focused = await look(page, "#session");
+        expect(focused).not.toBe(resting);
+        expect(focused.endsWith(" none")).toBe(true);
+        await page.close();
+      });
+
+      test("a checked question row still shows the keyboard highlight", async () => {
+        const page = await browser.newPage();
+        const row = (id: string, highlighted: boolean) =>
+          `<button class="acpmux-question-row" role="checkbox" aria-checked="true" data-focus-ring="row" id="${id}"${highlighted ? " data-highlighted" : ""}>Option</button>`;
+        await page.setContent(`<!doctype html><html style="${HOST}"><head><style>${paneCss}</style></head><body>
+<div class="acpmux-shell">${row("checked", false)}${row("checked-highlighted", true)}</div>
+</body></html>`);
+        expect(await look(page, "#checked-highlighted")).not.toBe(await look(page, "#checked"));
+        await page.close();
+      });
+
+      test("a list container without an always-highlighted row keeps its ring; one with it does not", async () => {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html style="${HOST}"><head><style>${css}</style></head><body>
+<div role="listbox" tabindex="0" id="list" style="outline:none"><div role="option" class="selected">One</div></div>
+<div role="menu" tabindex="0" data-focus-ring="rows" id="menu"><div role="menuitem" data-highlighted>One</div></div>
+</body></html>`);
+        await page.keyboard.press("Tab");
+        expect((await look(page, "#list")).endsWith(" solid")).toBe(true);
+        await page.keyboard.press("Tab");
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe("menu");
+        expect((await look(page, "#menu")).endsWith(" none")).toBe(true);
+        await page.close();
+      });
+
+      test("under Increase Contrast a focused row still gets the ring", async () => {
+        const page = await browser.newPage();
+        await page.emulateMedia({ contrast: "more" });
+        await page.setContent(pageWith());
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Tab");
+        expect((await style(page, "row")).outline).toBe("solid");
         await page.close();
       });
 
