@@ -6,6 +6,7 @@ import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
+import { menuPartRef } from "./menuParts";
 import { CodeBrackets, Copy, WrapLines } from "./icons";
 import { translate, type Translate, useT } from "../i18n";
 import { highlightsCode, MAX_TOKENIZED_LINE } from "./highlightLimits";
@@ -127,7 +128,7 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
   }, [code, lang, wrap, name]);
   if (tooSlow) return <PlainCode code={code} lang={lang} />;
   return (
-    <div className="cv-codeblock">
+    <div className="cv-codeblock" ref={menuPartRef({ code })}>
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{label ?? languageLabel(lang, t)}</span>

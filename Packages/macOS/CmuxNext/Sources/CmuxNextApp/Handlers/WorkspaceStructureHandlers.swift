@@ -129,6 +129,9 @@ enum WorkspaceStructureHandlers {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.mergeTargetRequired)
         }
         guard into !== source else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.mergeIntoItself) }
+        // Home keeps its tabs and takes no workspace's, as a drag merge refuses it (cx-zjtn.4).
+        guard !WorkspaceMerge.staysPut(kind: source.kind) else { throw ActionFailure.invalidTarget(RefusalStrings.homeKeepsItsTabs) }
+        guard !WorkspaceMerge.staysPut(kind: into.kind) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.mergeIntoHome) }
         let machines = context.services.machines
         guard machines.daemon(forWorkspace: source.id) === machines.daemon(forWorkspace: into.id) else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.otherMachine)

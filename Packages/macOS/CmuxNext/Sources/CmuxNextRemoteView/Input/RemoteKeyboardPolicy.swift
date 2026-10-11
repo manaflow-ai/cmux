@@ -112,8 +112,6 @@ public struct RemoteKeyboardPolicy {
 /// KeyboardShortcutSettings (editable, in cmux.json) and pass the user's
 /// binding back in.
 public nonisolated struct RemoteReleaseChord: Sendable, Hashable {
-    /// KeyboardShortcutSettings id.
-    public static let shortcutID = "remoteDesktop.releaseKeyboard"
     /// Control-Option-Escape.
     public static let `default` = RemoteReleaseChord(keyCode: RemoteKeyboardPolicy.KeyCode.escape, modifiers: [.control, .option])
 

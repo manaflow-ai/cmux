@@ -101,58 +101,6 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
         return ResolvedBrowserSource(row: row, profiles: row.profiles ?? defaults?.profiles ?? .single,
                                      bookmarks: row.bookmarks ?? defaults?.bookmarks ?? .noStore, files: files)
     }
-
-    /// Problems that make the registry unusable; empty when it is valid.
-    /// Checked by the registry test, so a bad row never ships.
-    public func validationProblems() -> [String] {
-        var problems: [String] = []
-        if schemaVersion != 1 { problems.append("unknown schemaVersion \(schemaVersion)") }
-        for family in [BrowserFamily.chromium, .firefox, .safari, .webkit, .other] where engines[family] == nil {
-            problems.append("engine \(family.rawValue) has no defaults")
-        }
-        var ids = Set<String>(), bundleIDs = Set<String>(), folders = Set<String>()
-        for row in browsers {
-            let name = row.id
-            if row.id.isEmpty || !row.id.allSatisfy({ $0.isLetter || $0.isNumber }) { problems.append("\(name): id must be letters and digits") }
-            if !ids.insert(row.id).inserted { problems.append("\(name): duplicate id") }
-            if row.name.isEmpty { problems.append("\(name): no name") }
-            if row.vendor.isEmpty { problems.append("\(name): no vendor") }
-            if row.bundleIDs.isEmpty, row.verified != false || (row.appNames ?? []).isEmpty {
-                problems.append("\(name): no bundle id (only unverified rows with app names may have none)")
-            }
-            for id in row.bundleIDs where !bundleIDs.insert(id).inserted { problems.append("\(name): bundle id \(id) is in two rows") }
-            if row.dataDirectories.isEmpty { problems.append("\(name): no data folder") }
-            for folder in row.dataDirectories {
-                if !folder.hasPrefix("Library/") || folder.contains("..") { problems.append("\(name): data folder \(folder) is not under ~/Library") }
-                // Two sources never share a folder (they would list the same profiles twice).
-                if !folders.insert(folder).inserted { problems.append("\(name): data folder \(folder) is in two rows") }
-            }
-            for file in [row.sidebarFile, row.cookieFile].compactMap({ $0 }) where !file.hasPrefix("Library/") || file.contains("..") {
-                problems.append("\(name): \(file) is not under ~/Library")
-            }
-            for kind in row.unsupportedKinds ?? [] where ImportDataKind(rawValue: kind) == nil {
-                problems.append("\(name): unknown kind \(kind) in unsupportedKinds")
-            }
-            if row.evidence.isEmpty { problems.append("\(name): no evidence") }
-            for item in row.evidence where !(item.url.hasPrefix("https://") && URL(string: item.url)?.host?.isEmpty == false) || item.note.isEmpty {
-                problems.append("\(name): evidence needs an https URL and a note")
-            }
-            let resolved = resolved(row)
-            if let item = row.safeStorage, item.service.trimmingCharacters(in: .whitespaces).isEmpty {
-                problems.append("\(name): empty Safe Storage item")
-            }
-            if row.engine != .chromium, row.safeStorage != nil { problems.append("\(name): only Chromium rows have a Safe Storage item") }
-            if resolved.bookmarks == .arcSidebar, row.sidebarFile == nil { problems.append("\(name): arcSidebar needs sidebarFile") }
-            if [.chromiumJSON, .firefoxPlaces, .safariPlist].contains(resolved.bookmarks), resolved.files.bookmarks == nil {
-                problems.append("\(name): bookmarks format \(resolved.bookmarks.rawValue) needs a bookmarks file")
-            }
-        }
-        for app in nonBrowsers {
-            if app.verdict.isEmpty || app.evidence.isEmpty { problems.append("\(app.name): non-browser needs a verdict and evidence") }
-            for id in app.bundleIDs where bundleIDs.contains(id) { problems.append("\(app.name): bundle id \(id) is also a browser row") }
-        }
-        return problems
-    }
 }
 
 /// A registry row with the engine's defaults applied.

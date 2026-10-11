@@ -191,5 +191,4 @@ final class CloudMachineProgressView: NSView {
 
     var titleText: String { titleLabel.stringValue }
     var detailText: String { detailLabel.stringValue }
-    var showsFailureButtons: Bool { !buttons.isHidden }
 }

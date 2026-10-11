@@ -41,6 +41,3 @@ public struct ReopenSavedTabGroupRequest: DaemonRequest {
         self.transaction = transaction
     }
 }
-
-@available(*, deprecated, renamed: "ReopenSavedTabGroupRequest")
-public typealias OpenSavedTabGroupRequest = ReopenSavedTabGroupRequest
