@@ -57,6 +57,12 @@ final class ProjectsImport {
         }
     }
 
+    /// `batches` over a mirror snapshot, off the main actor: it groups every chat (5000+ on a
+    /// real Mac) on each index change (cx-9c8m.6).
+    @concurrent nonisolated static func batches(of store: AcpmuxChatsStore, sent: [String: Int], complete: Bool) async -> [Batch] {
+        batches(store.chats, sent: sent, complete: complete)
+    }
+
     private weak var services: AppServices?
     private var connectionID: ObjectIdentifier?
     private var sent: [String: Int] = [:]
@@ -106,13 +112,19 @@ final class ProjectsImport {
         let fresh = connectionID != id
         if fresh { sent = [:] }
         let feed = services.chatsFeed
-        let batches = Self.batches(feed?.chats ?? [], sent: sent,
-                                   complete: (feed?.isReady ?? false) && (feed?.isEnabled ?? false))
-        guard fresh || !batches.isEmpty else { return }
+        // A copy-on-write snapshot (O(1) here); the walk over every chat runs off the main actor.
+        let store = feed?.store ?? AcpmuxChatsStore()
+        let complete = (feed?.isReady ?? false) && (feed?.isEnabled ?? false)
+        let alreadySent = sent
         let client = ProjectStateClient(connection: connection)
         sending = Task { [weak self] in
+            let batches = await Self.batches(of: store, sent: alreadySent, complete: complete)
             var delivered: [String: Int] = [:]
             var synced = !fresh
+            guard fresh || !batches.isEmpty else {
+                self?.finished(id, synced: synced, delivered: delivered)
+                return
+            }
             do {
                 if fresh {
                     try await client.sync(existing: [], gone: [], idempotencyKey: UUID().uuidString)
