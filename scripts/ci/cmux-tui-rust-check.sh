@@ -100,6 +100,10 @@ if [[ "$mode" == rb-testhost ]]; then
 fi
 if [[ "$mode" == optchat-chief ]]; then
   export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
+  # Its tests bind unix sockets in temp dirs; the step's own TMPDIR is too deep
+  # for macOS's 104-byte socket paths (SUN_LEN), so they get a short one.
+  TMPDIR="$(mktemp -d /tmp/optchat.XXXXXX)"
+  export TMPDIR
   cd "$root/Native/OptChat/optchat-chief"
   cargo fmt --check
   cargo clippy --locked --all-targets -- -D warnings
