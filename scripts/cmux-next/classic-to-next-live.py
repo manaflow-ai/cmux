@@ -6,10 +6,12 @@
 1. Seeds classic data in a scratch directory (a session snapshot with a
    workspace of one terminal and one Claude Code chat, a workspace holding a
    Codex chat, and an agent journal naming a past Claude chat whose folder is
-   only in its transcript), launches the tagged cmux-next app with no
-   activation, and runs scripts/cmux-next/classic-to-next.py --apply on it.
-   Each row must open: the workspace in its folder, each agent chat as a
-   workspace for its session id.
+   only in its transcript, plus the real classic release session in
+   tests/fixtures/classic-to-next with its folders moved into the scratch
+   directory), launches the tagged cmux-next app with no activation, and runs
+   scripts/cmux-next/classic-to-next.py --apply on it. Each row must open: the
+   workspace in its folder, each agent chat as a workspace for its session
+   id, and the split workspace in classic's panes.
 2. With --classic-app, launches that classic build with the automation socket
    mode, creates a workspace in a scratch folder over its socket, and asks
    cmux-next for session.transfer.pull of that terminal: it must open in
@@ -100,6 +102,14 @@ def wait_for(predicate, what, seconds=30):
     return None
 
 
+def panes(next_socket, workspace):
+    """[[(tab name, cwd), ...] per pane] of the named workspace's screens."""
+    topology = ((call(next_socket, "snapshot.get").get("result") or {}).get("topology") or {})
+    return [[(tab.get("name") or tab.get("title") or "", tab.get("cwd")) for tab in pane.get("tabs") or []]
+            for ws in topology.get("workspaces") or [] if (ws.get("name") or ws.get("title")) == workspace
+            for screen in ws.get("screens") or [] for pane in screen.get("panes") or []]
+
+
 def tabs(next_socket):
     """(workspace name, tab) for every tab in cmux-next's published topology."""
     topology = ((call(next_socket, "snapshot.get").get("result") or {}).get("topology") or {})
@@ -172,6 +182,16 @@ db.commit()
 db.close()
 with open(os.path.join(SCRATCH, "claude/projects/old", f"{CLAUDE_PAST}.jsonl"), "w") as f:
     f.write(json.dumps({"type": "user", "cwd": OLD}) + "\n")
+# The real classic release session (tests/fixtures/classic-to-next): "split api"
+# holds api and logs as tabs on the left and web over db on the right.
+SPLIT = os.path.join(SCRATCH, "split")
+REAL = os.path.join(HERE, "..", "..", "tests", "fixtures", "classic-to-next", "session-com.cmuxterm.app.json")
+with open(REAL) as f:
+    real = f.read().replace("/Users/cmux/p4rt-classic/proj", SPLIT).replace("/Users/cmux", SCRATCH)
+with open(os.path.join(CLASSIC, "session-com.cmuxterm.app.json"), "w") as f:
+    f.write(real)
+for d in ("api/logs", "web", "db"):
+    os.makedirs(os.path.join(SPLIT, d), exist_ok=True)
 seeded = sorted(os.listdir(CLASSIC))
 
 # -- cmux-next ------------------------------------------------------------------
@@ -228,6 +248,13 @@ try:
         # acpmux session, not the harness id, and `agent` fills in once acpmux attaches.
         kinds = [tab.get("kind") for n, tab in new if n == name]
         check("conversation" in kinds, f"{name} opens an agent chat tab for {session} (tab kinds: {kinds})")
+    split = wait_for(lambda: (lambda p: p if sum(map(len, p)) >= 4 else None)(panes(NEXT_SOCKET, "split api")),
+                     "the split workspace opens its four terminals", 60) or []
+    print(f"     split api panes: {split}")
+    shape = sorted([[(name, os.path.relpath(os.path.realpath(cwd or "/"), os.path.realpath(SPLIT))) for name, cwd in pane]
+                    for pane in split])
+    check(shape == [[("api", "api"), ("logs", "api/logs")], [("db", "db")], [("web", "web")]],
+          f"the split workspace keeps classic's panes (api and logs as tabs, web and db split): {shape}")
     check(sorted(os.listdir(CLASSIC)) == seeded, "classic's files are unchanged (read only)")
     if opts.capture:
         capture("after-apply")

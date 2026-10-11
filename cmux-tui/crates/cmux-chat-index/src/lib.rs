@@ -15,7 +15,7 @@ mod sqlite;
 mod stamp;
 mod store_file;
 mod text;
-mod time;
+pub mod time;
 
 pub use adapters::{PathRole, classify_path};
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
