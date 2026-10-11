@@ -109,6 +109,8 @@ pub struct HealthService {
     checking: tokio::sync::Mutex<()>,
     /// What auto-update ran, by harness id.
     ran: Mutex<HashMap<String, auto::AutoUpdateResult>>,
+    /// One auto-update run at a time.
+    updating: tokio::sync::Mutex<()>,
 }
 
 fn now_ms() -> u64 {

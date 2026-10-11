@@ -1,7 +1,9 @@
 //! Auto-update (cx-ny85): per harness, off by default. A check that finds an
 //! opted-in harness outdated runs its own updater (the row's update plan, as a
 //! program and its arguments, never through a shell), then the daemon checks
-//! again. An update that needs sudo, or whose program raises rights, never
+//! again. Turning it on runs one at once. A run that leaves the same version
+//! and newest version is not repeated until one of them changes or auto-update
+//! is turned on again. An update that needs sudo, or whose program raises rights, never
 //! runs on its own: the person runs it from Settings > Agents. Sessions already
 //! running keep their process; new ones start the new version.
 //!
@@ -30,6 +32,17 @@ pub struct AutoUpdateResult {
     pub ok: bool,
     /// The updater's last output line, or why it did not finish.
     pub detail: String,
+    /// The installed and newest version it ran for.
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub latest: Option<String>,
+}
+
+impl AutoUpdateResult {
+    fn ran_for(&self, row: &HarnessHealth) -> bool {
+        self.version == row.version && self.latest == row.latest
+    }
 }
 
 fn read(path: Option<&Path>) -> BTreeSet<String> {
@@ -48,14 +61,11 @@ fn runnable(row: &HarnessHealth) -> Option<Vec<String>> {
 
 impl HealthService {
     /// Turns auto-update on or off for harness `id`, saved for the next start.
+    /// Turning it on forgets the last run, so the next one tries again.
     pub fn set_auto_update(&self, id: &str, on: bool) -> Result<Vec<HarnessHealth>, String> {
-        let path = self
-            .settings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .auto_update
-            .clone()
-            .ok_or("auto-update is not available here")?;
+        // Held to the end: one change to the file at a time.
+        let settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner);
+        let path = settings.auto_update.clone().ok_or("auto-update is not available here")?;
         let mut ids = read(Some(&path));
         if on {
             ids.insert(id.to_owned());
@@ -67,9 +77,15 @@ impl HealthService {
         std::fs::write(&tmp, body)
             .and_then(|()| std::fs::rename(&tmp, &path))
             .map_err(|e| format!("auto-update not saved: {e}"))?;
+        if on {
+            self.ran.lock().unwrap_or_else(PoisonError::into_inner).remove(id);
+        }
         let mut rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
         for row in rows.iter_mut().filter(|r| r.id == id) {
             row.auto_update = on;
+            if on {
+                row.last_auto_update = None;
+            }
         }
         Ok(rows.clone())
     }
@@ -85,11 +101,25 @@ impl HealthService {
     }
 
     /// Runs the updater of every opted-in, outdated harness the last check found
-    /// (one at a time, each command once), and returns the ids it ran for.
+    /// (one at a time, each command once, and not again for the same versions),
+    /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
+        let _one = self.updating.lock().await;
         let mut done: BTreeMap<Vec<String>, AutoUpdateResult> = BTreeMap::new();
         let mut ran = Vec::new();
         for row in self.rows() {
+            let path =
+                self.settings.lock().unwrap_or_else(PoisonError::into_inner).auto_update.clone();
+            let tried = self
+                .ran
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&row.id)
+                .is_some_and(|r| r.ran_for(&row));
+            // Turned off since the rows were read, or already tried for these versions.
+            if tried || !read(path.as_deref()).contains(&row.id) {
+                continue;
+            }
             let Some(argv) = runnable(&row) else { continue };
             let result = match done.get(&argv) {
                 Some(result) => result.clone(),
@@ -113,7 +143,13 @@ impl HealthService {
                         Err(e) => (false, e),
                     };
                     tracing::info!(harness = %row.id, ok, "auto-update ran");
-                    let result = AutoUpdateResult { at: now_ms(), ok, detail };
+                    let result = AutoUpdateResult {
+                        at: now_ms(),
+                        ok,
+                        detail,
+                        version: row.version.clone(),
+                        latest: row.latest.clone(),
+                    };
                     done.insert(argv, result.clone());
                     result
                 }

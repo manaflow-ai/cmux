@@ -36,10 +36,12 @@ impl Hub {
     /// check, or a new one with `refresh` (after an update) or when none ran
     /// yet; `checkLatest` also asks every channel for its newest version again.
     /// `autoUpdate: {id, on}` turns auto-update on or off for a configured
-    /// harness first (`harness_health/auto.rs`).
-    pub async fn harness_health(&self, params: &Value) -> Result<Value, RpcError> {
+    /// harness first (`harness_health/auto.rs`). Turning it on, `refresh` and
+    /// `checkLatest` then run auto-update in the background.
+    pub async fn harness_health(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let flag = |key: &str| params.get(key).and_then(Value::as_bool).unwrap_or(false);
         let check_latest = flag("checkLatest");
+        let mut update = flag("refresh") || check_latest;
         if let Some(choice) = params.get("autoUpdate") {
             let id = choice.get("id").and_then(Value::as_str).unwrap_or("");
             let on = choice.get("on").and_then(Value::as_bool);
@@ -49,12 +51,17 @@ impl Hub {
                 ));
             };
             self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
+            update |= on;
         }
         let mut rows = self.health.rows();
         if flag("refresh") || check_latest {
             rows = self.health.check(self.health_subjects().await, check_latest).await;
         } else if rows.is_empty() {
             rows = self.health.first_check(self.health_subjects().await).await;
+        }
+        if update {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.auto_update_harnesses().await });
         }
         Ok(json!({"harnesses": rows}))
     }
