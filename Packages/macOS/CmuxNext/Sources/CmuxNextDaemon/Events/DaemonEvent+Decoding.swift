@@ -66,6 +66,7 @@ extension DaemonEvent {
                 return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
+            case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
             case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
             case "terminal-clipboard-read-cancelled":
                 return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
