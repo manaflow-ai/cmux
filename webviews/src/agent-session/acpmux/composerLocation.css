@@ -155,7 +155,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: var(--ui-row-height);
   padding: 5px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
@@ -166,7 +166,7 @@
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-access-item .acpmux-menu-text { order: 2; min-width: 0; }
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); font-weight: 500; }
-.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; overflow: hidden; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
