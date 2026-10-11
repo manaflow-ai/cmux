@@ -170,6 +170,9 @@ async fn chats_lists_synthetic_roots_with_filters_and_pages() {
         (a["title"].as_str(), a["cwd"].as_str()),
         (Some("fix the build"), Some("/work/app"))
     );
+    // Each row names its agent brand (design/agent-icons), so the app draws the mark without
+    // resolving the harness itself (cx-9c8m.6).
+    assert_eq!(a["brand"], "claude", "{a}");
 
     assert_eq!(
         keys(&c.ok("_acpmux/chats", json!({"query": "BUILD"})).await),
@@ -262,6 +265,7 @@ async fn watch_pushes_new_grown_and_removed_chats() {
     let key = format!("claude-code:{C}");
     let added = c.change(&key, |p| p["kind"] == "upsert").await;
     assert_eq!(added["chat"]["title"], "a new chat");
+    assert_eq!(added["chat"]["brand"], "claude", "{added}");
     let count = added["chat"]["messageCount"].as_u64().unwrap();
 
     append(&file, &user(C, "/work/app", "a second prompt"));
