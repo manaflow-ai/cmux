@@ -813,6 +813,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
 
+      - name: No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+        id: no-swift-closed-history
+        continue-on-error: true
+        run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -1051,6 +1056,7 @@ jobs:
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+            ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
