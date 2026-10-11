@@ -1,3 +1,4 @@
+import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerTheme = {
@@ -123,10 +124,32 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   };
 }
 
+/// Diff Colors (Settings > Diff Viewer, `diff.colors`): where additions and deletions get their
+/// colors. `theme` takes the terminal palette's green and red, `muted` mixes those toward the
+/// background, `standard` keeps fixed GitHub-style colors.
+export type DiffChangeColors = "theme" | "muted" | "standard";
+
+const STANDARD_ADDITION = { light: "#257a3e", dark: "#8fd88f" } as const;
+const STANDARD_DELETION = { light: "#b42318", dark: "#ff8a80" } as const;
+/// How far Muted moves the theme's color toward the background, before restoring 4.5:1.
+const MUTED_MIX = 0.4;
+
+let changeColors: DiffChangeColors = "theme";
+let appliedAppearance: DiffViewerAppearance | undefined;
+
+/// Sets the Diff Colors mode (`undefined` is the default, Theme) and recolors the page in place.
+export function setDiffChangeColors(colors: DiffChangeColors | undefined) {
+  const next = colors ?? "theme";
+  if (next === changeColors) return;
+  changeColors = next;
+  applyDiffViewerAppearance(appliedAppearance);
+}
+
 export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   if (!appearance) {
     return;
   }
+  appliedAppearance = appearance;
 
   const lightTheme = appearance.themes?.light ?? {};
   const darkTheme = appearance.themes?.dark ?? {};
@@ -139,10 +162,19 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
-  rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));
-  rootStyle.setProperty("--cmux-diff-addition-fg-dark", semanticPaletteColor(darkTheme, ["10", "2"], "#8fd88f"));
-  rootStyle.setProperty("--cmux-diff-deletion-fg-light", semanticPaletteColor(lightTheme, ["9", "1"], "#b42318"));
-  rootStyle.setProperty("--cmux-diff-deletion-fg-dark", semanticPaletteColor(darkTheme, ["9", "1"], "#ff8a80"));
+  for (const [type, theme] of [
+    ["light", lightTheme],
+    ["dark", darkTheme],
+  ] as const) {
+    rootStyle.setProperty(
+      `--cmux-diff-addition-fg-${type}`,
+      changeColor(theme, type, ["10", "2"], STANDARD_ADDITION[type]),
+    );
+    rootStyle.setProperty(
+      `--cmux-diff-deletion-fg-${type}`,
+      changeColor(theme, type, ["9", "1"], STANDARD_DELETION[type]),
+    );
+  }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
   rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
@@ -191,6 +223,18 @@ export function readableColor(value: unknown, background: unknown, fallback: str
   const black: RGBColor = { blue: 0, green: 0, red: 0 };
   const white: RGBColor = { blue: 255, green: 255, red: 255 };
   return contrastRatio(black, parsedBackground) >= contrastRatio(white, parsedBackground) ? "#000000" : "#ffffff";
+}
+
+/// An addition or deletion color in the current Diff Colors mode.
+function changeColor(theme: DiffViewerTheme, type: "light" | "dark", paletteKeys: string[], standard: string): string {
+  if (changeColors === "standard") return standard;
+  const themed = semanticPaletteColor(theme, paletteKeys, standard);
+  if (changeColors === "theme") return themed;
+  const background = syntaxContrastBackground(theme, type);
+  const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
+  const muted = withMinimumContrast(mixColors(themed, background, MUTED_MIX), background, foreground, 4.5);
+  // A color that cannot be measured (not hex) keeps the theme's own, which already reads.
+  return (contrastBetween(muted, background) ?? 0) >= 4.5 ? muted : themed;
 }
 
 function semanticPaletteColor(theme: DiffViewerTheme, paletteKeys: string[], fallback: string): string {

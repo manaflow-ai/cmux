@@ -1,11 +1,18 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
-import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
+import {
+  appearanceBackgroundColor,
+  readableColor,
+  type DiffChangeColors,
+  type DiffViewerAppearance,
+} from "./appearance";
 import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
+  /** Diff Colors, the Settings-only add/remove palette (appearance.ts `setDiffChangeColors`). */
+  colors: DiffChangeColors;
   diffIndicators: "bars" | "classic" | "none";
   expandUnchanged: boolean;
   layout: "split" | "unified";

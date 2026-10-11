@@ -124,6 +124,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     metrics: null,
     options: {
       collapsed: false,
+      colors: "theme",
       diffIndicators: "bars",
       expandUnchanged: false,
       lineNumbers: true,
