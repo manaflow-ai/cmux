@@ -22,6 +22,12 @@ public nonisolated enum AgentPresenceColor {
         rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
     }
 
+    /// Text on the presence color for `key`: black or white, whichever reads
+    /// better in the active theme.
+    @MainActor public static func ink(forKey key: String) -> NSColor {
+        GroupColor.ink(on: rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens)).nsColor
+    }
+
     /// FNV-1a over the key's Unicode scalars, modulo `count`.
     static func index(forKey key: String, count: Int) -> Int {
         var hash: UInt32 = 2_166_136_261

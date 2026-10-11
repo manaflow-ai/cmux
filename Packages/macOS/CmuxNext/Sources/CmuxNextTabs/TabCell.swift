@@ -97,6 +97,7 @@ final class TabCell {
     var machineLayer: ChromeTextLayer?
     var themeBadgeLayer: CALayer?
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
+    var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
@@ -175,6 +176,7 @@ final class TabCell {
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
+        if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
         updateColors(animated: false)
         updateAccessibility()
@@ -231,6 +233,7 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
+            applyPresenceDotColor()
             applyAudioIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
@@ -346,13 +349,8 @@ final class TabCell {
             closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: glyph.minX, y: glyph.minY))
-            path.addLine(to: CGPoint(x: glyph.maxX, y: glyph.maxY))
-            path.move(to: CGPoint(x: glyph.maxX, y: glyph.minY))
-            path.addLine(to: CGPoint(x: glyph.minX, y: glyph.maxY))
             closeGlyphLayer.frame = bounds
-            closeGlyphLayer.path = path
+            closeGlyphLayer.path = Self.closeGlyphPath(in: glyph)
             if appearing, animatesCloseChange {
                 for layer in [closeBackgroundLayer, closeGlyphLayer] as [CALayer] {
                     Motion.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
@@ -373,7 +371,8 @@ final class TabCell {
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
             let badgesEnd = layoutAudioBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
-            let visibleEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
+            let profileEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
+            let visibleEnd = layoutPresenceDot(titleX: titleX, titleEnd: profileEnd, midY: midY)
             // The marquee fades glyphs out across the icon-title gap.
             let geometry = TitleFadeGeometry(
                 textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
@@ -385,7 +384,7 @@ final class TabCell {
             titleFade.stopMarquee(animated: false)
             titleLayer.opacity = 0
             titleLayer.mask = nil
-            for badge in [machineLayer, profileLayer, audioLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer] { badge?.opacity = 0 }
         }
     }
 
