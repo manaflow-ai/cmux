@@ -70,7 +70,7 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
                 guard let self, let item, item.status == .inProgress else { return }
                 // A server that cannot resume (no resume data) fails the download.
                 guard let data else { return item.complete(.failed("cannot resume")) }
-                paused[item.id] = data
+                self.paused[item.id] = data
             }
         }
     }
@@ -80,7 +80,7 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         item.isPaused = false
         tab.webView.resumeDownload(fromResumeData: data) { [weak self, weak item] download in
             guard let self, let item, item.status == .inProgress else { return download.cancel(nil) }
-            attach(download, to: item)
+            self.attach(download, to: item)
         }
     }
 
