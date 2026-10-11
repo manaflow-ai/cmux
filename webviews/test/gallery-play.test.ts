@@ -55,6 +55,20 @@ describe("gallery shell keyboard emulation", () => {
     expect(document.activeElement).toBe(first);
   });
 
+  test("keeps positive tabindex controls ahead of normal controls", () => {
+    document.getElementById("root")!.innerHTML = `
+      <button id="normal">Normal</button>
+      <button id="second-positive" tabindex="2">Second positive</button>
+      <button id="first-positive" tabindex="1">First positive</button>
+    `;
+    const first = document.getElementById("first-positive") as HTMLButtonElement;
+    const second = document.getElementById("second-positive") as HTMLButtonElement;
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(document.activeElement).toBe(second);
+  });
+
   test("leaves focus to a key handler that prevents the default", () => {
     document.getElementById("root")!.innerHTML = '<button id="first">First</button><button id="second">Second</button>';
     const first = document.getElementById("first") as HTMLButtonElement;

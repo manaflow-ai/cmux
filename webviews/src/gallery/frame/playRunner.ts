@@ -115,8 +115,15 @@ const TABBABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
+function tabOrder(element: Element): number {
+  const value = element.getAttribute("tabindex");
+  if (value === null) return 0;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : -1;
+}
+
 function isTabbable(element: Element): element is HTMLElement {
-  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || element.tabIndex < 0) return false;
+  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || tabOrder(element) < 0) return false;
   if (element.hidden || element.closest("[hidden], [inert]")) return false;
   if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
@@ -133,11 +140,11 @@ function tabbableElements(): HTMLElement[] {
     }
   };
   visit(document);
-  const normal = elements.filter((element) => element.tabIndex === 0);
+  const normal = elements.filter((element) => tabOrder(element) === 0);
   const positive = elements
     .map((element, index) => ({ element, index }))
-    .filter(({ element }) => element.tabIndex > 0)
-    .sort((a, b) => a.element.tabIndex - b.element.tabIndex || a.index - b.index)
+    .filter(({ element }) => tabOrder(element) > 0)
+    .sort((a, b) => tabOrder(a.element) - tabOrder(b.element) || a.index - b.index)
     .map(({ element }) => element);
   return [...positive, ...normal];
 }
