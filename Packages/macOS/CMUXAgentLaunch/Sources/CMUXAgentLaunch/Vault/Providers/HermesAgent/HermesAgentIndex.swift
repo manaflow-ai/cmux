@@ -58,21 +58,6 @@ public enum HermesAgentIndexError: Error, Equatable, Sendable {
     case sqlite(String)
 }
 
-/// A disposable copy of Hermes's database and its live WAL sidecars.
-struct HermesAgentDatabaseSnapshot {
-    let databaseURL: URL
-    private let directoryURL: URL
-
-    init(databaseURL: URL, directoryURL: URL) {
-        self.databaseURL = databaseURL
-        self.directoryURL = directoryURL
-    }
-
-    func remove() {
-        try? FileManager.default.removeItem(at: directoryURL)
-    }
-}
-
 public enum HermesAgentIndex {
     private static let contentJSONPrefix = "\u{0}json:"
     // Keep this list aligned with source kinds resumeCommand knows how to relaunch.
@@ -307,74 +292,6 @@ public enum HermesAgentIndex {
             throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
         }
         return turns
-    }
-
-    /// Runs a synchronous read against Hermes's `state.db`.
-    ///
-    /// - Returns: The body's result, or `nil` when the database doesn't exist.
-    static func withStateDatabase<T>(
-        stateDBPath: String,
-        snapshotPrefix: String,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        _ body: (OpaquePointer) throws -> T
-    ) throws -> T? {
-        guard let snapshot = try makeSnapshot(
-            stateDBPath: stateDBPath,
-            prefix: snapshotPrefix,
-            in: temporaryDirectory
-        ) else {
-            return nil
-        }
-        defer { snapshot.remove() }
-        return try withDatabase(snapshot.databaseURL.path, body)
-    }
-
-    /// Copies a Hermes database and any WAL sidecars into a private directory.
-    static func makeSnapshot(
-        stateDBPath: String,
-        prefix: String,
-        in temporaryDirectory: URL
-    ) throws -> HermesAgentDatabaseSnapshot? {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
-
-        let snapshotDir = temporaryDirectory
-            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
-
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db", isDirectory: false)
-        do {
-            try fileManager.copyItem(atPath: stateDBPath, toPath: snapshotDB.path)
-            for sidecar in ["-wal", "-shm"] {
-                let source = stateDBPath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try fileManager.copyItem(atPath: source, toPath: destination)
-                }
-            }
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-        return HermesAgentDatabaseSnapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
-    }
-
-    /// Opens a private snapshot for the duration of a synchronous read.
-    static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
-        var db: OpaquePointer?
-        // `path` is always a private temporary snapshot. Hermes can leave the
-        // main database in persistent WAL mode after removing its sidecars;
-        // SQLite must be allowed to recreate transient `-wal`/`-shm` files in
-        // the snapshot directory before it can read that fully checkpointed DB.
-        let openResult = sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, nil)
-        guard openResult == SQLITE_OK, let db else {
-            let message = sqliteMessage(db) ?? "open failed with code \(openResult)"
-            sqlite3_close(db)
-            throw HermesAgentIndexError.sqlite(message)
-        }
-        defer { sqlite3_close(db) }
-        _ = sqlite3_busy_timeout(db, 50)
-        return try body(db)
     }
 
     private static func decodedContentText(_ value: String?) -> String? {

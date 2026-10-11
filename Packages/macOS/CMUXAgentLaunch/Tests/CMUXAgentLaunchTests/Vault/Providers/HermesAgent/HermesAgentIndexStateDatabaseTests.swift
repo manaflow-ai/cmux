@@ -65,6 +65,37 @@ struct HermesAgentIndexStateDatabaseTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: snapshotRoot.path).isEmpty)
     }
 
+    @Test("Snapshots a rollback-journal database instead of holding its lock")
+    func snapshotsRollbackJournalDatabase() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        let snapshotRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: snapshotRoot, withIntermediateDirectories: true)
+
+        try exec(dbURL, "PRAGMA journal_mode = DELETE;")
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('rollback-session', 'cli', 'model-a', 10, 'Rollback session');
+        """)
+
+        let read = try HermesAgentIndex.withStateDatabase(
+            stateDBPath: dbURL.path,
+            snapshotPrefix: "cmux-hermes-agent-test",
+            temporaryDirectory: snapshotRoot
+        ) { db -> (sessionIDs: [String], path: String?) in
+            (
+                try sessionIDs(db),
+                sqlite3_db_filename(db, "main").map { String(cString: $0) }
+            )
+        }
+
+        #expect(read?.sessionIDs == ["rollback-session"])
+        #expect(read?.path.map(resolvedPath) != resolvedPath(dbURL.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: snapshotRoot.path).isEmpty)
+    }
+
     @Test("Snapshots a WAL database whose sidecars Hermes removed")
     func snapshotsSidecarlessWALDatabase() throws {
         let root = try temporaryDirectory()
