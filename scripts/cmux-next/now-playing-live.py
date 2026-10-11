@@ -74,11 +74,10 @@ recorder.onstop = () => {
 recorder.start();
 setTimeout(() => recorder.stop(), 1500);
 navigator.mediaSession.metadata = new MediaMetadata({ title: 'cmux tone', artist: 'cmux live test', album: 'cx-6qwm.3' });
-// As players do, the handlers come with playback. (Handlers a tab's first document sets before
-// cmux's scripts reach it are not seen: Chromium gets them after that document started.)
+// One handler while the tab's first document loads (cx-6qwm.4), one with playback, as players set them.
+navigator.mediaSession.setActionHandler('previoustrack', () => { log.previous++; });
 a.addEventListener('play', () => {
   navigator.mediaSession.setActionHandler('nexttrack', () => { log.next++; });
-  navigator.mediaSession.setActionHandler('previoustrack', () => { log.previous++; });
 }, { once: true });
 v.addEventListener('enterpictureinpicture', () => { log.pip = 'entered'; });
 document.getElementById('b').onclick = async () => {
