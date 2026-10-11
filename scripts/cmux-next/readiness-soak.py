@@ -27,8 +27,8 @@ At the end it writes report.json and report.md to --out and exits 1 when a crite
 no crash, no hang, no stuck turn, memory growth (median of the last hour against the first
 hour after --warmup) within --max-growth-percent and --max-growth-mb per kind, open fds of the
 app, daemon and acpmux growing by at most --max-fd-growth, the mean CPU of the app and the daemon
-under --max-app-cpu and --max-daemon-cpu, and their idle CPU (and acpmux's) under
---max-idle-*-cpu. report.md ends with a memory and fd trend. Teardown goes through
+under --max-app-cpu and --max-daemon-cpu. Idle CPU over --max-idle-*-cpu (app, daemon,
+acpmux) is a WARN line until --idle-cpu-gate fail. report.md ends with a memory and fd trend. Teardown goes through
 the app's quit path, then TagTeardown (acpmux and cmux-tui shutdown, exact PIDs of this copy).
 
 Host rules: an Aqua GUI session for this user; nothing else answering on the app's control
@@ -434,7 +434,7 @@ class Soak:
         last_start = (warm[-1]["elapsed_s"] - hour) if warm else 0
         last = [s for s in warm if s["elapsed_s"] >= last_start]
         kinds = sorted({k for s in samples for k in s["processes"]})
-        summary, failures = {}, []
+        summary, failures, warnings = {}, [], []
 
         def median(rows, kind, key):
             values = [s["processes"][kind].get(key) for s in rows if kind in s["processes"]]
@@ -481,7 +481,7 @@ class Soak:
                                 ("acpmux", self.args.max_idle_acpmux_cpu)):
                 value = (summary.get(kind) or {}).get("idle_cpu_percent")
                 if value is not None and value > limit:
-                    failures.append(f"{kind} idle CPU {value}% over {limit}%")
+                    (failures if self.args.idle_cpu_gate == "fail" else warnings).append(f"{kind} idle CPU {value}% over {limit}%")
         for kind in ("crash", "hang", "stuck-turn"):
             count = sum(1 for e in self.events if e["kind"] == kind)
             if count:
@@ -494,7 +494,7 @@ class Soak:
         if hours < self.args.hours * 0.95:
             failures.append(f"ran {hours} h of {self.args.hours} h")
         pings = sorted(s["snapshot_ms"] for s in samples)
-        result = {"ok": not failures, "failures": failures, "hours": hours, "setup": self.setup,
+        result = {"ok": not failures, "failures": failures, "warnings": warnings, "hours": hours, "setup": self.setup,
                   "app": self.app, "summary": summary, "events": self.events,
                   "snapshot_ms_p50": pings[len(pings) // 2] if pings else None,
                   "snapshot_ms_p99": pings[int(len(pings) * 0.99)] if pings else None,
@@ -506,6 +506,7 @@ class Soak:
                  f"{hours} h, {self.setup.get('agents')} agents ({result['turns_done']}/{result['turns']} turns done), "
                  f"{self.setup.get('terminals')} terminals, {self.setup.get('browsers')} {self.setup.get('browser_engine', '')} browser tabs.", ""]
         lines += [f"- FAIL: {failure}" for failure in failures] or ["- No failures."]
+        lines += [f"- WARN: {warning}" for warning in warnings]
         lines += ["", f"Control round trip (snapshot.get): p50 {result['snapshot_ms_p50']} ms, p99 {result['snapshot_ms_p99']} ms.", "",
                   "| Process | Mean CPU % | Max CPU % | Memory first h (MB) | Memory last h (MB) | Wakeups/s | fds first h | fds last h | Idle CPU % | Idle wakeups/s |",
                   "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -565,6 +566,8 @@ def main():
     parser.add_argument("--max-idle-app-cpu", type=float, default=1)
     parser.add_argument("--max-idle-daemon-cpu", type=float, default=0.5)
     parser.add_argument("--max-idle-acpmux-cpu", type=float, default=0.5)
+    parser.add_argument("--idle-cpu-gate", choices=("warn", "fail"), default="warn",
+                        help="an idle CPU over its limit warns (default, until a 24h report shows real idle numbers) or fails")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
     args = parser.parse_args()
     soak = Soak(args)
