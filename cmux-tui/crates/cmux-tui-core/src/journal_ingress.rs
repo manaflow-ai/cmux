@@ -990,6 +990,14 @@ impl JournalIngressSender {
         self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
     }
 
+    pub(crate) fn wait_for_queue_space_until(
+        &self,
+        observed: u64,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.state.wait_for_queue_space_until(observed, deadline)
+    }
+
     fn wait_for_commit_result<T>(
         &self,
         result: Receiver<Result<T, String>>,
