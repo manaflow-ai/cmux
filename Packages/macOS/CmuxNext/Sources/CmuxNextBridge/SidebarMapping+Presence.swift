@@ -23,8 +23,9 @@ extension SidebarMapping {
 
     /// The color key of the agent acting in `tab` (its session, else its
     /// surface), the key every presence mark of that agent is colored by.
+    /// Callers check the presence toggle themselves.
     public func presenceColorKey(_ tab: TabModel) -> String? {
-        presence([tab]).first?.id
+        presence([tab], enabled: true).first?.id
     }
 
     /// The brand catalog's name for an adapter id, else the id capitalized.

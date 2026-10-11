@@ -17,7 +17,7 @@ final class AgentCursorPresenceColors {
 
     private struct Holder {
         var session: String
-        var terminal: TerminalID
+        var terminal: ResourceID
     }
 
     /// Per leased target, the session holding it and that session's terminal.
@@ -27,7 +27,7 @@ final class AgentCursorPresenceColors {
     /// forgets the target.
     func leaseChanged(target: String, session: String?, terminal: String?) {
         if let session, let terminal {
-            holders[target] = Holder(session: session, terminal: TerminalID(rawValue: terminal))
+            holders[target] = Holder(session: session, terminal: ResourceID(rawValue: terminal))
         } else {
             holders[target] = nil
         }
@@ -37,7 +37,7 @@ final class AgentCursorPresenceColors {
     func color(for session: String, store: DaemonStore?, enabled: Bool = SidebarTunables.presenceDots.value) -> CGColor {
         guard enabled,
               let terminal = holders.values.first(where: { $0.session == session })?.terminal,
-              let tab = store?.tab(terminal: terminal),
+              let tab = store?.tab(terminalResource: terminal),
               let key = SidebarMapping.shared.presenceColorKey(tab) else {
             return AgentCursorStack.sessionColor(session)
         }
