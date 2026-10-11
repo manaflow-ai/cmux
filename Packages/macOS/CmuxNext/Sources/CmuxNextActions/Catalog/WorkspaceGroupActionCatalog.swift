@@ -81,12 +81,6 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .inspect, 401, folder: .copy)])
             ),
             ActionDescriptor(
-                id: "workspaceGroup.revealInFinder",
-                title: String(localized: "action.workspaceGroup.revealInFinder", defaultValue: "Show Group in Finder", bundle: .module),
-                keywords: ["group", "finder", "reveal", "directory", "folder"], category: .workspace, symbol: "folder",
-                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group show-in-finder"
-            ),
-            ActionDescriptor(
                 id: "workspaceGroup.addToSection",
                 title: String(localized: "action.workspaceGroup.addToSection", defaultValue: "Add Group to Section…", bundle: .module),
                 keywords: ["group", "section", "sidebar", "top", "pin"], category: .workspace, symbol: "rectangle.stack",

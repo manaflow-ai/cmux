@@ -115,7 +115,7 @@ enum WorkspaceMetadataHandlers {
 
     /// Working directory of the focused tab when the workspace is shown,
     /// else of its first tab that reports one.
-    static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
+    private static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         if context.activeWindow?.state.workspaceID == workspace.id,
            let pane = context.activeWindow?.focusedPane, let id = pane.stripModel.selectedID,
