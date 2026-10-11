@@ -211,6 +211,13 @@ export class HarnessSwitch {
   connect(port: SwitchPort): void {
     this.port = port;
     const intent = this.intent;
+    // A chat on another machine whose start answered on a connection that dropped: the new
+    // connection already shows that chat (empty, same agent), so the switch takes it instead of
+    // starting again, which the machine refuses (a false failure, cx-k21v).
+    if (intent && !intent.sessionId && port.startsOnSend?.()) {
+      const shown = port.shown();
+      if (shown?.empty && (!shown.harness || shown.harness === intent.harness)) intent.sessionId = shown.sessionId;
+    }
     if (intent && intent.phase !== "failed" && intent.phase !== "trust" && !intent.running) void this.run(intent);
   }
   /// The connection dropped: whatever was in flight runs again on the next client.

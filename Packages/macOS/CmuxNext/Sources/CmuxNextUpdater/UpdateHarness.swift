@@ -22,6 +22,9 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
     public let feedURL: String
     /// The timeline file (one JSON object per line, appended).
     public let marksPath: String
+    /// Start with Sparkle's scheduled background check instead of waiting
+    /// for a check the harness asks for.
+    public let backgroundCheck: Bool
 
     public init?(info: [String: Any], bundleIdentifier: String?) {
         guard UpdateTrack.isDevelopmentBundle(bundleIdentifier),
@@ -30,6 +33,7 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
               let marks = entry["marks"] as? String, marks.hasPrefix("/") else { return nil }
         feedURL = feed
         marksPath = marks
+        backgroundCheck = entry["background"] as? Bool ?? false
     }
 
     /// The running app's harness, or nil (every build that is not a

@@ -140,6 +140,14 @@ extension AgentTabStore {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
         }
+        tabs.remoteFolders = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key) else { return [] }
+            let store = services.machines.daemon(forTab: tab).store
+            var folders: [String] = []
+            for folder in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
+                where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
+            return folders
+        }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

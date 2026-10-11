@@ -118,6 +118,9 @@ final class AgentTabStore {
     /// The folder a new chat on another machine starts in when its seed names none: a folder of
     /// its workspace on that machine (AppServices).
     var remoteFolder: (@MainActor (String) -> String?)?
+    /// The folders of every workspace on the machine of tab `key` (its terminals' folders there),
+    /// for the project list of a chat on that machine.
+    var remoteFolders: (@MainActor (String) -> [String])?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -259,7 +262,10 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            guard let view = makeView(AgentPaneModel(host: refused, allowsTabConversion: false)) else { return nil }
+            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            // Its folder tools never act on this Mac either (cx-k21v).
+            (model.remoteChat, model.neverPooled) = (true, true)
+            guard let view = makeView(model) else { return nil }
             views[key] = view
             track(key, in: store)
             return view
@@ -304,7 +310,16 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
-        if !local { model.neverPooled = true }
+        if !local {
+            model.neverPooled = true
+            model.remoteChat = true
+            model.onListRemoteProjects = { [weak self] query in
+                guard let self else { return [] }
+                let folders = remoteFolders?(resolve(key)) ?? []
+                guard let query = query?.lowercased(), !query.isEmpty else { return folders }
+                return folders.filter { $0.lowercased().contains(query) }
+            }
+        }
         guard let view = makeView(model) else { return nil }
         views[key] = view
         track(key, in: store)
