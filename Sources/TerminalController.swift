@@ -2138,7 +2138,8 @@ class TerminalController {
                 || request.method == "debug.global_search.query"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
-                || request.method == "debug.cloudtree.gallery" {
+                || request.method == "debug.cloudtree.gallery"
+                || request.method == "debug.window_hints" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
