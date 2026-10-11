@@ -11,10 +11,11 @@ import Testing
 @Suite(.serialized)
 struct AgentPaneSafeFetchRebindingTests {
     /// A TCP listener on 127.0.0.1 that accepts, counts and closes every connection.
-    final class PrivateListener: @unchecked Sendable { // crash-allow: test support; the count holds the lock
+    final class PrivateListener: @unchecked Sendable { // crash-allow: test support; the state holds the lock
         private let listener: NWListener
         private let queue = DispatchQueue(label: "cx-e9t.private-listener")
-        private let accepted = Mutex(0)
+        /// Accepted connections, and whether `start` has answered.
+        private let state = Mutex((accepted: 0, answered: false))
 
         init() throws {
             let parameters = NWParameters.tcp
@@ -22,25 +23,28 @@ struct AgentPaneSafeFetchRebindingTests {
             listener = try NWListener(using: parameters)
         }
 
-        var count: Int { accepted.withLock { $0 } }
+        var count: Int { state.withLock { $0.accepted } }
 
         /// Starts the listener and returns its port once it is ready.
         func start() async throws -> UInt16 {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UInt16, any Error>) in
-                let resumed = Mutex(false)
-                listener.newConnectionHandler = { [accepted] connection in
-                    accepted.withLock { $0 += 1 }
+                listener.newConnectionHandler = { [self] connection in
+                    state.withLock { $0.accepted += 1 }
                     connection.cancel()
                 }
-                listener.stateUpdateHandler = { [listener] state in
+                listener.stateUpdateHandler = { [self] update in
                     let port: UInt16?
                     let failure: (any Error)?
-                    switch state {
+                    switch update {
                     case .ready: (port, failure) = (listener.port?.rawValue, nil)
                     case .failed(let error): (port, failure) = (nil, error)
                     default: return
                     }
-                    guard resumed.withLock({ old in defer { old = true }; return !old }) else { return }
+                    let first = state.withLock { state -> Bool in
+                        defer { state.answered = true }
+                        return !state.answered
+                    }
+                    guard first else { return }
                     if let port { continuation.resume(returning: port) } else { continuation.resume(throwing: failure ?? CancellationError()) }
                 }
                 listener.start(queue: queue)
