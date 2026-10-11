@@ -706,6 +706,7 @@ impl Hub {
             socket: crate::agent_host::socket_path(&hosts, &session.id),
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
+            router_owner_fifo: crate::daemon::router_owner_path(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
