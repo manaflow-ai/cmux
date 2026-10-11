@@ -3,6 +3,7 @@
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../../gallery/play";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
 import {
@@ -40,6 +41,73 @@ const keyboardRows = [
   }),
   summary(3.8, { id: "gallery-keyboard-summary", status: "completed", toolCount: 2 }),
 ];
+
+const shellRows = (id: string, title: string, command: string, fields: Parameters<typeof tool>[3] = {}) => [
+  user(title, 3, { id: `${id}-user` }),
+  activity([tool(title, "execute", fields.status ?? "completed", { command, ...fields })], 2.8, {
+    id: `${id}-activity`,
+  }),
+  assistant("The command details stay inside the transcript row.", 2.6, { id: `${id}-answer` }),
+  summary(2.6, { id: `${id}-summary`, status: "completed", toolCount: 1 }),
+];
+
+const groupedShellRows = [
+  user("Run the focused tests and inspect the failure", 3, { id: "gallery-shell-group-user" }),
+  activity(
+    [
+      tool("bun test src/net --filter retry", "execute", "completed", {
+        command: "bun test src/net --filter retry",
+        output: "3 pass\n0 fail",
+        exitCode: 0,
+        startedAt: minutesAgo(2.9),
+        endedAt: minutesAgo(2.8),
+      }),
+      tool("bun test src/net --filter retry --watch", "execute", "failed", {
+        command: "bun test src/net --filter retry --watch",
+        output: "1 failing test\nExpected the retry delay to increase",
+        exitCode: 2,
+        startedAt: minutesAgo(2.7),
+        endedAt: minutesAgo(2.5),
+      }),
+    ],
+    2.8,
+    { id: "gallery-shell-group-activity" },
+  ),
+  assistant("The first command passed; the second shows its nonzero exit inline.", 2.4, {
+    id: "gallery-shell-group-answer",
+  }),
+  summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
+];
+
+const openWorked = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".cv-worked" });
+  await ctx.waitFor(() => ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true");
+};
+
+const openSingleShell = async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => ctx.find({ selector: ".cv-tool.is-toggle" }).getAttribute("aria-expanded") === "true");
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
+};
+
+const openGroupedShells = async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+  await ctx.click({ selector: ".cv-command" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
+  await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
+};
+
+const shellDisclosureChecks = {
+  layoutShiftMax: {
+    value: 0.25,
+    reason: "Opening command details intentionally reveals the shell block below its focused row.",
+  },
+};
 
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
   const at = 3000 - index * 120;
@@ -209,6 +277,16 @@ export default agentPaneEntry({
   title: "Transcript rows",
   area: "Agent pane",
   height: 560,
+  checks: {
+    longFrameFailMs: {
+      value: 33,
+      reason: "Transcript disclosures should settle without a frame longer than two display frames.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "Opening a shell disclosure is a local interaction and should settle within a quarter second.",
+    },
+  },
   covers: [
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
@@ -226,6 +304,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
+    "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/EditDiff.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
     "agent-session/acpmux/conversation/PreviewCard.tsx",
@@ -724,6 +803,47 @@ export default agentPaneEntry({
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
       },
+    },
+    "shell-command-only": {
+      note: "A command call with no output still opens a compact Shell block with its command line.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(shellRows("gallery-shell-command", "Run the focused test", "bun test src/net --filter retry")),
+      play: openSingleShell,
+    },
+    "shell-success-output": {
+      note: "A successful command keeps its output selectable below the command line.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-success", "Run the focused test", "bun test src/net --filter retry", {
+          output: "3 pass\n0 fail",
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__output")?.textContent === "3 pass\n0 fail");
+      },
+    },
+    "shell-failed-exit": {
+      note: "A failed command exposes its nonzero exit status alongside its output.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-failed", "Run the focused test", "bun test src/net --filter retry", {
+          status: "failed",
+          output: "1 failing test",
+          exitCode: 2,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__exit")?.textContent?.includes("2") ?? false);
+      },
+    },
+    "shell-grouped-commands": {
+      note: "Two consecutive commands use the real group disclosure and nested command-row disclosures.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(groupedShellRows),
+      play: openGroupedShells,
     },
   },
 });

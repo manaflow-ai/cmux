@@ -161,3 +161,31 @@ fn cmux_next_ensure_rejects_an_invalid_reap_grace() {
         assert!(fixture.command("status").output().unwrap().status.code() != Some(0));
     }
 }
+
+/// cx-t1ok: a state dir deleted and created again at the same path is a new
+/// home. The owner of the deleted state still serves the session socket, so
+/// ensure must refuse it, not report its stale state as the requested one.
+/// The same state dir keeps the owner (`ensure_starts_a_detached_owner_once`).
+#[test]
+fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
+    let fixture = EnsureFixture::new("recreated");
+    let first = fixture.run("ensure");
+    assert_eq!(first["status"], "started", "{first}");
+
+    let state = fixture.dir.join("state");
+    fs::remove_dir_all(&state).unwrap();
+    fs::create_dir_all(&state).unwrap();
+
+    let output = fixture.command("ensure").output().unwrap();
+    assert!(
+        !output.status.success(),
+        "ensure reused the owner of the deleted state dir: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|_| {
+        panic!("stderr is not one JSON error: {}", String::from_utf8_lossy(&output.stderr))
+    });
+    assert_eq!(error["code"], "server.different_state", "{error}");
+    // The refusal names the way out: stop the owner that serves the socket.
+    assert!(error["message"].as_str().is_some_and(|m| m.contains("stop")), "{error}");
+}

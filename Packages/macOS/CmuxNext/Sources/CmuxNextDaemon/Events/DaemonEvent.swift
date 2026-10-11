@@ -43,6 +43,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case bell(surface: SurfaceID)
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
+    /// What a surface's agent is touching now (`agent-presence-v1`).
+    case agentPresenceChanged(AgentPresence)
 
     /// A `session.events` item: the state resources the daemon owns
     /// (state-ownership.md 2), which `DaemonStore.session` mirrors.

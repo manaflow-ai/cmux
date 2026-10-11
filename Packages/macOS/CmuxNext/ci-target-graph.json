@@ -202,6 +202,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentCursor",
         "CmuxNextApp",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -614,6 +615,7 @@
         "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []

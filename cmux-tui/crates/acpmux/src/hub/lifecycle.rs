@@ -933,7 +933,15 @@ pub fn terminal_harness_refusal(name: &str) -> RpcError {
 }
 
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
-    profile.argv.iter().any(|a| a.contains("${model}"))
+    // Claude Code takes `--model` at spawn (`claude_stdio::spawn_plan`).
+    // Switching it after start with session/set_model makes Claude Code
+    // check the model with the API first: with 16 sessions starting at
+    // once that check took about 6 s per session (session/new p50 7.9 s,
+    // 0.9-1.6 s without it) and sometimes failed ("Couldn't confirm
+    // model"), so a new session never switches. A running session still
+    // switches with session/set_model.
+    profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))
 }
 

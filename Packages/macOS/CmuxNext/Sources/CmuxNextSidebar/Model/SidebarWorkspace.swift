@@ -113,6 +113,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
     /// own workspace replaces the row. Nil for every other row.
     public var stage: String?
+    /// Agents acting in the workspace's tabs right now, in a stable order
+    /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
+    public var presence: [SidebarPresence] = []
 
     public init(
         id: WorkspaceID,

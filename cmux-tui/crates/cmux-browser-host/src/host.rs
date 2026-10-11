@@ -84,6 +84,11 @@ pub struct SessionContext {
     /// The browser profile (`browser.repl.open {profile}`): `agent` (the
     /// per-workspace agent profile, D12) unless the person picked another.
     pub profile: String,
+    /// The caller's cmux terminal (`browser.repl.open {terminal}`, filled by
+    /// the CLI and MCP clients from `CMUX_TUI_TERMINAL_ID`), so the app can
+    /// draw the lease in that agent's presence colour. Display only: the
+    /// caller states it, so no policy reads it.
+    pub terminal: Option<String>,
 }
 
 /// The profile agents get unless the person names another (D12).
@@ -317,6 +322,7 @@ impl Host {
             caller: caller.clone(),
             label: lease_label(params.get("label").and_then(Value::as_str), &name),
             profile: profile.to_owned(),
+            terminal: lease_terminal(params.get("terminal").and_then(Value::as_str)),
         };
         let driver = self.engines.driver(&engine, sink.clone(), &context)?;
         let mut capabilities: Vec<String> =
@@ -608,6 +614,21 @@ fn lease_label(label: Option<&str>, session: &str) -> String {
     if text.is_empty() { session.to_owned() } else { text.to_owned() }
 }
 
+/// The caller's terminal id when it has a cmux terminal id's shape
+/// (`term_`, then letters, digits, `_` or `-`; at most 64 characters in
+/// all), else none.
+fn lease_terminal(terminal: Option<&str>) -> Option<String> {
+    terminal
+        .filter(|id| {
+            id.len() <= 64
+                && id.strip_prefix("term_").is_some_and(|rest| {
+                    !rest.is_empty()
+                        && rest.chars().all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+                })
+        })
+        .map(str::to_owned)
+}
+
 /// Cuts `text` to at most `max` bytes on a character boundary; true when cut.
 fn cap(text: &mut String, max: usize) -> bool {
     if text.len() <= max {
@@ -891,6 +912,22 @@ mod tests {
             session_root(Some(narrow.to_str().unwrap()), "/", "s"),
             narrow.canonicalize().unwrap().display().to_string()
         );
+    }
+
+    #[test]
+    fn lease_terminal_keeps_only_a_terminal_id() {
+        assert_eq!(lease_terminal(Some("term_01J9-x_y")).as_deref(), Some("term_01J9-x_y"));
+        for bad in [
+            "",
+            "term_",
+            "pane_1",
+            "term_a b",
+            "term_\u{202E}x",
+            &format!("term_{}", "a".repeat(60)),
+        ] {
+            assert_eq!(lease_terminal(Some(bad)), None, "{bad:?}");
+        }
+        assert_eq!(lease_terminal(None), None);
     }
 
     #[test]

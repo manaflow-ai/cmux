@@ -29,7 +29,8 @@ public struct SidebarMapping {
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
     /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
-    /// face of a workspace whose front tab is a browser.
+    /// face of a workspace whose front tab is a browser, and the favicon of
+    /// each browser tab in the tab list.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -52,6 +53,8 @@ public struct SidebarMapping {
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     color: color(group.color) ?? .grey,
+                    // A custom `#RRGGBB` (cx-25az) draws instead of the token.
+                    custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
@@ -81,7 +84,7 @@ public struct SidebarMapping {
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
-        return SidebarWorkspace(
+        var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: page?.title ?? workspace.displayName,
@@ -108,7 +111,7 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
-                                  brand: tab.agentBrand)
+                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
@@ -116,6 +119,8 @@ public struct SidebarMapping {
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
+        row.presence = presence(tabs)
+        return row
     }
 
     /// The tab the row stands for: the selected tab of the workspace's most

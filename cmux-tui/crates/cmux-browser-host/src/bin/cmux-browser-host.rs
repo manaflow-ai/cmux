@@ -527,7 +527,12 @@ mod unix {
             &mut stream,
             1,
             "browser.repl.open",
-            json!({"session": options.session, "engine": options.engine, "cwd": caller_cwd()}),
+            json!({
+                "session": options.session,
+                "engine": options.engine,
+                "cwd": caller_cwd(),
+                "terminal": caller_terminal(),
+            }),
         ) {
             eprintln!("{}", error["message"].as_str().unwrap_or("error"));
             return 1;
@@ -555,6 +560,12 @@ mod unix {
                 1
             }
         }
+    }
+
+    /// The caller's cmux terminal, so the app draws the session's lease in
+    /// that agent's presence colour (display only).
+    fn caller_terminal() -> Option<String> {
+        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
 
     /// The caller's directory, the session's fs root when it is narrow enough.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The "cmux Updated!" card above the footer (cx-7py7), in the tip card's
 /// slot and on its material: the title centered with an x, a hairline, then
@@ -13,7 +14,7 @@ final class SidebarUpdatedCardView: NSView {
     private let divider = NSView()
     let whatsNewRow = SidebarUpdatedCardRow(symbol: "sparkles")
     let shareRow = SidebarUpdatedCardRow(symbol: "square.and.arrow.up")
-    let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: "")
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
     let surface: OverlaySurfaceView
     /// The lines and rows, flipped, over the surface.
@@ -146,12 +147,11 @@ final class SidebarUpdatedCardRow: NSButton {
 
     @objc private func pressed() { onPress?() }
 
-    /// Symbol and title in the hover state's color.
+    /// Icon and title in the hover state's color.
     func refresh() {
         performWithTheme {
             let color = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
-            let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .regular)
-            image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            image = NSImage.icon(symbol: symbol, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize))
             contentTintColor = color
             // A leading space separates the title from the symbol (imageHugsTitle).
             attributedTitle = NSAttributedString(string: " " + text, attributes: [.font: Typography.body, .foregroundColor: color])

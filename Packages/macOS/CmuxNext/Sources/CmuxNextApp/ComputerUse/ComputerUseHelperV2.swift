@@ -51,6 +51,8 @@ final class ComputerUseHelperV2 {
     private let readyTimeout: Duration
     private let exitGrace: Duration
     private var child: ComputerUseHelperV2Child?
+    /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
+    private var controlLog: Task<Void, Never>?
     private var generation = 0
 
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
@@ -152,6 +154,12 @@ final class ComputerUseHelperV2 {
         }
         child = spawned
         state = .running(spawned.pid)
+        helperV2Logger.notice("cmux Computer Use helper v2 ready pid=\(spawned.pid, privacy: .public) socket=\(readySocket ?? "", privacy: .public)")
+        controlLog?.cancel()
+        let lines = spawned.lines
+        let pid = spawned.pid
+        // task-owner: stored in controlLog, cancelled by stop() and terminateForQuit(); it ends at the helper's EOF.
+        controlLog = Task.detached { await Self.logControlLines(lines, pid: pid) }
         guard await Self.writeEndpoint(path: endpointPath, socket: socketPath, secret: secret) else {
             await stop()
             return unavailable("cannot write \(endpointPath)")
@@ -181,6 +189,8 @@ final class ComputerUseHelperV2 {
         }
         self.child = nil
         state = .off
+        controlLog?.cancel()
+        controlLog = nil
         child.closeInput()
         let spawner = self.spawner
         // wakeup-allow: one bounded grace before SIGTERM when the helper is stopped.
@@ -193,6 +203,8 @@ final class ComputerUseHelperV2 {
     func terminateForQuit() {
         generation &+= 1
         unlink(endpointPath)
+        controlLog?.cancel()
+        controlLog = nil
         child?.closeInput()
         child = nil
         state = .off
@@ -280,6 +292,21 @@ final class ComputerUseHelperV2 {
         let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }
         return (pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
+    }
+
+    /// Logs each control line the helper writes after `ready` (the
+    /// `register_acpmux` acks and control errors; tool `result` lines are
+    /// skipped), so a live check reads them from the unified log
+    /// (scripts/cmux-next/cua-helper-v2-live.py). The lines carry no secret.
+    nonisolated static func logControlLines(_ lines: AsyncStream<Data>, pid: pid_t) async {
+        // Its own Logger: the file-level one is main-actor isolated.
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
+        for await line in lines {
+            guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  let type = object["type"] as? String, type != "result" else { continue }
+            let text = String(decoding: line.prefix(512), as: UTF8.self)
+            logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
+        }
     }
 
     /// The `socket` of the helper's first `ready` line, or nil after `within`.

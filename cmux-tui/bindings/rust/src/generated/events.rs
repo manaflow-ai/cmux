@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 82bb93e5709e798f69202a6f7322be2cb77395e255510c968afc89fc13ca671f.
+// cmux-tui mux protocol 12, IR dc3fdadfb34174c9cedba71743b815fc009483b7d91785758df40fe90c21f48b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -26,6 +26,26 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentPresenceChangedEvent {
+    /// What the agent is doing now; null clears the surface's presence and every other field is then null.
+    pub activity: Nullable<T::AgentPresenceActivity>,
+    /// Adapter identity (claude, codex, ...).
+    pub agent: Nullable<String>,
+    /// The 1-based line the tool call targets, when the tool input names one.
+    pub line: Nullable<u64>,
+    /// The file the tool call targets, when the tool input names one.
+    pub path: Nullable<String>,
+    /// The agent's portable session id, a stable identity for colour.
+    pub session: Nullable<String>,
+    pub surface: T::Id,
+    /// The native tool name of the current or last tool call.
+    pub tool: Nullable<String>,
+    /// When the hook observed the event; null on clear.
+    pub updated_at_ms: Nullable<u64>,
 }
 
 #[rustfmt::skip]
@@ -778,6 +798,7 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentPresenceChanged(AgentPresenceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -856,6 +877,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -933,6 +955,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -1021,6 +1044,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentPresenceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

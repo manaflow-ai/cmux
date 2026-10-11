@@ -100,10 +100,8 @@ import Foundation
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
-        // The daemon's pane under the split's public pane id replaces the provisional one.
-        if case .splitPane(_, _, _, let provisional) = pending.kind, ProvisionalSplit.daemonHas(provisional, in: store) {
-            return nil
-        }
+        // The daemon's pane under the split's public pane id replaces the provisional one
+        // (ProvisionalSplit.apply places it until the daemon's layout does).
         return apply(pending.kind, to: store)
     }
 

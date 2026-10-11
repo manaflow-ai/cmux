@@ -152,6 +152,8 @@ public final class DaemonStore: StateResourceQueries {
         tab.setObservedCwd(directories.note(directory, surface: surface))
     }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    /// The tab of a public terminal id (`term_…`, `CMUX_TUI_TERMINAL_ID`).
+    public func tab(terminalResource id: ResourceID) -> TabModel? { tabsBySurface.values.first { $0.terminalResourceID == id } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }

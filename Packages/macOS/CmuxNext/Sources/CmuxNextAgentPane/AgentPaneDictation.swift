@@ -1,6 +1,7 @@
 import AppKit
 public import CmuxNextDictation
 import Foundation
+import CmuxNextCompat
 
 /// A dictation request from the page's mic button or keys.
 public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
@@ -43,7 +44,7 @@ final class AgentPaneDictation {
     /// Delivers an update to the page (a script on the old host, an event on the page host).
     private let send: (DictationUpdate) -> Void
     /// Opens a URL (System Settings).
-    var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     /// The held shortcut while hold-to-talk may still apply: a press that
     /// lasts longer than ``holdThreshold`` stops on release; a quick press

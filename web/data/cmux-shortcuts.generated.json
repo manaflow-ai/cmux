@@ -466,6 +466,46 @@
           "aliases": []
         },
         {
+          "id": "hints.show",
+          "title": {
+            "en": "Click by Hint",
+            "ar": "النقر عبر التلميح",
+            "bs": "Klik preko oznake",
+            "da": "Klik via hint",
+            "de": "Per Hinweis klicken",
+            "es": "Hacer clic por pista",
+            "fr": "Cliquer par indice",
+            "it": "Clic tramite suggerimento",
+            "ja": "ヒントでクリック",
+            "km": "ចុចតាមស្លាកសញ្ញា",
+            "ko": "힌트로 클릭",
+            "no": "Klikk via hint",
+            "pl": "Kliknij przez podpowiedź",
+            "pt-BR": "Clicar por dica",
+            "ru": "Нажать по подсказке",
+            "th": "คลิกด้วยคำใบ้",
+            "tr": "İpucuyla tıkla",
+            "uk": "Натиснути за підказкою",
+            "vi": "Nhấp theo gợi ý",
+            "zh-CN": "按提示点击",
+            "zh-TW": "依提示點按"
+          },
+          "shortcut": null,
+          "chord": [
+            {
+              "key": "j",
+              "modifiers": [
+                "cmd"
+              ]
+            },
+            {
+              "key": "f",
+              "modifiers": []
+            }
+          ],
+          "aliases": []
+        },
+        {
           "id": "home.previousConversation",
           "title": {
             "en": "Previous Conversation",
@@ -2915,6 +2955,42 @@
               "when": null
             }
           ]
+        },
+        {
+          "id": "focusPaneByNumber",
+          "title": {
+            "en": "Focus Pane 1…9",
+            "ar": "التركيز على الجزء 1…9",
+            "bs": "Fokusiraj okno 1…9",
+            "da": "Fokuser rude 1…9",
+            "de": "Bereich 1…9 fokussieren",
+            "es": "Enfocar panel 1…9",
+            "fr": "Activer le panneau 1…9",
+            "it": "Attiva riquadro 1…9",
+            "ja": "ペイン 1…9 にフォーカス",
+            "km": "ផ្ដោតលើផ្ទាំង 1…9",
+            "ko": "패널 1…9에 포커스",
+            "no": "Fokuser rute 1…9",
+            "pl": "Aktywuj panel 1…9",
+            "pt-BR": "Focar painel 1…9",
+            "ru": "Фокус на панель 1…9",
+            "th": "โฟกัสบานหน้าต่าง 1…9",
+            "tr": "Bölme 1…9'a odaklan",
+            "uk": "Фокус на панель 1…9",
+            "vi": "Chuyển tới khung 1…9",
+            "zh-CN": "聚焦窗格 1…9",
+            "zh-TW": "聚焦窗格 1…9"
+          },
+          "shortcut": {
+            "family": "digits",
+            "key": "1",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "triggerFlash",
@@ -6663,6 +6739,41 @@
             "key": "b",
             "modifiers": [
               "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "focusSidebar",
+          "title": {
+            "en": "Focus Sidebar",
+            "ar": "التركيز على الشريط الجانبي",
+            "bs": "Fokusiraj bočnu traku",
+            "da": "Fokuser sidepanel",
+            "de": "Seitenleiste fokussieren",
+            "es": "Enfocar barra lateral",
+            "fr": "Activer la barre latérale",
+            "it": "Attiva barra laterale",
+            "ja": "サイドバーにフォーカス",
+            "km": "ផ្ដោតលើរបារចំហៀង",
+            "ko": "사이드바에 포커스",
+            "no": "Fokuser sidefelt",
+            "pl": "Aktywuj pasek boczny",
+            "pt-BR": "Focar barra lateral",
+            "ru": "Фокус на боковую панель",
+            "th": "โฟกัสแถบด้านข้าง",
+            "tr": "Kenar çubuğuna odaklan",
+            "uk": "Фокус на бічну панель",
+            "vi": "Chuyển tới thanh bên",
+            "zh-CN": "聚焦边栏",
+            "zh-TW": "聚焦側邊欄"
+          },
+          "shortcut": {
+            "key": "e",
+            "modifiers": [
+              "ctrl",
               "cmd"
             ]
           },

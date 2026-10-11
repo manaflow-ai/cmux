@@ -40,8 +40,12 @@ final class CEFHostView: NSView {
         }
     }
 
-    isolated deinit {
-        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+        }
     }
 
     /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)

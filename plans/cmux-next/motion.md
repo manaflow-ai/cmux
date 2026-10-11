@@ -5,7 +5,8 @@ cmux-next. Code: `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/`.
 Gate: `scripts/cmux-next/check-motion.sh` (no literal timing outside that
 directory). User request (2026-09-29): "animations need to be faster, think
 about how apple would do it." Earlier decisions that still apply: Cmd-D and
-Cmd-Shift-D splits apply in one frame (no animation); the sidebar is only
+Cmd-Shift-D splits applied in one frame until 2026-10-10, when Leo asked
+for panes that grow from their edge (cx-f6i7); the sidebar is only
 shown or hidden; tab animations must be fast and smooth.
 
 ## Rules
@@ -40,8 +41,8 @@ shown or hidden; tab animations must be fast and smooth.
      AppKit starts a new one from the value on screen.
 7. Reduce Motion (`NSWorkspace.accessibilityDisplayShouldReduceMotion`):
    movement (position, size, scale, scroll) is instant; opacity changes stay
-   as a crossfade of at most 0.1 s; spinners and pulses stop and show a
-   static glyph.
+   as a crossfade of at most 0.1 s, and hover and pressed fills are
+   instant; spinners and pulses stop and show a static glyph.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
    time constant x1.5, about Apple's system pacing), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,
@@ -76,7 +77,8 @@ nxmot (MacBook Pro, 120 Hz).
 
 | Fade token | Duration | Used by |
 | --- | --- | --- |
-| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
+| `hover` | 0.08 s | hover and pressed fills easing in (tabs, chips, buttons, toolbar, menu and palette rows, sidebar rows, New Tab rows; `ChromeHover.fade`); tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim. Instant under Reduce Motion |
+| `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Instant under Reduce Motion |
 | `focus` | 0.10 s | pane focus ring and inactive dim |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
@@ -172,7 +174,8 @@ rest).
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D), close, move | one frame | one frame (unchanged) | 0 | 0 | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `move`: the new pane grows from the far edge of the pane it split, which shrinks with it, and the divider slides in from that edge (cx-f6i7) | 0 | 192 / 250 ms | - |
+| Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
 | Focus ring and inactive dim | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
