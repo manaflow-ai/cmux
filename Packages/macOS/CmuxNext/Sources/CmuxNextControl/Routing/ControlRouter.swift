@@ -133,11 +133,6 @@ public final class ControlRouter: Sendable {
         state.withLock { $0.unknownMethod = handler }
     }
 
-    /// Installs the `action.run` target resolver (the compat layer's old refs).
-    public func registerTargetResolver(_ resolver: @escaping TargetResolver) {
-        state.withLock { $0.targetResolver = resolver }
-    }
-
     var targetResolver: TargetResolver? { state.withLock { $0.targetResolver } }
 
     /// Installs the `after: "sync"` barrier: a round trip to the local

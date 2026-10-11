@@ -71,8 +71,6 @@ final class PaneOverlayView: NSView {
     var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
     /// Whether the hairline border is showing (for `debug.layers`).
     var showsBorder: Bool { border.opacity > 0 }
-    /// Whether the attention ring is showing (for `debug.layers`).
-    var showsAttention: Bool { attentionMark != nil && attention.opacity > 0 }
 
     private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
@@ -108,15 +106,11 @@ final class PaneOverlayView: NSView {
         layoutLayers()
     }
 
-    /// The rect the border and ring trace (for tests and `debug.layers`).
-    var borderFrame: CGRect { border.frame }
     /// The rect the focus ring and glow trace, in this view's coordinates
     /// (for tests and `debug.layers`).
     var ringFrame: CGRect { ring.frame }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
-    /// The inactive dim's opacity (for tests).
-    var dimOpacity: Float { dimLayer.opacity }
     /// The border's line width in points and color override (for tests).
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }

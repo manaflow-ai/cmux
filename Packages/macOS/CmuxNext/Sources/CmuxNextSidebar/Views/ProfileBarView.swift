@@ -154,10 +154,6 @@ final class ProfileBarView: NSView {
         return ProfileBarLogic.chipRect(slot: rects[active], inset: Metrics.space1)
     }
 
-    /// The current space's chip fill: the row selection token (never the
-    /// system blue).
-    var indicatorFill: NSColor { performWithTheme { Palette.selectionFill } }
-
     // theme-scoped: indicator.draw runs inside the bar's theme scope
     private func drawIndicator() {
         performWithTheme {
