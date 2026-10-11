@@ -88,6 +88,9 @@ public final class AgentPaneModel {
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
+    /// Runs a commit or push on the session host in the given folder (the pane's session's,
+    /// from the host) and returns its `MutationResult` as JSON; throws like ``onGit``.
+    @ObservationIgnored public var onGitWrite: (@MainActor (AgentPaneGitWrite, String) async throws -> Data)?
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
@@ -131,7 +134,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
-    @ObservationIgnored private let host: any AgentPaneHostProviding
+    @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
@@ -373,17 +376,10 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }
-            do {
-                let data = try await onGit(git)
-                // A git.diff with patches can be many megabytes: parse it off the main actor (cx-9c8m).
-                guard let value = await Self.parseGitReply(data)?.value else {
-                    return Self.gitFailure(.failed)
-                }
-                return AgentPaneReply.success(value)
-            } catch {
-                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
-            }
-        case .invalidGit: return Self.gitFailure(.invalidRequest)
+            return await Self.gitReply(message: Self.gitFailedMessage) { try await onGit(git) }
+        case .gitWrite(let write): return await respondToGitWrite(write)
+        case .invalidGit(let method):
+            return Self.gitFailure(.invalidRequest, message: AgentPaneGitWrite.methods.contains(method) ? Self.gitWriteFailedMessage : Self.gitFailedMessage)
         case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)

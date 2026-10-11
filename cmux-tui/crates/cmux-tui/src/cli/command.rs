@@ -17,7 +17,7 @@ mod browser;
 pub(in crate::cli) mod cases;
 mod conversation;
 mod flags;
-mod git;
+pub(super) mod git;
 mod history;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
