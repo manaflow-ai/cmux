@@ -10,6 +10,8 @@ set -euo pipefail
 bin="$PWD/target/debug/cmux-tui"
 probe() {
   local label="$1" want="$2" root; root="$(mktemp -d /tmp/amp.XXXXXX)"; mkdir -p "$root/home" "$root/acpmux" "$root/work" "$root/state"; chmod 700 "$root/acpmux" "$root/state"
+  printf '{"harnesses":{"fake":{"argv":["python3","%s"],"family":"fake"}},"defaultHarness":"fake"}' \
+    "$PWD/crates/acpmux/tests/fake_agent.py" > "$root/acpmux/config.json"
   run() { env -i PATH=/usr/bin:/bin HOME="$root/home" TMPDIR="$root" ACPMUX_HOME="$root/acpmux" CMUX_TUI_STATE_DIR="$root/state" CMUX_TUI_CONFIG="$root/home/x.toml" "$bin" "$@"; }
   ensured="$(run --session amp --json server ensure)"
   local rc=0
