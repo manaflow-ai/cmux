@@ -148,9 +148,11 @@ output_fingerprint() {
 # SwiftPM places a package's processed resource bundle beside the app's other
 # resources. The bundled CLI lives one directory deeper in Resources/bin, and
 # Bundle.module resolves relative to that executable's resource directory.
-# Keep a real copy beside the CLI so package resources work when the CLI is
-# invoked directly from the app bundle. This is intentionally generic: adding
-# resources to another package must not require another packaging allowlist.
+# Link each bundle beside the CLI to the app's copy, so package resources work
+# when the CLI is invoked directly from the app bundle and ship only once. The
+# links are relative and stay inside the bundle, so code signing seals them as
+# links. This is intentionally generic: adding resources to another package
+# must not require another packaging allowlist.
 hash_swiftpm_resource_bundles() {
   local directory="$1" bundle
   [ -d "$directory" ] || return 0
@@ -167,14 +169,18 @@ sync_swiftpm_resource_bundles() {
     [ -d "$source" ] || continue
     name="${source##*/}"
     destination="$BIN_DEST/$name"
-    mkdir -p "$destination"
-    rsync -a --delete "$source/" "$destination/"
+    if [ -L "$destination" ] && [ "$(readlink "$destination")" = "../$name" ]; then
+      continue
+    fi
+    # Replace a real copy left by an older build.
+    rm -rf "$destination"
+    ln -s "../$name" "$destination"
   done
 
-  # Remove copies of package bundles that disappeared from the app resource
+  # Remove links to package bundles that disappeared from the app resource
   # directory, while leaving unrelated helper directories in Resources/bin.
   for destination in "$BIN_DEST"/*.bundle; do
-    [ -d "$destination" ] || continue
+    [ -d "$destination" ] || [ -L "$destination" ] || continue
     name="${destination##*/}"
     [ -d "$DEST/$name" ] || rm -rf "$destination"
   done

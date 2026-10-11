@@ -8691,6 +8691,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
+        if TerminalFolderOpener.isFolder(resolution.path) {
+            TerminalFolderOpener.open(resolution.path)
+            return
+        }
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
     }
 

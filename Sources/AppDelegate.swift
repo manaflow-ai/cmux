@@ -2928,6 +2928,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
         let displaySuffix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] ?? ""
         let displayAsAbsolutePath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH"] == "1"
+        // The printed path must not exist under the cwd (it may elsewhere, such as the git root).
+        let skipFixtureFile = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SKIP_FIXTURE_FILE"] == "1"
+        // Moves the shell itself into the fixture: links resolve against the
+        // cwd the shell reports, which outranks the panel directory set below.
+        let changeShellDirectory = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_CD_FIXTURE"] == "1"
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
@@ -3001,7 +3006,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             displayToken = "\(baseDisplayToken)\(displaySuffix)"
             let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
-            shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
+            let changeDirectoryCommand = changeShellDirectory
+                ? "cd '\(singleQuotedShellLiteral(fixtureDirectory))'\r"
+                : ""
+            shellCommand = "\(changeDirectoryCommand)clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "alt_screen_log":
             displayToken = "\(baseDisplayToken)\(displaySuffix)"
             let blockLine = "\(linePrefix)\(displayToken)"
@@ -3433,6 +3441,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     payload["lastCommandError"] = "Stationary command click did not open a URL"
                 }
 
+            case "report_state":
+                // What the clicks opened once deferred routing settled: cmux
+                // viewer panels and any URL the open-url path handed out.
+                payload["lastCommandMarkdownPaths"] = workspace.panels.values
+                    .compactMap { ($0 as? MarkdownPanel)?.filePath }
+                payload["lastCommandFilePreviewPaths"] = workspace.panels.values
+                    .compactMap { ($0 as? FilePreviewPanel)?.filePath }
+                let capturePath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"]
+                payload["lastCommandOpenedURLs"] = capturePath
+                    .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
+                    .split(separator: "\n").map(String.init) ?? []
+                payload["lastCommandSucceeded"] = "1"
+
             case "select_token_and_hold_command":
                 guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
                       let selectionEnd = pointFromPayload("tokenSelectionEndInTerminal", in: terminalPanel) else {
@@ -3564,7 +3585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     at: expectedFileURL.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                if !FileManager.default.fileExists(atPath: expectedFileURL.path) {
+                if !skipFixtureFile, !FileManager.default.fileExists(atPath: expectedFileURL.path) {
                     try "fixture\n".write(to: expectedFileURL, atomically: true, encoding: .utf8)
                 }
                 if !FileManager.default.fileExists(atPath: siblingFileURL.path) {

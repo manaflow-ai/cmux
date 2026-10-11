@@ -138,6 +138,11 @@ mkdir -p "$APP_BIN"
 printf 'legacy-client\n' > "$APP_BIN/cmux-cua"
 chmod +x "$APP_BIN/cmux-cua"
 printf 'legacy-license\n' > "$APP_BIN/cmux-cua-LICENSE.md"
+RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/CmuxFoundation_CmuxFoundation.bundle"
+CLI_RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/bin/CmuxFoundation_CmuxFoundation.bundle"
+# A build directory from before the CLI linked its bundles holds a real copy.
+mkdir -p "$CLI_RESOURCE_BUNDLE/Contents"
+printf 'stale-copy\n' > "$CLI_RESOURCE_BUNDLE/Contents/Localizable.strings"
 run_app_phase > "$TMP_DIR/app-first.log"
 # The Computer Use helper's executable is the only copy of the cmux-cua
 # engine in the app. A second copy in Resources/bin costs ~11.5 MiB per
@@ -147,9 +152,12 @@ if [[ -e "$APP_BIN/cmux-cua" || -e "$APP_BIN/cmux-cua-LICENSE.md" ]]; then
   exit 1
 fi
 [[ -x "$BUILD_DIR/cmux.app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" ]]
-RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/CmuxFoundation_CmuxFoundation.bundle"
-CLI_RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/bin/CmuxFoundation_CmuxFoundation.bundle"
-[[ -d "$CLI_RESOURCE_BUNDLE" && ! -L "$CLI_RESOURCE_BUNDLE" ]]
+# The CLI, one directory deeper, reaches each package bundle through a relative
+# link to the app's copy, so every bundle ships once.
+if [[ ! -L "$CLI_RESOURCE_BUNDLE" || "$(readlink "$CLI_RESOURCE_BUNDLE")" != "../CmuxFoundation_CmuxFoundation.bundle" ]]; then
+  echo 'FAIL: the CLI resource bundle is not a link to the app resource bundle' >&2
+  exit 1
+fi
 [[ "$(cat "$CLI_RESOURCE_BUNDLE/Contents/Localizable.strings")" == 'localized-v1' ]]
 run_app_phase > "$TMP_DIR/app-second.log"
 grep -q 'skipping helper rebuilds' "$TMP_DIR/app-second.log"
@@ -161,6 +169,18 @@ if grep -q 'skipping helper rebuilds' "$TMP_DIR/app-bundle-changed.log"; then
   exit 1
 fi
 [[ "$(cat "$CLI_RESOURCE_BUNDLE/Contents/Localizable.strings")" == 'localized-v2' ]]
+
+OTHER_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/Bonsplit_Bonsplit.bundle"
+mkdir -p "$OTHER_BUNDLE/Contents"
+printf 'other\n' > "$OTHER_BUNDLE/Contents/Info.plist"
+run_app_phase > "$TMP_DIR/app-bundle-added.log"
+[[ -L "$BUILD_DIR/cmux.app/Contents/Resources/bin/Bonsplit_Bonsplit.bundle" ]]
+rm -rf "$OTHER_BUNDLE"
+run_app_phase > "$TMP_DIR/app-bundle-removed.log"
+if [[ -e "$BUILD_DIR/cmux.app/Contents/Resources/bin/Bonsplit_Bonsplit.bundle" || -L "$BUILD_DIR/cmux.app/Contents/Resources/bin/Bonsplit_Bonsplit.bundle" ]]; then
+  echo 'FAIL: a removed package bundle left its CLI link behind' >&2
+  exit 1
+fi
 
 HELPER_APP="$BUILD_DIR/cmux.app/Contents/Library/cmux Computer Use.app"
 rm "$HELPER_APP/Contents/Info.plist"
