@@ -26,10 +26,19 @@ struct ClassicGhosttyLayerTests {
         #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support) == 17)
     }
 
-    @Test @MainActor func aNightlyOnlyClassicLayerApplies() throws {
+    @Test @MainActor func aNightlyBuildFallsBackToStablesLayer() throws {
+        let support = try Self.support(["com.cmuxterm.app/config": "font-size = 15\n"])
+        defer { try? FileManager.default.removeItem(at: support) }
+        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support,
+                                                    bundleIdentifier: "com.cmuxterm.app.nightly") == 15)
+    }
+
+    @Test @MainActor func stableNeverReadsAnotherChannelsLayer() throws {
+        // Classic's stable app had no fallback; an old nightly file must not recolor it.
         let support = try Self.support(["com.cmuxterm.app.nightly/config": "font-size = 15\n"])
         defer { try? FileManager.default.removeItem(at: support) }
-        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support) == 15)
+        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support,
+                                                    bundleIdentifier: "com.cmuxterm.app") != 15)
     }
 
     @Test @MainActor func thisChannelsLayerWins() throws {
