@@ -46,6 +46,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         for button in BrowserToolbarButton.allCases {
             let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
             view.setAccessibilityIdentifier(button.identifier)
+            view.rightClickPresses = button.opensMenu
             view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
             buttons[button] = view
             addArrangedSubview(view)
