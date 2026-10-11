@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 public import Foundation
 
@@ -6,7 +7,8 @@ public import Foundation
 /// `StoredShortcut`), not in `cmux.json`, so adopting the file alone loses
 /// them on the update (hq#1870 parity audit, cx-x5bdq).
 enum ClassicShortcutImport {
-    /// Classic's preference domains, the stable app first.
+    /// Classic's preference domains, the stable app first. Next ships under
+    /// the same bundle identifiers, so its own channel's are its own defaults.
     static let domains = ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc",
                                  "com.cmuxterm.app.staging"]
     /// Set in next's preferences once the import ran, so a shortcut reset in
@@ -53,14 +55,43 @@ enum ClassicShortcutImport {
         }
         return .object(stroke)
     }
+
+    /// Whether next can use `binding` for `id` without losing a key: it starts
+    /// with Command or Control, the keys next routes (a bare key only where
+    /// the action's own default is bare, like the diff viewer's), and as one
+    /// stroke it is neither the Cmd-J leader nor another action's shortcut in
+    /// the same context (classic may have stored its own default for a key
+    /// next gives to something else).
+    @MainActor static func usable(_ binding: ShortcutBinding, for id: ActionID, in registry: ActionRegistry) -> Bool {
+        let first: ShortcutStrokeSpec
+        switch binding {
+        case .unbound: return true
+        case .chord(let stroke, _):
+            return stroke.command || stroke.control
+        case .stroke(let stroke): first = stroke
+        }
+        let descriptor = registry.descriptor(for: id)
+        if !first.command, !first.control,
+           descriptor?.defaultShortcut?.modifiers.isDisjoint(with: [.command, .control]) != true {
+            return false
+        }
+        let shortcut = SettingsApplier.shortcut(for: first)
+        guard shortcut != LeaderLayer.prefix else { return false }
+        return !registry.entries.contains { entry in
+            entry.descriptor.id != id && entry.descriptor.requires == descriptor?.requires
+                && registry.effectiveShortcut(for: entry.descriptor.id) == shortcut
+        }
+    }
 }
 
 extension SettingsController {
-    /// `importClassicShortcuts(from:marker:)` from classic's own preferences.
+    /// `importClassicShortcuts(from:marker:)` from classic's preferences:
+    /// this channel's own (`marker`, the app's defaults) first, then the others.
     @discardableResult
-    public func importClassicShortcuts(marker: UserDefaults) async throws -> Bool {
-        try await importClassicShortcuts(from: ClassicShortcutImport.domains.compactMap { UserDefaults(suiteName: $0) },
-                                         marker: marker)
+    public func importClassicShortcuts(marker: UserDefaults, bundleIdentifier: String? = Bundle.main.bundleIdentifier)
+        async throws -> Bool {
+        let others = ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
+        return try await importClassicShortcuts(from: [marker] + others, marker: marker)
     }
 
     /// Writes each shortcut recorded in classic's Settings (`sources`, one
@@ -75,7 +106,9 @@ extension SettingsController {
         var edits: [(path: [String], value: JSONValue?)] = []
         for (classicID, binding) in ClassicShortcutImport.recorded(in: sources).sorted(by: { $0.key < $1.key }) {
             let id = registry.canonicalID(for: ActionID(rawValue: classicID)).rawValue
-            guard registry.descriptor(for: ActionID(rawValue: id)) != nil else { continue }
+            guard registry.descriptor(for: ActionID(rawValue: id)) != nil,
+                  let parsed = ShortcutBindingFormat.parse(binding),
+                  ClassicShortcutImport.usable(parsed, for: ActionID(rawValue: id), in: registry) else { continue }
             var bound = false
             for key in Set([id, classicID]) {
                 if try await file.value(at: ["shortcuts", "bindings", key]) != nil { bound = true }
