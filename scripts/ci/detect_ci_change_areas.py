@@ -118,6 +118,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/r2-canary-cloudflare.py",
     "scripts/ci/r2_cache_census.py",
     "scripts/ci/r2_cache_prune.py",
+    "scripts/ci/cmux_binaries_prune.py",
     "scripts/ci/r2_storage_census.py",
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",

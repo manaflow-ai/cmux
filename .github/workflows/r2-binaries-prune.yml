@@ -1,0 +1,68 @@
+name: Prune R2 binaries
+
+# feat-cmux-next publishes commit-addressed cmux-tui and relay builds for every
+# branch push, write-once, and nothing deleted them. This removes a branch
+# head's prefixes once nothing pins them (see scripts/ci/cmux_binaries_prune.py):
+# trunk commits, pins at the main and feat-cmux-next tips, latest manifests,
+# tree sources and anything under 14 days old are kept. It is a dry run unless
+# a dispatch asks to delete or the repository variable R2_BINARIES_PRUNE_DELETE
+# is 1.
+on:
+  schedule:
+    - cron: "53 7 * * *"
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Send deletes. Unchecked reports what would be deleted.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: r2-binaries-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune superseded branch builds
+    # The bucket credentials only ever run main's copy of this script.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    environment: artifacts
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Trunk commits and pins
+        run: |
+          set -euo pipefail
+          # The repository is public: the blobless fetch and lazy blob reads need no token.
+          git fetch --quiet --filter=blob:none origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+          git rev-list origin/main origin/feat-cmux-next > "$RUNNER_TEMP/trunk-commits.txt"
+          wc -l < "$RUNNER_TEMP/trunk-commits.txt"
+          : > "$RUNNER_TEMP/pins.txt"
+          for tip in origin/main origin/feat-cmux-next; do
+            for path in scripts/cmux-next/cmux-tui.pin images/cmux-vm/inputs.lock.json web/services/vms/images/manifest.json; do
+              git show "$tip:$path" >> "$RUNNER_TEMP/pins.txt" 2>/dev/null || true
+            done
+          done
+
+      - name: Prune
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CF_R2_ACCOUNT_ID) }}
+          PRUNE_DELETE: ${{ (inputs.delete || vars.R2_BINARIES_PRUNE_DELETE == '1') && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(--endpoint-url "$R2_ENDPOINT" --trunk-commits "$RUNNER_TEMP/trunk-commits.txt" --pin-file "$RUNNER_TEMP/pins.txt")
+          if [ "$PRUNE_DELETE" = true ]; then args+=(--delete); fi
+          python3 scripts/ci/cmux_binaries_prune.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

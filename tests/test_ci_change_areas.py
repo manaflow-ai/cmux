@@ -691,6 +691,7 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/notify-indexnow.py",
         "scripts/ci/r2_cache_census.py",
         "scripts/ci/r2_cache_prune.py",
+        "scripts/ci/cmux_binaries_prune.py",
         "scripts/ci/r2_storage_census.py",
         "scripts/ci/verify-r2-canary.py",
         "scripts/ci/build_graph_health.py",
