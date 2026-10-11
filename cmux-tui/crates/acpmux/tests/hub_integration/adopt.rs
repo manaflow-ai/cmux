@@ -89,17 +89,16 @@ fn backdate(file: &std::path::Path) {
     std::fs::File::options().write(true).open(file).unwrap().set_modified(hour_ago).unwrap();
 }
 
-/// A running process named like a harness (`sleep` copied to `<dir>/<name>`),
-/// which names no session. A recent write counts as live only while some
-/// harness runs, so a test that expects "written" starts one rather than
-/// depend on what else runs on the builder.
+/// A running process named like a harness (`python3 <dir>/<name>`, a script
+/// that sleeps), which names no session. A recent write counts as live only
+/// while some harness runs, so a test that expects "written" starts one
+/// rather than depend on what else runs on the builder. A copied `sleep`
+/// would not do: a multicall coreutils exits on an unknown argv[0].
 fn harness_stand_in(dir: &std::path::Path, name: &str) -> std::process::Child {
-    let sleep =
-        ["/bin/sleep", "/usr/bin/sleep"].into_iter().find(|p| std::path::Path::new(p).exists());
-    let exe = dir.join(name);
+    let script = dir.join(name);
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::copy(sleep.unwrap(), &exe).unwrap();
-    std::process::Command::new(&exe).arg("60").spawn().unwrap()
+    std::fs::write(&script, "import time\ntime.sleep(60)\n").unwrap();
+    std::process::Command::new("python3").arg(&script).spawn().unwrap()
 }
 
 /// A recent write is live only while a harness outside acpmux runs: with
