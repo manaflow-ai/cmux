@@ -993,16 +993,21 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const observer = new ResizeObserver(() => {
-      setHeight(node.clientHeight);
-      setWidth(node.clientWidth);
-    });
+    // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
+    // transcript at its old offset and caught up a frame later.
+    const observer = new ResizeObserver(() =>
+      flushSync(() => {
+        setHeight(node.clientHeight);
+        setWidth(node.clientWidth);
+      }),
+    );
     observer.observe(node);
     setWidth(node.clientWidth);
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
+  const previousHeight = useRef(height);
   const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
@@ -1195,8 +1200,9 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
         if (Math.abs(step) > 0.5) node.scrollTop = latest;
-        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll").
-        if (step > 0.5 && step < node.clientHeight) glide(thread.current, step);
+        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
+        // resized viewport only moves the offset.
+        if (step > 0.5 && step < node.clientHeight && height === previousHeight.current) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -1223,6 +1229,7 @@ export function VirtualTranscript({
     }
     previousLayout.current = layout;
     previousRows.current = rows;
+    previousHeight.current = height;
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height]);

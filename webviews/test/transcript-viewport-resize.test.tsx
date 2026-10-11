@@ -100,7 +100,9 @@ test("a resized chat at its latest message stays there in the same frame, withou
     parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - viewport;
   try {
     await act(async () =>
-      root.render(<VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />),
+      root.render(
+        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
     );
     expect(scroller().scrollTop).toBe(latest());
     const resize = observers.find((observer) => observer.targets.includes(scroller()))!;
