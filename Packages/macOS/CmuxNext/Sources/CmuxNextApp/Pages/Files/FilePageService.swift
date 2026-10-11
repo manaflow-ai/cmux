@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
@@ -69,10 +70,12 @@ final class FilePageService: InternalPageProvider {
     func route(for key: String) -> String? { tabs[key]?.file?.path }
 
     /// A store tab came back on `route` (Reopen Closed, relaunch). The daemon
-    /// gave the path, so it opens as an open the user did not choose.
+    /// gave the path, so it is granted only as a recent file is
+    /// (`FilePageProvider`'s recents grant); any other path opens as an open
+    /// the user did not choose.
     func restore(_ route: String, for key: String) {
         guard tabs[key] == nil, route.hasPrefix("/") else { return }
-        tabs[key] = Tab(file: URL(fileURLWithPath: route), userChose: false)
+        tabs[key] = Tab(file: URL(fileURLWithPath: route), userChose: isRecent(route))
     }
 
     var openKeys: [String] { tabs.keys.sorted() }
@@ -167,10 +170,23 @@ final class FilePageService: InternalPageProvider {
                 if focus { reveal(shown, in: candidate) }
                 return shown
             }
+            // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
+            if let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
+                $0.page == kind.page.rawValue && $0.pageRoute == file && services.pages.storeKey(of: $0.id) == nil
+            }) {
+                if focus {
+                    candidate.select(StripTabID(unshown.id))
+                    candidate.focusContent()
+                }
+                return unshown.id
+            }
         }
         let key = LocalPageTab.makeKey(kind.page)
         tabs[key] = tab
-        if let window, services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
+        // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
+        // goes to another machine's daemon, and a tab without its route could not come back.
+        if let window, pane.daemon.isLocal, pane.daemon.supports(DaemonCapabilities.shared.pageTabRoute),
+           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
             return key
         }
         services.pages.open(kind.page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
@@ -252,7 +268,8 @@ final class FilePageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard var tab = tabs[key] else { return NSView() }
+        // A store tab with no route (an empty tab, an older daemon) shows the empty state.
+        var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, host: host, clock: clock,
