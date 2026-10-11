@@ -2278,11 +2278,20 @@ export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["mod
   return entry;
 }
 
+/// A harness map's entries in acpmux's order: its default (`defaultHarness`) first, then by id. The
+/// native relay re-encodes the reply, so the map's own key order means nothing (a first launch
+/// asked the model router instead of Claude Code).
+function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown): any[] {
+  const ids = Object.keys(harnesses).sort((a, b) =>
+    a === preferred ? -1 : b === preferred ? 1 : a < b ? -1 : a > b ? 1 : 0,
+  );
+  return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  return (
-    Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))
-  ).map((harness: any) => ({
+  const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
+  return entries.map((harness: any) => ({
     id: String(harness.id ?? harness.name),
     name: agentName(
       String(harness.id ?? harness.name),
