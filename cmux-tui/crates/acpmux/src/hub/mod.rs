@@ -57,6 +57,8 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_in;
+mod transfer_out;
 mod turns;
 mod warm;
 mod xai;
@@ -430,6 +432,13 @@ impl Hub {
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
+        // Probes of earlier runs left transcripts in the unattended folder: remove them.
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::probe_cleanup::remove_probe_transcripts(
+                &crate::protected_folders::unattended_cwd(),
+            )
+        })
+        .await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
@@ -532,6 +541,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
@@ -770,6 +780,9 @@ impl Hub {
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
         }
+        if session.moving().is_some() {
+            return Err(queue::moving_error().message);
+        }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
             let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -932,5 +945,13 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
+    }
+}
+
+/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
+/// chat's draft. Any other prompt leaves the draft as it is.
+fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
+    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
+        meta.composer_draft = None;
     }
 }

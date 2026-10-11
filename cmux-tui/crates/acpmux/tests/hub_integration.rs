@@ -1389,11 +1389,10 @@ async fn session_cancel_as_a_request_is_answered() {
     );
 }
 
-#[path = "hub_integration/transcript_events.rs"]
-mod transcript_events;
-
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
+#[path = "hub_integration/transcript_events.rs"]
+mod transcript_events;
 
 fn prompt_with_id(id: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
     json!({
@@ -1493,7 +1492,6 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
-
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
@@ -1509,3 +1507,5 @@ mod claude_failover;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
+#[path = "hub_integration/transfer.rs"]
+mod transfer;

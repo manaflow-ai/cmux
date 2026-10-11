@@ -206,7 +206,14 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
     var targetTab: String?
 
     static func resolve(_ request: BrowserOpenSplitRequest, in topology: ControlTopology, method: String) throws -> Self {
-        if let id = request.workspaceID {
+        try resolve(workspaceID: request.workspaceID, agentSession: request.agentSession, terminalID: request.terminalID,
+                    in: topology, method: method)
+    }
+
+    /// The placement for a named workspace, an agent caller or the caller's terminal (`file.open` too).
+    static func resolve(workspaceID: String?, agentSession: String?, terminalID: String?,
+                        in topology: ControlTopology, method: String) throws -> Self {
+        if let id = workspaceID {
             guard let workspace = topology.workspace(id: id) else {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.targetNotFound", "No %1$@ matches %2$@", "workspace", id),
                                    data: ["param": "workspace_id"])
@@ -214,11 +221,11 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
             return Self(kind: .workspace, targetTab: try tab(in: workspace, topology: topology, method: method))
         }
         // An agent's tab opens beside its chat; action.run picks the pane (ControlCaller).
-        if let session = request.agentSession,
+        if let session = agentSession,
            let location = ControlCallerLocation.resolve(ControlCaller(agentSession: session), in: topology) {
             return Self(kind: location.beside == nil ? .besideCallerNewColumn : .besideCaller, targetTab: nil)
         }
-        if let terminal = request.terminalID, let tab = terminalTab(terminal, in: topology) {
+        if let terminal = terminalID, let tab = terminalTab(terminal, in: topology) {
             return Self(kind: .callerTerminal, targetTab: tab)
         }
         if topology.focus.paneID != nil { return Self(kind: .focusedPane, targetTab: nil) }
