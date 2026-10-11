@@ -146,9 +146,6 @@ def select(entry):
 
 
 def main():
-    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
-        sys.exit("the app does not answer on " + opts.socket)
-
     before = known()
     print("workspace.newAtBottom:", action("workspace.newAtBottom"), flush=True)
     first = (wait(lambda: new_workspaces(before), 20) or [None])[0]
@@ -199,6 +196,8 @@ def main():
     action("workspaceGroup.expand", target="workspace-group:" + group)
 
 
+if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
+    sys.exit("the app does not answer on " + opts.socket)
 saved = rpc("settings.get", {"path": SETTING}) or {}
 print(f"set {SETTING}=true:", rpc("settings.set", {"path": SETTING, "value": True}), flush=True)
 time.sleep(1)  # test harness: the config reloads
