@@ -114,7 +114,7 @@ extension CodexTranscriptParser {
             return outputText(from: value["output"])
                 ?? outputText(from: value["content"])
                 ?? value["text"]?.string
-        case .number, .bool, .null:
+        case .integer, .number, .bool, .null:
             return nil
         }
     }

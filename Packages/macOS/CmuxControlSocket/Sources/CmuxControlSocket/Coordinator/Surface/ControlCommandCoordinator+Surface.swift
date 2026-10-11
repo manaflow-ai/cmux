@@ -25,6 +25,7 @@ extension ControlCommandCoordinator {
             return surfaceCurrent(request.params, context: context)
         case "surface.focus":
             return surfaceFocus(request.params)
+        case "surface.jump_to_last_prompt": return surfaceJumpToLastPrompt()
         case "surface.split":
             return surfaceSplit(request.params)
         case "surface.respawn":
@@ -297,33 +298,7 @@ extension ControlCommandCoordinator {
         }
         let resolution = context?.controlSurfaceFocus(routing: routing, surfaceID: surfaceID)
             ?? .tabManagerUnavailable
-        switch resolution {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        case .surfaceNotFound(let id):
-            return .err(
-                code: "not_found",
-                message: "Surface not found",
-                data: .object(["surface_id": .string(id.uuidString)])
-            )
-        case .dockUnavailable(let message):
-            return .err(
-                code: "unavailable",
-                message: message,
-                data: .object(["surface_id": .string(surfaceID.uuidString)])
-            )
-        case .focused(let windowID, let workspaceID, let focusedSurfaceID):
-            return .ok(.object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(focusedSurfaceID.uuidString),
-                "surface_ref": ref(.surface, focusedSurfaceID),
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-            ]))
-        }
+        return surfaceFocusResult(resolution, requestedSurfaceID: surfaceID)
     }
 
     // MARK: - split
@@ -410,6 +385,8 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "No focused surface", data: nil)
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create split", data: nil)
+        case .noSpace:
+            return noSpaceForNewPaneResult
         case .mirrorUnsupportedOptions(let unsupported):
             return mirrorUnsupportedOptionsResult(unsupported)
         case .routedToRemote(let windowID, let workspaceID, let typeRawValue):
@@ -642,7 +619,8 @@ extension ControlCommandCoordinator {
         let resolution = context.controlSurfaceClose(
             routing: routing,
             surfaceID: surfaceID,
-            hasSurfaceIDParam: hasSurfaceIDParam
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            force: bool(params, "force") ?? false
         )
         switch resolution {
         case .tabManagerUnavailable:
@@ -661,10 +639,16 @@ extension ControlCommandCoordinator {
             )
         case .lastSurface:
             return .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+        case .confirmationRequired(let id):
+            return .err(
+                code: "confirmation_required",
+                message: context.controlSurfaceCloseStrings().confirmationRequired,
+                data: .object(["surface_id": .string(id.uuidString)])
+            )
         case .closeFailed(let id):
             return .err(
                 code: "internal_error",
-                message: "Failed to close surface",
+                message: context.controlSurfaceCloseStrings().failed,
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .closed(let windowID, let workspaceID, let closedSurfaceID):

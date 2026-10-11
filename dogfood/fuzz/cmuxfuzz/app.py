@@ -278,4 +278,3 @@ class _suppress:
 
     def __exit__(self, *exc):
         return exc[0] is not None and issubclass(exc[0], OSError)
-

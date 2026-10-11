@@ -15,6 +15,22 @@ import Testing
 struct RemoteReconnectPolicyTests {
     private let policy = RemoteReconnectPolicy()
 
+    @Test("Reconnect cleanup fixture returns a neutral process result")
+    func reconnectCleanupFixtureReturnsNeutralResult() throws {
+        let result = try IntentionalCleanupUnusedProcessRunner().run(
+            RemoteProcessRequest(
+                executable: "/usr/bin/cmuxd-remote",
+                arguments: [],
+                timeout: 1
+            ),
+            operation: nil
+        )
+
+        #expect(result.status == 0)
+        #expect(result.stdout == "")
+        #expect(result.stderr == "")
+    }
+
     private func evaluate(
         _ outcome: RemoteHostProbeOutcome,
         previous: Int
@@ -245,7 +261,7 @@ struct RemoteReconnectPolicyTests {
             coordinator.queue.sync {}
             provider.tunnel.stop()
         }
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424, credential: .random())
 
         coordinator.queue.sync {
             coordinator.proxyLeaseGeneration = 2

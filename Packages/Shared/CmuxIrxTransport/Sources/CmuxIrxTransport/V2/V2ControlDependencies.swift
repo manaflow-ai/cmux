@@ -9,6 +9,7 @@ public struct V2ControlDependencies: Sendable {
     let now: @Sendable () -> Date
     let sleep: @Sendable (TimeInterval) async throws -> Void
     let jitter: @Sendable () -> Double
+    let journal: IrxJournal?
 
     /// Injects real network/auth/signing effects or deterministic test replacements.
     /// - Parameters:
@@ -19,6 +20,8 @@ public struct V2ControlDependencies: Sendable {
     ///   - now: Wall clock for token expiry and server proofs.
     ///   - sleep: Cancellable clock delay used only for deadlines and renewal/backoff.
     ///   - jitter: A value in `0...1` to spread retries across clients.
+    ///   - journal: Receives credential-lifecycle events so a silent renewal
+    ///     stall is diagnosable from retained logs. Never carries token data.
     public init(
         connect: @escaping @Sendable (URLRequest) async throws -> any V2ControlSocket,
         http: @escaping @Sendable (URLRequest) async throws -> V2HTTPResponse,
@@ -28,7 +31,8 @@ public struct V2ControlDependencies: Sendable {
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
             try await Task.sleep(for: .seconds(max(0, seconds)))
         },
-        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0...1) }
+        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
+        journal: IrxJournal? = nil
     ) {
         self.connect = connect
         self.http = http
@@ -37,5 +41,6 @@ public struct V2ControlDependencies: Sendable {
         self.now = now
         self.sleep = sleep
         self.jitter = jitter
+        self.journal = journal
     }
 }

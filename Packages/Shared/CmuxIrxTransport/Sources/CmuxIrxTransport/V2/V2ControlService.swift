@@ -22,6 +22,10 @@ public actor V2ControlService {
     var socket: (any V2ControlSocket)?
     var receiveTask: Task<Void, Never>?
     var renewalTask: Task<Void, Never>?
+    var renewalHealthTask: Task<Void, Never>?
+    var applyWatchdogTask: Task<Void, Never>?
+    var pendingApplySequence: UInt64?
+    var acknowledgedApplySequence: UInt64 = 0
     var directoryTask: Task<V2Directory, any Error>?
     var directorySyncTask: Task<Void, Never>?
     var ticketTask: Task<V2Ticket, any Error>?
@@ -103,6 +107,8 @@ public actor V2ControlService {
         guard runID == nil, !Task.isCancelled else { return }
         let id = UUID()
         runID = id
+        pendingApplySequence = nil
+        acknowledgedApplySequence = sequence
         status = .connecting
         publish()
         runTask = Task { [weak self] in await self?.run(id) }
@@ -120,6 +126,9 @@ public actor V2ControlService {
         receiveTask?.cancel()
         receiveTask = nil
         cancelMaintenance()
+        applyWatchdogTask?.cancel()
+        applyWatchdogTask = nil
+        pendingApplySequence = nil
         finishAll(throwing: V2ControlFailure.stopped)
         status = .stopped
         publish()
@@ -155,9 +164,47 @@ public actor V2ControlService {
         sequence &+= 1
         let value = snapshot()
         for observer in observers.values { observer.yield(value) }
+        guard status != .stopped, !observers.isEmpty, let run = runID else { return }
+        guard pendingApplySequence == nil else { return }
+        pendingApplySequence = value.sequence
+        armApplyWatchdog(run: run, sequence: value.sequence)
     }
 
     private func removeObserver(_ id: UUID) { observers.removeValue(forKey: id) }
+
+    /// Acknowledges that the platform consumer finished applying a snapshot.
+    ///
+    /// The acknowledgement is the boundary between transport publication and
+    /// endpoint/UI state. A missing acknowledgement is retained as evidence by
+    /// the transport owner instead of being inferred by a second polling owner.
+    /// - Parameter sequence: The snapshot sequence that was fully applied.
+    public func acknowledgeApplied(sequence: UInt64) {
+        acknowledgedApplySequence = max(acknowledgedApplySequence, sequence)
+        guard let pendingApplySequence, sequence >= pendingApplySequence else { return }
+        self.pendingApplySequence = nil
+        applyWatchdogTask?.cancel()
+        applyWatchdogTask = nil
+    }
+
+    private func armApplyWatchdog(run: UUID, sequence: UInt64) {
+        applyWatchdogTask?.cancel()
+        let dependencies = dependencies
+        applyWatchdogTask = Task { [weak self] in
+            do { try await dependencies.sleep(300) }
+            catch { return }
+            await self?.applyWatchdogFired(run: run, sequence: sequence)
+        }
+    }
+
+    private func applyWatchdogFired(run: UUID, sequence: UInt64) {
+        guard runID == run, pendingApplySequence == sequence, status != .stopped else { return }
+        journal("snapshot-apply-stalled", [
+            "pending_sequence": String(sequence),
+            "applied_sequence": String(acknowledgedApplySequence),
+            "stalled_for_s": "300",
+        ])
+        armApplyWatchdog(run: run, sequence: sequence)
+    }
 
     func assertCurrent(_ run: UUID) throws {
         guard runID == run, !Task.isCancelled else { throw V2ControlFailure.stopped }
@@ -167,9 +214,16 @@ public actor V2ControlService {
         try assertCurrent(run)
         let state = cache
         do { try await store.save(state) }
-        catch { throw V2ControlFailure.persistenceFailed }
+        catch {
+            // A failed save also skips publish, so downstream consumers never
+            // hear about state they would lose on relaunch. Without this event
+            // that outcome is indistinguishable from a renewal that never ran.
+            journal("persist-failed", ["error": String(describing: type(of: error))])
+            throw V2ControlFailure.persistenceFailed
+        }
         try assertCurrent(run)
         publish()
+        if status == .ready { scheduleRenewalHealthCheck(run: run) }
     }
 
     func cancelMaintenance() {
@@ -194,6 +248,8 @@ public actor V2ControlService {
         relayTask = nil
         authTask?.cancel()
         authTask = nil
+        renewalHealthTask?.cancel()
+        renewalHealthTask = nil
 #if DEBUG
         nextVerificationRenewalAt = nil
 #endif
@@ -309,15 +365,24 @@ public actor V2ControlService {
         failure = error
         if case .server(let response) = error {
             if response.code == .rateLimited {
-                cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(max(1, Double(response.retryAfterMS ?? 60_000) / 1000))
+                let delay = max(1, Double(response.retryAfterMS ?? 60_000) / 1000)
+                cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(delay)
+                journal("cooldown-set", ["schema": schema, "source": "rate_limited", "delay_s": String(Int(delay))])
             } else if response.code == .clientUpgradeRequired {
                 let attempt = retiredAttempts[schema, default: 0]
                 let delays: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
                 let delay = delays[min(attempt, delays.count - 1)] * (1 + 0.1 * dependencies.jitter())
                 retiredAttempts[schema] = attempt + 1
                 cooldowns[schema] = dependencies.now().addingTimeInterval(delay)
+                journal("cooldown-set", ["schema": schema, "source": "upgrade_required", "delay_s": String(Int(delay))])
             }
         }
         publish()
+    }
+
+    /// Records one credential-lifecycle event. Attributes are schema names,
+    /// failure codes, and durations only, never tokens or credential bodies.
+    func journal(_ event: String, _ attributes: [String: String] = [:]) {
+        dependencies.journal?.record("v2-control", event, attributes)
     }
 }

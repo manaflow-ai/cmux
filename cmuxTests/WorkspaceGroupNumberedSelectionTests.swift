@@ -37,11 +37,17 @@ struct WorkspaceGroupNumberedSelectionTests {
         let manager = context.tabManager
         let ungroupedWorkspace = try #require(manager.selectedWorkspace)
         let memberWorkspace = try #require(manager.addTab(select: false))
-        let groupId = try #require(manager.createWorkspaceGroup(
-            name: "Grouped",
-            childWorkspaceIds: [memberWorkspace.id]
-        ))
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Grouped"))
+        manager.addWorkspaceToGroup(workspaceId: memberWorkspace.id, groupId: groupId)
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        // Empty groups insert a generated header at the first top-level slot.
+        // Move that group run after the ungrouped workspace so digit 1 remains
+        // the ungrouped row and digit 2 reaches the real member.
+        _ = manager.reorderSidebarWorkspace(
+            tabId: group.anchorWorkspaceId,
+            toIndex: 1,
+            isDragOperation: true
+        )
         let renderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: manager.tabs,
             groupsById: [groupId: group]

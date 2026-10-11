@@ -1215,9 +1215,84 @@ cmux_claude_wrapper_create_settings_values_file() {
     printf '%s' "$settings_path"
 }
 
+# Claude Code persists the path-valued --settings argument when a session is
+# moved to the background. A file in $TMPDIR can disappear while that daemon
+# is still alive, so the artifact Claude may respawn must live under the user's
+# durable cmux directory. The merge inputs remain temporary and are removed
+# immediately after launch construction.
+cmux_claude_wrapper_durable_settings_dir() {
+    [[ -n "${HOME:-}" && "$HOME" == /* ]] || return 1
+    local cmux_dir="${HOME%/}/.cmuxterm"
+    local settings_dir="$cmux_dir/claude-settings"
+    # Do not follow a pre-existing link into a location cmux does not own.
+    [[ ! -L "$cmux_dir" && ! -L "$settings_dir" ]] || return 1
+    umask 077
+    mkdir -p "$settings_dir" || return 1
+    [[ -d "$cmux_dir" && -d "$settings_dir" ]] || return 1
+    chmod 0700 "$cmux_dir" "$settings_dir" || return 1
+    printf '%s' "$settings_dir"
+}
+
+cmux_claude_wrapper_sha256_file() {
+    local source="$1"
+    local digest hasher
+    if [[ -x /usr/bin/shasum ]]; then
+        digest="$(/usr/bin/shasum -a 256 "$source" 2>/dev/null)" || return 1
+    elif hasher="$(command -v sha256sum 2>/dev/null)" && [[ -x "$hasher" ]]; then
+        digest="$("$hasher" "$source" 2>/dev/null)" || return 1
+    else
+        return 1
+    fi
+    digest="${digest%%[[:space:]]*}"
+    [[ "$digest" =~ ^[[:xdigit:]]{64}$ ]] || return 1
+    printf '%s' "$digest"
+}
+
+cmux_claude_wrapper_promote_settings_file() {
+    local source="$1"
+    local settings_dir digest target temporary
+    [[ -f "$source" ]] || return 1
+    settings_dir="$(cmux_claude_wrapper_durable_settings_dir)" || return 1
+    digest="$(cmux_claude_wrapper_sha256_file "$source")" || return 1
+    target="$settings_dir/${digest:0:32}.json"
+
+    if [[ -f "$target" && ! -L "$target" ]] && cmp -s "$source" "$target"; then
+        chmod 0600 "$target" || return 1
+        touch "$target" || return 1
+        printf '%s' "$target"
+        return 0
+    fi
+
+    temporary="$(mktemp "$settings_dir/.settings.XXXXXX")" || return 1
+    if ! (umask 077; cat "$source" >"$temporary") || ! chmod 0600 "$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    if ! mv -f -- "$temporary" "$target"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    printf '%s' "$target"
+}
+
+cmux_claude_wrapper_create_durable_settings_file() {
+    local contents="$1"
+    local settings_dir temporary durable_path
+    settings_dir="$(cmux_claude_wrapper_durable_settings_dir)" || return 1
+    temporary="$(mktemp "$settings_dir/.settings.XXXXXX")" || return 1
+    if ! (umask 077; printf '%s' "$contents" >"$temporary") || ! chmod 0600 "$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    durable_path="$(cmux_claude_wrapper_promote_settings_file "$temporary")"
+    rm -f -- "$temporary"
+    [[ -n "$durable_path" ]] || return 1
+    printf '%s' "$durable_path"
+}
+
 # cmux computer use: attach the bundled cmux-cua MCP server so any Claude
 # session cmux launches can drive the local Mac through cmux's TCC identity.
-# Prints the --mcp-config JSON, or returns nonzero to skip injection so
+# Sets CMUX_COMPUTER_USE_CONFIG, or returns nonzero to skip injection so
 # sessions never see always-failing tools.
 cmux_computer_use_json_escape() {
     local value="$1"
@@ -1327,39 +1402,16 @@ cmux_claude_sideload_flags_disabled_uncached() {
     fi
 
     # MDM preferences domain: disableSideloadFlags reading as 1, or any
-    # configured policyHelper, disqualifies. This used to be two per-key
-    # `defaults read <domain> <key>` calls; one whole-domain read answers both.
-    # Both forms read the same preferences source. The dump prints every
-    # top-level key on its own line indented by exactly four spaces (nested
-    # entries use eight; a newline inside a string prints as `\\n`), so the
-    # anchored matches below see only top-level keys.
+    # configured policyHelper, disqualifies. Keep the per-key reads here:
+    # `defaults read <domain>` is a human-readable plist dump whose escaping
+    # varies for strings containing newlines and backslashes, while the
+    # per-key command has the exact truth semantics this policy needs.
     defaults_bin=/usr/bin/defaults
     if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
-        local domain_dump flag_value
-        local newline=$'\n'
-        local flag_prefix=$'\n    disableSideloadFlags = '
-        local escaped_newline='\\n' quoted_one='"1' quoted_end='";'
-        if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
-            domain_dump="$newline$domain_dump$newline"
-            [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
-            flag_value="${domain_dump#*"$flag_prefix"}"
-            if [[ "$flag_value" != "$domain_dump" ]]; then
-                flag_value="${flag_value%%"$newline"*}"
-                # The per-key read printed `1` for true, 1, 1.0 and "1", which
-                # all dump as `1;`. It also printed `1` for "1" followed by
-                # newlines, because $(...) strips them; that dumps as
-                # `"1\\n";`, `"1\\n\\n";` and so on.
-                [[ "$flag_value" == "1;" ]] && return 0
-                if [[ "$flag_value" == "$quoted_one$escaped_newline"*"$quoted_end" ]]; then
-                    flag_value="${flag_value#"$quoted_one"}"
-                    flag_value="${flag_value%"$quoted_end"}"
-                    while [[ "$flag_value" == "$escaped_newline"* ]]; do
-                        flag_value="${flag_value#"$escaped_newline"}"
-                    done
-                    [[ -z "$flag_value" ]] && return 0
-                fi
-            fi
-        fi
+        local flag_value
+        flag_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)"
+        [[ "$flag_value" == "1" ]] && return 0
+        "$defaults_bin" read "$plist_domain" policyHelper >/dev/null 2>&1 && return 0
     fi
 
     return 1
@@ -1416,13 +1468,16 @@ cmux_computer_use_config() {
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     # The helper owns external onboarding. Mark that contract explicitly so
     # protected calls also wait for cmux's post-verification readiness signal.
-    printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_SOCKET_AUTH_TOKEN":"%s","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    CMUX_COMPUTER_USE_CONFIG="$(printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$client")" \
         "$(cmux_computer_use_json_escape "$cua_socket")" \
-        "$(cmux_computer_use_json_escape "$auth_token")" \
         "$(cmux_computer_use_json_escape "$default_session")" \
         "$(cmux_computer_use_json_escape "${CMUX_CLAUDE_PID:-$$}")" \
-        "$(cmux_computer_use_json_escape "$state_dir")"
+        "$(cmux_computer_use_json_escape "$state_dir")")" || return 1
+    # This function must run in the parent shell: an export inside $(...) is
+    # lost before Claude launches its MCP child. Keep the credential in that
+    # inherited environment, never in the argv-visible MCP JSON.
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
 }
 
 cmux_claude_global_skill_install_enabled() {
@@ -1671,6 +1726,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         clear_inherited_claude_session_identity_env
     fi
     clear_inherited_claude_auth_selection_env
+    unset CMUX_CUA_SOCKET_AUTH_TOKEN
     if [[ "$IN_CMUX" == "1" ]]; then
         reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     fi
@@ -1770,6 +1826,26 @@ fi
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
+# Headless (`-p`/`--print`) runs share the pane's surface with any interactive
+# session there, so the agent message hooks skip them.
+export CMUX_CLAUDE_HEADLESS=0
+cmux_claude_skip_next=false
+for cmux_claude_arg in "$@"; do
+    if [[ "$cmux_claude_skip_next" == true ]]; then
+        cmux_claude_skip_next=false
+        continue
+    fi
+    case "$cmux_claude_arg" in
+        --) break ;;
+        -p|--print|--print=*) export CMUX_CLAUDE_HEADLESS=1; break ;;
+        -*)
+            if [[ "$cmux_claude_arg" != *=* ]] && claude_option_consumes_value "$cmux_claude_arg"; then
+                cmux_claude_skip_next=true
+            fi
+            ;;
+    esac
+done
+unset cmux_claude_arg cmux_claude_skip_next
 # A parent session's hook spool belongs to that session; this launch starts its own below.
 unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
@@ -1777,7 +1853,9 @@ if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
 fi
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$cmux_claude_hook_cmux_bin"
 
-claude_launch_has_subrouter_private_settings() {
+# Prints the routed launcher's private `--settings` file when the argv carries
+# one that still exists.
+claude_launch_subrouter_private_settings_path() {
     local argument value expects_value=0
     for argument in "$@"; do
         [[ "$argument" == "--" ]] && break
@@ -1794,7 +1872,10 @@ claude_launch_has_subrouter_private_settings() {
         fi
         case "$value" in
             */subrouter-claude-settings-*/settings.json)
-                [[ -f "$value" ]] && return 0
+                if [[ -f "$value" ]]; then
+                    printf '%s\n' "$value"
+                    return 0
+                fi
                 ;;
         esac
     done
@@ -1807,8 +1888,25 @@ bind_subrouter_claude_resume_marker() {
         "sr claude proxy --resume"|"subrouter claude proxy --resume") ;;
         *) return 0 ;;
     esac
-    claude_launch_has_subrouter_private_settings "$@" || return 0
+    claude_launch_subrouter_private_settings_path "$@" >/dev/null || return 0
     export CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND="$SUBROUTER_CLAUDE_RESUME_COMMAND"
+}
+
+# Records the account a routed launch was pinned to, so a restore keeps it.
+# The pin is read from the routing headers the launcher wrote into its private
+# settings file for this launch (the file is gone once the launcher exits), so
+# it holds however the launcher was invoked or what it appended to the argv it
+# forwarded. A pooled launch has no pin header and records nothing.
+bind_routed_claude_account() {
+    unset CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT
+    local settings_path account
+    settings_path="$(claude_launch_subrouter_private_settings_path "$@")" || return 0
+    # The headers are one JSON string whose lines are joined by an escaped
+    # newline, so the id ends at `\n` or at the closing quote. An id with any
+    # other character is left unrecorded rather than cut short.
+    account="$(LC_ALL=C sed -nE 's/.*X-Subrouter-Account-ID: ([A-Za-z0-9._@+:=-]+)(\\n|").*/\1/p' "$settings_path" 2>/dev/null | head -n 1)"
+    [[ -n "$account" && "$account" != -* && ${#account} -le 256 ]] || return 0
+    export CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT="$account"
 }
 
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
@@ -1816,6 +1914,7 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
     bind_subrouter_claude_resume_marker "$@"
+    bind_routed_claude_account "$@"
 fi
 install_cmux_node_options "$REAL_CLAUDE"
 
@@ -1944,6 +2043,8 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     local stop="${queued//@SUBCOMMAND@/stop}"
     local feed="${queued//@SUBCOMMAND@/feed}"
     local prompt_submit="${queued//@SUBCOMMAND@/prompt-submit}"
+    # Background agent-message wait hook (asyncRewake), on SessionStart and Stop.
+    local inbox_wait='{"hooks":[{"async":true,"asyncRewake":true,"command":"'"$direct_cli"' hooks claude inbox-wait","timeout":86400,"type":"command"}],"matcher":""}'
 
     cmux_claude_standard_hook_settings_value='{"hooks":{'
     cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'
@@ -1951,10 +2052,11 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"}],'
     cmux_claude_standard_hook_settings_value+='"PreToolUse":[{"hooks":[{"command":"'"$direct_cli"' hooks claude cron-create-guard","timeout":5,"type":"command"}],"matcher":"CronCreate"},'"$q_prefix$pre_tool_use$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
-    cmux_claude_standard_hook_settings_value+='"SessionStart":['"$q_prefix$session_start$q_suffix"'"}],'
-    cmux_claude_standard_hook_settings_value+='"Stop":['"$q_prefix$stop$q_suffix"'"},'"$q_prefix$feed$q_suffix"'"},{"hooks":[{"async":true,"command":"'"$direct_cli"' hooks claude auto-name","timeout":120,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"SessionStart":['"$q_prefix$session_start$q_suffix"'"},'"$inbox_wait"'],'
+    cmux_claude_standard_hook_settings_value+='"Stop":['"$q_prefix$stop$q_suffix"'"},'"$q_prefix$feed$q_suffix"'"},{"hooks":[{"async":true,"command":"'"$direct_cli"' hooks claude auto-name","timeout":120,"type":"command"}],"matcher":""},'"$inbox_wait"'],'
+    cmux_claude_standard_hook_settings_value+='"StopFailure":['"$q_prefix$stop$q_suffix"'"},'"$inbox_wait"'],'
     cmux_claude_standard_hook_settings_value+='"SubagentStop":['"$q_prefix$feed$q_suffix"'"}],'
-    cmux_claude_standard_hook_settings_value+='"UserPromptSubmit":['"$q_prefix$prompt_submit$q_suffix"'"}]'
+    cmux_claude_standard_hook_settings_value+='"UserPromptSubmit":['"$q_prefix$prompt_submit$q_suffix"'"},{"hooks":[{"command":"'"$direct_cli"' hooks claude inbox-drain 2>/dev/null || echo '"'"'{}'"'"'","timeout":5,"type":"command"}],"matcher":""}]'
     cmux_claude_standard_hook_settings_value+='},"preferredNotifChannel":"notifications_disabled"}'
 }
 
@@ -2033,6 +2135,8 @@ catch (_) { process.exit(1); }
 # Generated settings also set preferredNotifChannel to disable Claude Code's OSC/terminal notification
 #   channel inside cmux so hooks are the only notification source.
 # - SessionStart/Stop/Notification: existing lifecycle hooks
+# - StopFailure: a turn that died on an API error (usage limit, dropped
+#   connection) shows the error instead of staying "Running"
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
@@ -2077,7 +2181,7 @@ unset cmux_claude_hook_settings_value
 # symptom), last-wins on >=2.1.169 (the user's flag wins but cmux's hook
 # --settings is dropped, silently breaking cmux notifications/status). Either
 # way one side is lost. Deep-merge the user's settings into ours, write the
-# combined document to a private temporary file, and pass one path-valued
+# combined document to a private settings file, and pass one path-valued
 # --settings flag. Hook arrays from a genuine user document are retained, while
 # cmux's marked block is replaced on re-entry. This is precedence-agnostic -- it
 # does not rely on the CLI's multi-flag behavior. Requires `node`; if node is
@@ -2135,7 +2239,14 @@ CMUX_SETTINGS_MERGE_SUCCEEDED=false
 
 # The settings artifact is file-backed so re-entry carries a bounded identity
 # instead of copying an ever-growing JSON value through argv and the environment.
-if CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_settings_file "$HOOKS_JSON")"; then
+if (( ${#CMUX_USER_SETTINGS[@]} > 0 )); then
+    if CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_settings_file "$HOOKS_JSON")"; then
+        CMUX_SETTINGS_PATH="$CMUX_SETTINGS_BASE_PATH"
+    else
+        printf 'cmux: warning: unable to create hook settings file; hooks were not injected\n' >&2
+    fi
+elif CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_durable_settings_file "$HOOKS_JSON")"; then
+    # There is no merge input, so this is already the final persisted artifact.
     CMUX_SETTINGS_PATH="$CMUX_SETTINGS_BASE_PATH"
 else
     printf 'cmux: warning: unable to create hook settings file; hooks were not injected\n' >&2
@@ -2222,9 +2333,15 @@ fs.writeFileSync(process.env.CMUX_MERGED_SETTINGS_PATH,JSON.stringify(acc),{enco
 '
         cmux_merge_status=$?
         if [[ $cmux_merge_status -eq 0 && -s "$CMUX_MERGED_SETTINGS_PATH" ]]; then
-            CMUX_SETTINGS_PATH="$CMUX_MERGED_SETTINGS_PATH"
-            CMUX_SETTINGS_MERGE_SUCCEEDED=true
-            set -- "${CMUX_FILTERED_ARGS[@]}"
+            if durable_settings_path="$(cmux_claude_wrapper_promote_settings_file "$CMUX_MERGED_SETTINGS_PATH")"; then
+                CMUX_SETTINGS_PATH="$durable_settings_path"
+                CMUX_SETTINGS_MERGE_SUCCEEDED=true
+                set -- "${CMUX_FILTERED_ARGS[@]}"
+            fi
+            unset durable_settings_path
+            if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true ]]; then
+                rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
+            fi
         else
             rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
         fi
@@ -2235,7 +2352,7 @@ if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && ${#CMUX_USER_SETTINGS[@]} -gt 
     printf 'cmux: warning: settings merge failed; cmux hooks are disabled for this launch and your settings were preserved unchanged; install Node or correct the settings file before retrying\n' >&2
     CMUX_SETTINGS_PATH=""
 fi
-if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
+if [[ -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
     rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
 fi
 if [[ -n "$CMUX_SETTINGS_INPUTS_PATH" ]]; then
@@ -2276,7 +2393,14 @@ fi
 # make a following positional prompt (`claude "fix this"`) parse as another
 # MCP config. Injected after launch-argv capture on purpose: resume re-runs
 # the wrapper, which re-injects against the machinery present then.
-CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
+CMUX_COMPUTER_USE_CONFIG=""
+if ! cmux_computer_use_config "$@"; then
+    CMUX_COMPUTER_USE_CONFIG=""
+    # CMUX_CUA_SOCKET_AUTH_TOKEN is a private cmux launch credential. Do not
+    # carry an inherited or partially-resolved value into Claude when the MCP
+    # attachment was rejected or could not be built.
+    unset CMUX_CUA_SOCKET_AUTH_TOKEN
+fi
 if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
     set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
 fi

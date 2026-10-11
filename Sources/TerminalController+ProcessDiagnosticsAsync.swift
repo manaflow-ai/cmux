@@ -8,8 +8,8 @@ extension TerminalController {
     #else
     @Sendable
     #endif
-    nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {
-        let base = await v2MainAsync {
+    nonisolated func v2SystemTopAsync(_ request: ControlRequest) async throws -> String {
+        let base = try await v2MainAsync {
             let foundationParams = request.params.mapValues(\.foundationObject)
             return Self.controlCallResult(
                 fromLegacy: self.v2SystemTopBasePayload(params: foundationParams)

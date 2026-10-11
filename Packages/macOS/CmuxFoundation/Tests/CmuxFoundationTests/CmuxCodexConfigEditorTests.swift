@@ -11,6 +11,11 @@ struct CmuxCodexConfigEditorTests {
         "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin"
     private static let featureEnd =
         "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end"
+    /// The in-place edit of an existing `[features]\nhooks = false` line.
+    private static let replacedFalseHooksBlock =
+        "[features]\n\(featureBegin)\n"
+        + "\(CmuxCodexConfigEditor.cmuxCodexHooksFeaturePreviousLinePrefix)hooks = false\n"
+        + "hooks = true\n\(featureEnd)\n"
     private static let trustBegin =
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     private static let trustEnd =
@@ -88,6 +93,47 @@ struct CmuxCodexConfigEditorTests {
         #expect(!result.installedTrust)
         #expect(result.content.contains("hooks = true"))
         #expect(result.content.contains(Self.featureBegin))
+    }
+
+    @Test("Install preserves marker-like text inside a multiline basic string")
+    func installPreservesMultilineBasicString() {
+        let original = "model_instructions = \"\"\"\n[features]\nhooks = false\ncodex_hooks = illustrative_text\n\"\"\"\nmodel = \"gpt-5.4\"\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let expected = "model_instructions = \"\"\"\n[features]\nhooks = false\ncodex_hooks = illustrative_text\n\"\"\"\nmodel = \"gpt-5.4\"\n\n[features]\n# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin\nhooks = true\n# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end\n"
+
+        #expect(installed.content == expected)
+    }
+
+    @Test("Uninstall preserves marker-like text inside a multiline literal string")
+    func uninstallPreservesMultilineLiteralString() {
+        let original = "model_instructions = '''\n[features]\nhooks = false\ncodex_hooks = illustrative_text\n'''\nmodel = \"gpt-5.4\"\n"
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let restored = editor.uninstallingHooks(from: installed.content)
+
+        #expect(restored == original)
+    }
+
+    @Test("A hash before a same-line basic-string close does not hide later TOML")
+    func multilineBasicStringCloseAfterHashStillParsesFollowingTable() {
+        let original = "instructions = \"\"\"\nbody # still text\n\"\"\"\n[features]\nhooks = false\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let restored = editor.uninstallingHooks(from: installed.content)
+
+        #expect(installed.content.hasSuffix(Self.replacedFalseHooksBlock))
+        #expect(restored == original)
+    }
+
+    @Test("A hash before a same-line literal-string close does not hide later TOML")
+    func multilineLiteralStringCloseAfterHashStillParsesFollowingTable() {
+        let original = "instructions = '''\nbody # still text\n'''\n[features]\nhooks = false\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let restored = editor.uninstallingHooks(from: installed.content)
+
+        #expect(installed.content.hasSuffix(Self.replacedFalseHooksBlock))
+        #expect(restored == original)
     }
 
     private static func occurrences(of needle: String, in haystack: String) -> Int {

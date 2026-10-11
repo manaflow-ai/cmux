@@ -80,7 +80,7 @@ struct CloudSurfaceOwnershipTests {
         #expect(workspace.cloudVMID == "ownership-a")
     }
 
-    @Test("Cloud pane hover rejects local and foreign resources", arguments: SurfaceResourceKind.allCases)
+    @Test("Cloud pane hover rejects foreign terminal/display resources and accepts browsers", arguments: SurfaceResourceKind.allCases)
     func rejectsForeignResourceHover(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -90,13 +90,13 @@ struct CloudSurfaceOwnershipTests {
         )
         for source in [SurfaceMachineID.local, .cloud("ownership-a")] {
             let group = SurfaceResourceGroup(single: resource(source, kind: kind))
-            #expect(!workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)))
+            #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)) == (kind == .browser))
         }
         let sameMachine = SurfaceResourceGroup(single: resource(machine, kind: kind))
         #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(sameMachine)))
     }
 
-    @Test("Rejected resource drops do not dispatch or alter layout", arguments: SurfaceResourceKind.allCases)
+    @Test("Rejected resource drops do not dispatch or alter layout", arguments: [SurfaceResourceKind.terminal, .display])
     func rejectsForeignResourceDrop(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -117,7 +117,7 @@ struct CloudSurfaceOwnershipTests {
         }
     }
 
-    @Test("Catalog rejects ownership before materializing or focusing", arguments: SurfaceResourceKind.allCases)
+    @Test("Catalog rejects ownership before materializing or focusing", arguments: [SurfaceResourceKind.terminal, .display])
     func catalogRejectsForeignResources(kind: SurfaceResourceKind) async throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -173,7 +173,7 @@ struct CloudSurfaceOwnershipTests {
             let workspace = isCloud ? cloudWorkspace() : Workspace()
             defer { workspace.teardownAllPanels() }
             let catalog = catalog(for: workspace)
-            let source: SurfaceMachineID = isCloud ? machine : .local
+            let source: SurfaceMachineID = isCloud && kind != .browser ? machine : .local
             let provider = CloudPlacementTestProvider(machine: source)
             catalog.register(provider)
             let item = resource(source, kind: kind)

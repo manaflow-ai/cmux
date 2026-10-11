@@ -56,6 +56,11 @@ public protocol MobileSyncRuntime: Sendable {
     /// Optional source for one dedicated simulator-stream v2 video lane per
     /// Mac simulator panel. A nil provider keeps phones on the v1 event stream.
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { get }
+    /// Optional source for "On iPhone" browser tunnel connections opened
+    /// from the paired Mac. Nil keeps the phone browser off the Mac.
+    var tunnelConnectProvider: MobileTunnelConnectProvider? { get }
+    /// Optional source for the paired Mac's loopback listening ports.
+    var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so
@@ -78,6 +83,17 @@ public protocol MobileSyncRuntime: Sendable {
     /// throwing if cancelled first. The runtime owns the clock so the
     /// deadline follows the same time source as ``now``.
     func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws
+
+    /// Ceiling on one Mac's dial inside a reconnect attempt. A reconnect can
+    /// try several Macs; without a per-Mac bound, the first unreachable Mac
+    /// spends the whole ``reconnectAttemptDeadlineNanoseconds`` and live Macs
+    /// behind it are never dialed. Must be shorter than the attempt deadline.
+    var macDialDeadlineNanoseconds: UInt64 { get }
+
+    /// Suspends until one Mac's dial deadline of `nanoseconds` elapses,
+    /// throwing if cancelled first. Same clock contract as
+    /// ``sleepUntilReconnectAttemptDeadline(nanoseconds:)``.
+    func sleepUntilMacDialDeadline(nanoseconds: UInt64) async throws
 }
 
 public extension MobileSyncRuntime {
@@ -87,6 +103,8 @@ public extension MobileSyncRuntime {
     var terminalInputLaneProvider: MobileTerminalLaneProvider? { nil }
     var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { nil }
+    var tunnelConnectProvider: MobileTunnelConnectProvider? { nil }
+    var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? { nil }
 
     /// Returns a cached Stack access token for best-effort status probes.
     var stackAccessTokenForStatusProvider: @Sendable () async -> String? {
@@ -109,6 +127,16 @@ public extension MobileSyncRuntime {
 
     /// Default deadline clock: the process's monotonic clock.
     func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws {
+        try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+    }
+
+    /// Default per-Mac dial ceiling: long enough for a healthy relay dial and
+    /// host-status round trip, short enough that two dead Macs still leave
+    /// room inside the default 30s attempt for a live one.
+    var macDialDeadlineNanoseconds: UInt64 { 10_000_000_000 }
+
+    /// Default per-Mac dial clock: the process's monotonic clock.
+    func sleepUntilMacDialDeadline(nanoseconds: UInt64) async throws {
         try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
     }
 }

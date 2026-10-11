@@ -53,10 +53,12 @@ struct TerminalKeyboardFullHeightPinTests {
         let up = snap(336)
         #expect(down.containerSize == up.containerSize)
         #expect(down.layoutViewportRect == up.layoutViewportRect)
+        // A full-height natural grid: no whole spare row, so it stays bottom-pinned.
+        let cellHeight: CGFloat = 17
         let renderSize = CGSize(width: 402, height: down.layoutViewportRect.height)
-        #expect(down.renderRect(forRenderSize: renderSize) == up.renderRect(forRenderSize: renderSize))
+        #expect(down.renderRect(forRenderSize: renderSize, cellHeight: cellHeight) == up.renderRect(forRenderSize: renderSize, cellHeight: cellHeight))
         // The render is bottom-pinned to the viewport in both states.
-        #expect(down.renderRect(forRenderSize: renderSize).maxY == down.layoutViewportRect.maxY)
+        #expect(down.renderRect(forRenderSize: renderSize, cellHeight: cellHeight).maxY == down.layoutViewportRect.maxY)
 
         // The dock seat is the ONLY keyboard consumer.
         #expect(up.keyboardOccupancy == 336)
@@ -110,9 +112,10 @@ struct TerminalKeyboardFullHeightPinTests {
         #expect(banded.toolbarFrame.minY == banded.layoutViewportRect.maxY)
 
         // The render stays bottom-pinned inside the shifted viewport.
+        let cellHeight: CGFloat = 17
         let renderSize = CGSize(width: 402, height: banded.layoutViewportRect.height)
-        #expect(banded.renderRect(forRenderSize: renderSize).maxY == banded.layoutViewportRect.maxY)
-        #expect(banded.renderRect(forRenderSize: renderSize).minY == topInset)
+        #expect(banded.renderRect(forRenderSize: renderSize, cellHeight: cellHeight).maxY == banded.layoutViewportRect.maxY)
+        #expect(banded.renderRect(forRenderSize: renderSize, cellHeight: cellHeight).minY == topInset)
     }
 
     /// End-to-end host contract on a real surface: the dock seat rides a

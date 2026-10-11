@@ -34,7 +34,7 @@ struct AgentMovePathMapTests {
         let invocation = AgentMoveEndpoint.ssh(target).shellInvocation("echo 'hi'")
         #expect(invocation.arguments == [
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", "-p", "2222", "-i", "/k",
-            "-o", "StrictHostKeyChecking=no", "dev@box", "sh -s",
+            "-o", "StrictHostKeyChecking=no", "--", "dev@box", "sh -s",
         ])
         #expect(invocation.standardInput == "{\necho 'hi'\n} </dev/null\n")
         #expect(AgentMoveEndpoint.ssh(target).transferPath("/x") == "dev@box:/x")

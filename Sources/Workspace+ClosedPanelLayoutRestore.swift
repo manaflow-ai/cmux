@@ -13,11 +13,13 @@ extension Workspace {
                 .pruned(layout, keeping: Set(panels.keys).subtracting([newPanelID]).union([oldPanelID])) else {
             return
         }
-        _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
-            restoredLayout,
-            panelIDMap: [oldPanelID: newPanelID],
-            tabIDForPanelID: surfaceIdFromPanelId
-        )
+        withSplitSpaceAdmissionBypass {
+            _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
+                restoredLayout,
+                panelIDMap: [oldPanelID: newPanelID],
+                tabIDForPanelID: surfaceIdFromPanelId
+            )
+        }
     }
 
 }

@@ -485,6 +485,66 @@ final class MobileHostService {
         return auth.currentUser?.id
     }
 
+    /// The signed-in local account without awaiting bootstrap, for the
+    /// shared-sizing host. Phones pass the same-account Stack gate, so this is
+    /// also every paired phone's verified user.
+    func currentLocalSizingUser() -> (id: String, displayName: String?)? {
+        guard let auth, auth.isAuthenticated, let user = auth.currentUser else { return nil }
+        return (user.id, user.displayName ?? user.primaryEmail)
+    }
+
+    /// Sends one event to each subscribed connection whose recorded mobile
+    /// client ids produce a payload. Used for per-phone payloads
+    /// (`mobile.terminal.size_state` carries the receiver's own participant id;
+    /// `mobile.terminal.detached` goes only to the detached phone).
+    ///
+    /// - Parameters:
+    ///   - topic: the event topic.
+    ///   - payloadForClientIDs: the payload for a connection's client ids, or
+    ///     `nil` to skip that connection.
+    func emitClientScopedEvent(
+        topic: String,
+        payloadForClientIDs: (Set<String>) -> [String: Any]?
+    ) {
+        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else { return }
+        var frames: [UUID: Data] = [:]
+        for (connectionID, clientIDs) in clientIDsByConnectionID {
+            guard let payload = payloadForClientIDs(clientIDs),
+                  let frame = Self.encodedEventFrame(topic: topic, payload: payload) else { continue }
+            frames[connectionID] = frame
+        }
+        guard !frames.isEmpty else { return }
+        Self.deliverEventFrames(topic: topic, coalesceKey: nil, stateSeq: nil) { connection in
+            frames[connection.connectionID].map { (frame: $0, isFullRenderGridFrame: false) }
+        }
+    }
+
+    /// The mobile client ids recorded for a connection.
+    func clientIDs(forConnectionID connectionID: UUID) -> Set<String> {
+        clientIDsByConnectionID[connectionID] ?? []
+    }
+
+    /// Records accepted input from an Iroh terminal lane for the phone
+    /// connection that owns the admitted binding.
+    ///
+    /// Iroh lane frames do not carry the RPC `client_id`. The control
+    /// connection records that id when the phone's first authorized request
+    /// arrives; the connection registry supplies the binding-to-connection
+    /// association needed to route lane activity to the right participant.
+    func noteIrohTerminalInputActivity(surfaceID: UUID, bindingID: String) {
+        let clientIDs = MobileHostConnectionRegistry.shared
+            .snapshot(irohBindingID: bindingID)
+            .reduce(into: Set<String>()) { result, connection in
+                result.formUnion(clientIDsByConnectionID[connection.connectionID] ?? [])
+            }
+        for clientID in clientIDs {
+            TerminalController.shared.noteMobileSizingActivity(
+                surfaceID: surfaceID,
+                clientID: clientID
+            )
+        }
+    }
+
     /// This Mac's authenticated Stack email, or `nil` when signed out or before
     /// the auth graph is configured.
     ///
@@ -851,6 +911,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        registry: MobileHostConnectionRegistry = .shared,
         hostDeviceID: String? = nil,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
@@ -916,7 +977,7 @@ final class MobileHostService {
             onUsableSession: {
                 guard await promoteUsableSession() else { return false }
                 await Self.retireSupersededIrohConnections(
-                    newestConnectionID: id
+                    newestConnectionID: id, registry: registry
                 )
                 return true
             },
@@ -959,8 +1020,8 @@ final class MobileHostService {
             onClose: { id in
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
-                MobileHostConnectionRegistry.shared.remove(id: id)
-                await MobileHostService.shared.removeConnection(id: id)
+                registry.remove(id: id)
+                await MobileHostService.shared.removeConnection(id: id, registry: registry)
             },
             requestSimulatorFrameReplay: { connectionID, panelIDs in
                 await MobileHostService.shared.mobileSimulatorStreamCoordinator.requestFrameReplay(
@@ -974,7 +1035,7 @@ final class MobileHostService {
             MobileHostRequestActivity.endConnection()
             return expectedExit
         }
-        guard MobileHostConnectionRegistry.shared.insert(
+        guard registry.insert(
             session,
             id: id,
             authorization: authorization,
@@ -1131,8 +1192,11 @@ final class MobileHostService {
     ///
     /// Used to refuse local connections in release builds, where no legitimate
     /// client ever connects via `127.0.0.1`/`::1`.
-    private func removeConnection(id: UUID) {
-        MobileHostConnectionRegistry.shared.remove(id: id)
+    private func removeConnection(
+        id: UUID,
+        registry: MobileHostConnectionRegistry = .shared
+    ) {
+        registry.remove(id: id)
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
         // clears) even though it never sent an explicit clear.
@@ -1152,9 +1216,10 @@ final class MobileHostService {
     /// main actor. This path runs only after the replacement has delivered its
     /// workspace list and usable event-subscription responses.
     nonisolated private static func retireSupersededIrohConnections(
-        newestConnectionID: UUID
+        newestConnectionID: UUID,
+        registry: MobileHostConnectionRegistry
     ) async {
-        let superseded = MobileHostConnectionRegistry.shared
+        let superseded = registry
             .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
         for connection in superseded {
             await connection.close(reason: "superseded by newer authenticated iroh session")

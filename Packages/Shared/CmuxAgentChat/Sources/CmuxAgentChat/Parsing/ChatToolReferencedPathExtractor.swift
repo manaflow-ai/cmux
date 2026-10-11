@@ -35,7 +35,7 @@ struct ChatToolReferencedPathExtractor: Sendable {
                !trimmed.contains(where: \.isWhitespace) {
                 paths.append(trimmed)
             }
-        case .number, .bool, .null:
+        case .integer, .number, .bool, .null:
             return
         }
     }
@@ -55,7 +55,7 @@ struct ChatToolReferencedPathExtractor: Sendable {
             for child in object.values {
                 appendStringValues(in: child, into: &paths)
             }
-        case .number, .bool, .null:
+        case .integer, .number, .bool, .null:
             return
         }
     }

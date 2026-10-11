@@ -175,6 +175,18 @@ final class MachineCreateCoordinator {
         apply(lifecycle.endAccount(cleanupCreatedMachines: cleanupCreatedMachines))
     }
 
+    /// Stops creates of a machine the person began deleting; the delete owns the destroy.
+    /// - Parameters:
+    ///   - machineID: The machine being deleted.
+    ///   - workspaceIDs: Its local workspaces, whose creates may not have named it yet.
+    ///     The caller closes them whole, so their create presentations stay open.
+    func machineDeletionBegan(_ machineID: String, presentedIn workspaceIDs: Set<UUID>) {
+        apply(lifecycle.retireCreates(producing: machineID, presentedIn: workspaceIDs))
+    }
+
+    /// Lets later creates keep a machine whose failed delete listed it again.
+    func machineDeletionFailed(_ machineID: String) { lifecycle.machineDeletionFailed(machineID) }
+
     /// Retires acknowledged pending rows; retained aliases survive every later refresh.
     func reconcileAuthoritativeState(machineIDs: Set<String>, catalogMachineIDs: Set<String>) {
         if lifecycle.reconcile(machineIDs: machineIDs.union(catalogMachineIDs)) {

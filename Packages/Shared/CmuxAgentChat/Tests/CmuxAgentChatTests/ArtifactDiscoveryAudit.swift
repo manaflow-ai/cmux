@@ -420,7 +420,7 @@ struct ArtifactDiscoveryAudit {
             return codexOutputText(value["output"])
                 ?? codexOutputText(value["content"])
                 ?? value["text"]?.string
-        case .number, .bool, .null:
+        case .integer, .number, .bool, .null:
             return nil
         }
     }

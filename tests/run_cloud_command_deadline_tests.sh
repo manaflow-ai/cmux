@@ -5,15 +5,20 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEST=${1:?pass an isolated scratch directory}
 mkdir -p "$DEST/Sources/CloudCommandFixture" "$DEST/Tests/CloudCommandFixtureTests"
-cat > "$DEST/Package.swift" <<'SWIFT'
+# CmuxTerminalSizing has no dependencies, so the fixture links the real package
+# instead of stubbing the shared sizing value types.
+SIZING_PACKAGE="$ROOT/Packages/Shared/CmuxTerminalSizing"
+cat > "$DEST/Package.swift" <<SWIFT
 // swift-tools-version: 6.0
 import PackageDescription
+let sizing = Target.Dependency.product(name: "CmuxTerminalSizing", package: "CmuxTerminalSizing")
 let package = Package(
     name: "CloudCommandFixture",
     platforms: [.macOS(.v14)],
+    dependencies: [.package(path: "$SIZING_PACKAGE")],
     targets: [
-        .target(name: "CloudCommandFixture"),
-        .testTarget(name: "CloudCommandFixtureTests", dependencies: ["CloudCommandFixture"])
+        .target(name: "CloudCommandFixture", dependencies: [sizing]),
+        .testTarget(name: "CloudCommandFixtureTests", dependencies: ["CloudCommandFixture", sizing])
     ],
     swiftLanguageModes: [.v5]
 )

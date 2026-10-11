@@ -773,7 +773,10 @@ extension ControlCommandCoordinator {
 
     /// Shapes the shared remote-mutation result for disconnect / reconnect /
     /// foreground_auth_ready / status.
-    private func workspaceRemoteResult(_ resolution: ControlWorkspaceRemoteResolution?) -> ControlCallResult {
+    private func workspaceRemoteResult(
+        _ resolution: ControlWorkspaceRemoteResolution?,
+        params: [String: JSONValue] = [:]
+    ) -> ControlCallResult {
         switch resolution ?? .missingWorkspaceID {
         case .missingWorkspaceID:
             return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
@@ -793,13 +796,11 @@ extension ControlCommandCoordinator {
                 "workspace_ref": ref(.workspace, workspaceID),
             ]))
         case .resolved(let windowID, let workspaceID, let remoteStatus):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
+            return .ok(.object(addingLocalWindow(windowID, for: params, to: [
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
                 "remote": remoteStatus,
-            ]))
+            ])))
         }
     }
 
@@ -900,7 +901,15 @@ extension ControlCommandCoordinator {
         guard let workspaceID = resolution.workspaceID else {
             return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
         }
-        return workspaceRemoteResult(context?.controlWorkspaceRemoteStatus(workspaceID: workspaceID))
+        var status = context?.controlWorkspaceRemoteStatus(workspaceID: workspaceID)
+        if case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus)? = status {
+            status = .resolved(
+                windowID: windowID,
+                workspaceID: resolvedWorkspaceID,
+                remoteStatus: self.remoteStatus(remoteStatus, for: params)
+            )
+        }
+        return workspaceRemoteResult(status, params: params)
     }
 
     /// `workspace.remote.pty_attach_end` — record a remote PTY attach end.

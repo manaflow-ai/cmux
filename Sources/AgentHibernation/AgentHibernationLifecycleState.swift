@@ -3,6 +3,7 @@ import Foundation
 enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseIterable {
     case unknown
     case running
+    case backgroundWorkPending
     case idle
     case needsInput
 
@@ -36,6 +37,7 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             return fallback ?? .unknown
         }
         if states.contains(.running) { return .running }
+        if states.contains(.backgroundWorkPending) { return .backgroundWorkPending }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
@@ -59,6 +61,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             switch state {
             case .running:
                 return .running
+            case .backgroundWorkPending:
+                hasUnknown = true
             case .needsInput:
                 hasNeedsInput = true
             case .unknown:
@@ -84,6 +88,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             return .unknown
         case "running":
             return .running
+        case "backgroundworkpending", "background-work-pending":
+            return .backgroundWorkPending
         case "idle":
             return .idle
         case "needsinput", "needs-input":

@@ -8,6 +8,15 @@ extension CloudTreeNode {
 
     var canReorderMachine: Bool { machineOrderID != nil }
 
+    /// Rows whose cell spans the whole row, so their hover fill and click
+    /// target stretch edge to edge (`CloudTreeNSOutlineView.frameOfCell`).
+    var spansFullRowWidth: Bool {
+        switch kind {
+        case .devicesEmpty, .createAction, .machineDetailTabs: return true
+        default: return false
+        }
+    }
+
     var showsAttentionSlot: Bool {
         switch kind {
         // Only rows that can carry the Cloud unread projection reserve the
@@ -30,6 +39,15 @@ extension CloudTreeNode {
             if case .terminal(let row) = child.kind { return row.hasUnreadNotification }
             return child.hasUnreadDescendant
         }
+    }
+
+    /// The key a row's children are ordered and pinned under. The sidebar
+    /// shows a machine's workspaces directly under its row
+    /// (`CloudTreeMachineDetailLayout`), but their saved order stays keyed by
+    /// the Workspaces group the catalog builds.
+    var organizationGroupID: String {
+        if case .machine = kind { return CloudTreeNodeBuilder.nodeID(workspacesGroup: machine) }
+        return id
     }
 
     /// Cloud folders and their leaf rows can be organized within their owning

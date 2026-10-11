@@ -1,4 +1,5 @@
 public import AppKit
+public import Foundation
 public import SwiftUI
 
 /// The one accent for cmux-drawn chrome: the color that means "this is the
@@ -23,22 +24,46 @@ public struct CmuxAccentColor: Sendable, Hashable {
 
     public let mode: CmuxAccentColorMode
 
+    /// Normalized `#RRGGBB` color drawn in ``CmuxAccentColorMode/custom``
+    /// mode. `nil` there falls back to cmux blue.
+    public let customHex: String?
+
     public init(mode: CmuxAccentColorMode = .defaultValue) {
+        self.init(mode: mode, customHex: nil)
+    }
+
+    public init(mode: CmuxAccentColorMode, customHex: String?) {
         self.mode = mode
+        self.customHex = CmuxAccentColorMode.normalizedCustomHex(customHex)
+    }
+
+    /// The accent stored in `defaults` (`app.accentColor`).
+    public static func stored(in defaults: UserDefaults = .standard) -> CmuxAccentColor {
+        CmuxAccentColor(
+            mode: .stored(in: defaults),
+            customHex: CmuxAccentColorMode.storedCustomHex(in: defaults)
+        )
+    }
+
+    /// cmux's own blue for a light or dark appearance.
+    public static func cmuxBlue(isDark: Bool) -> NSColor {
+        NSColor(
+            srgbRed: 0,
+            green: (isDark ? 145.0 : 136.0) / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
     }
 
     /// The accent for a light or dark appearance.
     public func nsColor(isDark: Bool) -> NSColor {
         switch mode {
         case .cmux:
-            return NSColor(
-                srgbRed: 0,
-                green: (isDark ? 145.0 : 136.0) / 255.0,
-                blue: 1.0,
-                alpha: 1.0
-            )
+            return Self.cmuxBlue(isDark: isDark)
         case .system:
             return Self.systemAccent(isDark: isDark)
+        case .custom:
+            return customHex.flatMap { NSColor(hex: $0) } ?? Self.cmuxBlue(isDark: isDark)
         }
     }
 

@@ -7,6 +7,7 @@ struct NeverReadyProxyTunnelProvider: RemoteProxyTunnelProviding {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         onFatalError: @escaping @Sendable (String) -> Void
     ) -> any RemoteProxyTunneling {
         NeverReadyProxyTunnel()

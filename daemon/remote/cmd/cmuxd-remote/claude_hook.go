@@ -50,6 +50,8 @@ var claudeRelayHookEvents = []struct {
 	{"SessionStart", "", "session-start"},
 	{"UserPromptSubmit", "", "prompt-submit"},
 	{"Stop", "", "stop"},
+	// Claude Code fires StopFailure instead of Stop when a turn dies on an API error.
+	{"StopFailure", "", "stop"},
 	{"Notification", "", "notification"},
 	{"SessionEnd", "", "session-end"},
 	{"PreToolUse", "AskUserQuestion|ExitPlanMode", "pre-tool-use"},
@@ -103,7 +105,9 @@ func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() str
 		return 0
 	}
 	// Delivery is best effort: a slow or missing relay must not hold the agent.
-	_, _ = socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr, deadline)
+	if _, err := socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr, deadline); err != nil {
+		logClaudeHookDrop("%s: relay %s did not accept the event: %v", args[0], delivery.socketPath, err)
+	}
 	return 0
 }
 
@@ -277,11 +281,8 @@ func claudeHookCallerTTY(claudePID string) string {
 	}
 	pids = append(pids, strconv.Itoa(os.Getppid()))
 	for _, pid := range pids {
-		for _, fd := range []string{"0", "1", "2"} {
-			target, err := os.Readlink(filepath.Join("/proc", pid, "fd", fd))
-			if err == nil && (strings.HasPrefix(target, "/dev/pts/") || strings.HasPrefix(target, "/dev/tty")) {
-				return target
-			}
+		if tty := claudeHookProcessTTY(pid); tty != "" {
+			return tty
 		}
 	}
 	return strings.TrimSpace(os.Getenv("CMUX_TTY_NAME"))
@@ -520,6 +521,15 @@ const claudeSettingsRetention = 7 * 24 * time.Hour
 func writeClaudeSettingsFile(dir string, data []byte) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
+	}
+	// Without HOME the directory is in /tmp, where another user can place a
+	// symlink or their own directory first.
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || !daemonDirectoryOwnedByCurrentUser(info) {
+		return "", fmt.Errorf("claude settings directory %q is not owned by this user", dir)
 	}
 	// MkdirAll leaves an existing directory's mode alone; merged settings can
 	// hold launcher credentials, so keep both the directory and file private.

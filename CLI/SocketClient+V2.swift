@@ -8,7 +8,8 @@ extension SocketClient {
         method: String,
         params: [String: Any] = [:],
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        waitUntilCompletion: Bool = false
     ) throws -> [String: Any] {
         var tracedParams = params
         if method.hasPrefix("vm.") {
@@ -44,20 +45,25 @@ extension SocketClient {
         )
         let uptimeDeadline = ProcessInfo.processInfo.systemUptime + max(0, operationDeadline.timeIntervalSinceNow)
         while true {
-            let raw = try send(command: requestLine, responseTimeout: responseTimeout, deadline: operationDeadline)
+            let raw = try send(
+                command: requestLine,
+                responseTimeout: responseTimeout,
+                deadline: waitUntilCompletion ? deadline : operationDeadline,
+                waitUntilCompletion: waitUntilCompletion
+            )
 
             // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
             // before the JSON protocol starts. Surface these directly instead of letting
             // JSONSerialization throw a confusing parse error.
             if raw.hasPrefix("ERROR:") {
-                throw CLIError(message: raw)
+                throw CLIError(message: CLITerminalText.printable(raw, keepingLineBreaks: true))
             }
 
             guard let responseData = raw.data(using: .utf8) else {
                 throw CLIError(message: "Invalid UTF-8 v2 response")
             }
             guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
-                throw CLIError(message: "Invalid v2 response: \(raw)")
+                throw CLIError(message: "Invalid v2 response: \(CLITerminalText.printable(raw, keepingLineBreaks: true))")
             }
 
             if let ok = response["ok"] as? Bool, ok {
@@ -81,15 +87,18 @@ extension SocketClient {
                     isStructuredProtocolResponse: true,
                     v2Retryable: data?["retryable"] as? Bool == true,
                     vmBackendCode: data?["backend_code"] as? String,
-                    vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
+                    vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue,
+                    v2Method: method
                 )
-                // Admission rejects these reads before dispatch. Mutations, relay
-                // requests, transport failures, and malformed responses never retry.
+                // Admission rejects these before dispatch: `rate_limited` for
+                // polling reads, and `overloaded` for any method (the server
+                // answered without running the command). Mutations that may
+                // have run, relay requests, transport failures, and malformed
+                // responses never retry.
                 if !isRelayBacked,
                    response["ok"] as? Bool == false,
                    response["id"] as? String == requestID,
-                   ControlCommandExecutionPolicy.pollingMethods.contains(method),
-                   code == "rate_limited",
+                   Self.isRetryableAdmissionRejection(code: code, method: method),
                    let delay = Self.pollingRetryDelay(data?["retry_after_ms"]),
                    delay < operationDeadline.timeIntervalSinceNow,
                    delay < uptimeDeadline - ProcessInfo.processInfo.systemUptime {
@@ -104,6 +113,21 @@ extension SocketClient {
             }
 
             throw CLIError(message: "v2 request failed")
+        }
+    }
+
+    /// Whether the server rejected the request before dispatch and asked for a
+    /// bounded retry: `rate_limited` applies to polling reads only, while
+    /// `overloaded` (a saturated connection pool, #13369) guarantees the
+    /// command never ran, so any method may retry it.
+    static func isRetryableAdmissionRejection(code: String, method: String) -> Bool {
+        switch code {
+        case "overloaded":
+            return true
+        case "rate_limited":
+            return ControlCommandExecutionPolicy.pollingMethods.contains(method)
+        default:
+            return false
         }
     }
 
@@ -140,6 +164,12 @@ extension SocketClient {
         reason: String? = nil,
         details: String? = nil
     ) -> String {
+        // Every field comes from the app on the socket; see CLITerminalText.
+        let code = CLITerminalText.printable(code)
+        let message = CLITerminalText.printable(message, keepingLineBreaks: true)
+        let action = action.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
+        let reason = reason.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
+        let details = details.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
         let header: String
         if code == "vm_error" {
             header = message

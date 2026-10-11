@@ -17,6 +17,23 @@ import Testing
 struct DeviceLinkFailureTests {
     private let host = "Austin\u{2019}s MacBook Pro"
 
+    @Test("A missing control snapshot keeps a waiting device session")
+    func waitingSessionSurvivesMissingControlSnapshot() {
+        #expect(!DeviceIrxClient.shouldReleaseWaitingSession(cache: nil))
+        #expect(!DeviceIrxClient.shouldReleaseWaitingSession(cache: V2CachedState(
+            identity: V2Identity(appNamespace: "cmux", buildTag: "test", deviceID: "local",
+                environment: "test", projectID: "project", teamID: "team", userID: "user")
+        )))
+        #expect(DeviceIrxClient.shouldReleaseWaitingSession(cache: nil, releaseAll: true))
+    }
+
+    @Test("A verified device session retires when the current directory removes its endpoint")
+    func verifiedSessionRetiresAfterDirectoryRemoval() {
+        #expect(!DeviceIrxClient.shouldReleaseVerifiedSession(after: .staleDirectory))
+        #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .unavailable))
+        #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .revoked))
+    }
+
     @Test("Confirmed Mac opt-out gives discoverability guidance and waits for a directory update")
     func undiscoverablePeerIsNotAnIdentityOrNetworkFailure() throws {
         let local = V2Identity(appNamespace: "cmux", buildTag: "nightly", deviceID: "viewer",

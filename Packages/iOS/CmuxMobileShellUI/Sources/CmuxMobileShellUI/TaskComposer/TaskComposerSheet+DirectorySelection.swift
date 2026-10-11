@@ -18,6 +18,7 @@ extension TaskComposerSheet {
             directory = path
             didEditDirectory = true
         }
+        persistPickerPreferences()
         store.recordAppEvent(.taskDirectorySearchSucceeded, count: 1)
     }
 }

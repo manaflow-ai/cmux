@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import UIKit
@@ -35,6 +36,7 @@ final class WorkspaceListTableViewController: UIViewController {
 
     func presentWorkspaceCloseConfirmation(
         workspaceID: MobileWorkspacePreview.ID,
+        confirmation: MobileWorkspaceCloseConfirmation,
         sourceView: UIView,
         confirm: @escaping @MainActor () -> Void
     ) {
@@ -42,24 +44,15 @@ final class WorkspaceListTableViewController: UIViewController {
               sourceView.window != nil else { return }
 
         let alert = UIAlertController(
-            title: L10n.string(
-                "mobile.workspace.delete.confirmTitle",
-                defaultValue: "Delete Workspace?"
-            ),
-            message: L10n.string(
-                "mobile.workspace.delete.confirmMessage",
-                defaultValue: "This will close the workspace on your Mac."
-            ),
+            title: confirmation.title,
+            message: confirmation.message,
             preferredStyle: .actionSheet
         )
         alert.view.accessibilityIdentifier =
             "MobileWorkspaceDeleteConfirmation-\(workspaceID.rawValue)"
         alert.addAction(
             UIAlertAction(
-                title: L10n.string(
-                    "mobile.workspace.delete.confirmAction",
-                    defaultValue: "Delete"
-                ),
+                title: confirmation.actionTitle,
                 style: .destructive
             ) { _ in
                 MainActor.assumeIsolated {

@@ -77,6 +77,7 @@ enum AgentHibernationTranscriptGuard {
         panelKey: AgentHibernationPanelKey? = nil,
         homeDirectory: String = NSHomeDirectory(),
         snapshotDirectory: URL? = nil,
+        backgroundWorkNotBefore: Date? = nil,
         fileManager: FileManager = .default
     ) -> TeardownSnapshotOutcome {
         guard agent.kind == .claude else { return .nothingToProtect }
@@ -89,6 +90,11 @@ enum AgentHibernationTranscriptGuard {
             fileManager: fileManager
         ) else {
             return .unableToProtect
+        }
+
+        // Terminating the agent would kill its background shells and subagents.
+        if transcriptHasUnfinishedBackgroundWork(atPath: transcriptPath, notBefore: backgroundWorkNotBefore) {
+            return .backgroundWorkPending
         }
 
         if !transcriptHasConversationTurns(atPath: transcriptPath, fileManager: fileManager) {

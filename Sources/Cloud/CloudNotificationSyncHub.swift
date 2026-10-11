@@ -103,6 +103,9 @@ final class CloudNotificationSyncHub {
         store.readTargetObserver = { [weak self] target in
             self?.noteRead(coveredBy: target)
         }
+        store.readNotificationObserver = { [weak self] notifications in
+            self?.noteRead(notifications: notifications)
+        }
     }
 
     /// A read the store applied by target (a focused pane, a visited
@@ -166,5 +169,20 @@ final class CloudNotificationSyncHub {
         )
         guard next != state else { return }
         persistenceStore.save(next, machineID: machineID)
+    }
+
+    /// An exact feed-record read has already changed the local sidebar. Fold
+    /// its Cloud correlation keys before the store publisher's next delivery,
+    /// so both sidebar projections change in the same turn.
+    func noteRead(notifications: [TerminalNotification]) {
+        var byMachine: [String: [String]] = [:]
+        for notification in notifications {
+            guard let key = notification.correlationKey,
+                  let source = CloudNotificationCorrelation.parse(key) else { continue }
+            byMachine[source.machineID, default: []].append(source.notificationID)
+        }
+        for (machineID, ids) in byMachine {
+            noteRead(notificationIDs: ids, machineID: machineID)
+        }
     }
 }

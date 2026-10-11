@@ -218,6 +218,7 @@ public final class SidebarJSRuntime {
             return ["lower": lower, "upper": upper, "inclusive": inclusive]
         case let .array(values): return values.map { jsonObject($0) }
         case let .object(fields): return fields.mapValues { jsonObject($0) }
+        case .null: return NSNull()
         }
     }
 }

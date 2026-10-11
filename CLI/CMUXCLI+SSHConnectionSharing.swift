@@ -63,7 +63,7 @@ extension CMUXCLI {
         for option in options.sshOptions {
             arguments += ["-o", option]
         }
-        arguments.append(options.destination)
+        arguments += ["--", options.destination]
         return CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/ssh",
             arguments: arguments,

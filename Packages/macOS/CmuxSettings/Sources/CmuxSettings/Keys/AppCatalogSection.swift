@@ -17,6 +17,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
     )
 
+    /// `#RRGGBB` color drawn when ``accentColor`` is
+    /// ``CmuxAccentColorMode/custom``. cmux.json sets it through a hex
+    /// `app.accentColor` value.
+    public let accentColorCustomHex = DefaultsKey<String>(
+        id: "app.accentColorCustomHex",
+        defaultValue: "",
+        userDefaultsKey: CmuxAccentColorMode.customHexUserDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,
@@ -47,6 +56,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.newWorkspacePlacement",
         defaultValue: .afterCurrent,
         userDefaultsKey: "newWorkspacePlacement"
+    )
+
+    /// Ordering used by the Go to Workspace command-palette switcher.
+    public let goToWorkspaceOrder = DefaultsKey<WorkspaceSwitcherOrder>(
+        id: "app.goToWorkspaceOrder",
+        defaultValue: .sidebar,
+        userDefaultsKey: "goToWorkspaceOrder"
     )
 
     /// Folder the Open Folder panel starts in. Empty keeps the active
@@ -194,6 +210,27 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     /// Gates the "Close workspace?" prompts (running processes, multi-workspace
     /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingAgentSession = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingAgentSession",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingAgentSession",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingAgentSession",
+                defaultValue: "Warn Before Closing Active Agent Session"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-agent-session",
+            searchKeywords: ["close", "agent", "session", "working", "confirmation"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingAgentSession",
+                    keywords: ["warn", "close", "agent", "session"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingWorkspace",
         defaultValue: true,
@@ -263,6 +300,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 )
             ))
         )
+    )
+
+    /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
+    /// the split-controller boundary; `.multipleTabs` hides the bar until a
+    /// pane has two or more tabs.
+    public let tabBarVisibility = DefaultsKey<PaneTabBarVisibility>(
+        id: "app.tabBarVisibility",
+        defaultValue: .always,
+        userDefaultsKey: "paneTabBarVisibility"
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(

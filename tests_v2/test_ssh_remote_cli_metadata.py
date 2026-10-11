@@ -293,7 +293,7 @@ def main() -> int:
             _must("-o StrictHostKeyChecking=accept-new" in ssh_command, f"ssh command prefix mismatch: {ssh_command!r}")
             _must("-o ControlMaster=auto" in ssh_command, f"ssh command should opt into connection reuse: {ssh_command!r}")
             _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
-            _must("ControlPath=/tmp/cmux-ssh-" in ssh_command, f"ssh command should use shared control path template: {ssh_command!r}")
+            _must("/.cmux/ssh/%C" in _extract_control_path(ssh_command), f"ssh command should use shared control path template: {ssh_command!r}")
             _must(
                 "RemoteCommand=" not in ssh_command,
                 f"cmux ssh should keep the plain ssh_command separate from the terminal bootstrap wrapper: {ssh_command!r}",
@@ -473,12 +473,12 @@ def main() -> int:
 
             _must(bool(workspace_id_without_name), f"cmux ssh without --name should still create workspace: {payload2}")
             _must(
-                "ControlPath=/tmp/cmux-ssh-" in ssh_command_without_name,
+                "/.cmux/ssh/%C" in _extract_control_path(ssh_command_without_name),
                 f"cmux ssh without --name should still include control path defaults: {ssh_command_without_name!r}",
             )
             _must(
-                _extract_control_path(ssh_command) != _extract_control_path(ssh_command_without_name),
-                f"distinct cmux ssh workspaces should get distinct control paths: {ssh_command!r} vs {ssh_command_without_name!r}",
+                _extract_control_path(ssh_command) == _extract_control_path(ssh_command_without_name),
+                f"cmux ssh workspaces for the same host and port should share one %C control path: {ssh_command!r} vs {ssh_command_without_name!r}",
             )
             row2 = None
             listed2 = client._call("workspace.list", {}) or {}

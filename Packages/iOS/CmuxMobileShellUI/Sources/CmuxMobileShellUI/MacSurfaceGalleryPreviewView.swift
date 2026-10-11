@@ -96,7 +96,6 @@ public struct MacSurfaceGalleryPreviewView: View {
                             Self.fileSurface,
                             Self.markdownSurface,
                         ],
-                        snapshotRows: [],
                         selectedID: nil,
                         selectedMacSurfaceID: Self.todoSurface.id,
                         canCreateWorkspace: true,

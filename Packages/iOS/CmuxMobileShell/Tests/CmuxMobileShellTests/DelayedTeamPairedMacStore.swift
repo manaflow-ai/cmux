@@ -21,6 +21,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var blockers: [String: [(id: UUID, continuation: CheckedContinuation<Void, Never>)]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
+    private var activeMacCount = 0
     private var recordReplacement: (
         afterLoadAllCount: Int,
         teamKey: String,
@@ -44,6 +45,13 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var backupCancellationStartWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var backupCancellationBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
     private var backupCancellationObservedCancellation: [Int: Bool] = [:]
+    private var backupRefreshBlocked = false
+    private var backupRefreshBlockConsumed = false
+    private var backupRefreshStarted = false
+    private var backupRefreshStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var backupRefreshBlocker: CheckedContinuation<Void, Never>?
+    private var backupRefreshFinished = false
+    private var backupRefreshFinishWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -211,7 +219,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         return result
     }
 
-    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        activeMacCount += 1
+        return nil
+    }
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let key = teamID ?? ""
         recordsByTeam[key] = recordsByTeam[key]?.map { mac in
@@ -252,7 +263,47 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     }
     func removeAll() async throws {}
 
-    func refreshFromBackup(stackUserID _: String?) async {}
+    func refreshFromBackup(stackUserID _: String?) async {
+        backupRefreshStarted = true
+        let waiters = backupRefreshStartWaiters
+        backupRefreshStartWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        if backupRefreshBlocked, !backupRefreshBlockConsumed {
+            backupRefreshBlockConsumed = true
+            await withCheckedContinuation { continuation in
+                backupRefreshBlocker = continuation
+            }
+        }
+        backupRefreshFinished = true
+        let finishWaiters = backupRefreshFinishWaiters
+        backupRefreshFinishWaiters.removeAll()
+        for waiter in finishWaiters { waiter.resume() }
+    }
+
+    func blockBackupRefresh() {
+        backupRefreshBlocked = true
+        backupRefreshBlockConsumed = false
+    }
+
+    func waitUntilBackupRefreshStarted() async {
+        if backupRefreshStarted { return }
+        await withCheckedContinuation { continuation in
+            backupRefreshStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseBackupRefresh() {
+        backupRefreshBlocked = false
+        backupRefreshBlocker?.resume()
+        backupRefreshBlocker = nil
+    }
+
+    func waitUntilBackupRefreshFinished() async {
+        if backupRefreshFinished { return }
+        await withCheckedContinuation { continuation in
+            backupRefreshFinishWaiters.append(continuation)
+        }
+    }
 
     func cancelInFlightRestores() async {
         backupCancellationCallCount += 1
@@ -354,6 +405,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func currentLoadAllCount() -> Int {
         loadAllCount
+    }
+
+    func currentActiveMacCount() -> Int {
+        activeMacCount
     }
 
     func failNextLoadAll(_ count: Int = 1) {

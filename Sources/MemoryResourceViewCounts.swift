@@ -10,7 +10,7 @@ struct MemoryResourceViewCounts: Sendable {
     @MainActor
     static func capture() -> Self {
         let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfacesUnordered()
-        let browsers = AppDelegate.shared?.browserPanelsForInspectorFocusHandoff() ?? []
+        let browsers = AppDelegate.shared?.allLiveBrowserPanels() ?? []
         return Self(
             visibleTerminals: surfaces.filter(\.isRendererEffectivelyVisible).count,
             realizedRenderers: surfaces.filter(\.isRendererRealized).count,

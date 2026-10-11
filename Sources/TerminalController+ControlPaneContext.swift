@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxBrowser
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// Pane-domain witnesses keep app-coupled topology resolution in the app while
@@ -162,9 +163,6 @@ extension TerminalController: ControlPaneContext {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
@@ -320,6 +318,16 @@ extension TerminalController: ControlPaneContext {
             }
         }
 
+        // Terminal splits check the minimum pane size in
+        // `newTerminalSplitOutcome`; other panel types check it here (#15371).
+        if panelType != .terminal, !ws.isRemoteTmuxMirror,
+           ws.splitSpaceVerdict(
+               splittingPanel: sourcePanelId,
+               orientation: orientation,
+               dividerPosition: initialDividerPosition.map { CGFloat($0) }
+           ) == .noSpace {
+            return .noSpace
+        }
         let newPanelId: UUID?
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         if panelType == .browser {
@@ -363,6 +371,8 @@ extension TerminalController: ControlPaneContext {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .noSpace:
+                return .noSpace
             case .failed:
                 newPanelId = nil
             }

@@ -15,6 +15,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from fake_socket_env import cli_environment
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,18 @@ def close_after_command_handler(conn: socket.socket, stop_event: threading.Event
     conn.close()
 
 
+def delayed_attach_handler(conn: socket.socket, stop_event: threading.Event) -> None:
+    request = json.loads(read_one_command(conn, stop_event))
+    if request.get("method") != "remote.tmux.window":
+        return
+    # Deliberately exceed the ordinary 0.2-second RPC limit. The attach owns
+    # its inactivity deadline, so only its eventual result ends this wait.
+    if stop_event.wait(timeout=0.6):
+        return
+    response = {"id": request["id"], "ok": True, "result": {"mirrored": True}}
+    conn.sendall(json.dumps(response).encode() + b"\n")
+
+
 def capabilities_response_handler(conn: socket.socket, stop_event: threading.Event) -> None:
     command = read_one_command(conn, stop_event)
     try:
@@ -221,9 +234,7 @@ def trickle_relay_challenge_handler(conn: socket.socket, stop_event: threading.E
 
 
 def run_cli(cli_path: str, socket_path: str, timeout: float = 3.0, args: tuple[str, ...] = ("ping",)) -> RunResult:
-    env = dict(os.environ)
-    env["CMUX_SOCKET_PATH"] = socket_path
-    env["CMUX_SOCKET"] = socket_path
+    env = cli_environment(socket_path)
     env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
@@ -283,6 +294,20 @@ def main() -> int:
                 failures.append(f"no-reply socket did not surface timeout: {merged!r}")
             if result.elapsed > 1.5:
                 failures.append(f"no-reply socket took too long: {result.elapsed:.3f}s")
+
+        attach_args = ("--json", "ssh-tmux", "--new-window", "deadline-fixture")
+        with FakeUnixServer(delayed_attach_handler) as server:
+            result = run_cli(cli_path, server.path, args=attach_args)
+            if result.returncode != 0 or json.loads(result.stdout).get("mirrored") is not True:
+                failures.append(
+                    f"attach did not wait for its result: rc={result.returncode} "
+                    f"stdout={result.stdout!r} stderr={result.stderr!r}"
+                )
+
+        with FakeUnixServer(close_after_command_handler) as server:
+            result = run_cli(cli_path, server.path, args=attach_args)
+            if result.returncode == 0 or "Socket closed before reply" not in result.stderr:
+                failures.append(f"attach did not end on peer closure: {result!r}")
 
         large_text = "x" * (256 * 1024)
         with FakeUnixServer(slowly_drain_request_handler) as server:

@@ -126,6 +126,13 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
 
     var minimumResolution: Duration { .zero }
 
+    /// Sleeps registered and not yet resumed, for deadline-bounded polls.
+    var sleeperCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return sleepers.count
+    }
+
     var retainedCancellationMarkerCount: Int {
         lock.lock()
         defer { lock.unlock() }

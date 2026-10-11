@@ -81,6 +81,9 @@ def cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+BROKEN_STEP_OUTCOMES = frozenset({"error", "timeout", "pointer-error", "io-error", "internal-error"})
+
+
 def cmd_regressions(args: argparse.Namespace) -> int:
     from .runner import replay
 
@@ -94,9 +97,20 @@ def cmd_regressions(args: argparse.Namespace) -> int:
         out.mkdir(parents=True, exist_ok=True)
         (out / "frames").mkdir(exist_ok=True)
         result = replay(Path(args.app), repro, out, use_pointer=not args.no_pointer)
-        status = "FAIL" if result.failure else "ok"
-        print(f"{status} {path.name}" + (f": {result.failure.signature.title}" if result.failure else ""))
+        # A step the app refused to run (a renamed socket method, a timeout) no longer exercises the bug,
+        # so the repro would pass without testing anything. A skip is a step that did not apply.
+        broken = [record for record in result.steps if record.outcome in BROKEN_STEP_OUTCOMES]
         if result.failure:
+            reason = f": {result.failure.signature.title}"
+        elif broken:
+            reason = f": step {broken[0].index} ended {broken[0].outcome}: {broken[0].note}"
+        elif len(result.steps) < len(repro["steps"]):
+            # The app quit or closed its last window with no oracle firing: the rest never ran.
+            reason = f": stopped after step {len(result.steps)} of {len(repro['steps'])}"
+        else:
+            reason = ""
+        print(f"{'FAIL' if reason else 'ok'} {path.name}{reason}")
+        if reason:
             failed.append(path.name)
     return 1 if failed else 0
 

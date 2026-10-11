@@ -126,6 +126,26 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
         isAtBottom ? .followingOutput : .reviewingScrollback
     }
 
+    /// Resolves an explicit input after Ghostty has applied its
+    /// `scroll-to-bottom=keystroke` policy.
+    ///
+    /// A passive bottom packet is intentionally ignored while reviewing
+    /// scrollback because it can be a stale layout packet. An accepted input
+    /// is different: the synchronous runtime snapshot taken after key
+    /// handling is authoritative, so a bottom snapshot resumes follow mode.
+    ///
+    /// - Parameter isAtBottom: Whether the runtime snapshot reaches the live
+    ///   bottom after accepting input.
+    public func resolvingAcceptedExplicitInput(isAtBottom: Bool) -> Self {
+        guard isAtBottom else {
+            if case .awaitingExplicitScrollbarSync(let previousWasReviewing, _) = self {
+                return previousWasReviewing ? .reviewingScrollback : .followingOutput
+            }
+            return self
+        }
+        return .followingOutput
+    }
+
     /// Decides whether an authoritative Ghostty scrollbar packet should update
     /// the AppKit wrapper and resolves an outstanding explicit wheel request.
     ///

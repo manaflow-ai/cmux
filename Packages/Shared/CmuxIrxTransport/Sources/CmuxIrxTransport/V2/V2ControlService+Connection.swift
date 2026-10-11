@@ -23,6 +23,7 @@ extension V2ControlService {
                     try await open(run: run)
                 } catch {
                     guard permitsHTTPRecovery(error) else { throw error }
+                    journal("socket-open-failed", ["failure": mapFailure(error).diagnosticCode, "recovery": "http"])
                     let old = socket
                     socket = nil
                     socketID = nil
@@ -32,6 +33,7 @@ extension V2ControlService {
                     await old?.close()
                     try assertCurrent(run)
                     try await openHTTP(run: run)
+                    journal("http-mode-entered", [:])
                     // Retry the preferred push channel while HTTP serves requests.
                     try await dependencies.sleep(60)
                     continue
@@ -55,6 +57,7 @@ extension V2ControlService {
                 await old?.close()
                 guard runID == run else { return }
                 if terminal(mapped) {
+                    journal("run-stopped-terminal", ["failure": mapped.diagnosticCode])
                     status = .stopped
                     runID = nil
                     runTask = nil
@@ -65,6 +68,11 @@ extension V2ControlService {
                 status = .backingOff
                 publish()
                 let seconds = retryDelay(mapped, attempt: attempt)
+                journal("run-backing-off", [
+                    "failure": mapped.diagnosticCode,
+                    "attempt": String(attempt),
+                    "delay_s": String(Int(seconds)),
+                ])
                 attempt += 1
                 do { try await dependencies.sleep(seconds) }
                 catch { return }
@@ -120,6 +128,7 @@ extension V2ControlService {
         try await persist(run: run)
         status = .ready
         failure = nil
+        journal("session-ready", ["http_mode": String(httpMode)])
         publish()
         requestDirectoryRefresh(run: run)
         scheduleMaintenance(run: run)
@@ -231,6 +240,9 @@ extension V2ControlService {
 
     func socketFailed(_ error: any Error, run: UUID, connection: UUID) async {
         guard runID == run, socketID == connection else { return }
+        // Journaled from the service, not the snapshot consumer, so a stalled
+        // consumer cannot hide the socket's death from retained logs.
+        journal("socket-failed", ["failure": mapFailure(error).diagnosticCode])
         failure = mapFailure(error)
         if case .socketClosed(1008, let reason) = failure,
            ["device_revoked", "team_access_revoked"].contains(reason ?? "") {

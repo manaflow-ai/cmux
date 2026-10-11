@@ -69,11 +69,7 @@ struct GhosttyConfigDiagnosticsNoticeView: View {
         }
         .padding(12)
         .frame(width: 380, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
-        )
+        .ghosttyDialogSurface(cornerRadius: 10)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("GhosttyConfigDiagnosticsNotice")
     }

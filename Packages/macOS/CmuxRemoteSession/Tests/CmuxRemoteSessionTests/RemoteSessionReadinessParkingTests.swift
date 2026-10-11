@@ -303,7 +303,7 @@ struct RemoteSessionReadinessParkingTests {
         ) { _ in }
         coordinator.queue.sync {
             coordinator.proxyLease = lease
-            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424, credential: .random())
             coordinator.daemonReady = true
         }
 

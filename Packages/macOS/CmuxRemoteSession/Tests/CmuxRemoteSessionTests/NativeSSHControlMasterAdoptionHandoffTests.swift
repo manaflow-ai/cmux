@@ -12,6 +12,8 @@ struct NativeSSHControlMasterAdoptionHandoffTests {
             "",
             " /tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
             "/tmp/cmux-ssh-501-%C",
+            " /Users/alice/.cmux/ssh/0123456789abcdef0123456789abcdef01234567",
+            "/Users/alice/.cmux/ssh/%C",
             "/tmp/cmux-ssh-502-0123456789abcdef0123456789abcdef01234567",
             "~/.ssh/custom-0123456789abcdef0123456789abcdef01234567",
         ]
@@ -20,7 +22,10 @@ struct NativeSSHControlMasterAdoptionHandoffTests {
         let registry =
             PermissiveNativeSSHControlMasterOwnershipRegistry()
         let broker = NativeSSHConnectionBroker(
-            sharingOptions: SSHConnectionSharingOptions(userID: 501),
+            sharingOptions: SSHConnectionSharingOptions(
+                userID: 501,
+                controlSocketDirectoryPath: "/Users/alice/.cmux/ssh"
+            ),
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },

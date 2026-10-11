@@ -9,9 +9,10 @@ extension VMClient {
     ///   - command: The command to execute on the VM.
     ///   - timeoutMs: The guest execution deadline in milliseconds.
     ///   - expectedTeamScope: Captured authorization scope that must remain current throughout the request.
+    ///   - teamID: The team that owns the VM; nil uses the selected team.
     /// - Returns: The command's exit code, standard output, and standard error.
     /// - Throws: An authorization, transport, or response error if execution cannot complete.
-    public func exec(id: String, command: String, timeoutMs: Int = 30_000, expectedTeamScope: AuthenticatedTeamScope? = nil) async throws -> VMExecResult {
+    public func exec(id: String, command: String, timeoutMs: Int = 30_000, expectedTeamScope: AuthenticatedTeamScope? = nil, teamID: String? = nil) async throws -> VMExecResult {
         return try await withOperation(.exec, foreground: true) {
             let body: [String: Any] = ["command": command, "timeoutMs": timeoutMs]
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -19,7 +20,8 @@ extension VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/exec",
                 jsonBody: body,
-                timeoutSeconds: max(1, Double(timeoutMs) / 1000.0 + 5.0), expectedTeamScope: expectedTeamScope
+                timeoutSeconds: max(1, Double(timeoutMs) / 1000.0 + 5.0), expectedTeamScope: expectedTeamScope,
+                teamID: teamID
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)

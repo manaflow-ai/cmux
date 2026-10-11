@@ -22,6 +22,9 @@ extension GhosttyApp {
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
         let operation = TerminalImageTransferOperation()
+#if DEBUG
+        let clipboardReadStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
         guard let pasteboardReadLease = terminalPasteboard
             .reserveClipboardRead(from: location) else {
             return false
@@ -87,12 +90,14 @@ extension GhosttyApp {
             ) else {
                 return
             }
+            let readContent = RuntimeClipboardReadContent(admission: inputAdmission)
             var overflowCleanup: () -> Void = {}
 
             @MainActor
             func completeClipboardRequestOnMain(with text: String) {
                 callbackContext.completeRuntimeClipboardRead(
                     text,
+                    readContent: readContent,
                     requestID: clipboardRequestID,
                     stateAddress: clipboardRequestID,
                     surfaceAddress: requestSurfaceAddress,
@@ -104,6 +109,7 @@ extension GhosttyApp {
                 Task { @MainActor [weak callbackContext] in
                     callbackContext?.completeRuntimeClipboardRead(
                         text,
+                        readContent: readContent,
                         requestID: clipboardRequestID,
                         stateAddress: clipboardRequestID,
                         surfaceAddress: requestSurfaceAddress,
@@ -127,6 +133,9 @@ extension GhosttyApp {
                   !Task.isCancelled else {
                 return
             }
+#if DEBUG
+            let pasteboardLeaseReadyAt = ProcessInfo.processInfo.systemUptime
+#endif
 
             guard let pasteboard = terminalPasteboard.pasteboard(for: location) else {
                 completeClipboardRequest(with: "")
@@ -136,10 +145,15 @@ extension GhosttyApp {
                 .map(\.rawValue)
                 .joined(separator: ",")
 
+            // A read the terminal program started never saves or uploads
+            // files or images; it only gets the pasteboard's plain text.
+#if DEBUG
+            let preparationStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
             let preparationOutcome = await TerminalImageTransferPlanner
                 .prepareReportingFailure(
                     pasteboard: pasteboard,
-                    mode: .paste,
+                    mode: readContent == .pasteboard ? .paste : .plainText,
                     using: preparationService
                 )
             let preparedContent = preparationOutcome.content
@@ -165,6 +179,25 @@ extension GhosttyApp {
             }
 
 #if DEBUG
+            if let failure = preparationOutcome.failure {
+                let now = ProcessInfo.processInfo.systemUptime
+                let leaseWaitMilliseconds = Int(
+                    ((pasteboardLeaseReadyAt - clipboardReadStartedAt) * 1_000)
+                        .rounded()
+                )
+                let preparationMilliseconds = Int(
+                    ((now - preparationStartedAt) * 1_000).rounded()
+                )
+                cmuxDebugLog(
+                    "terminal.clipboard.prepare.failure " +
+                    "surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
+                    "mode=\(String(describing: readContent)) " +
+                    "failure=\(String(describing: failure)) " +
+                    "types=\(pasteboardTypeDescription) " +
+                    "lease_wait_ms=\(leaseWaitMilliseconds) " +
+                    "prepare_ms=\(preparationMilliseconds)"
+                )
+            }
             cmuxDebugLog(
                 "terminal.clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
                 "types=\(pasteboardTypeDescription) " +
@@ -185,6 +218,11 @@ extension GhosttyApp {
             case .insertText(let text):
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
+                guard readContent == .pasteboard else {
+                    preparedContent.cleanupTransferredTemporaryFiles(using: terminalPasteboard)
+                    completeClipboardRequest(with: "")
+                    return
+                }
                 let target = await requestTerminalSurface
                     .resolvedImageTransferTargetAsync()
                 guard !operation.isCancelled,
@@ -200,11 +238,6 @@ extension GhosttyApp {
                     target: target
                 )
                 if case .pasteCloudImages = plan {
-                    guard inputAdmission.reservesInput else {
-                        preparedContent.cleanupTransferredTemporaryFiles(using: terminalPasteboard)
-                        completeClipboardRequest(with: "")
-                        return
-                    }
                     // The daemon pastes on the authenticated lease. Complete the
                     // Ghostty request empty so no Mac path enters manual I/O.
                     requestTerminalSurface.hostedView.beginImageTransferIndicator(

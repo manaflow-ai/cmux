@@ -31,6 +31,10 @@ actor FakeAuthClient: AuthClient {
     private(set) var lastSelectedTeamID: String?
     var serverSelectedTeamID: String?
     var nextCreatedTeamID = "team-created"
+    private(set) var teamSelectionCount = 0
+    private(set) var teamCreateCount = 0
+    private var nextTeamSelectionGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
+    private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
@@ -67,6 +71,12 @@ actor FakeAuthClient: AuthClient {
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
+    func holdNextTeamSelection(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamSelectionGate = (started, release)
+    }
+    func holdNextTeamCreate(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamCreateGate = (started, release)
+    }
 
     /// Mirrors the live SDK store: a fresh stored access token is returned
     /// as-is; a STALE one (``setStoredAccessTokenStale(_:)``) is refreshed from
@@ -109,11 +119,25 @@ actor FakeAuthClient: AuthClient {
     func selectedTeamID() async throws -> String? { serverSelectedTeamID }
 
     func setSelectedTeam(id: String?) async throws {
+        teamSelectionCount += 1
+        let gate = nextTeamSelectionGate
+        nextTeamSelectionGate = nil
+        if let gate {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
         lastSelectedTeamID = id
         serverSelectedTeamID = id
     }
 
     func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        teamCreateCount += 1
+        let gate = nextTeamCreateGate
+        nextTeamCreateGate = nil
+        if let gate {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
         let team = CMUXAuthTeam(id: nextCreatedTeamID, displayName: displayName)
         teams.append(team)
         lastSelectedTeamID = team.id

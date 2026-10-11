@@ -5,18 +5,28 @@ import Foundation
 
 extension TaskComposerSheet {
     func selectTemplate(_ template: MobileTaskTemplate, modelID: String? = nil) {
+        let previousProvider = selectedTemplate.flatMap {
+            MobileTaskAgentProvider(command: $0.command)
+        }
+        let nextProvider = MobileTaskAgentProvider(command: template.command)
         let validatedModelID = validatedModelID(modelID, for: template)
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
             explicitlySelectedModel = nil
             selectedEffortID = nil
+            if previousProvider != nextProvider {
+                displayedModels = []
+                displayedDefaultModel = nil
+                displayedModelError = nil
+            }
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
             }
             syncSuggestedDirectory()
         }
+        persistPickerPreferences()
         store.recordAppEvent(
             .taskProviderSelected,
             correlationID: template.id.uuidString

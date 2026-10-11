@@ -21,8 +21,8 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 # or ui. Object-valued settings are listed at their root, as the CLI permits
 # descendant paths beneath these roots (for example shortcuts.bindings).
 SETTINGS_SECTIONS = (
-    "app", "terminal", "notifications", "sidebar", "sidebarAppearance",
-    "workspaceColors", "automation", "browser", "markdown", "fileEditor",
+    "app", "terminal", "surfaceTabBar", "notifications", "sidebar", "sidebarAppearance",
+    "workspaceColors", "automation", "agentMessages", "browser", "markdown", "fileEditor",
     "fileExplorer", "diffViewer", "shortcuts",
 )
 

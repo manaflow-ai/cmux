@@ -20,10 +20,16 @@ extension CmuxTopProcessSampler {
             let pid = Int(bsd.pbi_pid)
             guard let process = capture.snapshot.process(pid: pid) else { continue }
             let resources = missing.contains(.resources) ? resourcesByPID[pid] : process
-            guard let resources else { missingCount += 1; continue }
+            // A process that exited after the listing is absent, not unreadable:
+            // only a live process we failed to read leaves the census incomplete.
+            // A reused PID is still live and still counts as missing.
+            guard let resources else {
+                if !reader.processHasExited(pid: pid) { missingCount += 1 }
+                continue
+            }
             let key = CmuxTopProcessSnapshot.scopeCacheKey(from: bsd)
             guard !readsIdentitySensitiveData || reader.matches(pid: pid, key: key) else {
-                missingCount += 1
+                if !reader.processHasExited(pid: pid) { missingCount += 1 }
                 continue
             }
             let name = missing.contains(.details)
@@ -31,7 +37,7 @@ extension CmuxTopProcessSampler {
             let path = missing.contains(.details) ? reader.processPath(pid: pid) : process.path
             let scope = missing.contains(.scope) ? reader.scope(for: pid, key: key) : nil
             guard !readsIdentitySensitiveData || reader.matches(pid: pid, key: key) else {
-                missingCount += 1
+                if !reader.processHasExited(pid: pid) { missingCount += 1 }
                 continue
             }
             records.append(CmuxTopProcessInfo(

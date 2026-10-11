@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxPanes
 import Foundation
@@ -30,6 +31,11 @@ extension TabManager {
         )
         if let panel = outcome.panel {
             workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        } else if case .noSpace = outcome {
+            // Shortcut, menu, palette and Ghostty split actions all land here:
+            // a split with no room for another pane beeps instead of doing
+            // nothing silently (#15371).
+            NSSound.beep()
         }
         return outcome
     }

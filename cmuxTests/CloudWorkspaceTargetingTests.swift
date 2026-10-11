@@ -1,5 +1,7 @@
 import AppKit
+import CmuxCloud
 import CmuxCloudMachines
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -33,6 +35,39 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.requests.map(\.machineID) == ["a", "b"])
         #expect(fixture.requests.allSatisfy { $0.windowID == fixture.windowID })
         #expect(manager.selectedTabId == local.id)
+    }
+
+    /// #16189: the sidebar offers New Workspace only while an unlocked machine
+    /// exists, so the Cmd-N resolver behind it must never land on a locked one,
+    /// even when the locked machine is first in the fleet or was used last.
+    @Test("A locked machine is never a New Workspace target, first or remembered")
+    func lockedMachinesAreNotTargets() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        func vm(_ id: String, createdAt: Int64 = 0, expiresAt: Int64? = nil) -> VMSummary {
+            VMSummary(id: id, provider: "test", status: "running", image: "test", createdAt: createdAt, freeAccessExpiresAt: expiresAt)
+        }
+        let page = VMListPage(
+            vms: [
+                vm("expired-by-server", expiresAt: nowMs - 1),
+                // No server expiry: the plan's 7-day window decides, as it does for the row.
+                vm("expired-by-window", createdAt: nowMs - 8 * 86_400_000),
+                vm("deleting"),
+                vm("open-window", createdAt: nowMs - 86_400_000),
+                vm("paid", expiresAt: nowMs + 86_400_000)
+            ],
+            limits: VMPlanLimits(planId: "free", freeAccessWindowDays: 7)
+        )
+        let targets = cmuxApp.cloudWorkspaceTargetMachineIDs(page: page, deleting: ["deleting"], now: now)
+        #expect(targets == ["open-window", "paid"])
+
+        let resolver = CloudWorkspaceTargetResolver()
+        #expect(resolver.resolve(lastSelection: nil, currentScopeID: "scope", sidebarMachineIDs: targets) == "open-window")
+        let rememberedLocked = CloudWorkspaceSelection(workspaceID: UUID(), scopeID: "scope", machineID: "expired-by-server")
+        #expect(resolver.resolve(lastSelection: rememberedLocked, currentScopeID: "scope", sidebarMachineIDs: targets) == "open-window")
+
+        let allLocked = VMListPage(vms: [vm("expired-by-server", expiresAt: nowMs - 1)], limits: nil)
+        #expect(cmuxApp.cloudWorkspaceTargetMachineIDs(page: allLocked, deleting: [], now: now).isEmpty)
     }
 
     @Test("Deleting the remembered workspace invalidates it while another window keeps its own memory")
@@ -85,12 +120,12 @@ struct CloudWorkspaceTargetingTests {
         let original = owner.selectedTabId
         let otherIDs = other.tabs.map(\.id)
         let host = SurfaceCatalog.NewWorkspaceHost(tabManager: owner)
-        let created = try host.create("Cloud workspace")
+        let created = try host.create("Cloud workspace", false)
         #expect(owner.workspacesById[created.workspaceID] != nil)
         #expect(owner.selectedTabId == original)
         #expect(other.tabs.map(\.id) == otherIDs)
         owner.finalizeAllWorkspacesForWindowClose()
-        #expect(throws: CancellationError.self) { try host.create("Late workspace") }
+        #expect(throws: CancellationError.self) { try host.create("Late workspace", false) }
     }
 
     @Test("A Cloud binding arriving after initial selection is remembered when switching to local")
@@ -104,7 +139,47 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "a")
     }
 
-    @Test("Shift-Command-Y dispatches the configured action to the last selected Cloud machine")
+    @Test("Clicking a Cloud row immediately replaces the previous shortcut context")
+    func clickedCloudRowWinsBeforeProjection() throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("first"))
+        fixture.manager.selectWorkspace(local)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("second"))
+        fixture.manager.selectWorkspace(local)
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "second")
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == nil)
+    }
+
+    @Test("A later materialized Cloud selection replaces an older provisional click")
+    func materializedCloudSelectionReplacesProvisionalClick() throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("pending"))
+        let materialized = try fixture.workspace(machineID: "materialized")
+        fixture.manager.selectWorkspace(materialized)
+        fixture.manager.selectWorkspace(local)
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.machineID == "materialized")
+        #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == materialized.id)
+    }
+
+    @Test("Cmd-Y preserves a clicked Cloud machine while its row is still opening")
+    func shortcutUsesClickedMachineBeforeProjection() async throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        let first = try fixture.workspace(machineID: "a")
+        fixture.manager.selectWorkspace(first)
+        fixture.manager.selectWorkspace(local)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("b"))
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
+        await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(fixture.requests.map(\.machineID) == ["b"])
+    }
+
+    @Test("Command-Y dispatches the configured action to the last selected Cloud machine")
     func actualShortcut() async throws {
 #if DEBUG
         let previousStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cloud-workspace-target")
@@ -124,7 +199,7 @@ struct CloudWorkspaceTargetingTests {
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
         fixture.app.debugResetShortcutRoutingStateForTesting()
         let event = try #require(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "Y",
             charactersIgnoringModifiers: "y", isARepeat: false, keyCode: 16
         ))
@@ -180,6 +255,17 @@ struct CloudWorkspaceTargetingTests {
     func unavailableAction() {
         let fixture = CloudWorkspaceTargetingFixture()
         defer { fixture.close() }
+        let defaults = UserDefaults.standard
+        let cloudEnabledKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let previousCloudEnabled = defaults.object(forKey: cloudEnabledKey)
+        defaults.set(true, forKey: cloudEnabledKey)
+        defer {
+            if let previousCloudEnabled {
+                defaults.set(previousCloudEnabled, forKey: cloudEnabledKey)
+            } else {
+                defaults.removeObject(forKey: cloudEnabledKey)
+            }
+        }
         fixture.available = false
         let ids = fixture.manager.tabs.map(\.id)
         #expect(!fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))

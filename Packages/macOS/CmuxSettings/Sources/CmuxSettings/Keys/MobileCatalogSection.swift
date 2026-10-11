@@ -30,6 +30,17 @@ public struct MobileCatalogSection: SettingCatalogSection {
         userDefaultsKey: "mobile.artifactFolderAccess"
     )
 
+    /// Whether the "On iPhone" browser may reach hosts other than this Mac's
+    /// own loopback through this Mac (LAN, VPN, and internet hosts, resolved
+    /// on this Mac). Off by default: the tunnel reaches only `localhost`, and
+    /// the phone loads other sites over its own network. Link-local and cloud
+    /// metadata addresses are refused either way (the phone loads those itself).
+    public let browserTunnelAllowOtherHosts = DefaultsKey<Bool>(
+        id: "mobile.browserTunnel.allowOtherHosts",
+        defaultValue: false,
+        userDefaultsKey: "mobile.browserTunnel.allowOtherHosts"
+    )
+
     /// Mac-side iOS pairing and Iroh networking. Every build defaults OFF until
     /// the user explicitly enables this setting.
     public let iOSPairingHost = DefaultsKey<Bool>(

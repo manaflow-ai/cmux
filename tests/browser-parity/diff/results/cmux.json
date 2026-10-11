@@ -1,0 +1,3163 @@
+{
+  "meta": {
+    "backend": "cmux",
+    "recordedAt": "2026-10-02T03:52:27.727Z",
+    "tag": "brepl-in2",
+    "sha": "0a2c79e2cebb8b187ec2ad2d893535ee59a1961d"
+  },
+  "cases": {
+    "tabs.open-current": {
+      "value": {
+        "same": true,
+        "url": "<primary>/diff/lab.html",
+        "title": "Diff lab"
+      },
+      "ms": 404
+    },
+    "tabs.list-get": {
+      "value": {
+        "count": 2,
+        "keys": [
+          "active",
+          "current",
+          "id",
+          "title",
+          "url"
+        ],
+        "titles": [
+          "Diff lab",
+          "Next page"
+        ],
+        "getTitle": "Diff lab",
+        "active": 1,
+        "missing": {
+          "error": "No open tab with id \"nope\"; see tabs.list()",
+          "name": "Error"
+        }
+      },
+      "ms": 685
+    },
+    "tabs.attach": {
+      "value": {
+        "afterId": "<primary>/diff/next.html",
+        "activeIsOurs": true,
+        "activeUrl": "<primary>/diff/lab.html",
+        "context": true,
+        "bad": {
+          "error": "No open tab with id \"nope\"; see tabs.list()",
+          "name": "Error"
+        }
+      },
+      "ms": 751
+    },
+    "tabs.open-errors": {
+      "value": {
+        "bad": {
+          "error": "tabs.open: Cannot navigate to invalid URL: expected an absolute URL, got \"not a url\"",
+          "name": "Error"
+        },
+        "session": "string"
+      },
+      "ms": 114
+    },
+    "session.name-docs": {
+      "value": {
+        "named": "string",
+        "docs": true,
+        "empty": {
+          "ok": true,
+          "value": " "
+        }
+      },
+      "ms": 436
+    },
+    "tabs.keep-deliverable": {
+      "value": {
+        "kept": true
+      },
+      "ms": 507
+    },
+    "snapshot.full": {
+      "value": {
+        "heading": true,
+        "frame": true,
+        "shadow": true,
+        "offscreen": true,
+        "typed": true,
+        "clicked": "clicked"
+      },
+      "ms": 445
+    },
+    "snapshot.interactive": {
+      "value": {
+        "button": true,
+        "listText": false,
+        "smaller": true
+      },
+      "ms": 395
+    },
+    "snapshot.show-hidden": {
+      "value": {
+        "plain": false,
+        "all": true
+      },
+      "ms": 471
+    },
+    "snapshot.scoped": {
+      "value": {
+        "refFrame": true,
+        "refMain": false,
+        "selItems": true,
+        "selMain": false,
+        "badRef": {
+          "error": "ref e9999 does not exist; take a new snapshot",
+          "name": "Error"
+        }
+      },
+      "ms": 456
+    },
+    "snapshot.diff": {
+      "value": {
+        "diffMentions": true,
+        "diffShort": true,
+        "printed": true
+      },
+      "ms": 546
+    },
+    "snapshot.ax-get-modes": {
+      "value": {
+        "shot": true,
+        "state": true,
+        "both": true
+      },
+      "ms": 411
+    },
+    "snapshot.ax-errors": {
+      "value": {
+        "click": {
+          "error": "ref e99999 does not exist; take a new snapshot",
+          "name": "Error"
+        },
+        "get": {
+          "ok": true,
+          "value": "title: Diff lab\nurl: <primary>/diff/lab.html\n- heading \"Diff lab\" [level=1]\n- textbox \"Name\" [ref=e1] [placeholder=\"Enter name\"]: \"initial\"\n- textbox \"Decoy\" [ref=e2]: \"leave\"\n- button \"Action\" [ref=e3]\n- checkbox \"Option\" [ref=e4]\n- radio \"Radio A\" [ref=e5]\n- radio \"Radio B\" [ref=e6]\n- combobox \"Choice\" [ref=e7] [options: Alpha, Beta, Gamma]: \"Alpha\"\n- listbox \"Colors\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]\n- textbox \"Readonly\" [ref=e10] [readonly]: \"fixed\"\n- textbox \"Notes\" [ref=e11]: \"line1\"\n- textbox \"Rich editor\" [ref=e12]: \"alpha beta gamma\"\n- button \"Menu\" [ref=e13]\n- generic [ref=e14]: \"Drag me\"\n- generic \"Outer scroller\" [ref=e15] [scrollable]:\n  - generic \"Inner scroller\" [ref=e16] [scrollable]:\n    - button \"Deep button\" [ref=e17]\n  - button \"Scroll end\" [ref=e18]\n- button \"Count 0\" [ref=e19]\n- textbox \"Keys\" [ref=e20]\n- canvas [ref=e21]\n- button \"Make late\" [ref=e22]\n- button \"Remove me\" [ref=e23]\n- link \"Next page\" [ref=e24]\n- button \"Push state\" [ref=e25]\n- button \"Log\" [ref=e26]\n- button \"Throw\" [ref=e27]\n- link \"Popup link\" [ref=e28]\n- textbox \"Shadow field\" [ref=e29]\n- button \"Shadow action\" [ref=e30]\n- iframe \"Inner frame\" [ref=e31]:\n  - textbox \"Frame label\" [ref=f1e1] [placeholder=\"Frame placeholder\"]\n  - button \"Frame action\" [ref=f1e2]\n- button \"Far away\" [ref=e32]"
+        },
+        "unknownRef": {
+          "error": "ref e99999 does not exist; take a new snapshot",
+          "name": "Error"
+        }
+      },
+      "ms": 402
+    },
+    "screenshot.annotated": {
+      "value": {
+        "image": true,
+        "differs": true
+      },
+      "ms": 563
+    },
+    "element-at": {
+      "value": {
+        "role": "button",
+        "name": "Action",
+        "ref": true
+      },
+      "ms": 388
+    },
+    "fetch.cookies": {
+      "value": {
+        "status": 200,
+        "ok": true,
+        "type": "application/json",
+        "json": {
+          "q": "1",
+          "method": "GET"
+        },
+        "cookieNames": [
+          "http_only",
+          "lax",
+          "none_secure",
+          "plain",
+          "secure_flag",
+          "strict"
+        ],
+        "post": "POST",
+        "missing": 404
+      },
+      "ms": 377
+    },
+    "node.fs-path-buffer": {
+      "value": {
+        "abs": true,
+        "back": "hello fs",
+        "join": "a/c.txt",
+        "base": "y",
+        "ext": ".gz",
+        "b64": "aGk=",
+        "fromB64": "hi",
+        "missing": {
+          "error": "ENOENT: no such file or directory, open '/private/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/nope-brepl.txt'",
+          "name": "Error"
+        }
+      },
+      "ms": 78
+    },
+    "print.display-console": {
+      "value": {
+        "log": true,
+        "display": true,
+        "autoPrint": true
+      },
+      "ms": 81
+    },
+    "page.goto.basic": {
+      "value": {
+        "url": "<primary>/diff/next.html",
+        "title": "Next page",
+        "status": 200,
+        "ok": true
+      },
+      "ms": 419
+    },
+    "page.goto.wait-until": {
+      "value": {
+        "commit": {
+          "url": "<primary>/slow"
+        },
+        "domcontentloaded": {
+          "url": "<primary>/slow"
+        },
+        "load": {
+          "url": "<primary>/slow"
+        },
+        "networkidle": {
+          "url": "<primary>/slow"
+        },
+        "bad": {
+          "error": "page.goto: waitUntil: expected one of (load|domcontentloaded|networkidle|commit), got \"bogus\"",
+          "name": "Error"
+        }
+      },
+      "ms": 2385
+    },
+    "page.goto.timeout": {
+      "value": {
+        "slow": {
+          "ms": 614,
+          "error": "Timeout 600ms exceeded while navigating to \"<primary>/slow?ms=4000\"",
+          "name": "Error"
+        }
+      },
+      "ms": 957
+    },
+    "page.goto.errors": {
+      "value": {
+        "empty": {
+          "error": "page.goto: url: expected a non-empty string, got \"\"",
+          "name": "Error"
+        },
+        "junk": {
+          "error": "page.goto: Cannot navigate to invalid URL: expected an absolute URL, got \"not a url\"",
+          "name": "Error"
+        }
+      },
+      "ms": 402
+    },
+    "page.reload": {
+      "value": {
+        "before": "Count 1",
+        "after": "Count 0",
+        "status": 200
+      },
+      "ms": 450
+    },
+    "page.reload.options": {
+      "value": {
+        "a": true,
+        "b": true,
+        "title": "Diff lab"
+      },
+      "ms": 442
+    },
+    "page.back-forward": {
+      "value": {
+        "afterBack": "<primary>/diff/lab.html",
+        "afterForward": "<primary>/diff/next.html",
+        "title": "Next page",
+        "backStatus": 200
+      },
+      "ms": 696
+    },
+    "page.back-forward.no-entry": {
+      "value": {
+        "back": null,
+        "forward": null,
+        "url": "<primary>/diff/lab.html"
+      },
+      "ms": 379
+    },
+    "page.url-title.push-state": {
+      "value": {
+        "before": [
+          "<primary>/diff/lab.html",
+          "Diff lab"
+        ],
+        "after": [
+          "<primary>/diff/lab.html?pushed=1",
+          "Diff lab pushed"
+        ]
+      },
+      "ms": 568
+    },
+    "page.content": {
+      "value": {
+        "doctype": true,
+        "heading": true,
+        "frameText": true,
+        "typedValue": null
+      },
+      "ms": 396
+    },
+    "page.evaluate.forms": {
+      "value": {
+        "noArg": "Diff lab",
+        "arg": 2,
+        "promise": "later",
+        "string": 3,
+        "nested": {
+          "a": [
+            1,
+            "b",
+            null
+          ],
+          "d": true
+        },
+        "undef": true,
+        "thrown": {
+          "error": "page boom",
+          "name": "Error"
+        }
+      },
+      "ms": 454
+    },
+    "page.evaluate.mutation": {
+      "value": {
+        "set": "ok",
+        "status": "set by evaluate"
+      },
+      "ms": 455
+    },
+    "page.evaluate.options": {
+      "value": {
+        "withArg": 2
+      },
+      "ms": 369
+    },
+    "page.query.dollar": {
+      "value": {
+        "one": "Action",
+        "none": null,
+        "count": 3,
+        "texts": [
+          "First",
+          "Second",
+          "Third"
+        ],
+        "arg": 13,
+        "invalid": {
+          "error": "Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?",
+          "name": "Error"
+        }
+      },
+      "ms": 368
+    },
+    "page.getters.page-level": {
+      "value": {
+        "locator": 3,
+        "role": 2,
+        "roleExact": 0,
+        "roleRegex": 1,
+        "checkbox": 1,
+        "text": 1,
+        "textExact": 0,
+        "textRegex": 1,
+        "label": 1,
+        "labelRegex": 1,
+        "placeholder": 1,
+        "testId": 3
+      },
+      "ms": 433
+    },
+    "page.getters.errors": {
+      "value": {
+        "css": {
+          "error": "Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?",
+          "name": "Error"
+        },
+        "role": {
+          "error": "Error while parsing selector `notarole!` - unexpected symbol \"!\" at position 8",
+          "name": "Error"
+        },
+        "label": {
+          "error": "getByLabel: text: expected a string or a RegExp, got 42",
+          "name": "Error"
+        },
+        "text": {
+          "error": "getByText: text: expected a string or a RegExp, got 42",
+          "name": "Error"
+        },
+        "frame": {
+          "error": "Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?",
+          "name": "Error"
+        }
+      },
+      "ms": 404
+    },
+    "page.frame-locator": {
+      "value": {
+        "value": "in frame",
+        "label": 1,
+        "testId": 1,
+        "text": 1,
+        "regex": 1
+      },
+      "ms": 740
+    },
+    "page.frame-locator.nested": {
+      "value": {
+        "text": "deep clicked"
+      },
+      "ms": 457
+    },
+    "page.frames": {
+      "value": {
+        "count": 2,
+        "mainUrl": "<primary>/diff/lab.html",
+        "child": true
+      },
+      "ms": 370
+    },
+    "page.click-fill": {
+      "value": {
+        "status": "clicked",
+        "name": "via page.fill",
+        "missing": {
+          "error": "locator.click: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 763
+    },
+    "page.screenshot.forms": {
+      "value": {
+        "image": true,
+        "fullTaller": true,
+        "clipRatio": 2,
+        "jpeg": "jpeg",
+        "_plain": {
+          "format": "png",
+          "width": 1280,
+          "height": 800
+        }
+      },
+      "ms": 493
+    },
+    "page.screenshot.errors": {
+      "value": {
+        "clip": {
+          "error": "page.screenshot: Expected options.clip.width to be a number",
+          "name": "Error"
+        },
+        "type": {
+          "error": "page.screenshot: options.type: expected one of (png|jpeg)",
+          "name": "Error"
+        }
+      },
+      "ms": 367
+    },
+    "page.pdf": {
+      "value": {
+        "pdf": "%PDF-",
+        "a4": "%PDF-",
+        "bigger": true
+      },
+      "ms": 391
+    },
+    "page.wait-for-selector": {
+      "value": {
+        "late": "found",
+        "hidden": true,
+        "attached": true,
+        "detached": true,
+        "timeout": {
+          "ms": 403,
+          "error": "locator.waitFor: Timeout 400ms exceeded.\n  - waiting for locator('#missing') to be visible",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 1612
+    },
+    "page.wait-for-load-state": {
+      "value": {
+        "domcontentloaded": true,
+        "load": true,
+        "networkidle": true,
+        "bogus": {
+          "error": "page.waitForLoadState: state: expected one of (load|domcontentloaded|networkidle|commit)",
+          "name": "Error"
+        }
+      },
+      "ms": 339
+    },
+    "page.wait-for-url": {
+      "value": {
+        "exact": true,
+        "glob": true,
+        "regex": true,
+        "fn": true,
+        "opts": true,
+        "never": {
+          "ms": 405,
+          "error": "page.waitForURL: Timeout 400ms exceeded.\n  - waiting for navigation to \"<primary>/never\"",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 2879
+    },
+    "page.wait-for-timeout": {
+      "value": {
+        "waited": true,
+        "slept": true,
+        "bad": {
+          "error": "waitForTimeout: timeout: expected a non-negative number, got \"soon\"",
+          "name": "Error"
+        }
+      },
+      "ms": 981
+    },
+    "page.wait-for-event.popup-console": {
+      "value": {
+        "popup": "Next page",
+        "console": [
+          "log",
+          "lab log 42"
+        ]
+      },
+      "ms": 1040
+    },
+    "page.wait-for-event.errors": {
+      "value": {
+        "bad": {
+          "error": "page.waitForEvent: Timeout 200ms exceeded while waiting for event \"bad-event\"",
+          "name": "TimeoutError"
+        },
+        "none": {
+          "ms": 304,
+          "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 885
+    },
+    "page.on-off": {
+      "value": {
+        "seen": [
+          "log:lab log 42",
+          "warning:lab warn",
+          "error:lab error"
+        ]
+      },
+      "ms": 891
+    },
+    "page.viewport": {
+      "value": {
+        "shape": true,
+        "inner": [
+          700,
+          500
+        ],
+        "after": {
+          "width": 700,
+          "height": 500
+        }
+      },
+      "ms": 400
+    },
+    "page.bring-to-front": {
+      "value": {
+        "ok": true,
+        "visible": "visible"
+      },
+      "ms": 447
+    },
+    "page.close": {
+      "value": {
+        "closed": true,
+        "listed": false,
+        "again": {
+          "error": "Target page, context or browser has been closed",
+          "name": "Error"
+        }
+      },
+      "ms": 417
+    },
+    "page.video": {
+      "value": {
+        "recording": false
+      },
+      "ms": 349
+    },
+    "page.keyboard-mouse-objects": {
+      "value": {
+        "canvas": 1,
+        "keys": "hi"
+      },
+      "ms": 479
+    },
+    "loc.click.options": {
+      "value": {
+        "left": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "right": [
+          [
+            "mousedown",
+            2,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "contextmenu",
+            2,
+            0,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            2,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "auxclick",
+            2,
+            1,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "middle": [
+          [
+            "mousedown",
+            1,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            1,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "auxclick",
+            1,
+            1,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "force": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "timeout": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "alt": [
+          [
+            "mousedown",
+            0,
+            1,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            true,
+            false,
+            false,
+            false
+          ]
+        ],
+        "control": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "contextmenu",
+            0,
+            0,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            true,
+            false,
+            false
+          ]
+        ],
+        "controlOrMeta": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ]
+        ],
+        "meta": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ]
+        ],
+        "shift": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            true
+          ]
+        ]
+      },
+      "ms": 1031
+    },
+    "loc.dblclick.options": {
+      "value": {
+        "left": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "right": [
+          [
+            "mousedown",
+            2,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "contextmenu",
+            2,
+            0,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            2,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "auxclick",
+            2,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            2,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "contextmenu",
+            2,
+            0,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            2,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "auxclick",
+            2,
+            2,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "middle": [
+          [
+            "mousedown",
+            1,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            1,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "auxclick",
+            1,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            1,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            1,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "auxclick",
+            1,
+            2,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "force": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "timeout": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "alt": [
+          [
+            "mousedown",
+            0,
+            1,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            true,
+            false,
+            false,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            true,
+            false,
+            false,
+            false
+          ]
+        ],
+        "control": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "contextmenu",
+            0,
+            0,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "contextmenu",
+            0,
+            0,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            true,
+            false,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            true,
+            false,
+            false
+          ]
+        ],
+        "controlOrMeta": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ]
+        ],
+        "meta": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            true,
+            false
+          ]
+        ],
+        "shift": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            false,
+            true
+          ]
+        ]
+      },
+      "ms": 1160
+    },
+    "loc.click.more-options": {
+      "value": {
+        "clickCount": [
+          [
+            "mousedown",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            1,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mousedown",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "mouseup",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "click",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "dblclick",
+            0,
+            2,
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "position": 3,
+        "delay": true,
+        "trial": [],
+        "noWaitAfter": 3
+      },
+      "ms": 1029
+    },
+    "loc.check.options": {
+      "value": {
+        "states": [
+          true,
+          false,
+          true,
+          false,
+          true,
+          false,
+          true,
+          true
+        ],
+        "radioUncheck": {
+          "error": "Cannot uncheck radio button. Radio buttons can only be unchecked by selecting another radio button in the same group.",
+          "name": "Error"
+        },
+        "notCheckbox": {
+          "error": "Not a checkbox or radio button",
+          "name": "Error"
+        }
+      },
+      "ms": 919
+    },
+    "loc.timeout-options": {
+      "value": {
+        "all": [
+          "First",
+          "Second",
+          "Third"
+        ],
+        "attr": "Enter name",
+        "inner": "ready",
+        "text": "ready",
+        "value": "typedabcd",
+        "valueWithArg": "typedabcd!",
+        "items": 3,
+        "itemsWithArg": 4
+      },
+      "ms": 461
+    },
+    "loc.errors.missing": {
+      "value": {
+        "click": {
+          "error": "locator.click: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "dblclick": {
+          "error": "locator.dblclick: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "check": {
+          "error": "locator.check: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "uncheck": {
+          "error": "locator.uncheck: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "setChecked": {
+          "error": "locator.setChecked: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "fill": {
+          "error": "locator.fill: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "getAttribute": {
+          "error": "locator.getAttribute: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "innerText": {
+          "error": "locator.innerText: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "textContent": {
+          "error": "locator.textContent: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "press": {
+          "error": "locator.press: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "pressSequentially": {
+          "error": "locator.pressSequentially: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "type": {
+          "error": "locator.type: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "selectOption": {
+          "error": "locator.selectOption: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        },
+        "waitFor": {
+          "error": "locator.waitFor: Timeout 300ms exceeded.\n  - waiting for locator('#missing') to be visible",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 4588
+    },
+    "loc.errors.evaluate": {
+      "value": {
+        "evaluate": {
+          "error": "boom",
+          "name": "Error"
+        },
+        "evaluateAll": {
+          "error": "boom all",
+          "name": "Error"
+        },
+        "strict": {
+          "error": "strict mode violation: locator('li') resolved to 3 elements:\n    1) <li data-testid=\"item\">First</li> aka getByText('First')\n    2) <li data-testid=\"item\">Second</li> aka getByText('Second')\n    3) <li data-testid=\"item\">Third</li> aka getByText('Third')\n",
+          "name": "Error"
+        },
+        "allTextBad": {
+          "error": "Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?",
+          "name": "Error"
+        },
+        "emptyAll": 0
+      },
+      "ms": 372
+    },
+    "loc.failure-kinds": {
+      "value": {
+        "hidden": {
+          "error": "locator.click: Timeout 400ms exceeded.\n  - element is not visible",
+          "name": "TimeoutError"
+        },
+        "disabled": {
+          "error": "locator.click: Timeout 400ms exceeded.\n  - element is not enabled",
+          "name": "TimeoutError"
+        },
+        "disabledFill": {
+          "error": "locator.fill: Timeout 400ms exceeded.\n  - element is not enabled",
+          "name": "TimeoutError"
+        },
+        "readonlyFill": {
+          "error": "locator.fill: Timeout 400ms exceeded.\n  - element is not editable",
+          "name": "TimeoutError"
+        },
+        "notInput": {
+          "error": "Element is not an <input>, <textarea>, <select> or [contenteditable] and does not have a role allowing [aria-readonly]",
+          "name": "Error"
+        },
+        "role": {
+          "error": "locator.click: Timeout 400ms exceeded.\n  - waiting for locator('internal:role=button[name=\"Nope\"i]')",
+          "name": "TimeoutError"
+        },
+        "text": {
+          "error": "locator.click: Timeout 400ms exceeded.\n  - waiting for locator('internal:text=\"Nope\"i')",
+          "name": "TimeoutError"
+        },
+        "chained": {
+          "error": "locator.click: Timeout 400ms exceeded.\n  - waiting for locator('ul >> #nope')",
+          "name": "TimeoutError"
+        },
+        "frame": {
+          "error": "locator.click: Timeout 400ms exceeded.\n  - waiting for locator('#frame >> internal:control=enter-frame >> #nope')",
+          "name": "TimeoutError"
+        },
+        "many": {
+          "error": "strict mode violation: locator('li') resolved to 3 elements:\n    1) <li data-testid=\"item\">First</li> aka getByText('First')\n    2) <li data-testid=\"item\">Second</li> aka getByText('Second')\n    3) <li data-testid=\"item\">Third</li> aka getByText('Third')\n",
+          "name": "Error"
+        }
+      },
+      "ms": 3585
+    },
+    "loc.composition-errors": {
+      "value": {
+        "and": {
+          "error": "Locators must belong to the same frame.",
+          "name": "Error"
+        },
+        "or": {
+          "error": "Locators must belong to the same frame.",
+          "name": "Error"
+        },
+        "nth": {
+          "error": "locator.nth: index: expected an integer, got \"x\"",
+          "name": "Error"
+        },
+        "filter": {
+          "error": "Inner \"has\" locator must belong to the same frame.",
+          "name": "Error"
+        },
+        "locator": {
+          "error": "Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?",
+          "name": "Error"
+        },
+        "getByLabel": {
+          "error": "getByLabel: text: expected a string or a RegExp, got 42",
+          "name": "Error"
+        },
+        "getByPlaceholder": {
+          "error": "getByPlaceholder: text: expected a string or a RegExp, got 42",
+          "name": "Error"
+        },
+        "getByRole": {
+          "error": "Error while parsing selector `notarole!` - unexpected symbol \"!\" at position 8",
+          "name": "Error"
+        },
+        "getByTestId": {
+          "error": "getByTestId: text: expected a string or a RegExp, got null",
+          "name": "Error"
+        },
+        "getByText": {
+          "error": "getByText: text: expected a string or a RegExp, got 42",
+          "name": "Error"
+        }
+      },
+      "ms": 443
+    },
+    "loc.filter-options": {
+      "value": {
+        "has": 1,
+        "hasNot": 0,
+        "hasText": 1,
+        "hasTextRe": 1,
+        "hasNotTextRe": 2,
+        "visible": true,
+        "hidden": 2,
+        "lHas": 1,
+        "lHasNot": 0,
+        "lHasText": 1,
+        "lHasTextRe": 1,
+        "lHasNotText": 2,
+        "lHasNotTextRe": 2
+      },
+      "ms": 379
+    },
+    "loc.regexp-getters": {
+      "value": {
+        "page": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "locator": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "frame": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "frameExact": [
+          1,
+          1,
+          1,
+          2
+        ],
+        "locatorExact": [
+          1,
+          1
+        ]
+      },
+      "ms": 401
+    },
+    "loc.select-option.forms": {
+      "value": {
+        "values": [
+          "b",
+          "a",
+          "b",
+          "a",
+          "b",
+          "c"
+        ],
+        "multi": [
+          "r",
+          "b"
+        ],
+        "returned": [
+          "r",
+          "b"
+        ],
+        "events": [
+          "input",
+          "change"
+        ],
+        "missing": {
+          "error": "locator.selectOption: did not find some options",
+          "name": "Error"
+        },
+        "notSelect": {
+          "error": "Element is not a <select> element",
+          "name": "Error"
+        }
+      },
+      "ms": 441
+    },
+    "loc.wait-for.states": {
+      "value": {
+        "done": true,
+        "late": true,
+        "hiddenVisible": {
+          "error": "locator.waitFor: Timeout 300ms exceeded.\n  - waiting for locator('#hidden') to be visible\n  - locator resolved to hidden element",
+          "name": "TimeoutError"
+        },
+        "bogus": {
+          "error": "locator.waitFor: state: expected one of (attached|detached|visible|hidden)",
+          "name": "Error"
+        }
+      },
+      "ms": 1650
+    },
+    "loc.fill.forms": {
+      "value": {
+        "name": "new value",
+        "area": "multi\nline",
+        "rich": "rich text",
+        "cleared": "",
+        "events": [
+          "focus:true",
+          "input:true",
+          "change:true"
+        ],
+        "inputValueOfDiv": {
+          "error": "Node is not an <input>, <textarea> or <select> element",
+          "name": "Error"
+        }
+      },
+      "ms": 428
+    },
+    "loc.typing": {
+      "value": {
+        "value": "abcx",
+        "keys": [
+          "a",
+          "b",
+          "c",
+          "Shift",
+          "D",
+          "Backspace",
+          "x",
+          "y",
+          "ArrowLeft",
+          "Delete"
+        ],
+        "trusted": true,
+        "slow": true,
+        "badKey": {
+          "error": "Unknown key: \"NoSuchKey\"",
+          "name": "Error"
+        }
+      },
+      "ms": 1065
+    },
+    "loc.hover": {
+      "value": {
+        "status": "menu picked",
+        "enter": true
+      },
+      "ms": 811
+    },
+    "loc.focus-blur": {
+      "value": {
+        "focused": "name",
+        "after": "BODY",
+        "events": [
+          "focus",
+          "blur"
+        ]
+      },
+      "ms": 367
+    },
+    "loc.set-input-files": {
+      "value": {
+        "one": "file: parity-upload.txt(Disposable browser parity upload)",
+        "many": "multi: parity-upload.txt(Disposable browser parity upload),second.txt(two)",
+        "cleared": 0,
+        "missing": {
+          "error": "EACCES: permission denied, path is outside the REPL working directory '/nonexistent/parity.txt'",
+          "name": "Error"
+        },
+        "notFile": {
+          "error": "Error: Node is not an HTMLInputElement",
+          "name": "Error"
+        }
+      },
+      "ms": 403
+    },
+    "loc.drag-to": {
+      "value": {
+        "drop": "dropped payload",
+        "events": [
+          "dragstart:true",
+          "dragenter:true",
+          "dragover:true",
+          "drop:true",
+          "dragend:true"
+        ]
+      },
+      "ms": 460
+    },
+    "loc.drag-to.ax": {
+      "value": {
+        "drop": "dropped payload"
+      },
+      "ms": 451
+    },
+    "loc.tap": {
+      "value": {
+        "tap": {
+          "ok": true
+        },
+        "status": "clicked"
+      },
+      "ms": 443
+    },
+    "loc.scroll-into-view": {
+      "value": {
+        "moved": true,
+        "inView": true,
+        "hiddenBox": null
+      },
+      "ms": 370
+    },
+    "loc.screenshot": {
+      "value": {
+        "format": "png",
+        "matches": true,
+        "hidden": {
+          "error": "locator.screenshot: Timeout 400ms exceeded.\n  - element is not visible",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 847
+    },
+    "loc.reads": {
+      "value": {
+        "text": "alpha beta gamma",
+        "inner": "alpha beta gamma",
+        "html": "alpha <b>beta</b> gamma",
+        "value": "initial",
+        "attr": "Enter name",
+        "noAttr": null,
+        "hiddenText": "Hidden",
+        "hiddenInner": "Hidden",
+        "all": [
+          "First",
+          "Second",
+          "Third"
+        ],
+        "allInner": [
+          "First",
+          "Second",
+          "Third"
+        ]
+      },
+      "ms": 390
+    },
+    "loc.states": {
+      "value": {
+        "visible": [
+          true,
+          false,
+          false
+        ],
+        "hidden": [
+          false,
+          true,
+          true
+        ],
+        "enabled": [
+          true,
+          false
+        ],
+        "disabled": [
+          false,
+          true
+        ],
+        "checked": [
+          true,
+          false
+        ],
+        "editable": [
+          true,
+          false,
+          true
+        ],
+        "checkedOfButton": {
+          "error": "Not a checkbox or radio button",
+          "name": "Error"
+        },
+        "enabledMissing": {
+          "error": "locator.isEnabled: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 896
+    },
+    "loc.collections": {
+      "value": {
+        "count": 3,
+        "all": 3,
+        "allTexts": [
+          "First",
+          "Second",
+          "Third"
+        ],
+        "first": "First",
+        "last": "Third",
+        "nth": "Second",
+        "nthNeg": "Third",
+        "nthOut": 0,
+        "none": 0
+      },
+      "ms": 387
+    },
+    "loc.and-or": {
+      "value": {
+        "and": 1,
+        "andNone": 0,
+        "or": 2,
+        "orText": "Second"
+      },
+      "ms": 398
+    },
+    "loc.scoped-getters": {
+      "value": {
+        "label": 1,
+        "placeholder": 1,
+        "role": 3,
+        "testId": 3,
+        "text": 1,
+        "chained": "Third",
+        "outside": 0
+      },
+      "ms": 432
+    },
+    "loc.evaluate": {
+      "value": {
+        "tag": "BUTTON",
+        "arg": "action!",
+        "promise": "action",
+        "rect": "number",
+        "all": "First|Second|Third",
+        "shadow": true
+      },
+      "ms": 531
+    },
+    "loc.dispatch-event": {
+      "value": {
+        "status": "clicked",
+        "trusted": [
+          false
+        ]
+      },
+      "ms": 483
+    },
+    "loc.download-media": {
+      "value": {
+        "name": "cd-a.txt",
+        "body": "cd body a\n",
+        "missing": {
+          "error": "locator.click: Timeout 300ms exceeded.\n  - waiting for locator('#missing')",
+          "name": "TimeoutError"
+        }
+      },
+      "ms": 986
+    },
+    "keyboard.members": {
+      "value": {
+        "value": "abCDé",
+        "keys": [
+          [
+            "a",
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "b",
+            false,
+            false,
+            false,
+            false
+          ],
+          [
+            "Shift",
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "C",
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "Shift",
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "D",
+            false,
+            false,
+            false,
+            true
+          ],
+          [
+            "Backspace",
+            false,
+            false,
+            false,
+            false
+          ]
+        ],
+        "trusted": true
+      },
+      "ms": 525
+    },
+    "keyboard.errors": {
+      "value": {
+        "unknown": {
+          "error": "Unknown key: \"NoSuchKey\"",
+          "name": "Error"
+        },
+        "empty": {
+          "error": "key: expected a non-empty string, got \"\"",
+          "name": "Error"
+        },
+        "notText": {
+          "error": "keyboard.type: text: expected string, got number",
+          "name": "Error"
+        }
+      },
+      "ms": 564
+    },
+    "keyboard.shortcuts": {
+      "value": {
+        "value": "x",
+        "combos": [
+          "Meta,false,false,true,false",
+          "a,false,false,true,false",
+          "Alt,true,false,false,false",
+          "Shift,true,false,false,true",
+          ",true,false,false,true",
+          "Control,false,true,false,false",
+          "Shift,false,true,false,true",
+          "ArrowLeft,false,true,false,true"
+        ]
+      },
+      "ms": 911
+    },
+    "mouse.members": {
+      "value": {
+        "clicks": 4,
+        "right": true,
+        "moves": true,
+        "at": true,
+        "wheel": true,
+        "trusted": true
+      },
+      "ms": 740
+    },
+    "cua.options": {
+      "value": {
+        "shiftClick": true,
+        "errors": {
+          "click": {
+            "error": "mouse.click: x and y: expected numbers, got undefined, undefined",
+            "name": "Error"
+          },
+          "move": {
+            "error": "mouse.move: x and y: expected numbers, got undefined, undefined",
+            "name": "Error"
+          },
+          "wheel": {
+            "error": "mouse.wheel: deltaX and deltaY: expected numbers, got undefined, undefined",
+            "name": "Error"
+          },
+          "type": {
+            "error": "keyboard.type: text: expected string, got undefined",
+            "name": "Error"
+          },
+          "press": {
+            "error": "key: expected a non-empty string, got undefined",
+            "name": "Error"
+          }
+        }
+      },
+      "ms": 388
+    },
+    "cua.download-media": {
+      "value": {
+        "name": "cd-a.txt",
+        "body": "cd body a\n"
+      },
+      "ms": 541
+    },
+    "dom-cua.forms": {
+      "value": {
+        "status": "clicked",
+        "dbl": true,
+        "value": "initialX",
+        "scrolled": true,
+        "badRef": {
+          "error": "ref e99999 does not exist; take a new snapshot",
+          "name": "Error"
+        }
+      },
+      "ms": 891
+    },
+    "ax.click-forms": {
+      "value": {
+        "byRef": 1,
+        "byPoint": 2,
+        "dbl": 1,
+        "right": 1,
+        "middle": 2
+      },
+      "ms": 696
+    },
+    "ax.text-forms": {
+      "value": {
+        "set": [
+          "set",
+          3,
+          3
+        ],
+        "typed": [
+          "setT",
+          4,
+          4
+        ],
+        "pressed": [
+          "setTa",
+          5,
+          5
+        ],
+        "pasted": [
+          "setTaP",
+          6,
+          6
+        ],
+        "select": [
+          "setTaP",
+          0,
+          3
+        ],
+        "before": [
+          "setTaP",
+          3,
+          3
+        ]
+      },
+      "ms": 459
+    },
+    "ax.scroll-forms": {
+      "value": {
+        "inner": true,
+        "page": true
+      },
+      "ms": 1676
+    },
+    "ax.secondary-action": {
+      "value": {
+        "contextmenu": 1,
+        "bad": {
+          "error": "ref e99999 does not exist; take a new snapshot",
+          "name": "Error"
+        }
+      },
+      "ms": 452
+    },
+    "clipboard.members": {
+      "value": {
+        "text": "plain text",
+        "mimes": true,
+        "pasted": "plain",
+        "empty": {
+          "error": "clipboard.write: expected at least one clipboard item, got none",
+          "name": "Error"
+        },
+        "notText": {
+          "error": "clipboard.writeText: text: expected string, got number",
+          "name": "Error"
+        }
+      },
+      "ms": 374
+    },
+    "dev.logs": {
+      "value": {
+        "all": [
+          "debug",
+          "info",
+          "log",
+          "warning",
+          "error"
+        ],
+        "warn": [
+          "warning"
+        ],
+        "error": [
+          "error"
+        ],
+        "limited": 2,
+        "badLimit": {
+          "error": "page.consoleMessages: limit must be a positive integer, got 0",
+          "name": "Error"
+        },
+        "badLevel": {
+          "error": "page.consoleMessages: invalid level \"unknown\"; expected one of log, debug, info, warning, error",
+          "name": "Error"
+        },
+        "badFilter": {
+          "error": "page.consoleMessages: filter must be a string or a RegExp",
+          "name": "Error"
+        }
+      },
+      "ms": 1015
+    },
+    "dialogs.held": {
+      "value": {
+        "none": null,
+        "alert": [
+          "alert",
+          "Alert text"
+        ],
+        "afterAlert": "after alert",
+        "confirm": "confirm",
+        "accepted": "confirm true",
+        "dismissed": "confirm false",
+        "prompt": [
+          "prompt",
+          "default"
+        ],
+        "prompted": "prompt typed",
+        "promptDismissed": "prompt null"
+      },
+      "ms": 697
+    },
+    "dialogs.errors": {
+      "value": {
+        "acceptError": {
+          "error": "dialog.accept: promptText: expected string, got number",
+          "name": "Error"
+        },
+        "twice": {
+          "error": "Cannot accept dialog which is already handled!",
+          "name": "Error"
+        },
+        "result": "prompt null"
+      },
+      "ms": 379
+    },
+    "dialogs.snapshot-blocked": {
+      "value": {
+        "shows": true,
+        "title": "Dialogs Fixture"
+      },
+      "ms": 382
+    },
+    "dialogs.beforeunload": {
+      "value": {
+        "type": null,
+        "stayed": false,
+        "_onClose": null
+      },
+      "ms": 3921
+    },
+    "filechooser.event": {
+      "value": {
+        "multiple": false,
+        "result": "multi: parity-upload.txt(Disposable browser parity upload)",
+        "heldMultiple": true,
+        "shown": true,
+        "none": {
+          "ms": 305,
+          "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
+          "name": "TimeoutError"
+        },
+        "missing": {
+          "error": "EACCES: permission denied, path is outside the REPL working directory '/nonexistent/parity.txt'",
+          "name": "Error"
+        }
+      },
+      "ms": 798
+    },
+    "navigation.expect": {
+      "value": {
+        "value": "navigated",
+        "title": "Next page",
+        "stay": {
+          "ms": 300,
+          "error": "page.waitForURL: Timeout 300ms exceeded.\n  - waiting for navigation to \"**/next.html\"",
+          "name": "TimeoutError"
+        },
+        "wrong": {
+          "error": "page.waitForURL: Timeout 1000ms exceeded.\n  - waiting for navigation to \"<primary>/never\"",
+          "name": "TimeoutError"
+        },
+        "after": "Next page"
+      },
+      "ms": 1966
+    },
+    "content.export": {
+      "value": {
+        "export": {
+          "ext": ".md",
+          "hasHeading": true
+        }
+      },
+      "ms": 483
+    },
+    "content.export-site": {
+      "value": {
+        "gsuite": {
+          "error": "page.exportContent({ format }): expected a Google Docs, Sheets or Slides tab (https://docs.google.com/...), got <primary>/diff/lab.html",
+          "name": "Error"
+        },
+        "yt": {
+          "error": "page.exportContent({ transcript: true }): expected a YouTube watch page (https://www.youtube.com/watch?v=...), got <primary>/diff/lab.html",
+          "name": "Error"
+        },
+        "bad": {
+          "error": "page.exportContent({ format }): expected a Google Docs, Sheets or Slides tab (https://docs.google.com/...), got <primary>/diff/lab.html",
+          "name": "Error"
+        }
+      },
+      "ms": 538
+    },
+    "tabs.content": {
+      "value": {
+        "rows": [
+          [
+            "Next page",
+            200,
+            true
+          ],
+          [
+            "Missing",
+            404,
+            true
+          ]
+        ],
+        "current": "<primary>/diff/lab.html",
+        "tabsAfter": true,
+        "bad": {
+          "error": "tabs.content: urls: expected a non-empty array of URLs, got []",
+          "name": "Error"
+        }
+      },
+      "ms": 1426
+    },
+    "browser.history": {
+      "value": {
+        "shape": {
+          "array": true,
+          "keys": [
+            "dateVisited",
+            "title",
+            "url"
+          ],
+          "found": true
+        },
+        "invalid": {
+          "error": "tabs.history: limit: expected a positive integer, got 0",
+          "name": "Error"
+        },
+        "badDate": {
+          "error": "tabs.history: from: expected a date, got \"not a date\"",
+          "name": "Error"
+        }
+      },
+      "ms": 616
+    },
+    "browser.capabilities": {
+      "value": {
+        "cdp": {
+          "error": "undefined is not an object (evaluating 'page.cdp.send')",
+          "name": "TypeError"
+        }
+      },
+      "ms": 439
+    },
+    "edge.auth-basic": {
+      "value": {
+        "noCredsAuth": true,
+        "_noCreds": [
+          401,
+          "401 basic"
+        ],
+        "noCredsMs": 399,
+        "withCreds": "Authed as parity"
+      },
+      "ms": 690
+    },
+    "edge.auth-digest": {
+      "value": {
+        "noCredsAuth": true,
+        "_noCreds": [
+          401,
+          "401 digest"
+        ],
+        "withCreds": "Digest authed as parity"
+      },
+      "ms": 543
+    },
+    "edge.permission-geolocation": {
+      "value": {
+        "result": "error 1",
+        "settledMs": 98,
+        "dialog": false
+      },
+      "ms": 459
+    },
+    "edge.permission-notifications": {
+      "value": {
+        "result": "result denied",
+        "settledMs": 78,
+        "dialog": false
+      },
+      "ms": 555
+    },
+    "edge.permission-camera": {
+      "value": {
+        "result": "error NotAllowedError",
+        "settledMs": 3882,
+        "dialog": false
+      },
+      "ms": 4340
+    },
+    "edge.permission-clipboard-read": {
+      "value": {
+        "result": "error NotAllowedError",
+        "settledMs": 61,
+        "dialog": false
+      },
+      "ms": 618
+    },
+    "edge.tls-self-signed": {
+      "value": {
+        "nav": {
+          "error": "The certificate for this server is invalid. You might be connecting to a server that is pretending to be “127.0.0.1” which could put your confidential information at risk. at <tls>/diff/next.html"
+        },
+        "ms": 410
+      },
+      "ms": 537
+    },
+    "edge.nav-dns": {
+      "value": {
+        "nav": {
+          "error": "A server with the specified hostname could not be found. at <dns>/"
+        },
+        "url": "<primary>/diff/lab.html"
+      },
+      "ms": 547
+    },
+    "edge.nav-refused": {
+      "value": {
+        "nav": {
+          "error": "Could not connect to the server. at <refused>/"
+        },
+        "ms": 42
+      },
+      "ms": 430
+    },
+    "edge.nav-http-errors": {
+      "value": {
+        "s404": 404,
+        "t404": "Missing",
+        "s500": 500,
+        "t500": "Broken",
+        "ok": false
+      },
+      "ms": 566
+    },
+    "edge.nav-aborted": {
+      "value": {
+        "first": {
+          "error": "Navigation to \"<primary>/slow?ms=3000\" was interrupted by another navigation"
+        },
+        "url": "<primary>/diff/next.html",
+        "title": "Next page"
+      },
+      "ms": 630
+    },
+    "edge.nav-redirect-loop": {
+      "value": {
+        "loop": {
+          "error": "too many HTTP redirects at <primary>/redirect-loop"
+        },
+        "loopMs": 109,
+        "redirected": "<primary>/diff/next.html"
+      },
+      "ms": 603
+    },
+    "edge.download-blob": {
+      "value": {
+        "name": "blob.txt",
+        "body": "blob body\n"
+      },
+      "ms": 562
+    },
+    "edge.download-data": {
+      "value": {
+        "name": "data.txt",
+        "body": "data body\n"
+      },
+      "ms": 456
+    },
+    "edge.download-cd": {
+      "value": {
+        "name": "cd-a.txt",
+        "body": "cd body a\n"
+      },
+      "ms": 520
+    },
+    "edge.download-post": {
+      "value": {
+        "name": "posted.csv",
+        "body": "name,value\nq,posted\n",
+        "url": "<primary>/diff/files.html"
+      },
+      "ms": 538
+    },
+    "edge.download-concurrent": {
+      "value": {
+        "files": [
+          [
+            "slow-x.txt",
+            "slow body x\n"
+          ],
+          [
+            "slow-y.txt",
+            "slow body y\n"
+          ]
+        ]
+      },
+      "ms": 2193
+    },
+    "edge.file-drop": {
+      "value": {
+        "result": "dropzone: drop.txt(dropped body)"
+      },
+      "ms": 495
+    },
+    "edge.input-types": {
+      "value": {
+        "date": "2026-09-30",
+        "time": "13:45",
+        "dtl": "2026-09-30T13:45",
+        "color": "#ff0000",
+        "range": "70",
+        "number": "42",
+        "badDate": {
+          "error": "Malformed value",
+          "name": "Error"
+        },
+        "accept": "parity.png",
+        "acceptOther": "parity-upload.txt"
+      },
+      "ms": 573
+    },
+    "edge.contenteditable-bold": {
+      "value": {
+        "html": true,
+        "bolded": "alpha beta gamma end",
+        "text": "alpha beta gamma end"
+      },
+      "ms": 616
+    },
+    "edge.typing-unicode": {
+      "value": {
+        "input": "héllo wörld 😀 中文 👩‍👩‍👧",
+        "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
+      },
+      "ms": 750
+    },
+    "edge.composition": {
+      "value": {
+        "text": "日本語",
+        "inputTypes": [
+          "deleteContentBackward",
+          "insertCompositionText",
+          "deleteCompositionText",
+          "insertFromComposition"
+        ],
+        "trusted": true
+      },
+      "ms": 510
+    },
+    "edge.nested-scroll": {
+      "value": {
+        "deep": 1,
+        "inner": true,
+        "outer": true
+      },
+      "ms": 553
+    },
+    "edge.infinite-scroll": {
+      "value": {
+        "many": true,
+        "last": 1
+      },
+      "ms": 2562
+    },
+    "edge.iframe-sandboxed": {
+      "value": {
+        "sb": "sandbox clicked",
+        "csp": "csp clicked",
+        "inertText": true
+      },
+      "ms": 626
+    },
+    "edge.iframe-srcdoc": {
+      "value": {
+        "text": "frame clicked"
+      },
+      "ms": 651
+    },
+    "edge.iframe-navigation": {
+      "value": {
+        "heading": "Next page",
+        "inSnapshot": true
+      },
+      "ms": 706
+    },
+    "edge.window-open": {
+      "value": {
+        "opener1": "opener present",
+        "didClose": true,
+        "opener2": "opener null",
+        "listedAfter": 0
+      },
+      "ms": 1381
+    },
+    "edge.alert-during-navigation": {
+      "value": {
+        "seen": [
+          "alert",
+          "loaded alert"
+        ],
+        "nav": "loaded",
+        "after": "after alert"
+      },
+      "ms": 520
+    },
+    "edge.spa-route-wait": {
+      "value": {
+        "url": "<primary>/diff/spa.html#/users",
+        "title": "SPA users",
+        "items": [
+          "Ada",
+          "Linus"
+        ]
+      },
+      "ms": 1411
+    },
+    "edge.service-worker": {
+      "value": {
+        "state": "controlled",
+        "out": "from service worker"
+      },
+      "ms": 688
+    },
+    "edge.websocket": {
+      "value": {
+        "out": "echo:hi"
+      },
+      "ms": 646
+    },
+    "edge.cookies-flags": {
+      "value": {
+        "docCookie": "js_cookie,lax,none_secure,plain,secure_flag,strict",
+        "sent": [
+          "http_only",
+          "js_cookie",
+          "lax",
+          "none_secure",
+          "plain",
+          "secure_flag",
+          "strict"
+        ]
+      },
+      "ms": 748
+    },
+    "edge.cookies-subdomain": {
+      "value": {
+        "peer": [
+          "dom"
+        ],
+        "other": []
+      },
+      "ms": 2931
+    },
+    "edge.storage-isolation": {
+      "value": {
+        "a": "ls=L ss=S",
+        "b": "ls=L ss=null"
+      },
+      "ms": 1062
+    },
+    "edge.slow-load": {
+      "value": {
+        "title": "Slow",
+        "ms": 3072,
+        "ok": true
+      },
+      "ms": 3717
+    },
+    "edge.never-finishing-load": {
+      "value": {
+        "dcl": "ok",
+        "text": "pressed",
+        "load": {
+          "error": "Timeout 1420ms exceeded while waiting for load"
+        },
+        "loadMs": 1511
+      },
+      "ms": 2052
+    },
+    "edge.main-thread-blocked": {
+      "value": {
+        "read": "unblocked",
+        "readMs": 2,
+        "after": "after clicked"
+      },
+      "ms": 2993
+    },
+    "edge.stale-ref": {
+      "value": {
+        "stale": {
+          "error": "ref e3 is stale: the element was removed; take a new snapshot"
+        },
+        "ms": 2,
+        "status": "ready"
+      },
+      "ms": 735
+    },
+    "edge.detached-mid-click": {
+      "value": {
+        "rerender": "clicked",
+        "out": true,
+        "vanish": "clicked",
+        "gone": 0
+      },
+      "ms": 564
+    },
+    "edge.overlay-intercepts": {
+      "value": {
+        "blocked": {
+          "error": "locator.click: Timeout 800ms exceeded.\n  - <div id=\"cover\" onclick=\"document.getElementById('out').textContent='cover clicked'\"></div> intercepts pointer events"
+        },
+        "out1": "idle",
+        "out2": "under clicked"
+      },
+      "ms": 1389
+    },
+    "edge.zoom-scale": {
+      "value": {
+        "small": "scaled clicked",
+        "zoomed": "zoom clicked",
+        "clipPx": true
+      },
+      "ms": 833
+    },
+    "edge.large-page": {
+      "value": {
+        "hasLast": true,
+        "picked": "picked 4321",
+        "count": 5000
+      },
+      "ms": 1135
+    },
+    "tabs.claim-other-workspace": {
+      "value": {
+        "listedAll": true,
+        "inOwnList": false,
+        "otherWorkspace": true,
+        "count": "Count 1"
+      },
+      "ms": 510
+    },
+    "edge.sessions-two-tabs": {
+      "value": {
+        "a": [
+          "session A",
+          "Count 3"
+        ],
+        "b": [
+          "session B",
+          "Count 3"
+        ],
+        "distinct": true,
+        "_raw": [
+          null,
+          null
+        ]
+      },
+      "ms": 1063
+    },
+    "edge.sessions-same-tab": {
+      "value": {
+        "bSaw": "Count 1",
+        "aSaw": "Count 1",
+        "concurrent": true,
+        "after": "Count 3",
+        "closedForB": {
+          "error": "Target page, context or browser has been closed"
+        }
+      },
+      "ms": 1407
+    },
+    "edge.web-process-crash": {
+      "value": {
+        "killed": true,
+        "crashed": true,
+        "evaluate": {
+          "error": "frame.evaluate: Target crashed; call page.reload() or page.goto() to load it again"
+        },
+        "recovered": "Count 1"
+      },
+      "ms": 1243
+    },
+    "edge.ime-only-editor": {
+      "value": {
+        "committed": "alpha",
+        "strict": "gamma",
+        "trusted": true
+      },
+      "ms": 567
+    },
+    "edge.trusted-paste": {
+      "value": {
+        "paste": {
+          "text": "beta",
+          "bold": true,
+          "types": [
+            "text/html",
+            "text/plain"
+          ]
+        },
+        "committed": "beta",
+        "copied": "ab"
+      },
+      "ms": 624
+    },
+    "edge.context-options": {
+      "value": {
+        "configured": {
+          "userAgent": "cmux-parity-agent/1.0",
+          "extraHTTPHeaders": {
+            "X-Parity": "on"
+          },
+          "permissions": [
+            "notifications"
+          ]
+        },
+        "nav": {
+          "userAgent": "cmux-parity-agent/1.0",
+          "parity": "on"
+        },
+        "asset": {
+          "userAgent": "cmux-parity-agent/1.0",
+          "parity": null
+        },
+        "ua": "cmux-parity-agent/1.0",
+        "notify": "granted",
+        "camera": "NotAllowedError",
+        "after": {
+          "userAgent": "restored",
+          "parity": null
+        },
+        "proxiedTitle": "Next page",
+        "proxied": "through the proxy"
+      },
+      "ms": 1171
+    }
+  }
+}

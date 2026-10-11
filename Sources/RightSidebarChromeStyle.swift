@@ -149,11 +149,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 isVisible: true
             )
             .background(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(backgroundColor)
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
             )
     }
 
@@ -295,6 +295,12 @@ extension View {
         modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
     }
 
+    /// Gives system bordered buttons below this view the shared
+    /// right-sidebar button radius instead of the platform default shape.
+    func rightSidebarButtonBorderShape() -> some View {
+        buttonBorderShape(.roundedRectangle(radius: RightSidebarChromeMetrics.buttonCornerRadius))
+    }
+
     func rightSidebarHeaderControlAlignment() -> some View {
         alignmentGuide(VerticalAlignment.center) { dimensions in
             dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
@@ -355,16 +361,41 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
 struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
+    /// The tab is actively being dragged. Its icon stays anchored while the
+    /// full label slot opens around it.
+    var isDragged = false
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
+    /// False once the label's slot is narrower than about a letter; the tab
+    /// then shows only its icon. The label keeps its slot, so hiding it
+    /// never changes the tab's width.
+    @State private var labelFits = true
+    @State private var labelWidth: CGFloat = 0
+    /// The label's full width, which its slot may be narrower than.
+    @State private var naturalLabelWidth: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The tab switch's one curve: smooth, short and without overshoot, so
+    /// tabs settle into their new widths instead of bouncing like a reorder.
+    static let switchAnimation = Animation.smooth(duration: 0.26)
+
+    /// With its label hidden, the icon (and badge) moves into the middle of
+    /// the label's empty slot, so it sits centered in the tab's highlight.
+    private var hiddenLabelShift: CGFloat {
+        // A dragged tab is promoted to the full-label slot by the parent
+        // layout. Keep the glyph at its resting x position while the text
+        // reveals, instead of animating it from the icon-only center.
+        isDragged || labelFits ? 0 : (labelWidth + Self.contentSpacing) / 2
+    }
+    private static let contentSpacing: CGFloat = 4
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: Self.contentSpacing) {
                 CmuxSystemSymbolImage(
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
@@ -376,13 +407,29 @@ struct ModeBarButton: View {
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true
                     )
+                    .offset(x: badgeCount > 0 ? 0 : hiddenLabelShift)
+                // The label keeps its natural width and its slot uncovers it:
+                // a slot that narrows clips with a soft edge rather than
+                // re-truncating ("Files", "Fil…", "F…") on every frame of a
+                // width change.
                 Text(item.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fixedSize()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { naturalLabelWidth = $0 }
+                    .frame(minWidth: 0, alignment: .leading)
+                    .clipped()
+                    .mask { ModeBarLabelEdgeFade(naturalWidth: naturalLabelWidth) }
+                    .opacity(isDragged ? 1 : (labelFits ? 1 : 0))
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        labelWidth = width
+                        labelFits = width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
+                    }
                 if badgeCount > 0 {
                     pendingChip
                 }
@@ -403,12 +450,21 @@ struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The label's fade and the icon's glide to or from the middle follow
+        // the width on the same curve. They change a layout pass after the
+        // width, so they carry their own animation rather than the switch's.
+        .animation(reduceMotion ? nil : Self.switchAnimation, value: labelFits)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
+        .accessibilityLabel(item.label)
         .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
+
+    /// Roughly one letter and an ellipsis at the label's size.
+    static let minimumVisibleLabelWidth: CGFloat = 15
 
     private var helpText: String {
         if badgeCount > 0 {

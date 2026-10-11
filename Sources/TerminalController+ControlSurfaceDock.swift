@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import Foundation
 
@@ -13,7 +14,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -29,7 +29,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -40,15 +39,11 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         unsupportedType: (String, String) -> Resolution,
-        dockUnavailable: (String) -> Resolution,
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
         guard panelType == .terminal || panelType == .browser else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return dockUnavailable(dockUnavailableMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return workspaceNotFound
@@ -87,7 +82,7 @@ extension TerminalController {
     }
 
     func dockUnavailableMessage() -> String {
-        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is unavailable")
     }
 
     func dockFocusUnavailableMessage() -> String {
@@ -356,7 +351,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        tabManager: TabManager
+        tabManager: TabManager,
+        force: Bool
     ) -> ControlSurfaceCloseResolution? {
         guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
@@ -374,7 +370,12 @@ extension TerminalController {
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
         }
-        guard windowDock.closePanel(surfaceId, force: true) else {
+        if !force,
+           let panel = windowDock.panel(for: TabID(uuid: surfaceId)),
+           windowDock.dockPanelNeedsConfirmClose(panel) {
+            return .confirmationRequired(surfaceId)
+        }
+        guard windowDock.closePanel(surfaceId, force: force) else {
             return .closeFailed(surfaceId)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(

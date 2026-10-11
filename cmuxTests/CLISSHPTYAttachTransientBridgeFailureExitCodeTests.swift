@@ -195,8 +195,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let authAttempts = root.appendingPathComponent("auth-attempts")
         let attachAttempts = root.appendingPathComponent("attach-attempts")
         let sleepAttempts = root.appendingPathComponent("sleep-attempts")
+        // The startup script only reauthenticates through a socket `ssh -G`
+        // resolves inside cmux's private control-socket directory.
+        let sharingOptions = SSHConnectionSharingOptions()
+        let controlPath = try XCTUnwrap(sharingOptions.controlSocketDirectoryPath) + "/" +
+            UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() + "01234567"
+        let resolvedAuthLockPath = try XCTUnwrap(
+            sharingOptions.resolvedControlMasterAuthenticationLockPath(controlPath: controlPath)
+        )
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
+        defer {
+            try? fileManager.removeItem(at: root)
+            unlink(resolvedAuthLockPath)
+        }
 
         try writeSSHPTYReconnectTestShell(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -243,7 +254,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
         environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
-        environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] = "foreground-auth-token"
+        environment["CMUX_TEST_CONTROL_PATH"] = controlPath
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 

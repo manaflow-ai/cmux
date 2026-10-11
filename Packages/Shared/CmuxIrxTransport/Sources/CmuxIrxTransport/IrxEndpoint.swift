@@ -187,7 +187,17 @@ public actor IrxEndpointSupervisor {
     /// Queues a serialized installation and retries local failures independently
     /// of credential minting. Native installation emits its own outcome event.
     public func rotateCredentials(_ credentials: [IrxRelayCredential]) async {
-        guard !deactivated, configuration.pathMode != .directOnly else { return }
+        guard !deactivated, configuration.pathMode != .directOnly else {
+            journal.record("endpoint", "relay-rotation-skipped", [
+                "reason": deactivated ? "deactivated" : "direct-only",
+            ])
+            return
+        }
+        if relayInstaller == nil {
+            // The credentials are retained for the next bind, but nothing
+            // reaches the live driver; say so instead of rotating silently.
+            journal.record("endpoint", "relay-rotation-deferred", ["reason": "no-installer"])
+        }
         desiredRelayCredentials = credentials
         desiredRelayOwnership = nil
         await relayInstaller?.replace(with: credentials)

@@ -14,7 +14,7 @@ extension Workspace {
             ? catalog.projectionRecord(forPanel: panelId).flatMap { $0.resource.machine.isLocal ? nil : $0 }
             : nil
         let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudResourceForDuplication) : nil
-        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId)) == nil else { return nil }
+        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId), kind: AppDelegate.shared?.surfaceResourceKind(for: browser)) == nil else { return nil }
         let isCloud = resource?.machine.isLocal == false
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         guard let newPanel = newBrowserSurface(

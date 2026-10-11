@@ -1,7 +1,7 @@
 import { vmToken } from "./vm-authorization-fixture";
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import * as analytics from "../services/coderouter/analytics";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
+import { newCoderouterRequestContext, runWithCoderouterRequest } from "../services/coderouter/requestTelemetry";
 import {
   createRefreshCompletionRegistry,
   createStickyRefreshPatience,
@@ -65,6 +65,18 @@ function resetRefreshPatience(): void {
   });
 }
 resetRefreshPatience();
+/** Logical clock for capacity holds; the fake sleep advances it instead of waiting. */
+let clock = 0;
+let sleeps: number[] = [];
+const holdRuntime = {
+  now: () => clock,
+  wallNow: () => clock,
+  sleep: async (ms: number) => {
+    sleeps.push(ms);
+    clock += ms;
+  },
+  random: () => 0,
+};
 const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 const SIGNED_VM_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
@@ -132,9 +144,11 @@ const proxy = createCodexResponsesProxy({
     cooldowns.push(accountId);
   },
   refreshPatience: (input, attempt) => refreshPatience(input, attempt),
-});
+}, holdRuntime);
 
 beforeEach(() => {
+  clock = 0;
+  sleeps = [];
   selectInputs = [];
   accountsToServe = [];
   cooldowns = [];
@@ -186,7 +200,7 @@ describe("codex responses proxy session routing", () => {
         cooldowns.push(accountId);
         capacityCooldowns.push({ accountId, durationMs, failureCode });
       },
-    }, { fetch: fetchImpl });
+    }, { ...holdRuntime, fetch: fetchImpl });
   }
 
   test("fails over a pre-output usage_limit_reached SSE event", async () => {
@@ -753,6 +767,163 @@ describe("codex responses proxy session routing", () => {
   });
 });
 
+describe("codex responses proxy with no account configured", () => {
+  function noAccountProxy(configured: boolean) {
+    const selects: number[] = [];
+    const configuredChecks: string[] = [];
+    const sleptBefore = sleeps.length;
+    const proxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => {
+        selects.push(1);
+        return null;
+      },
+      credential: async () => {
+        throw new Error("no account should be read");
+      },
+      cooldown: async () => {},
+      hasConfiguredAccount: async (input) => {
+        configuredChecks.push(input.teamId);
+        return configured;
+      },
+    }, holdRuntime);
+    return { proxy, selects, configuredChecks, slept: () => sleeps.length - sleptBefore };
+  }
+
+  test("answers a team without any Codex account with a terminal 403", async () => {
+    const run = noAccountProxy(false);
+    const response = await run.proxy(responsesRequest());
+    // Codex retries 429 and 5xx; a 403 surfaces once with the recovery step.
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      error: {
+        message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    });
+    expect(run.selects).toHaveLength(1);
+    expect(run.configuredChecks).toEqual(["team-1"]);
+    expect(run.slept()).toBe(0);
+  });
+
+  test("a team whose accounts are all unavailable still gets a retryable 503", async () => {
+    const run = noAccountProxy(true);
+    const response = await run.proxy(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
+    expect(((await response.json()) as { error: string }).error).toBe("no_usable_account");
+  });
+});
+
+describe("codex responses proxy capacity hold", () => {
+  /**
+   * One-account pool that models cooldowns on the logical clock, the way the
+   * database does: a cooling account is not selectable, and
+   * `nextAvailableAt` reports the soonest transient recovery.
+   */
+  function holdingProxy(fetchImpl: typeof fetch, overrides: { capacityHoldBudgetMs?: number } = {}) {
+    const cooldownUntil = new Map<string, { at: number; failureCode?: string }>();
+    const bodies: string[] = [];
+    const proxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async (input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const cooling = cooldownUntil.get("acct-1");
+        if (excluded.has("acct-1") || (cooling && cooling.at > clock)) return null;
+        return { id: "acct-1", provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: true };
+      },
+      credential: async () => ({
+        provider: "codex" as const,
+        accessToken: "access-acct-1",
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async (accountId, durationMs, _signal, failureCode) => {
+        capacityCooldowns.push({ accountId, durationMs, failureCode });
+        cooldownUntil.set(accountId, { at: clock + durationMs, failureCode });
+      },
+      nextAvailableAt: async () => {
+        const cooling = cooldownUntil.get("acct-1");
+        return cooling && cooling.at > clock ? new Date(cooling.at) : null;
+      },
+    }, {
+      ...holdRuntime,
+      ...overrides,
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        bodies.push(await new Response(init?.body).text());
+        return await fetchImpl(input, init);
+      }) as typeof fetch,
+    });
+    return { proxy, bodies };
+  }
+
+  const capacityEvent = `data: ${JSON.stringify({
+    type: "error",
+    message: "Selected model is at capacity. Please try a different model.",
+  })}\n\n`;
+  const outputEvent = `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`;
+
+  test("holds a capacity storm on the same model until the upstream answers", async () => {
+    const replies = [
+      () => new Response(capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => new Response("{}", { status: 429, headers: { "retry-after": "5" } }),
+      () => { throw new TypeError("fetch failed"); },
+      () => new Response(capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => new Response(outputEvent, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    ];
+    const { proxy: holding, bodies } = holdingProxy((async () => replies.shift()!()) as typeof fetch);
+    const context = newCoderouterRequestContext({ request: responsesRequest(), surface: "responses", route: "/v1/responses" });
+    const response = await runWithCoderouterRequest(context, () => holding(responsesRequest({ session_id: "session-hold" })));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(bodies).toHaveLength(5);
+    expect(new Set(bodies.map((body) => JSON.parse(body).model))).toEqual(new Set(["gpt-test"]));
+    // Every wait honors the account cooldown the failure recorded.
+    expect(sleeps).toHaveLength(4);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(60_000);
+    expect(sleeps[1]).toBeGreaterThanOrEqual(5_000);
+    expect(context.outcome).toMatchObject({ outcome: "success", attempts: 5, holdCount: 4 });
+    expect(context.outcome?.heldMs).toBe(sleeps.reduce((total, ms) => total + ms, 0));
+  });
+
+  test("answers at once when the quota resets after the hold budget", async () => {
+    const quota = JSON.stringify({ error: { code: "usage_limit_exceeded", message: "You've hit your usage limit." } });
+    const { proxy: holding, bodies } = holdingProxy((async () =>
+      new Response(quota, { status: 400, headers: { "content-type": "application/json" } })) as typeof fetch);
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(bodies).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect(capacityCooldowns).toEqual([{ accountId: "acct-1", durationMs: 60 * 60_000, failureCode: "usage_limit_exceeded" }]);
+  });
+
+  test("stops holding once the capacity hold budget is spent", async () => {
+    const { proxy: holding, bodies } = holdingProxy((async () =>
+      new Response(capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch, {
+      capacityHoldBudgetMs: 5 * 60_000,
+    });
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(bodies.length).toBeGreaterThan(2);
+    expect(clock).toBeLessThanOrEqual(5 * 60_000);
+  });
+
+  test("never replays a stream once output has reached the client", async () => {
+    const { proxy: holding, bodies } = holdingProxy((async () =>
+      new Response(outputEvent + capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch);
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("at capacity");
+    expect(bodies).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+});
+
 describe("codex models proxy outcomes", () => {
   test("reports provider unavailable when upstream headers time out", async () => {
     let selected = false;
@@ -823,40 +994,25 @@ describe("codex responses proxy VM-bound route tokens", () => {
     expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 
-  test("a bound token without x-cmux-vm-id is rejected as vm_mismatch", async () => {
-    accountsToServe = [{ id: "acct-1", sticky: false }];
-    const capture = spyOn(analytics, "captureCoderouterEvent");
-    try {
-      const response = await proxy(edgeRequest({
-        "x-coderouter-route-token": BOUND_TOKEN,
-      }));
-      expect(response.status).toBe(401);
-      const body = await response.json() as { error: string; message: string };
-      expect(body.error).toBe("unauthorized");
-      expect(body.message).toBe(
-        "This machine's coderouter credential does not match the machine it was issued to.",
-      );
-      expect(selectInputs).toHaveLength(0);
-      const rejection = capture.mock.calls
-        .map((call) => call[0])
-        .find((event) => event.event === "coderouter_auth_rejected");
-      expect(rejection?.properties).toEqual({
-        surface: "responses",
-        reason: "vm_mismatch",
-      });
-    } finally {
-      capture.mockRestore();
-    }
-  });
-
-  test("a bound token with another machine's x-cmux-vm-id is rejected", async () => {
+  test("a signed token without x-cmux-vm-id uses its VM claim", async () => {
     accountsToServe = [{ id: "acct-1", sticky: false }];
     const response = await proxy(edgeRequest({
-      "x-coderouter-route-token": BOUND_TOKEN,
+      authorization: `Bearer ${BOUND_TOKEN}`,
+    }));
+    expect(response.status).toBe(200);
+    expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a signed token ignores a forged x-cmux-vm-id", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({
+      authorization: `Bearer ${BOUND_TOKEN}`,
       "x-cmux-vm-id": "vm-2",
     }));
-    expect(response.status).toBe(401);
-    expect(selectInputs).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 
   test("a VM header cannot substitute an unbound token", async () => {

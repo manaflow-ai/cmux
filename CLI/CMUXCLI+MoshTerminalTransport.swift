@@ -24,7 +24,8 @@ extension CMUXCLI {
         options: SSHCommandOptions,
         remoteBootstrapScript: String?,
         localCommandScript: String?,
-        sshFallbackCommand: String
+        sshFallbackCommand: String,
+        sshFallbackLauncherPaths: [String] = []
     ) -> String {
         var invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
         // Mosh owns terminal allocation; the already-built direct SSH fallback
@@ -70,6 +71,7 @@ extension CMUXCLI {
             preparationShellScript: preparationShellScript,
             managementReadyShellScript: localCommandScript,
             sshFallbackCommand: sshFallbackCommand,
+            sshFallbackLauncherPaths: sshFallbackLauncherPaths,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",
                 defaultValue: "[cmux] Mosh is not installed locally; continuing over SSH."

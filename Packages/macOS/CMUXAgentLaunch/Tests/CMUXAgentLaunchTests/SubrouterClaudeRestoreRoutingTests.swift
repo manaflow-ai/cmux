@@ -13,6 +13,7 @@ struct SubrouterClaudeRestoreRoutingTests {
     private let marker = "sr claude proxy --resume"
     private let markerKey = "SUBROUTER_CLAUDE_RESUME_COMMAND"
     private let launchBoundMarkerKey = "CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND"
+    private let accountKey = "CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT"
     private let localPoolBaseURL = "http://127.0.0.1:31415/v1"
     private let capturedClaude = "/opt/homebrew/bin/claude"
     private let capturedConfigDir = "/Users/me/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a"
@@ -156,6 +157,72 @@ struct SubrouterClaudeRestoreRoutingTests {
             #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == nil)
             #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "claude:\(sessionID)")
         }
+    }
+
+    /// The pin recorded for the launch itself holds when the launcher argv
+    /// cannot be split from what it forwarded (a routed launcher that appends
+    /// arguments after the forwarded tail leaves no launcher prefix), and wins
+    /// over a prefix that names another account.
+    @Test("The recorded account pin survives without a launcher prefix and wins over one")
+    func recordedAccountPinSurvivesWithoutLauncherPrefix() throws {
+        for launcherPrefix in [nil, ["sr", "claude", "proxy", "--account", "stale@example.com"]] {
+            var environment = routedLaunchEnvironment(baseURL: localPoolBaseURL)
+            environment[accountKey] = "me@example.com"
+            let request = resumeRequest(environment: environment, launcherPrefix: launcherPrefix)
+
+            let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+                for: request,
+                ambientEnvironment: ambientEnvironment
+            ))
+
+            #expect(
+                invocation.arguments == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", sessionID, "--model", "opus"],
+                "\(invocation.arguments)"
+            )
+            // The pin is launch metadata, never replayed into the environment.
+            #expect(invocation.environment[accountKey] == nil)
+        }
+    }
+
+    @Test(
+        "A recorded account that could read as an option or carry shell text is not a pin",
+        arguments: ["", "--print", "me@example.com; rm -rf /", "me example", "me\nnext"]
+    )
+    func unusableRecordedAccountIsIgnored(account: String) throws {
+        var environment = routedLaunchEnvironment(baseURL: localPoolBaseURL)
+        environment[accountKey] = account
+        let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+            for: resumeRequest(environment: environment),
+            ambientEnvironment: ambientEnvironment
+        ))
+
+        #expect(
+            invocation.arguments == ["sr", "claude", "proxy", "--resume", sessionID, "--model", "opus"],
+            "\(invocation.arguments)"
+        )
+    }
+
+    /// The hook records the pin into the durable launch environment, and a
+    /// replayed resume command never carries it.
+    @Test("The recorded account pin is kept as restore metadata and dropped from replay")
+    func recordedAccountPinIsRestoreMetadataOnly() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let captured = [
+            accountKey: "me@example.com",
+            "ANTHROPIC_BASE_URL": localPoolBaseURL,
+        ]
+        #expect(policy.selectedRestoreEnvironment(from: captured, kind: "claude")[accountKey] == "me@example.com")
+        #expect(policy.selectedRestoreEnvironment(from: captured, kind: "codex")[accountKey] == nil)
+        #expect(policy.selectedRestoreEnvironment(
+            from: [accountKey: "--print"],
+            kind: "claude"
+        )[accountKey] == nil)
+        #expect(policy.selectedReplayEnvironment(
+            from: captured,
+            kind: "claude",
+            launcher: "claude",
+            arguments: ["claude"]
+        )[accountKey] == nil)
     }
 
     /// Only the account pin is carried over: a prompt, `--settings`, or
@@ -372,7 +439,7 @@ struct SubrouterClaudeRestoreRoutingTests {
         let request = resumeRequest(
             environment: [
                 "ANTHROPIC_BASE_URL": localPoolBaseURL,
-                "CLAUDE_CONFIG_DIR": "/Users/daniel/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a",
+                "CLAUDE_CONFIG_DIR": "/Users/dev/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a",
             ]
         )
 
@@ -386,8 +453,8 @@ struct SubrouterClaudeRestoreRoutingTests {
         #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == nil)
     }
 
-    @Test("When sr cannot be resolved on the restore PATH the plain replay is kept")
-    func missingLauncherOnPathKeepsThePlainReplay() throws {
+    @Test("When sr cannot be resolved on the restore PATH the restore fails instead of replaying plain claude")
+    func missingLauncherOnPathRefusesThePlainReplay() throws {
         let request = resumeRequest(
             environment: routedLaunchEnvironment(
                 baseURL: localPoolBaseURL,
@@ -397,14 +464,14 @@ struct SubrouterClaudeRestoreRoutingTests {
         )
         let planner = AgentRestorePlanner(isExecutableFile: { $0 == "/shim/claude" })
 
-        let invocation = try #require(planner.invocation(
+        // A plain `claude --resume` without Subrouter's private settings starts
+        // "Not logged in"; the caller must report the missing launcher instead.
+        #expect(planner.invocation(for: request, ambientEnvironment: ambientEnvironment) == nil)
+        #expect(planner.missingRoutedLauncher(for: request, ambientEnvironment: ambientEnvironment) == "sr")
+        #expect(plannerWithSubrouterOnPath().missingRoutedLauncher(
             for: request,
             ambientEnvironment: ambientEnvironment
-        ))
-
-        expectPlainClaudeReplay(invocation, baseURL: localPoolBaseURL, "sr missing")
-        // The fallback is reported, so the user knows why the session is not routed.
-        #expect(invocation.notices == [.routedLauncherUnavailable(executable: "sr")])
+        ) == nil)
     }
 
     @Test("A cmux launcher such as claude-teams is never rerouted through Subrouter")

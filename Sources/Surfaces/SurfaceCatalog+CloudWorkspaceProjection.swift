@@ -34,15 +34,39 @@ extension SurfaceCatalog {
     func currentCloudWorkspace(_ group: SurfaceResourceGroup) throws -> (group: SurfaceResourceGroup, layout: SurfaceProjectionLayout?)? {
         if let workspaceID = group.remoteWorkspaceID, let machine = group.placements.first?.resource.machine {
             try checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+            // A resource can retain its last remote placement while the
+            // machine graph has already removed the workspace. Never reopen
+            // that stale identity from resource rows alone.
+            guard let info = snapshot.machines.first(where: { $0.id == machine }),
+                  info.remoteWorkspaces?.contains(where: { $0.id == workspaceID }) == true else {
+                return nil
+            }
+            if let state = cloudStates[machine],
+               cloudStateObservations[machine]?.freshness == .current,
+               !state.workspaceIDs.contains(workspaceID) {
+                return nil
+            }
         }
         guard group.representsWorkspace, let workspaceID = group.remoteWorkspaceID,
               let machine = group.placements.first?.resource.machine,
-              !machine.isLocal, cloudStates[machine] != nil,
+              publishesRemoteWorkspaceGraph(machine),
               group.placements.allSatisfy({ $0.resource.machine == machine }) else { return nil }
         return (
             try remoteWorkspaceGroup(machine: machine, workspaceID: workspaceID),
             cloudWorkspaceLayout(machine: machine, workspaceID: workspaceID)
         )
+    }
+
+    /// Whether a workspace row on `machine` can be re-resolved from the
+    /// catalog's graph. A Cloud VM has one once its state is installed. Another
+    /// Mac never installs a Cloud state: its registered device provider mirrors
+    /// that Mac's workspaces straight into the catalog rows, and those rows are
+    /// the graph. Requiring a Cloud state here made every device workspace row
+    /// open resolve to nothing.
+    private func publishesRemoteWorkspaceGraph(_ machine: SurfaceMachineID) -> Bool {
+        if machine.isLocal { return false }
+        if machine.isDevice { return provider(for: machine) != nil }
+        return cloudStates[machine] != nil
     }
 
     /// A newly opened/restored pane immediately receives the already accepted

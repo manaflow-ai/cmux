@@ -48,6 +48,21 @@ struct CodexHookScriptNameTests {
         }
     }
 
+    @Test(
+        "Shell command paths quote line terminators",
+        arguments: [
+            "/tmp/cmux-codex-hook-0123456789abcdef-stop.sh\n",
+            "/tmp/cmux-codex-hook-0123456789abcdef-stop.sh\r",
+            "/tmp/cmux-codex-hook-0123456789abcdef-stop.sh\r\n",
+            "/tmp/hooks\n/cmux-codex-hook-0123456789abcdef-stop.sh",
+        ]
+    )
+    func shellCommandPathsQuoteLineTerminators(path: String) {
+        let command = CodexHookScriptName.shellCommand(forScriptPath: path)
+        #expect(command == "'\(path)'")
+        #expect(CodexHookScriptName.scriptPath(fromShellCommand: command) == path)
+    }
+
     @Test("Shell command parser rejects malformed compound commands")
     func shellCommandParserRejectsMalformedCompoundCommands() {
         #expect(

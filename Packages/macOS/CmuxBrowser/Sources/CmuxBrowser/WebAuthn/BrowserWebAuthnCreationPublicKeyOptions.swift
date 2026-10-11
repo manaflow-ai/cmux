@@ -34,13 +34,6 @@ extension BrowserWebAuthnCreationPublicKeyOptions {
         try challenge.validateByteCount(BrowserWebAuthnRequestParser.challengeByteRange)
         try rp?.validateNativeRequestShape()
         try user.validateNativeRequestShape()
-        guard pubKeyCredParams.count <= BrowserWebAuthnRequestParser.maximumCredentialParameters else {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-        for parameter in pubKeyCredParams {
-            try parameter.validateNativeRequestShape()
-        }
-
         let excludedCredentials = excludeCredentials ?? []
         guard excludedCredentials.count <= BrowserWebAuthnRequestParser.maximumCredentialDescriptors else {
             throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
@@ -48,8 +41,5 @@ extension BrowserWebAuthnCreationPublicKeyOptions {
         for descriptor in excludedCredentials {
             try descriptor.validateNativeRequestShape()
         }
-
-        try authenticatorSelection?.validateNativeRequestShape()
-        try attestation.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
     }
 }

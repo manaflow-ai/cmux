@@ -5,7 +5,7 @@ extension SurfaceCatalog.NewWorkspaceHost {
     @MainActor
     init(tabManager: TabManager) {
         self = .appOptimistic
-        create = { [weak tabManager] title in
+        create = { [weak tabManager] title, _ in
             guard let tabManager,
                   let workspace = tabManager.addWorkspaceIfActive(
                     title: title, titleSource: .auto, initialSurface: .cloudVMLoading,

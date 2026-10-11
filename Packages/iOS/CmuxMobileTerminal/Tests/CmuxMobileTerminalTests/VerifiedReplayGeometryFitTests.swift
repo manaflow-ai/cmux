@@ -69,7 +69,11 @@ struct VerifiedReplayGeometryFitTests {
         #expect(rendered.rows == targetRows)
     }
 
-    @Test("verified replay waits for a larger grid to fit, then resolves it exactly")
+    /// A shared grid larger than the phone renders at the exact grid and is
+    /// displayed scaled to fit (`TerminalGridFitMode.scaledToFit`), so the
+    /// replay fence resolves at once instead of waiting for the viewport to
+    /// grow; growing the viewport keeps the exact grid.
+    @Test("verified replay renders a larger grid exactly before and after the viewport grows")
     func verifiedReplayFitsOneColumnLargerAfterViewportGrowth() async throws {
         let runtime = try GhosttyRuntime.shared()
         let delegate = Delegate()
@@ -112,7 +116,7 @@ struct VerifiedReplayGeometryFitTests {
         )
         let beforeGrowth = try #require(view.debugGeometrySnapshotForTesting().renderedSize)
 
-        #expect(appliedBeforeGrowth && beforeGrowth.columns == natural.columns)
+        #expect(appliedBeforeGrowth && beforeGrowth.columns == targetColumns)
 
         growViewportByOneColumn(
             view: view,

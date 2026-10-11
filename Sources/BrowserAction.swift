@@ -15,6 +15,7 @@ enum BrowserAction {
     case showJavaScriptConsole
     case toggleReactGrab
     case toggleDesignMode(reason: String)
+    case toggleKeepPageActive
     case zoomIn
     case zoomOut
     case resetZoom

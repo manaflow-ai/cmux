@@ -163,24 +163,34 @@ final class CmuxMainWindow: NSWindow {
         if inLiveResize {
             recordUserPlacement()
         }
-        guard !styleMask.contains(.fullScreen) else {
-            super.setFrame(frameRect, display: flag)
-            return
-        }
+        super.setFrame(frameWithinSizePolicy(frameRect), display: flag)
+    }
+
+    /// The animating variant is a separate entry point that does not route
+    /// through `setFrame(_:display:)`, so without this override display
+    /// placement, UI-test placement and automation could size the window
+    /// below the layout floor. Content that cannot shrink with it then
+    /// overflows the window, and a pane laid out past the window edge ends
+    /// at 0x0.
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+        super.setFrame(frameWithinSizePolicy(frameRect), display: displayFlag, animate: animateFlag)
+    }
+
+    /// Caps a proposed frame to the display union and raises it to the
+    /// minimum content size. Full screen frames belong to the system.
+    private func frameWithinSizePolicy(_ frameRect: NSRect) -> NSRect {
+        guard !styleMask.contains(.fullScreen) else { return frameRect }
         let capped = Self.frameByCappingOversizedDimensions(
             frameRect,
             displayFrames: NSScreen.screens.map {
                 (frame: $0.frame, visibleFrame: $0.visibleFrame)
             }
         )
-        super.setFrame(
-            Self.frameByRaisingUndersizedDimensions(
-                capped,
-                minimumSize: Self.minimumContentSize,
-                currentFrame: frame,
-                isLiveResize: inLiveResize
-            ),
-            display: flag
+        return Self.frameByRaisingUndersizedDimensions(
+            capped,
+            minimumSize: Self.minimumContentSize,
+            currentFrame: frame,
+            isLiveResize: inLiveResize
         )
     }
 
@@ -308,9 +318,8 @@ final class CmuxMainWindow: NSWindow {
     ///
     /// Declaring `.fullScreenPrimary` here makes native fullscreen reachable
     /// regardless of the OS's implicit default. It is idempotent where AppKit
-    /// would have granted it anyway. `.fullScreenDisallowsTiling` is also set
-    /// permanently so macOS Full Screen Tile does not trap cmux in a managed
-    /// tile Space that breaks Mission Control and horizontal Space swipes.
+    /// would have granted it anyway. Fullscreen tiling is controlled by the
+    /// window creation path when a window is spawned from native fullscreen.
     override init(
         contentRect: NSRect,
         styleMask: NSWindow.StyleMask,
@@ -333,9 +342,8 @@ final class CmuxMainWindow: NSWindow {
 
     /// Returns `base` guaranteed to carry `.fullScreenPrimary` (and never
     /// `.fullScreenNone`) so a cmux main window can always enter a native
-    /// fullscreen Space, plus `.fullScreenDisallowsTiling` so AppKit does not
-    /// route the window into macOS Full Screen Tile. Pure and `nonisolated` so
-    /// it can be unit-tested without constructing a window; see
+    /// fullscreen Space. Pure and `nonisolated` so it can be unit-tested
+    /// without constructing a window; see
     /// ``init(contentRect:styleMask:backing:defer:)`` for why declaring the
     /// capability explicitly is required.
     nonisolated static func canonicalCollectionBehavior(
@@ -347,7 +355,6 @@ final class CmuxMainWindow: NSWindow {
         // suppressed.
         behavior.remove(.fullScreenNone)
         behavior.insert(.fullScreenPrimary)
-        behavior.insert(.fullScreenDisallowsTiling)
         return behavior
     }
 

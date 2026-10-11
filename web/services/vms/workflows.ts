@@ -1,3 +1,4 @@
+import { compileNetworkPolicy, storedNetworkPolicy, type NetworkPolicy, type NetworkRulePlan } from "./networkPolicy";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
@@ -6,6 +7,7 @@ import {
   shouldReadVmResourceStatsDirectly,
 } from "./resourceUsage";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
 import * as Exit from "effect/Exit";
@@ -15,13 +17,20 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import type { CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, type CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
   AttachOptions,
   ExecResult,
+  VMFileContents,
+  VMFileEntry,
+  VMFileStat,
+  VMFirewallEndpoint,
+  VMFirewallRule,
+  VMFirewallRuleInput,
   ProviderId,
+  SnapshotRef,
   SSHEndpoint,
   VmEdgeRule,
   VMHandle,
@@ -45,6 +54,7 @@ import {
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   VM_RESOURCE_FORK_PENDING_METADATA_KEY,
+  VM_RESOURCE_RESERVATION_METADATA_KEY,
   hasVmResourceReservationMetadata,
   vmResourceReconcileRetryFromMetadata,
   vmResourceReservationForCreate,
@@ -53,6 +63,7 @@ import {
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
   vmProviderResourceSize,
+  type VmComputeResources,
   type VmResourceReservation,
   type VmResourceResizePending,
   type VmResourceResizeUnconfirmed,
@@ -67,6 +78,10 @@ import {
   VmCreateInProgressError,
   VmDatabaseError,
   VmFreeAccessExpiredError,
+  VmFileNotFoundError,
+  VmFirewallRuleNotFoundError,
+  VmFirewallRuleInvalidError,
+  VmFirewallRuleLimitError,
   VmModelPlaneError,
   VmNotFoundError,
   VmResizeInvalidError,
@@ -74,12 +89,16 @@ import {
   VmResizeInProgressError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
+  VmPrivateNetworkUnavailableError,
   VmSnapshotNotFoundError,
+  VmSnapshotInProgressError,
+  VmSnapshotIdempotencyConflictError,
   VmUsageLimitExceededError,
   VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
+  isVmResourcePoolExceededError,
   isVmModelPlaneError,
   type VmWorkflowError,
 } from "./errors";
@@ -90,12 +109,17 @@ import {
   maxDiskMbForPlan,
   maxMemoryMbForPlan,
   maxVcpusForPlan,
+  legacyPoolReservationForPlan,
+  resourcePoolPolicyForPlan,
+  VM_PLAN_MEMORY_MB_PER_VCPU,
   vmFreeAccessWindowDays,
+  type VmResourcePoolPolicy,
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -103,9 +127,10 @@ import {
   VM_CREATE_ABANDONED_AFTER_MS,
   VM_PREVIEW_LEASE_RETENTION_MS,
 } from "./operationTimeouts";
-import { withVmProductAnalytics } from "./productAnalytics";
+import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
+  OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -120,11 +145,16 @@ import {
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
+  type VmObservedDestroyCleanup,
+  type VmObservedDestroyCleanupCandidate,
+  type VmObservedDestroyCleanupStep,
   type VmResizeReservation,
   type VmUsageEventInput,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
+import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
 
 export {
   homeVolumeNameForUser,
@@ -134,19 +164,23 @@ export {
 export {
   deletePrivateNetworkingForAccountDeletion,
   enrollVmTunnel,
+  attachVmTunnelNetwork,
+  detachVmTunnelNetwork,
   isWireGuardPublicKey,
   listVmTunnels,
   listVmAccessGrants,
   networkSlugForUser,
   networkSlugForTeam,
   readVmTunnel,
+  reapStaleVmTunnels,
   renameVmAccessGrant,
   resolveOwnerNetwork,
   revokeVmAccessGrant,
   revokeVmTunnel,
+  rotateVmTunnelKey,
   tunnelSlugForDevice,
 } from "./privateNetwork";
-export type { VmTunnelDescriptor } from "./privateNetwork";
+export type { VmTunnelDescriptor, VmTunnelReapResult } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
@@ -167,6 +201,20 @@ export type VmEntry = {
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
+  /**
+   * The account that made the machine. A team's list is scoped by owner team,
+   * not by member, so without this a shared account is a pile of generated
+   * names with no way to tell whose is whose. It is an opaque id; the name to
+   * show for it comes from `services/vms/creators.ts`. Never null:
+   * `cloud_vms.user_id` is NOT NULL and has been there since the table was
+   * created (20260425062520_keen_kronos).
+   */
+  readonly createdByUserId: string;
+  /**
+   * The team that owns the machine, or the creator's own id for a personal
+   * machine. Creator names resolve only for current members of this team.
+   */
+  readonly ownerTeamId: string;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -177,6 +225,14 @@ export type VmEntry = {
    * carry it and New Machine skips the separate attach request.
    */
   readonly cmuxTuiContract: string | null;
+  /** Coding agents: "image" keeps the baked pins, "latest" updates them on attach. */
+  readonly agentUpdates: VmAgentUpdatesSetting;
+  /**
+   * The machine's recorded share of the shared vCPU/memory pool, or null for a
+   * legacy row without a valid reservation marker (the pool conservatively
+   * reserves the provider maximum until reconciliation measures it).
+   */
+  readonly resourceReservation?: VmComputeResources | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -234,6 +290,8 @@ const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
 const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
 const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
 const CREATE_CLEANUP_BATCH_LIMIT = 20;
+const OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT = 20;
+const OBSERVED_DESTROY_CLEANUP_TIMEOUT = "15 seconds";
 const ABANDONED_CREATE_BATCH_LIMIT = 20;
 const ABANDONED_CREATE_CONCURRENCY = 4;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
@@ -336,6 +394,8 @@ export function getVm(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Revokes coderouter tokens when this read is what finds the machine gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -353,12 +413,13 @@ export function getVm(input: {
       ),
     );
     if (providerStatus !== "creating") {
-      const dbStatus = observedDbStatus(vm, providerStatus);
+      const dbStatus = observedDbStatus(providerStatus);
       if (dbStatus !== vm.status) {
-        const didUpdate = yield* repo.markProviderObservedStatus({
-          id: vm.id,
+        const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
           providerVmId,
-          status: dbStatus,
+          providerStatus,
+          usageEventSource: "provider_status_read",
+          modelPlane: input.modelPlane,
         });
         if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
       }
@@ -402,6 +463,9 @@ export function renameVm(input: {
  * Detach tunnels from team networks their owner no longer belongs to. Freestyle
  * is the record of both the team networks (found by slug) and their attached
  * tunnels; candidate teams come from the live machines billed to them.
+ *
+ * This is the backstop. The Stack webhook (`app/api/webhooks/stack`) detaches
+ * a removed member at once; this pass catches missed or failed deliveries.
  */
 function reconcileTeamTunnelAttachments(
   repo: VmRepositoryShape,
@@ -419,15 +483,15 @@ function reconcileTeamTunnelAttachments(
       const membersResult = yield* listTeamMemberIdsWithTimeout(directory, owner.teamId, timeoutMs);
       if ("error" in membersResult) return;
       const members = membersResult.memberIds ? new Set(membersResult.memberIds) : null;
-      const tunnelIds = yield* providers.listNetworkTunnelIds!(owner.provider, network.id);
-      const rows = yield* repo.findTunnelsByProviderTunnelIds!(owner.provider, tunnelIds);
-      for (const row of rows) {
-        // Tunnels with no row are skipped: the provider account can hold
-        // tunnels another environment issued.
-        const remove = members === null || row.revokedAt !== null || !members.has(row.userId);
-        if (!remove) continue;
-        yield* providers.detachTunnelNetwork!(owner.provider, row.providerTunnelId, network.id).pipe(Effect.catchAll(() => Effect.void));
-      }
+      // Tunnels with no row are skipped inside detachNetworkTunnels; failed
+      // detaches are retried by the next run.
+      yield* detachNetworkTunnels({
+        repo: { findTunnelsByProviderTunnelIds: repo.findTunnelsByProviderTunnelIds! },
+        providers: { listNetworkTunnelIds: providers.listNetworkTunnelIds!, detachTunnelNetwork: providers.detachTunnelNetwork! },
+        provider: owner.provider,
+        networkId: network.id,
+        select: (row) => members === null || row.revokedAt !== null || !members.has(row.userId),
+      });
     }).pipe(Effect.catchAll(() => Effect.void));
   return Effect.gen(function* () {
     const startedAt = now();
@@ -488,6 +552,12 @@ export function reconcileVmProviderStatuses(input: {
       // the five-minute cron budget while leaving time for status probes.
       limit: Math.min(boundedVmStatusReconcileLimit(input.limit), CREATE_CLEANUP_BATCH_LIMIT),
     });
+    yield* reconcileObservedDestroyCleanups(
+      repo,
+      providers,
+      input.modelPlane,
+      boundedVmStatusReconcileLimit(input.limit),
+    );
     const getStatus = providers.getStatus;
     if (!getStatus) {
       return {
@@ -504,7 +574,7 @@ export function reconcileVmProviderStatuses(input: {
     });
     const outcomes = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
+      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
     // Network heal moved here from the create path: re-create the members
@@ -704,6 +774,126 @@ export function machineOwnedHomeVolume(
   return providerVmId && homeVolume === `${sharedName}-${providerVmId}` ? homeVolume : null;
 }
 
+type PendingObservedDestroyCleanup = {
+  readonly modelPlane?: true;
+  readonly homeVolume?: string;
+};
+
+function observedDestroyCleanupFromMetadata(
+  metadata: Readonly<Record<string, unknown>> | null,
+): PendingObservedDestroyCleanup | null {
+  const raw = metadata?.[OBSERVED_DESTROY_CLEANUP_METADATA_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const marker = raw as Record<string, unknown>;
+  const modelPlane = marker.modelPlane === true ? true : undefined;
+  const homeVolume = marker.homeVolume;
+  const normalizedHomeVolume = typeof homeVolume === "string" && homeVolume.length > 0
+    ? homeVolume
+    : undefined;
+  if (!modelPlane && !normalizedHomeVolume) return null;
+  return {
+    ...(modelPlane ? { modelPlane } : {}),
+    ...(normalizedHomeVolume ? { homeVolume: normalizedHomeVolume } : {}),
+  };
+}
+
+function completeObservedDestroyCleanupStep(
+  repo: VmRepositoryShape,
+  vmId: string,
+  step: VmObservedDestroyCleanupStep,
+): Effect.Effect<void, never> {
+  const complete = repo.completeObservedDestroyCleanup;
+  if (!complete) return Effect.void;
+  return complete({ id: vmId, step }).pipe(
+    Effect.asVoid,
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] could not acknowledge observed-destroy ${step} cleanup for ${vmId}`, errorMessage(err));
+      })
+    ),
+  );
+}
+
+function deferObservedDestroyCleanupStep(
+  repo: VmRepositoryShape,
+  vmId: string,
+  step: VmObservedDestroyCleanupStep,
+): Effect.Effect<void, never> {
+  const defer = repo.deferObservedDestroyCleanup;
+  if (!defer) return Effect.void;
+  return defer({ id: vmId, step }).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
+/**
+ * Drain transactionally-recorded cleanup after a provider-observed destroy.
+ * Both side effects are idempotent, so a crash after the side effect but
+ * before its acknowledgement is safe: the terminal-row reconciler repeats it.
+ */
+function drainObservedDestroyCleanup(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  modelPlane: VmModelPlaneRevoker | undefined,
+  vm: VmObservedDestroyCleanupCandidate,
+  cleanup: PendingObservedDestroyCleanup,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    if (cleanup.modelPlane) {
+      const revoked = modelPlane
+        ? yield* attemptModelPlaneRevoke(modelPlane, vm.id)
+        : false;
+      if (revoked) yield* completeObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
+      else yield* deferObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
+    }
+    if (cleanup.homeVolume && providers.deleteHomeVolume) {
+      const deleted = yield* providers.deleteHomeVolume(vm.provider, cleanup.homeVolume).pipe(
+        Effect.timeoutFail({
+          duration: OBSERVED_DESTROY_CLEANUP_TIMEOUT,
+          onTimeout: () => new Error("observed-destroy volume cleanup deadline"),
+        }),
+        Effect.as(true),
+        Effect.catchAll((err) => isProviderDeletionConfirmed(err)
+          ? Effect.succeed(true)
+          : Effect.sync(() => {
+            console.error(
+              `[vm] observed-destroy home volume cleanup failed for ${vm.id} (${cleanup.homeVolume})`,
+              errorMessage(err.cause),
+            );
+            return false;
+          })
+        ),
+      );
+      if (deleted) yield* completeObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+      else yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+    } else if (cleanup.homeVolume) {
+      yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+    }
+  });
+}
+
+function reconcileObservedDestroyCleanups(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  modelPlane: VmModelPlaneRevoker | undefined,
+  limit: number,
+): Effect.Effect<void, never> {
+  const listCandidates = repo.observedDestroyCleanupCandidates;
+  if (!listCandidates) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({
+      limit: Math.min(limit, OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT),
+    }).pipe(Effect.catchAll(() => Effect.succeed([] as VmObservedDestroyCleanupCandidate[])));
+    yield* Effect.forEach(candidates, (vm) => {
+      const cleanup = observedDestroyCleanupFromMetadata(vm.providerMetadata);
+      return cleanup
+        ? drainObservedDestroyCleanup(repo, providers, modelPlane, vm, cleanup)
+        : Effect.void;
+    }, { concurrency: 4, discard: true });
+  });
+}
+
 /**
  * Best-effort provider rollback of a just-created machine the workflow could
  * not finalize: the sandbox, and any per-machine home volume the create
@@ -745,24 +935,133 @@ function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boole
 }
 
 /** Check the copied or requested shape before provisioning side effects. */
-function requireMemoryPlan(planId: string, memoryMb: number | null) {
+function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: number | null = null) {
   const maxMemoryMb = maxMemoryMbForPlan(planId);
-  if (memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb) {
-    return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
+  const maxVcpus = maxVcpusForPlan(planId);
+  const memoryFromVcpus = vcpus === null ? 0 : vcpus * VM_PLAN_MEMORY_MB_PER_VCPU;
+  const exceedsMemory = memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb;
+  const exceedsVcpus = vcpus !== null && vcpus > maxVcpus;
+  if (exceedsMemory || exceedsVcpus) {
+    return Effect.fail(new VmMemoryPlanError({
+      planId,
+      memoryMb: memoryMb === null
+        ? (vcpus === null ? null : memoryFromVcpus)
+        : Math.max(memoryMb, memoryFromVcpus),
+      maxMemoryMb,
+    }));
   }
   return Effect.void;
 }
 
+/** Read a provider's durable CPU, memory, and disk reservation for a VM. */
+function measureMachineReservation(
+  providers: VmProviderGatewayShape,
+  vm: Pick<CloudVmRow, "provider" | "providerVmId">,
+  providerVmId: string,
+): Effect.Effect<VmResourceReservation, VmWorkflowError> {
+  if (!providers.getStats) {
+    return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "getStats" }));
+  }
+  return providers.getStats(vm.provider, vm.providerVmId ?? providerVmId).pipe(
+    Effect.timeoutFail({
+      duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
+      onTimeout: () => new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "getStats",
+        cause: new Error("provider stats timed out while checking the machine plan"),
+      }),
+    }),
+    Effect.flatMap((stats): Effect.Effect<VmResourceReservation, VmWorkflowError> => {
+      const memoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
+      const vcpus = vmProviderResourceSize("vcpus", stats.cpus);
+      if (memoryMb === null || vcpus === null) {
+        return Effect.fail(new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "getStats",
+          cause: new Error("provider returned incomplete machine dimensions while checking the plan"),
+        }));
+      }
+      const reservation = {
+        memoryMb,
+        vcpus,
+        diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? VM_DISK_MB_MAX,
+      } satisfies VmResourceReservation;
+      return Effect.succeed(reservation);
+    }),
+  );
+}
+
+/**
+ * Refresh a legacy row's reservation when possible while preserving access if
+ * the provider read or metadata write is unavailable. Existing rows are
+ * grandfathered, so this helper never applies the caller's current plan.
+ */
+function ensureExistingMachineReservation(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  existing: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<CloudVmRow, VmWorkflowError> {
+  if (hasVmResourceReservationMetadata(existing.providerMetadata)) {
+    return Effect.succeed(existing);
+  }
+  if (!providers.getStats) return Effect.succeed(existing);
+  return measureMachineReservation(providers, existing, providerVmId).pipe(
+    Effect.flatMap((reservation) => {
+      if (!repo.setResourceReservation) return Effect.succeed(existing);
+      return repo.setResourceReservation({ id: existing.id, reservation }).pipe(
+        Effect.map((persisted) => persisted
+          ? {
+            ...existing,
+            providerMetadata: {
+              ...(existing.providerMetadata ?? {}),
+              [VM_RESOURCE_RESERVATION_METADATA_KEY]: reservation,
+            },
+          }
+          : existing),
+      );
+    }),
+    // Measurement repairs accounting when it works, but a legacy machine
+    // stays grandfathered if the provider is slow or unavailable.
+    Effect.catchAll(() => Effect.succeed(existing)),
+  );
+}
+
+/** Return a completed idempotent create without touching request-time dependencies. */
+function existingCreateRetry(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  existing: CloudVmRow | null,
+  idempotencyKey: string | undefined,
+): Effect.Effect<VmEntry | null, VmWorkflowError> {
+  if (!existing || isFailedVmCreate(existing) || existing.status === "destroyed") return Effect.succeed(null);
+  if (!existing.providerVmId) {
+    return Effect.fail(new VmCreateInProgressError({ idempotencyKey: idempotencyKey ?? "" }));
+  }
+  return ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId).pipe(
+    Effect.map(vmEntryFromRow),
+  );
+}
+
+/** Return the largest memory request from the create inputs. */
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
   return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
 }
 
+/** Return the largest vCPU request from the create inputs. */
+function requestedCreateVcpus(input: { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }): number | null {
+  const vcpus = Math.max(input.imageSize?.cpu ?? 0, input.resourceReservation?.vcpus ?? 0);
+  return vcpus > 0 ? vcpus : null;
+}
+
 const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
+/** Enforce Go's fixed machine shape when a Go allocation is requested. */
 function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
   return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
     ? Effect.fail(new VmGoShapeError()) : Effect.void;
 }
 
+/** Read and reserve the caller's remaining Go runtime allowance. */
 function requireGoCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation">) {
   return Effect.gen(function* () {
     if (input.billingPlanId === "go") {
@@ -825,6 +1124,14 @@ type CreateVmInput = {
    * unwired machine.
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /**
+   * Outbound network policy chosen at create. Absent: full Internet. Stored on
+   * the row before the provider call and installed by the create itself, so a
+   * restricted machine is never briefly open.
+   */
+  readonly networkPolicy?: NetworkPolicy;
+  /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
+  readonly agentUpdates?: VmAgentUpdatesSetting;
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
@@ -837,27 +1144,57 @@ type CreateVmInput = {
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 };
 
-function createVmBeginInput(input: CreateVmInput): CreateVmInput {
-  if (!isPaidVmPlan(input.billingPlanId)) return input;
+/** Build the repository reservation and entitlement inputs for a new VM row. */
+function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Parameters<VmRepositoryShape["beginCreate"]>[0], "resourcePool" | "resourcePoolPhase" | "planMaxMemoryMb" | "planMaxVcpus"> {
+  const resourceReservation = input.resourceReservation ?? (input.billingPlanId === "go"
+    ? GO_VM_RESERVATION
+    : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize }));
   return {
     ...input,
     // Reserve the logical CPU and memory profile when memoryMb is present,
     // while retaining the baked image's actual disk claim. A direct caller
     // may instead provide only imageSize; in that form the image is the
     // authoritative request.
-    resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go"
-      ? GO_VM_RESERVATION
-      : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })),
+    resourceReservation,
+    planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
+    planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+    // The machine draws from the billing scope's shared vCPU/memory pool.
+    ...(isPaidVmPlan(input.billingPlanId)
+      ? {
+        resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+        resourcePoolPhase: input.origin === "fork" ? "fork" as const : "create" as const,
+      }
+      : {}),
   };
 }
 
+/** Forks and checkpoint restores both resume a live machine's memory image. */
+function resumesLiveMachine(origin: VmCreateOrigin | undefined): boolean {
+  return origin === "fork" || origin === "restore";
+}
+
+/** Create a VM while preserving completed idempotent results and plan gates. */
 export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+  // oxlint-disable-next-line complexity -- Create keeps idempotency, entitlement, credit, provider, and rollback ordering explicit.
   return Effect.gen(function* () {
-    const runtimeBudgetSeconds = yield* requireGoCreate(input);
-    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+    const idempotencyKey = input.idempotencyKey?.trim();
+    const existingRetry = idempotencyKey && repo.findCreateByIdempotencyKey
+      ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey })
+      : null;
+    const existingEntry = yield* existingCreateRetry(repo, providers, existingRetry, idempotencyKey);
+    if (existingEntry) return existingEntry;
+    let runtimeBudgetSeconds: number | undefined;
+    if (!existingRetry || isFailedVmCreate(existingRetry) || existingRetry.status === "destroyed") {
+      runtimeBudgetSeconds = yield* requireGoCreate(input);
+      yield* requireMemoryPlan(
+        input.billingPlanId,
+        requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }),
+        requestedCreateVcpus(input as { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }),
+      );
+    }
     // Record paid machine shapes for snapshot, fork, and resize recovery.
     const beginInput = createVmBeginInput(input);
 
@@ -907,8 +1244,17 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
         );
       }
-      return vmEntryFromRow(existing);
+      const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
+      return vmEntryFromRow(existingWithReservation);
     }
+
+    // A failed row may have become retryable between the preflight lookup and
+    // the insert transaction. Re-run create-only checks before provider I/O.
+    if (runtimeBudgetSeconds === undefined && input.billingPlanId === "go") {
+      runtimeBudgetSeconds = yield* requireGoCreate(input);
+    }
+
+    const networkRules = yield* recordCreateNetworkPolicy(repo, providers, input, create.vm.id);
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     // The requested-events write depends on nothing below, so it runs beside
@@ -956,6 +1302,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
         // blocking post-create rename on current backends.
@@ -971,6 +1318,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         memoryMb: input.memoryMb,
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
+        networkRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
@@ -1002,6 +1350,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
     );
+
+    yield* markCreateNetworkPolicyApplied(repo, input, create.vm.id);
 
     const running = yield* measureVmEffect(
       input.timing,
@@ -1051,6 +1401,11 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       yield* recordCreateSuccessEvents(repo, input, running);
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
+    // The create response carries the first connection, so openVmCmuxRemote
+    // never runs for it; start the opted-in updater here, after the response.
+    if (vmAgentUpdatesFromRow(running) === "latest") {
+      yield* scheduleGuestAgentUpdates(providers, running, "latest", input.deferAfterResponse);
+    }
 
     return vmEntryFromRow(running);
   });
@@ -1093,6 +1448,62 @@ function schedulePromptIdentityPush(
 }
 
 /**
+ * Tells the guest its coding-agent update setting and, for "latest", starts
+ * the detached updater (services/vms/guestAgentUpdates.ts). The exec only
+ * writes one file and forks, and it runs after the response, so neither
+ * attach nor a setting change waits on the guest or GitHub. A
+ * failure is logged and repaired by the next attach.
+ */
+function scheduleGuestAgentUpdates(
+  providers: VmProviderGatewayShape,
+  row: CloudVmRow,
+  setting: VmAgentUpdatesSetting,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void> {
+  const providerVmId = row.providerVmId;
+  if (!providerVmId) return Effect.void;
+  const push = Effect.suspend(() =>
+    providers.exec(row.provider, providerVmId, guestAgentUpdatesCommand(setting), {
+      timeoutMs: 10_000,
+      providerMetadata: row.providerMetadata,
+    })
+  ).pipe(
+    Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`agent updates exec exited ${result.exitCode}`))),
+    Effect.catchAllCause((cause) => Effect.logWarning("Cloud agent updates deferred until next attach", { vmId: row.id, cause })),
+  );
+  if (defer) {
+    defer(push);
+    return Effect.void;
+  }
+  return Effect.asVoid(Effect.forkDaemon(push));
+}
+
+/**
+ * Store a machine's coding-agent update setting. A running machine hears it
+ * right away (best effort, after the response); a paused one is not woken and
+ * picks it up on its next attach, which re-sends "latest" every time.
+ */
+export function setVmAgentUpdates(input: ExistingVmAccessInput & {
+  readonly agentUpdates: VmAgentUpdatesSetting;
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
+}): VmWorkflowProgram<VmEntry> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!repo.setAgentUpdates) {
+      return yield* Effect.fail(new VmDatabaseError({ operation: "setAgentUpdates", cause: new Error("repository cannot store agent updates") }));
+    }
+    yield* repo.setAgentUpdates({ id: vm.id, agentUpdates: input.agentUpdates });
+    const updated = { ...vm, agentUpdates: input.agentUpdates === "latest" ? "latest" as const : null, updatedAt: new Date() };
+    if (updated.status === "running") {
+      yield* scheduleGuestAgentUpdates(providers, updated, input.agentUpdates, input.deferAfterResponse);
+    }
+    return vmEntryFromRow(updated);
+  });
+}
+
+/**
  * Runs the injected model-plane provisioning for a row that now exists. The
  * gateway rejects with VmModelPlaneError; anything else is treated as
  * coderouter being unavailable so the row is marked with a retryable code.
@@ -1109,28 +1520,38 @@ function provisionModelPlane(
 }
 
 /**
- * Best-effort token revocation for a machine that is gone or never came up.
- * A failed revoke is logged, never fails the caller: the token stays bound to
- * a VM id no edge will ever inject again, so it is unusable anyway.
+ * Best-effort token revocation for create rollback paths. Terminal destroy
+ * transitions use attemptModelPlaneRevoke plus the durable cleanup marker
+ * instead, so a failure there remains retryable.
  */
 function revokeModelPlane(
   modelPlane: VmModelPlaneRevoker | undefined,
   cloudVmId: string,
 ): Effect.Effect<void> {
   if (!modelPlane) return Effect.void;
+  return attemptModelPlaneRevoke(modelPlane, cloudVmId).pipe(Effect.asVoid);
+}
+
+function attemptModelPlaneRevoke(
+  modelPlane: VmModelPlaneRevoker,
+  cloudVmId: string,
+): Effect.Effect<boolean, never> {
   return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
     Effect.timeoutFail({
       duration: MODEL_PLANE_REVOKE_TIMEOUT,
       onTimeout: () => new Error("model-plane revoke deadline"),
     }),
+    Effect.as(true),
     Effect.catchAll((err) =>
       Effect.sync(() => {
         console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
+        return false;
       })
     ),
   );
 }
 
+/** Open or create the account's Base VM under the requested plan. */
 export function openBaseVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1155,12 +1576,20 @@ export function openBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
-      }
-      : input;
+    const resourceReservation = input.billingPlanId === "go"
+      ? GO_VM_RESERVATION
+      : vmResourceReservationForCreate({ imageSize: input.imageSize });
+    const beginInput = {
+      ...input,
+      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
+      planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+      resourceReservation,
+      ...(isPaidVmPlan(input.billingPlanId)
+        ? {
+          resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+        }
+        : {}),
+    };
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_open",
@@ -1170,6 +1599,7 @@ export function openBaseVm(input: {
   });
 }
 
+/** Replace the account's Base generation after applying create-time gates. */
 export function resetBaseVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1186,6 +1616,7 @@ export function resetBaseVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
@@ -1193,12 +1624,17 @@ export function resetBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
-      }
-      : input;
+    const beginInput = {
+      ...input,
+      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
+      planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+      resourceReservation: input.billingPlanId === "go"
+        ? GO_VM_RESERVATION
+        : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+      ...(isPaidVmPlan(input.billingPlanId)
+        ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
+        : {}),
+    };
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_reset",
@@ -1208,6 +1644,7 @@ export function resetBaseVm(input: {
   });
 }
 
+/** Finish a Base allocation, including provider and billing cleanup paths. */
 function finishBaseCreate(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -1230,9 +1667,10 @@ function finishBaseCreate(
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
+  // oxlint-disable-next-line complexity -- Base retries keep provider recovery, plan checks, and billing cleanup in one ordered workflow.
   return Effect.gen(function* () {
     if (create.kind === "existing") {
-      const existing = create.vm;
+      let existing = create.vm;
       if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
@@ -1258,6 +1696,11 @@ function finishBaseCreate(
       if (replacement) {
         return yield* finishBaseCreate(repo, providers, billing, input, replacement);
       }
+      // Idempotent retries normally return the existing Base row without
+      // provisioning again. Existing oversized machines are grandfathered;
+      // the provider-deleted check above intentionally runs first so a
+      // missing machine can be replaced at the caller's current shape.
+      existing = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
     }
 
@@ -1265,6 +1708,7 @@ function finishBaseCreate(
     const creditReservation = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
+      baseGeneration: { baseId: create.base.id, generation: create.generation.generation },
     }, create.vm);
     yield* recordCreateRequestedEvents(repo, {
       ...input,
@@ -1283,6 +1727,35 @@ function finishBaseCreate(
       resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
+      ),
+    ).pipe(
+      // Unlike createVm, this runs after the credit is reserved, so the
+      // reservation has to go back. resolveOwnerNetwork resolves a shared
+      // network rather than creating one, so there is nothing to unwind there,
+      // but the base and its generation exist by now and markBaseCreateFailed
+      // is the mark on this path that releases them: the ad-hoc markCreateFailed
+      // does not call restoreBaseAfterCreateFailure.
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          recordCreateFailureAfterMark(repo, repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+            message: errorMessage(err),
+          }), {
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: "resolve_network", message: errorMessage(err) },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void)),
       ),
     );
 
@@ -1429,10 +1902,15 @@ function finishBaseCreate(
   });
 }
 
+/** Reopen a Base whose recorded provider machine was deleted externally. */
 function reopenBaseIfProviderDeleted(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
-  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink; readonly imageSize?: CreateOptions["imageSize"] },
+  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & {
+    readonly timing?: VmTimingSink;
+    readonly imageSize?: CreateOptions["imageSize"];
+    readonly modelPlane?: VmModelPlaneRevoker;
+  },
   create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
   existing: CloudVmRow,
   providerVmId: string,
@@ -1444,40 +1922,43 @@ function reopenBaseIfProviderDeleted(
     Effect.catchAll((err) =>
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
-          const markedDestroyed = yield* repo.markProviderObservedStatus({
-            id: existing.id,
+          // forceStatus, the one caller that overrides the mapping. Everywhere
+          // else a missing provider machine follows the shared observation
+          // mapping. Here the override makes the Base generation's terminal
+          // requirement explicit: beginBaseOpen below only allocates a
+          // replacement once this row can no longer be opened.
+          //
+          // The home volume is not lost by this. beginBaseOpen retains the old
+          // generation rather than deleting it, which is the same place a
+          // normal reset leaves it.
+          const markedDestroyed = yield* applyObservedProviderStatus(repo, providers, existing, {
             providerVmId,
-            status: "destroyed",
+            providerStatus: "destroyed",
+            forceStatus: "destroyed",
+            usageEventSource: "base_open_provider_missing",
+            modelPlane: input.modelPlane,
+            usageEventMetadata: {
+              baseName: input.baseName ?? "base",
+              generation: create.generation.generation,
+            },
           });
           if (!markedDestroyed) {
             return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
           }
-          yield* repo.recordUsageEvent({
-            userId: existing.userId,
-            billingTeamId: existing.billingTeamId,
-            billingPlanId: existing.billingPlanId,
-            vmId: existing.id,
-            eventType: "vm.destroyed",
-            provider: existing.provider,
-            imageId: existing.imageId,
-            vmCreatedAt: existing.createdAt,
-            metadata: {
-              source: "base_open_provider_missing",
-              baseName: input.baseName ?? "base",
-              generation: create.generation.generation,
-            },
-          }).pipe(Effect.catchAll(() => Effect.void));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
-            Effect.suspend(() => repo.beginBaseOpen(
-              isPaidVmPlan(input.billingPlanId)
-                ? {
-                  ...input,
-                  resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
-                }
-                : input,
-            )),
+            Effect.suspend(() => repo.beginBaseOpen({
+              ...input,
+              planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
+              planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+              resourceReservation: input.billingPlanId === "go"
+                ? GO_VM_RESERVATION
+                : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+              ...(isPaidVmPlan(input.billingPlanId)
+                ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
+                : {}),
+            })),
           );
         })
         : Effect.succeed(null)
@@ -1485,26 +1966,81 @@ function reopenBaseIfProviderDeleted(
   );
 }
 
+/**
+ * Hands bookkeeping the response does not depend on to `defer` (failures are
+ * dropped there, as the response already went out), else runs it inline.
+ */
+function afterResponseOrNow<E>(
+  work: Effect.Effect<void, E>,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void, E> {
+  if (!defer) return work;
+  return Effect.sync(() => defer(work.pipe(Effect.catchAll(() => Effect.void))));
+}
+
+/**
+ * A pending snapshot request older than this belongs to an attempt that died
+ * without finishing (the route budget is 600 s), so a retry may take it over.
+ */
+export const SNAPSHOT_REQUEST_STALE_MS = 15 * 60 * 1000;
+
 export function snapshotVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly name?: string;
+  /** Idempotency-Key of the request: a retry with the same key returns the first snapshot. */
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+  /**
+   * Runs the post-snapshot stats read and `vm.snapshot.created` ledger row
+   * after the response. A fork's copy does not depend on either, so they stay
+   * off its critical path; a plain checkpoint still records them inline.
+   */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    const snapshot = yield* (providers.snapshot
+    const key = input.idempotencyKey;
+    if (key) {
+      if (!repo.beginSnapshotRequest || !repo.finishSnapshotRequest) {
+        return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "snapshotIdempotency" }));
+      }
+      const begin = yield* repo.beginSnapshotRequest({
+        vmId: vm.id,
+        idempotencyKey: key,
+        name: input.name ?? null,
+        staleBefore: new Date(Date.now() - SNAPSHOT_REQUEST_STALE_MS),
+      });
+      if (begin.kind === "succeeded") return begin.snapshot;
+      if (begin.kind === "in_progress") return yield* Effect.fail(new VmSnapshotInProgressError({ vmId: vm.id }));
+      if (begin.kind === "conflict") return yield* Effect.fail(new VmSnapshotIdempotencyConflictError({ vmId: vm.id }));
+    }
+    const finish = repo.finishSnapshotRequest;
+    const takeSnapshot: Effect.Effect<SnapshotRef, VmProviderOperationError | VmOperationUnsupportedError> = providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
-      })));
+      }));
+    // A failed attempt frees the key so the same request can retry. The
+    // original error wins over a failure to free it.
+    const freeKey: Effect.Effect<void> = key && finish
+      ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "failed" } }))
+      : Effect.void;
+    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", Effect.tapError(takeSnapshot, () => freeKey));
+    if (key && finish) {
+      // The snapshot exists now. A failed write here leaves the row pending;
+      // a retry then waits for the stale window instead of failing this call.
+      yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
+    }
     // Read after the provider confirms the snapshot. Grow-only resizes that
     // finish during snapshot creation are then included in the captured claim;
     // a later resize can only make this conservative.
+    const recordCreated = Effect.gen(function* () {
     const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
         Effect.timeoutFail({
@@ -1540,6 +2076,8 @@ export function snapshotVm(input: {
         diskMb: snapshotReservation.diskMb,
       },
     });
+    });
+    yield* afterResponseOrNow(recordCreated, input.deferAfterResponse);
     return snapshot;
   });
 }
@@ -1713,6 +2251,7 @@ export function resumeVm(input: {
   readonly providerVmId: string;
   readonly maxActiveVms?: number | null;
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1732,7 +2271,7 @@ export function resumeVm(input: {
       vm,
       providerVmId,
       "user",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
   });
@@ -1754,9 +2293,10 @@ function snapshotResourceReservation(
 ): VmResourceReservation {
   const sourceReservation = vmResourceReservationFromMetadata(providerMetadata);
   if (!hasVmResourceReservationMetadata(providerMetadata)) {
+    const conservative = legacyPoolReservationForPlan(null);
     return {
-      vcpus: providerResources?.vcpus ?? DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
-      memoryMb: providerResources?.memoryMb ?? DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
+      vcpus: providerResources?.vcpus ?? conservative.vcpus,
+      memoryMb: providerResources?.memoryMb ?? conservative.memoryMb,
       diskMb: providerResources?.diskMb ?? VM_DISK_MB_MAX,
     };
   }
@@ -1781,6 +2321,7 @@ function restoreResourceReservation(
   };
 }
 
+/** Restore a snapshot into a new VM while retaining idempotent retries. */
 export function restoreVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1818,14 +2359,19 @@ export function restoreVm(input: {
     }
     const resourceReservation = input.billingPlanId === "go" ? snapshotReservation ?? undefined : isPaidVmPlan(input.billingPlanId)
       ? restoreResourceReservation(snapshotReservation ?? {
-        ...DEFAULT_VM_RESOURCE_RESERVATION,
+        ...legacyPoolReservationForPlan(input.billingPlanId),
         // A snapshot event written before resource metadata existed has no
-        // trustworthy shape. Claim the historical machine shape and maximum disk size.
+        // trustworthy shape. Claim the provider maximum and maximum disk size.
         diskMb: VM_DISK_MB_MAX,
       })
       : undefined;
-    yield* requireGoShape(input.billingPlanId, snapshotReservation);
-    yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null);
+    const existingRetry = input.idempotencyKey?.trim() && repo.findCreateByIdempotencyKey
+      ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey: input.idempotencyKey.trim() })
+      : null;
+    if (!existingRetry || isFailedVmCreate(existingRetry)) {
+      yield* requireGoShape(input.billingPlanId, snapshotReservation);
+      yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
+    }
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -1861,11 +2407,10 @@ function resourceReservationForFork(
     return Effect.succeed(reservation);
   }
 
-  // Unknown legacy dimensions claim the historical machine shape. This keeps the
-  // fallback compatible with legacy machines until provider stats arrive.
+  // Unknown legacy dimensions claim the provider maximum. This keeps a
+  // Max-sized source from being undercounted while provider stats are missing.
   const unknownShape = {
-    vcpus: DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
-    memoryMb: DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
+    ...legacyPoolReservationForPlan(billingPlanId),
     diskMb: VM_DISK_MB_MAX,
   } satisfies VmResourceReservation;
   if (!providers.getStats) return Effect.succeed(unknownShape);
@@ -1951,16 +2496,19 @@ function finalizeNativeForkReservation(
 
 function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayShape, providerVmId: string, planId: string) {
   return Effect.gen(function* () {
-    const sourceMemoryMb = hasVmResourceReservationMetadata(source.providerMetadata)
-      ? vmResourceReservationFromMetadata(source.providerMetadata).memoryMb
+    const sourceShape = hasVmResourceReservationMetadata(source.providerMetadata)
+      ? vmResourceReservationFromMetadata(source.providerMetadata)
       : yield* (providers.getStats
         ? providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
             Effect.timeout("5 seconds"),
-            Effect.map((stats) => vmProviderResourceSize("memoryMb", stats.memoryTotalMb)),
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.map((stats) => ({
+              memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb),
+              vcpus: vmProviderResourceSize("vcpus", stats.cpus),
+            })),
+            Effect.catchAll(() => Effect.succeed({ memoryMb: null, vcpus: null })),
           )
-        : Effect.succeed(null));
-    yield* requireMemoryPlan(planId, sourceMemoryMb);
+        : Effect.succeed({ memoryMb: null, vcpus: null }));
+    yield* requireMemoryPlan(planId, sourceShape.memoryMb, sourceShape.vcpus);
   });
 }
 
@@ -1969,6 +2517,7 @@ function nativeForkOperation(providers: VmProviderGatewayShape, provider: Provid
   return providers.fork;
 }
 
+/** Fork a source VM after validating its captured or measured reservation. */
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1983,12 +2532,25 @@ export function forkVm(input: {
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /** Ledger and guest follow-ups that may finish after the response (see createVm). */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }) {
+  // oxlint-disable-next-line complexity -- Fork keeps source validation, idempotency, pool reservation, snapshot, and rollback ordering explicit.
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
+    const existingRetry = input.idempotencyKey?.trim() && repo.findCreateByIdempotencyKey
+      ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey: input.idempotencyKey.trim() })
+      : null;
+    if (existingRetry && !isFailedVmCreate(existingRetry) && existingRetry.status !== "destroyed") {
+      if (!existingRetry.providerVmId) {
+        return yield* Effect.fail(new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }));
+      }
+      const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existingRetry, existingRetry.providerVmId);
+      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
+    }
     yield* requireGoMetadataShape(input.billingPlanId, source.providerMetadata);
     yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
     // Kill-switch parity with POST /api/vm: fork provisions a brand-new
@@ -2002,19 +2564,31 @@ export function forkVm(input: {
         reason: createDisabledReason,
       }));
     }
+    // A paused VM is a valid snapshot source. Only native forks require a
+    // running provider VM; waking a paused source adds avoidable startup time.
+    const sourceNetworkPolicy = restrictedNetworkPolicy(source.networkPolicy);
+    const nativeFork = sourceNetworkPolicy ? undefined : nativeForkOperation(providers, source.provider, input.modelPlane);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
       source,
       input.providerVmId,
       "fork",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      {
+        forceProviderProbe: true,
+        allowPausedSnapshot: !nativeFork,
+        maxActiveVms: input.maxActiveVms,
+        callerPlanId: input.billingPlanId,
+        modelPlane: input.modelPlane,
+      },
     );
 
     // A native fork has no way to accept the new row's edge rules. Use the
     // snapshot/create path for a model-plane machine so it receives its own
     // VM-bound credential instead of inheriting an unrouteable alias.
-    const nativeFork = nativeForkOperation(providers, source.provider, input.modelPlane);
+    // A fork keeps its source's outbound policy. The native provider fork
+    // copies no rules, so a restricted source always takes the create path,
+    // which installs the policy before the copy boots.
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -2022,8 +2596,9 @@ export function forkVm(input: {
       ? sourceHasReservation
         ? vmResourceReservationFromMetadata(source.providerMetadata)
         : {
-          vcpus: DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
-          memoryMb: DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
+          // A legacy source reserves the provider maximum until the copy is
+          // measured (finalizeNativeForkReservation).
+          ...legacyPoolReservationForPlan(input.billingPlanId),
           diskMb: VM_DISK_MB_MAX,
         }
       : undefined;
@@ -2040,6 +2615,8 @@ export function forkVm(input: {
         ...(isPaidVmPlan(input.billingPlanId)
           ? {
             resourceReservation: sourceReservation,
+            resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+            resourcePoolPhase: "fork" as const,
             forkPending: true,
             forkMinimumResourceReservation: sourceHasReservation
               ? sourceReservation
@@ -2048,6 +2625,7 @@ export function forkVm(input: {
           : {}),
         billingPlanId: input.billingPlanId,
         idempotencyKey: input.idempotencyKey,
+        agentUpdates: vmAgentUpdatesFromRow(source),
         timing: input.timing,
       });
 
@@ -2067,7 +2645,11 @@ export function forkVm(input: {
             new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
           );
         }
-        return { snapshot: null, fork: vmEntryFromRow(existing) };
+        // An idempotent retry returns the already-created row. New fork
+        // allocation remains subject to the source-shape and pool checks
+        // above.
+        const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
+        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
       }
 
       const creditReservation = yield* reserveCreateCredit(billing, repo, {
@@ -2196,6 +2778,8 @@ export function forkVm(input: {
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
+      timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
     // Snapshotting establishes the copy point for providers without a native
     // fork. Read the source shape after that point so a concurrent grow cannot
@@ -2216,10 +2800,13 @@ export function forkVm(input: {
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       modelPlane: input.modelPlane,
+      ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
+      agentUpdates: vmAgentUpdatesFromRow(source),
       teamDirectory: input.teamDirectory,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
-    yield* repo.recordUsageEvent({
+    const forkedEvent = repo.recordUsageEvent({
       userId: source.userId,
       billingTeamId: source.billingTeamId,
       billingPlanId: source.billingPlanId,
@@ -2233,6 +2820,7 @@ export function forkVm(input: {
         idempotencyKeySet: !!input.idempotencyKey,
       },
     }).pipe(Effect.catchAll(() => Effect.void));
+    yield* afterResponseOrNow(forkedEvent, input.deferAfterResponse);
     return { snapshot, fork };
   });
 }
@@ -2253,7 +2841,9 @@ function beginCreateWithLazyProviderRefresh(
   );
   return beginCreate.pipe(
     Effect.catchAll((err) => {
-      if (!isVmLimitExceededError(err)) return Effect.fail(err);
+      // A full pool can also be held by a machine the provider already
+      // deleted, so the same status refresh applies before one retry.
+      if (!isVmLimitExceededError(err) && !isVmResourcePoolExceededError(err)) return Effect.fail(err);
       const reconcile = refreshActiveLimitProviderStatuses(repo, providers, input);
       return measureVmEffect(
         input.timing,
@@ -2518,7 +3108,12 @@ function reconcileLegacyResourceCandidate(
     Effect.flatMap((stats) => {
       const diskMb = vmProviderResourceSize("diskMb", stats.diskTotalMb);
       if (diskMb === null) return deferLegacyResourceCandidate(repo, vm);
-      const existing = vmResourceReservationFromMetadata(metadata);
+      const existing = hasVmResourceReservationMetadata(metadata)
+        ? vmResourceReservationFromMetadata(metadata)
+        : {
+          ...legacyPoolReservationForPlan(vm.billingPlanId),
+          diskMb: VM_DISK_MB_MAX,
+        };
       if (hasForkPendingMarker && forkMinimumReservation) {
         return reconcilePendingForkReservation({
           setReservation,
@@ -2618,7 +3213,7 @@ function refreshActiveLimitProviderStatuses(
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
+      return reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
         Effect.asVoid,
       );
     }, { concurrency: 10, discard: true });
@@ -2629,27 +3224,84 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
-// A provider 404 on a machine with a persistent home volume means the compute is gone but
-// the machine is still resurrectable on the next attach — it is asleep, not destroyed.
-// Only machines without a durable home actually die with their sandbox.
 function observedDbStatus(
-  vm: Pick<CloudVmRow, "providerMetadata">,
   providerStatus: "running" | "paused" | "destroyed",
 ): CloudVmStatus {
-  if (providerStatus === "destroyed") {
-    const homeVolume = vm.providerMetadata?.["homeVolume"];
-    if (typeof homeVolume === "string" && homeVolume.length > 0) return "paused";
-  }
   return dbStatusFromProviderStatus(providerStatus);
+}
+
+/**
+ * The one place an observed provider status becomes the row's status. A write
+ * that lands on `destroyed` atomically records the ledger row plus an external
+ * cleanup outbox. The normal lookup and status-reconcile queries exclude the
+ * terminal row, but the cleanup reconciler keeps retrying credential revoke
+ * and any exclusively-owned volume deletion until each is acknowledged.
+ *
+ * The status is derived here rather than taken from the caller, so every
+ * entrypoint agrees about what the provider observed. A provider-reported
+ * pause remains recoverable. Missing or destroyed compute is terminal even
+ * when a detached home volume remains; there is no workflow that can attach
+ * that volume to a replacement machine, so keeping the row live would strand
+ * quota and credentials indefinitely.
+ */
+function applyObservedProviderStatus(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  input: {
+    readonly providerVmId: string;
+    readonly providerStatus: "running" | "paused" | "destroyed";
+    readonly usageEventSource: VmDestroySource;
+    readonly modelPlane?: VmModelPlaneRevoker;
+    readonly usageEventMetadata?: Record<string, string | number | boolean | null>;
+    readonly forceStatus?: CloudVmStatus;
+  },
+): Effect.Effect<boolean, VmDatabaseError> {
+  return Effect.gen(function* () {
+    const status = input.forceStatus ?? observedDbStatus(input.providerStatus);
+    const usageEvent: VmUsageEventInput | undefined = status === "destroyed"
+      ? {
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroyed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        vmCreatedAt: vm.createdAt,
+        metadata: { source: input.usageEventSource, ...input.usageEventMetadata },
+      }
+      : undefined;
+    const homeVolume = status === "destroyed"
+      ? machineOwnedHomeVolume(vm, input.providerVmId)
+      : null;
+    const cleanup: VmObservedDestroyCleanup | undefined = status === "destroyed"
+      ? {
+        modelPlane: true,
+        ...(homeVolume ? { homeVolume } : {}),
+      }
+      : undefined;
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId: input.providerVmId,
+      status,
+      ...(usageEvent ? { usageEvent } : {}),
+      ...(cleanup ? { cleanup } : {}),
+    });
+    if (!didUpdate || status !== "destroyed" || !cleanup) return didUpdate;
+    yield* drainObservedDestroyCleanup(repo, providers, input.modelPlane, vm, cleanup);
+    return true;
+  });
 }
 
 type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
 
 function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
-  usageEventSource: string,
+  usageEventSource: VmDestroySource,
   modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
@@ -2663,30 +3315,16 @@ function reconcileObservedProviderStatus(
       ),
     );
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
-    const dbStatus = observedDbStatus(vm, providerStatus);
+    const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
-    const didUpdate = yield* repo.markProviderObservedStatus({
-      id: vm.id,
+    const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
       providerVmId,
-      status: dbStatus,
+      providerStatus,
+      usageEventSource,
+      modelPlane,
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
-    if (dbStatus === "destroyed") {
-      yield* revokeModelPlane(modelPlane, vm.id);
-      yield* repo.recordUsageEvent({
-        userId: vm.userId,
-        billingTeamId: vm.billingTeamId,
-        billingPlanId: vm.billingPlanId,
-        vmId: vm.id,
-        eventType: "vm.destroyed",
-        provider: vm.provider,
-        imageId: vm.imageId,
-        vmCreatedAt: vm.createdAt,
-        metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
-      return "destroyed" as const;
-    }
-    return "updated" as const;
+    return dbStatus === "destroyed" ? "destroyed" as const : "updated" as const;
   });
 }
 
@@ -2703,6 +3341,10 @@ type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" |
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
   readonly maxActiveVms?: number | null;
+  /** The caller's current plan, whose shared pool a resumed machine draws from. */
+  readonly callerPlanId?: string | null;
+  /** Revokes coderouter tokens if the provider reports that compute is gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
   /**
    * Probe the provider even when Postgres still says `running`. Providers may
    * pause a VM independently (for example after an idle timeout), so an
@@ -2710,6 +3352,8 @@ type ResumePreflightOptions = {
    * Passive reads intentionally leave this off.
    */
   readonly forceProviderProbe?: boolean;
+  /** Snapshot-based forks can copy a paused VM directly without waking it. */
+  readonly allowPausedSnapshot?: boolean;
 };
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
@@ -2792,11 +3436,45 @@ function resumeUntilRunning(
   });
 }
 
+/**
+ * A paused machine that already exceeds the caller's paid plan is
+ * grandfathered during the rollout. Let it wake without applying the new
+ * pool admission to that existing allocation; once running, its durable claim
+ * still counts against future creates and resizes.
+ */
+function resumeResourcePoolForMachine(
+  vm: CloudVmRow,
+  planId: string | null | undefined,
+  maxActiveVms: number | null,
+): VmResourcePoolPolicy | null {
+  const normalizedPlanId = planId || vm.billingPlanId || "free";
+  if (!isPaidVmPlan(normalizedPlanId) || normalizedPlanId === "go") {
+    return resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
+  }
+  return isGrandfatheredMachine(vm, normalizedPlanId)
+    ? null
+    : resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
+}
+
+/** Identify an existing paid-plan VM that exceeds the caller's current tier. */
+function isGrandfatheredMachine(vm: CloudVmRow, planId: string | null | undefined): boolean {
+  const normalizedPlanId = planId || vm.billingPlanId || "free";
+  if (!isPaidVmPlan(normalizedPlanId) || normalizedPlanId === "go") return false;
+  // A legacy row without a marker is deliberately usable during migration;
+  // the repository's conservative fallback protects the shared pool.
+  if (!hasVmResourceReservationMetadata(vm.providerMetadata)) return true;
+  const reservation = vmResourceReservationFromMetadata(vm.providerMetadata);
+  return reservation.memoryMb > maxMemoryMbForPlan(normalizedPlanId) ||
+    reservation.vcpus > maxVcpusForPlan(normalizedPlanId);
+}
+
+/** Reserve a paused team's VM without re-gating grandfathered capacity. */
 function reservePausedResumeIfTeam(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   providerVmId: string,
   maxActiveVms: number | null = maxActiveVmsForPlan(vm.billingPlanId),
+  planId: string | null | undefined = vm.billingPlanId,
 ): Effect.Effect<boolean, VmWorkflowError> {
   if (!vm.billingTeamId) return Effect.succeed(false);
   return Effect.gen(function* () {
@@ -2806,6 +3484,8 @@ function reservePausedResumeIfTeam(
       billingTeamId: vm.billingTeamId,
       providerVmId,
       maxActiveVms,
+      skipActiveLimit: isGrandfatheredMachine(vm, planId),
+      resourcePool: resumeResourcePoolForMachine(vm, planId, maxActiveVms),
     });
     if (!reserved) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -2910,12 +3590,17 @@ function preflightResumeIfSuspended(
     if (status === "destroyed") {
       // A live provider read is authoritative for an access operation. Do not
       // mint an endpoint (or start a fork) against an id that Freestyle has
-      // already removed; mark the row so the next fleet refresh drops it and
-      // return the same not-found contract as ownership checks.
-      yield* repo.markProviderObservedStatus({
-        id: vm.id,
+      // already removed; record what the probe saw and return the same
+      // not-found contract as ownership checks.
+      //
+      // A detached home volume does not make missing compute resumable: no
+      // workflow can create replacement compute around it. Retire the row so
+      // it stops consuming quota, and revoke its model-plane credentials.
+      yield* applyObservedProviderStatus(repo, providers, vm, {
         providerVmId,
-        status: "destroyed",
+        providerStatus: "destroyed",
+        usageEventSource: "provider_status_access",
+        modelPlane: options.modelPlane,
       }).pipe(Effect.catchAll(() => Effect.succeed(false)));
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
@@ -2964,8 +3649,9 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status !== "paused") return false;
+    if (options.allowPausedSnapshot) return false;
 
-    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms);
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms, options.callerPlanId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -2991,6 +3677,8 @@ function withResumeOnSuspendedAfterFailure<A>(
   resumeSource: VmResumeSource,
   op: Effect.Effect<A, VmWorkflowError>,
   maxActiveVms?: number | null,
+  /** The caller's current plan, whose shared pool a resumed machine draws from. */
+  callerPlanId?: string | null,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
@@ -3017,7 +3705,7 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms);
+        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),
@@ -3090,7 +3778,9 @@ export function destroyVm(input: {
       }),
     );
     const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
-    yield* revokeModelPlane(input.modelPlane, vm.id);
+    const modelPlaneRevoked = input.modelPlane
+      ? yield* attemptModelPlaneRevoke(input.modelPlane, vm.id)
+      : true;
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but
@@ -3148,7 +3838,13 @@ export function destroyVm(input: {
     // The provider-side machine is gone at this point, so a lost DB write would
     // leave a ghost row counting against the active-VM limit. Retry the write;
     // the provider-status reconciler is the backstop if it still fails.
-    yield* repo.markDestroyed(vm.id).pipe(Effect.retry({ times: 2 }));
+    const pendingHomeVolume = homeVolume && !homeVolumeDeleted ? homeVolume : undefined;
+    const cleanup: VmObservedDestroyCleanup | undefined = !modelPlaneRevoked
+      ? { modelPlane: true, ...(pendingHomeVolume ? { homeVolume: pendingHomeVolume } : {}) }
+      : pendingHomeVolume
+        ? { homeVolume: pendingHomeVolume }
+        : undefined;
+    yield* repo.markDestroyed(vm.id, cleanup).pipe(Effect.retry({ times: 2 }));
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -3272,6 +3968,28 @@ function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): n
   return Math.max(1, Math.min(Math.floor(limit), ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH));
 }
 
+/**
+ * How long after the requested exec timeout the route still waits for the
+ * provider. The Mac client's request budget is the timeout plus 5 s
+ * (VMClient+Exec.swift), so 3 s leaves room for the response to reach it.
+ * A guest-killed timeout normally answers within ~2 s of the timeout.
+ */
+export const EXEC_ANSWER_MARGIN_MS = 3_000;
+
+/** What remains of an exec request's answer budget after `elapsedMs` of it went to auth and lookup. */
+export function execAnswerBudgetMs(timeoutMs: number, elapsedMs: number): number {
+  return Math.max(0, timeoutMs + EXEC_ANSWER_MARGIN_MS - elapsedMs);
+}
+
+/** The command's timeout as an exec answer: exit 124, as a guest-killed timeout reads. */
+function execTimedOutResult(timeoutMs: number): ExecResult {
+  return {
+    exitCode: 124,
+    stdout: "",
+    stderr: `cmux: the command did not finish within ${Math.round(timeoutMs / 1000)}s; it may still be running on the machine.\n`,
+  };
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -3281,25 +3999,57 @@ export function execVm(input: {
   readonly maxActiveVms?: number | null;
   readonly command: string;
   readonly timeoutMs: number;
+  /**
+   * Milliseconds from now within which the caller must have an answer. The
+   * exec route derives it from the request's start (execAnswerBudgetMs) so
+   * the answer always lands inside the client's request budget; defaults to
+   * the timeout plus EXEC_ANSWER_MARGIN_MS.
+   */
+  readonly answerWithinMs?: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
+    const deadlineAtMs = (yield* Clock.currentTimeMillis) + (input.answerWithinMs ?? execAnswerBudgetMs(input.timeoutMs, 0));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // Lookup and resume are never cut short: interrupting a resume midway
+    // would strand its bookkeeping. The deadline governs only the command.
     yield* preflightResumeIfSuspended(
       repo,
       providers,
       vm,
       input.providerVmId,
       "exec",
-      { maxActiveVms: input.maxActiveVms },
+      { maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
+    const execStartedAtMs = yield* Clock.currentTimeMillis;
+    // A dispatched command always gets its own timeout window, so a slow
+    // resume can never turn into a 124 for a command that had no time to run;
+    // in the normal case the request deadline is the later of the two.
+    const answerWithinMs = Math.max(input.timeoutMs, deadlineAtMs - execStartedAtMs);
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
       providerMetadata: vm.providerMetadata,
-    });
+    }).pipe(
+      // A provider failure after the command's own timeout has elapsed says
+      // nothing about the machine: the command ran out of time, and that is
+      // the answer. Earlier failures stay provider errors.
+      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= input.timeoutMs
+        ? Effect.sync(() => {
+          // Kept for operators: the answer is the timeout, the cause is the provider's.
+          console.error(`[vm] exec failed after its command timeout for ${input.providerVmId}`, errorMessage("cause" in err ? err.cause : err));
+          return execTimedOutResult(input.timeoutMs);
+        })
+        : Effect.fail(err))),
+      Effect.timeoutTo({
+        duration: answerWithinMs,
+        onSuccess: (answer: ExecResult) => answer,
+        onTimeout: () => execTimedOutResult(input.timeoutMs),
+      }),
+    );
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -3314,11 +4064,280 @@ export function execVm(input: {
   });
 }
 
+type VmFirewallInput = {
+  readonly userId: string;
+  readonly provider?: ProviderId;
+  /** The account scope that owns the VMs named by vmId (new VMs are team-owned). */
+  readonly billingTeamId?: string | null;
+};
+
+function firewallProvider(input: VmFirewallInput) {
+  return Effect.gen(function* () {
+    const provider = input.provider ?? "freestyle";
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const network = yield* resolveOwnerNetwork({ userId: input.userId, provider });
+    return { provider, providers, repo, network };
+  });
+}
+
+const FIREWALL_IDENTITY_KEYS = ["vmId", "vpcId", "tunnelId"] as const;
+const FIREWALL_ENDPOINT_KEYS: ReadonlySet<string> = new Set([...FIREWALL_IDENTITY_KEYS, "cidr", "public", "port", "protocol"]);
+
+/** Whether the caller owns the resource one endpoint names; a CIDR or public end names none. */
+function ownsFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, endpoint: VMFirewallEndpoint) {
+  return Effect.gen(function* () {
+    const provider = input.provider ?? "freestyle";
+    // The provider adds selectors as new optional fields; one this code does not know could name
+    // another tenant's resource, so it makes the endpoint not the caller's.
+    if (Object.keys(endpoint).some((key) => !FIREWALL_ENDPOINT_KEYS.has(key))) return false;
+    if (endpoint.vpcId && endpoint.vpcId !== networkId) return false;
+    if (endpoint.vmId) {
+      if (!repo.findUserVm) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall VM ownership lookup is unavailable" }));
+      const vm = yield* repo.findUserVm({ userId: input.userId, billingTeamId: input.billingTeamId, providerVmId: endpoint.vmId, provider });
+      // The firewall edits the caller's own network, which holds only the VMs the caller created;
+      // a teammate's VM in the same team scope is on the teammate's network.
+      if (!vm || vm.userId !== input.userId) return false;
+    }
+    if (endpoint.tunnelId) {
+      if (!repo.findTunnelsByProviderTunnelIds) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall tunnel ownership lookup is unavailable" }));
+      const [tunnel] = yield* repo.findTunnelsByProviderTunnelIds(provider, [endpoint.tunnelId]);
+      if (!tunnel || tunnel.userId !== input.userId || tunnel.revokedAt) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * The provider account is shared by every cmux user, so the provider cannot say whose a rule is.
+ * A rule is the caller's (to read or delete) when it names at least one resource and every
+ * resource it names is the caller's. Creation is stricter: see createVmFirewallRule.
+ */
+function ownsFirewallRule(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, rule: Pick<VMFirewallRule, "source" | "destination">) {
+  return Effect.gen(function* () {
+    if (!FIREWALL_IDENTITY_KEYS.some((key) => rule.source[key] || rule.destination[key])) return false;
+    return (yield* ownsFirewallEndpoint(repo, input, networkId, rule.source)) && (yield* ownsFirewallEndpoint(repo, input, networkId, rule.destination));
+  });
+}
+
+/** Fails VmNotFoundError naming the endpoint's resource when the caller does not own it. */
+function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, endpoint: VMFirewallEndpoint) {
+  return Effect.gen(function* () {
+    if (yield* ownsFirewallEndpoint(repo, input, networkId, endpoint)) return;
+    return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId ?? endpoint.vpcId ?? endpoint.tunnelId ?? "endpoint" }));
+  });
+}
+
+/** Most rules one caller may hold on the shared provider account. */
+export const VM_FIREWALL_RULE_LIMIT = 100;
+/** Most VMs an unfiltered list reads (one provider call each); older VMs list with ?vmId. */
+export const VM_FIREWALL_LIST_VM_LIMIT = 10;
+
+/** The caller's live provider VM ids in the account scope, newest first, at most the list limit. */
+function callerProviderVmIds(repo: VmRepositoryShape, input: VmFirewallInput, provider: ProviderId) {
+  return repo.listUserVms(input.userId, input.billingTeamId).pipe(
+    Effect.map((rows) => rows
+      .filter((row) => row.userId === input.userId && row.provider === provider && row.providerVmId && row.status !== "destroyed" && row.status !== "failed")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, VM_FIREWALL_LIST_VM_LIMIT)
+      .map((row) => row.providerVmId as string)),
+  );
+}
+
+export function listVmFirewallRules(input: VmFirewallInput & { readonly vpcId?: string; readonly vmId?: string; readonly tunnelId?: string }): VmWorkflowProgram<VMFirewallRule[]> {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, network } = yield* firewallProvider(input);
+    const networkId = network.providerNetworkId;
+    if (input.vpcId && input.vpcId !== networkId) return yield* Effect.fail(new VmNotFoundError({ vmId: input.vpcId }));
+    if (input.vmId) yield* ensureOwnedFirewallEndpoint(repo, input, networkId, { vmId: input.vmId });
+    if (input.tunnelId) yield* ensureOwnedFirewallEndpoint(repo, input, networkId, { tunnelId: input.tunnelId });
+    const filter = input.vmId || input.tunnelId || input.vpcId ? { vmId: input.vmId, vpcId: input.vpcId, tunnelId: input.tunnelId } : undefined;
+    return yield* readOwnedFirewallRules({ provider, providers, repo, input, networkId, filter });
+  });
+}
+
+/**
+ * The caller's rules. A provider vmId listing holds the rules naming the VM plus those naming its
+ * networks; a network listing misses rules that name only a VM, so no filter means the network
+ * plus the newest live VMs (bounded: each is one call to the shared provider account).
+ */
+function readOwnedFirewallRules(args: {
+  readonly provider: ProviderId;
+  readonly providers: VmProviderGatewayShape;
+  readonly repo: VmRepositoryShape;
+  readonly input: VmFirewallInput;
+  readonly networkId: string;
+  readonly filter?: { readonly vmId?: string; readonly vpcId?: string; readonly tunnelId?: string };
+}) {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, input, networkId } = args;
+    const list = providers.listFirewallRules;
+    if (!list) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
+    const filters = args.filter
+      ? [args.filter]
+      : [{ vpcId: networkId }, ...(yield* callerProviderVmIds(repo, input, provider)).map((vmId) => ({ vmId }))];
+    const listed = yield* Effect.forEach(filters, (filter) => list(provider, filter), { concurrency: 4 });
+    const unique = [...new Map(listed.flat().map((rule) => [rule.id, rule])).values()];
+    return yield* Effect.filter(unique, (rule) => ownsFirewallRule(repo, input, networkId, rule));
+  });
+}
+
+export function listVmNetworks(input: VmFirewallInput): VmWorkflowProgram<Array<{ id: string; cidr: string | null; cidrV6: string | null; scope: "user" | "team" }>> {
+  return Effect.gen(function* () {
+    const provider = input.provider ?? "freestyle";
+    const repo = yield* VmRepository;
+    if (!repo.findNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "network lookup is unavailable" }));
+    const network = yield* repo.findNetwork(input.userId, provider);
+    return network ? [{ id: network.providerNetworkId, cidr: network.cidr, cidrV6: network.cidrV6, scope: "user" as const }] : [];
+  });
+}
+
+/** The caller's rule by id; a missing rule and another tenant's rule are the same not-found. */
+function ownedFirewallRule(input: VmFirewallInput & { readonly ruleId: string }) {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, network } = yield* firewallProvider(input);
+    if (!providers.getFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "getFirewallRule" }));
+    const rule = yield* providers.getFirewallRule(provider, input.ruleId).pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFirewallRuleNotFoundError> =>
+        isProviderNotFoundError(err.cause) ? Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId })) : Effect.fail(err),
+      ),
+    );
+    if (!(yield* ownsFirewallRule(repo, input, network.providerNetworkId, rule))) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
+    return { provider, providers, rule };
+  });
+}
+
+export function getVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<VMFirewallRule> {
+  return ownedFirewallRule(input).pipe(Effect.map(({ rule }) => rule));
+}
+
+export function createVmFirewallRule(input: VmFirewallInput & VMFirewallRuleInput): VmWorkflowProgram<VMFirewallRule> {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, network } = yield* firewallProvider(input);
+    // Rules allow traffic into their destination. A destination of only an address range or the
+    // public Internet would reach other tenants' machines on the shared account, so the destination
+    // must be one of the caller's resources.
+    if (!FIREWALL_IDENTITY_KEYS.some((key) => input.destination[key])) {
+      return yield* Effect.fail(new VmFirewallRuleInvalidError({ reason: "A firewall rule's destination must be your Cloud VM, network, or tunnel." }));
+    }
+    yield* ensureOwnedFirewallEndpoint(repo, input, network.providerNetworkId, input.source);
+    yield* ensureOwnedFirewallEndpoint(repo, input, network.providerNetworkId, input.destination);
+    const existing = yield* readOwnedFirewallRules({ provider, providers, repo, input, networkId: network.providerNetworkId });
+    if (existing.length >= VM_FIREWALL_RULE_LIMIT) return yield* Effect.fail(new VmFirewallRuleLimitError({ limit: VM_FIREWALL_RULE_LIMIT }));
+    if (!providers.createFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" }));
+    // Only the rule goes to the provider: the driver spreads it into the request body.
+    return yield* providers.createFirewallRule(provider, { source: input.source, destination: input.destination, ...(input.description ? { description: input.description } : {}) });
+  });
+}
+
+export function deleteVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<void> {
+  return Effect.gen(function* () {
+    const { provider, providers } = yield* ownedFirewallRule(input);
+    if (!providers.deleteFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" }));
+    // Deleted by someone else between the read and the delete: the same not-found, so a retry is correct.
+    yield* providers.deleteFirewallRule(provider, input.ruleId).pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFirewallRuleNotFoundError> =>
+        isProviderNotFoundError(err.cause) ? Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId })) : Effect.fail(err),
+      ),
+    );
+  });
+}
+
+type VmFileInput = {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+  readonly maxActiveVms?: number | null;
+};
+
+function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, vm: CloudVmRow) => Effect.Effect<A, VmProviderOperationError | VmOperationUnsupportedError | VmFileNotFoundError>): VmWorkflowProgram<A> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
+      maxActiveVms: input.maxActiveVms,
+    });
+    return yield* run(providers, vm);
+  });
+}
+
+export function listVmFiles(input: VmFileInput, path: string): VmWorkflowProgram<VMFileEntry[]> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.listFiles) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "listFiles" }));
+    return providers.listFiles(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
+  });
+}
+
+export function readVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileContents> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.readFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "readFile" }));
+    return providers.readFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
+  });
+}
+
+export function writeVmFile(input: VmFileInput, path: string, data: Uint8Array, mode?: number): VmWorkflowProgram<void> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.writeFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "writeFile" }));
+    return providers.writeFile(vm.provider, input.providerVmId, path, data, mode);
+  });
+}
+
+export function mkdirVmFile(input: VmFileInput, path: string): VmWorkflowProgram<void> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.makeDirectory) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "makeDirectory" }));
+    return providers.makeDirectory(vm.provider, input.providerVmId, path);
+  });
+}
+
+/**
+ * Freestyle removes a missing path with success, so the workflow stats first: a path the provider
+ * reports as missing ("No such file or directory") is VmFileNotFoundError (404 vm_file_not_found).
+ * Any other stat failure, a missing VM included, stays a provider failure.
+ */
+export function removeVmFile(input: VmFileInput, path: string): VmWorkflowProgram<void> {
+  return fileVm(input, (providers, vm) => {
+    const remove = providers.removeFile
+    if (!remove) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "removeFile" }));
+    const stat: Effect.Effect<unknown, VmProviderOperationError | VmFileNotFoundError> = providers.statFile
+      ? providers.statFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path))
+      : Effect.void
+    return stat.pipe(Effect.flatMap(() => remove(vm.provider, input.providerVmId, path)));
+  });
+}
+
+/** A provider 404 whose message is the guest's ENOENT (not a missing VM). */
+function isMissingFileError(cause: unknown): boolean {
+  if (!isProviderNotFoundError(cause)) return false
+  const message = cause instanceof Error ? cause.message : String((cause as { message?: unknown } | null)?.message ?? "")
+  return /No such file or directory|os error 2\b/.test(message)
+}
+
+/** Maps the guest's ENOENT to VmFileNotFoundError (404 vm_file_not_found); other failures pass through. */
+function missingFileAsNotFound(path: string) {
+  return <A>(effect: Effect.Effect<A, VmProviderOperationError>): Effect.Effect<A, VmProviderOperationError | VmFileNotFoundError> =>
+    effect.pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFileNotFoundError> =>
+        isMissingFileError(err.cause) ? Effect.fail(new VmFileNotFoundError({ path })) : Effect.fail(err),
+      ),
+    )
+}
+
+export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileStat> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.statFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "statFile" }));
+    return providers.statFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
+  });
+}
+
 export function getVmStats(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3360,10 +4379,11 @@ export function getVmStats(input: {
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
         return Effect.gen(function* () {
-          yield* repo.markProviderObservedStatus({
-            id: vm.id,
+          yield* applyObservedProviderStatus(repo, providers, vm, {
             providerVmId: input.providerVmId,
-            status: "destroyed",
+            providerStatus: "destroyed",
+            usageEventSource: "provider_status_stats",
+            modelPlane: input.modelPlane,
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
         });
@@ -3384,12 +4404,13 @@ export function resizeVm(input: {
   readonly billingPlanId?: string | null;
   /** Current machine-count allowance, also used when resuming a paused VM. */
   readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   // oxlint-disable-next-line complexity -- Resize orchestration must keep reservation, provider, rollback, and confirmation order explicit.
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
+    let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
     if (planId === "go" && ((input.storageMb ?? 0) > 16 * 1024 || (input.cpu ?? 0) > 2 || (input.memoryMb ?? 0) > 4 * 1024)) {
       return yield* Effect.fail(new VmGoShapeError());
@@ -3411,7 +4432,8 @@ export function resizeVm(input: {
     }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
-      maxActiveVms: input.maxActiveVms,
+      maxActiveVms: input.maxActiveVms, callerPlanId: input.billingPlanId,
+      modelPlane: input.modelPlane,
     });
     const current = yield* providers.getStats(vm.provider, input.providerVmId);
     for (const [resource, requested, previous, max] of [
@@ -3431,9 +4453,26 @@ export function resizeVm(input: {
     }
     const computeChanged = (input.cpu !== undefined && input.cpu !== current.cpus) ||
       (input.memoryMb !== undefined && input.memoryMb !== current.memoryTotalMb);
+    // CPU and memory growth draws from the billing scope's shared pool. Claim
+    // the larger shape under the billing lock before provider I/O, and give
+    // the claim back when the provider never applied it.
+    // The claim is taken right before provider I/O, after every validation.
+    let computeClaim: ComputeResizeClaim | null = null;
+    const claimCompute = Effect.gen(function* () {
+      if (!computeChanged) return;
+      computeClaim = yield* reserveComputeResize(repo, vm, input, current, planId);
+      if (computeClaim) vm = computeClaim.vm;
+    });
+    const releaseComputeClaim = <E>(exit: Exit.Exit<void, E>) =>
+      computeClaim && Exit.isFailure(exit)
+        ? releaseUnappliedComputeResize(repo, providers, vm, input.providerVmId, computeClaim)
+        : Effect.void;
     if (input.storageMb === undefined) {
       if (!computeChanged) return current;
-      yield* providers.resize(vm.provider, input.providerVmId, { cpu: input.cpu, memoryMb: input.memoryMb });
+      yield* claimCompute;
+      yield* providers.resize(vm.provider, input.providerVmId, { cpu: input.cpu, memoryMb: input.memoryMb }).pipe(
+        Effect.onExit(releaseComputeClaim),
+      );
       const updated = yield* providers.getStats(vm.provider, input.providerVmId);
       const existingReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
       const currentDiskMb = vmProviderResourceSize("diskMb", current.diskTotalMb) ?? existingReservation.diskMb;
@@ -3495,21 +4534,33 @@ export function resizeVm(input: {
     // The live repository always provides this method; test doubles from
     // before resource tracking may omit it and exercise provider behavior
     // without a database.
-    let reservation: VmResizeReservation | null = null;
-    if (repo.reserveVmResize && isPaidVmPlan(input.billingPlanId ?? vm.billingPlanId ?? "")) {
-      reservation = yield* repo.reserveVmResize({
+    yield* claimCompute;
+    const storageMb = input.storageMb;
+    const reserveDisk: Effect.Effect<VmResizeReservation | null, VmWorkflowError> = Effect.gen(function* () {
+      if (!repo.reserveVmResize || !isPaidVmPlan(input.billingPlanId ?? vm.billingPlanId ?? "")) return null;
+      const reserved = yield* repo.reserveVmResize({
         id: vm.id,
         userId: input.userId,
         billingTeamId: vm.billingTeamId ?? input.billingTeamId,
         providerVmId: input.providerVmId,
         currentDiskMb: currentMb,
-        storageMb: input.storageMb,
+        storageMb,
         maxActiveVms: input.maxActiveVms === undefined ? maxActiveVmsForPlan(vm.billingPlanId) : input.maxActiveVms,
       });
-      if (!reservation) {
-        return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-      }
-    }
+      if (!reserved) return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+      return reserved;
+    });
+    // The provider has not been called when the disk claim fails, so the
+    // compute claim goes back without a provider read.
+    const reservation = yield* reserveDisk.pipe(
+      Effect.tapError(() => computeClaim && repo.restoreVmComputeResize
+        ? repo.restoreVmComputeResize({
+          id: vm.id,
+          expected: computeClaim.reserved,
+          previous: computeClaim.previous,
+        }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void))
+        : Effect.void),
+    );
     // A no-op request still backfills the durable reservation for legacy rows
     // whose provider metadata predates the resource tracking.
     if (input.storageMb === currentMb && !computeChanged) return current;
@@ -3541,6 +4592,7 @@ export function resizeVm(input: {
     };
     yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb, cpu: input.cpu, memoryMb: input.memoryMb }).pipe(
       Effect.onExit(rollbackIfProviderDidNotGrow),
+      Effect.onExit(releaseComputeClaim),
     );
     const updated = yield* providers.getStats(vm.provider, input.providerVmId).pipe(
       Effect.tapError(() => finalizeUnobservedResize(repo, vm.id, reservation)),
@@ -3613,6 +4665,86 @@ export function resizeVm(input: {
   });
 }
 
+type ComputeResizeClaim = {
+  readonly vm: CloudVmRow;
+  readonly previous: VmComputeResources;
+  readonly reserved: VmComputeResources;
+};
+
+/** Claim a CPU/memory growth against the plan's shared pool, when it has one. */
+function reserveComputeResize(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly providerVmId: string;
+    readonly cpu?: number;
+    readonly memoryMb?: number;
+    readonly maxActiveVms?: number | null;
+  },
+  current: VMStats,
+  planId: string,
+): Effect.Effect<ComputeResizeClaim | null, VmWorkflowError> {
+  const reserve = repo.reserveVmComputeResize;
+  const pool = resourcePoolPolicyForPlan(
+    planId,
+    input.maxActiveVms === undefined ? maxActiveVmsForPlan(planId) : input.maxActiveVms,
+  );
+  if (!reserve || !pool || current.cpus === undefined || current.memoryTotalMb === undefined) {
+    return Effect.succeed(null);
+  }
+  const marker = vmResourceReservationFromMetadata(vm.providerMetadata);
+  const observedDiskMb = vmProviderResourceSize("diskMb", current.diskTotalMb);
+  return reserve({
+    id: vm.id,
+    userId: input.userId,
+    billingTeamId: vm.billingTeamId ?? input.billingTeamId,
+    providerVmId: input.providerVmId,
+    current: {
+      vcpus: current.cpus,
+      memoryMb: current.memoryTotalMb,
+      diskMb: hasVmResourceReservationMetadata(vm.providerMetadata) ? marker.diskMb : observedDiskMb ?? VM_DISK_MB_MAX,
+    },
+    requested: {
+      vcpus: input.cpu ?? current.cpus,
+      memoryMb: input.memoryMb ?? current.memoryTotalMb,
+    },
+    resourcePool: pool,
+  }).pipe(Effect.flatMap((claim) => claim
+    ? Effect.succeed(claim)
+    : Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }))));
+}
+
+/**
+ * Give back a compute claim only when a fresh provider read proves the VM is
+ * still at its previous shape. A lost response after a real resize keeps the
+ * larger claim, which over-counts the pool instead of under-counting it.
+ */
+function releaseUnappliedComputeResize(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  claim: ComputeResizeClaim,
+): Effect.Effect<void, never> {
+  const restore = repo.restoreVmComputeResize;
+  const getStats = providers.getStats;
+  if (!restore || !getStats) return Effect.void;
+  return getStats(vm.provider, providerVmId).pipe(
+    Effect.flatMap((stats) => {
+      const vcpus = vmProviderResourceSize("vcpus", stats.cpus);
+      const memoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
+      const unchanged = vcpus !== null && memoryMb !== null &&
+        vcpus <= claim.previous.vcpus && memoryMb <= claim.previous.memoryMb;
+      return unchanged
+        ? restore({ id: vm.id, expected: claim.reserved, previous: claim.previous }).pipe(Effect.asVoid)
+        : Effect.void;
+    }),
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
 /**
  * A successful provider resize followed by a lost stats response still owns
  * its reservation. Replace the active marker with an unconfirmed marker so a
@@ -3652,6 +4784,7 @@ export function openVmPort(input: {
   readonly port: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3675,7 +4808,7 @@ export function openVmPort(input: {
       vm,
       input.providerVmId,
       "open_port",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
     // Keep the preview token in the same revocation ledger as terminal/RPC
@@ -3729,6 +4862,9 @@ export function openVmCmuxRemote(input: {
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
+  /** Runs best-effort guest work after the response (the route passes `runAfterResponse`). */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3758,7 +4894,7 @@ export function openVmCmuxRemote(input: {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -3773,6 +4909,7 @@ export function openVmCmuxRemote(input: {
         providerMetadata: vm.providerMetadata,
       }),
       input.maxActiveVms,
+      input.callerPlanId,
     );
     yield* repo.recordLease({
       vmId: vm.id,
@@ -3800,6 +4937,10 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // Only an opted-in machine pays this exec; the default attach stays exec-free.
+    if (vmAgentUpdatesFromRow(vm) === "latest") {
+      yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
+    }
     return endpoint;
   });
 }
@@ -3893,6 +5034,7 @@ type OpenAttachEndpointInput = {
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 };
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -3910,6 +5052,7 @@ export function prepareScpEndpoint(input: {
   readonly providerVmId: string;
   readonly callerPlanId?: string | null;
   readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3918,7 +5061,7 @@ export function prepareScpEndpoint(input: {
     if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
-      forceProviderProbe: true, maxActiveVms: input.maxActiveVms,
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
     });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -3928,6 +5071,7 @@ export function prepareScpEndpoint(input: {
       "scp",
       providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey),
       input.maxActiveVms,
+      input.callerPlanId,
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -3955,6 +5099,7 @@ export function openVmSession(input: {
   readonly title?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
@@ -3965,6 +5110,7 @@ export function openVmSession(input: {
     providerVmId: input.providerVmId,
     callerPlanId: input.callerPlanId,
     maxActiveVms: input.maxActiveVms,
+    modelPlane: input.modelPlane,
     sessionTitle: input.title,
     options: {
       requireDaemon: true,
@@ -4013,7 +5159,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
@@ -4030,6 +5176,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         providerMetadata: vm.providerMetadata,
       }),
       input.maxActiveVms,
+      input.callerPlanId,
     );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
@@ -4076,8 +5223,10 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 /// free access window is preserved but unreachable until the caller upgrades.
 /// List/status/rename/delete deliberately keep using requireUserVm so the
 /// machine stays visible and disposable while locked.
+/** Load an owned VM and refresh legacy reservation metadata before access. */
 function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
+    const repo = yield* VmRepository;
     let vm = yield* requireUserVm(input);
     if (input.callerPlanId === "go") {
       yield* requireGoShape("go", hasVmResourceReservationMetadata(vm.providerMetadata) ? vmResourceReservationFromMetadata(vm.providerMetadata) : null);
@@ -4106,6 +5255,13 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
         yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
       }
       vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
+    }
+    // Existing machines are grandfathered during the entitlement rollout.
+    // Plan checks belong on new allocations and future CPU/RAM growth; an
+    // oversized VM must remain usable while the customer migrates.
+    if (input.callerPlanId && isPaidVmPlan(input.callerPlanId)) {
+      const providers = yield* VmProviderGateway;
+      vm = yield* ensureExistingMachineReservation(repo, providers, vm, input.providerVmId);
     }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({
@@ -4279,9 +5435,44 @@ function reserveCreateCredit(
     readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    /**
+     * Set by the Base flow. createVm and forkVm own a plain row, so failing it
+     * is the whole rollback. A Base row is also claimed by a base and a
+     * generation, and markBaseCreateFailed is the mark on this path that
+     * releases those; marking it with the ad-hoc path leaves the base
+     * "resetting" and its generation "creating". (markCreateAbandoned and
+     * resolveCreateCleanup also call restoreBaseAfterCreateFailure, but neither
+     * is reachable from here once the row carries a failure code.)
+     *
+     * Reset then 409s forever, because beginBaseReset refuses to start while an
+     * operation is in flight. Open does not: it has no such guard and the
+     * ad-hoc-failed row is not the active one, so it quietly allocates a new
+     * generation on a new provider machine and orphans the working one as
+     * retained. That still counts against maxActiveVms, so a user at their
+     * machine limit is stuck until they delete one by hand.
+     *
+     * The abandonment sweeper cannot recover either shape, because it matches
+     * only provisioning rows with no failure code, and the ad-hoc mark sets
+     * both.
+     */
+    readonly baseGeneration?: {
+      readonly baseId: string;
+      readonly generation: number;
+    };
   },
   vm: CloudVmRow,
 ) {
+  const markCreateFailed = (code: string, message: string) =>
+    input.baseGeneration
+      ? repo.markBaseCreateFailed({
+        baseId: input.baseGeneration.baseId,
+        generation: input.baseGeneration.generation,
+        vmId: vm.id,
+        userId: input.userId,
+        code,
+        message,
+      })
+      : repo.markCreateFailed({ id: vm.id, code, message });
   return measureVmEffect(
     input.timing,
     "billing",
@@ -4318,13 +5509,12 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            recordCreateFailureAfterMark(repo, repo.markCreateFailed({
-              id: vm.id,
-              code: isVmCreateCreditsInsufficientError(err)
+            recordCreateFailureAfterMark(repo, markCreateFailed(
+              isVmCreateCreditsInsufficientError(err)
                 ? "billing_credits_insufficient"
                 : "billing_reserve_failed",
-              message: errorMessage(err),
-            }), {
+              errorMessage(err),
+            ), {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
@@ -4623,9 +5813,15 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
+    createdByUserId: row.userId,
+    ownerTeamId: row.ownerTeamId,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
+    agentUpdates: vmAgentUpdatesFromRow(row),
+    resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
+      ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))
+      : null,
   };
 }
 
@@ -4656,4 +5852,154 @@ function hashToken(token: string): string {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+// ---------------------------------------------------------------------------
+// Outbound network policy (services/vms/networkPolicy.ts)
+
+/**
+ * Why the last apply failed, as a stable code. Clients render localized copy
+ * from it; provider text never reaches the stored status.
+ */
+export type VmNetworkPolicyErrorCode = "network_rule_capacity" | "apply_failed";
+
+export type VmNetworkPolicyStatus = {
+  readonly state: "applied" | "pending" | "failed";
+  readonly errorCode?: VmNetworkPolicyErrorCode;
+  readonly appliedAt?: string;
+};
+
+export type VmNetworkPolicyView = {
+  readonly policy: NetworkPolicy;
+  readonly status: VmNetworkPolicyStatus;
+};
+
+/**
+ * Store a create's policy on its new row before the provider call. Fails
+ * closed: a restricted machine whose policy is not recorded would show as open
+ * and be reconciled open by the next edit.
+ */
+function recordCreateNetworkPolicy(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: CreateVmInput,
+  rowId: string,
+): Effect.Effect<NetworkRulePlan | undefined, VmOperationUnsupportedError | VmDatabaseError> {
+  const policy = input.networkPolicy;
+  if (!policy) return Effect.succeed(undefined);
+  const plan = compileNetworkPolicy(policy);
+  return requireNetworkPolicySupport(providers, input.provider, plan).pipe(
+    Effect.andThen(storeNetworkPolicy(repo, rowId, policy, { state: "pending" })),
+    Effect.tapError((err) => repo.markCreateFailed({
+      id: rowId,
+      code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+      message: errorMessage(err),
+    }).pipe(Effect.catchAll(() => Effect.void))),
+    Effect.as(plan),
+  );
+}
+
+/** The create installed the rules itself; the status row is display state only. */
+function markCreateNetworkPolicyApplied(repo: VmRepositoryShape, input: CreateVmInput, rowId: string): Effect.Effect<void> {
+  if (!input.networkPolicy || !repo.setNetworkPolicy) return Effect.void;
+  return repo.setNetworkPolicy({ id: rowId, status: appliedNetworkStatus() }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/** A stored policy that restricts egress, or undefined for full Internet (including legacy rows). */
+function restrictedNetworkPolicy(value: unknown): NetworkPolicy | undefined {
+  if (value === null || value === undefined) return undefined;
+  const policy = storedNetworkPolicy(value);
+  return compileNetworkPolicy(policy).publicEgress ? undefined : policy;
+}
+
+function appliedNetworkStatus(): VmNetworkPolicyStatus {
+  return { state: "applied", appliedAt: new Date().toISOString() };
+}
+
+function storedNetworkStatus(value: unknown, hasPolicy: boolean): VmNetworkPolicyStatus {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const { state, appliedAt } = value as Record<string, unknown>;
+    if (state === "applied" || state === "pending" || state === "failed") {
+      const errorCode = storedNetworkErrorCode(value as Record<string, unknown>);
+      return {
+        state,
+        ...(errorCode ? { errorCode } : {}),
+        ...(typeof appliedAt === "string" ? { appliedAt } : {}),
+      };
+    }
+  }
+  // A legacy row has no stored policy and was created with full egress.
+  return { state: hasPolicy ? "pending" : "applied" };
+}
+
+/** A stored error code; rows written before codes carry English text under `error` and read as a generic failure. */
+function storedNetworkErrorCode(value: Record<string, unknown>): VmNetworkPolicyErrorCode | undefined {
+  if (value.errorCode === "network_rule_capacity" || value.errorCode === "apply_failed") return value.errorCode;
+  return typeof value.error === "string" ? "apply_failed" : undefined;
+}
+
+function networkPolicyErrorCode(cause: unknown): VmNetworkPolicyErrorCode {
+  return hasProviderTlsRuleLimitCause(cause) ? "network_rule_capacity" : "apply_failed";
+}
+
+function storeNetworkPolicy(
+  repo: VmRepositoryShape,
+  id: string,
+  policy: NetworkPolicy,
+  status: VmNetworkPolicyStatus,
+): Effect.Effect<void, VmDatabaseError> {
+  if (!repo.setNetworkPolicy) {
+    return Effect.fail(new VmDatabaseError({ operation: "setNetworkPolicy", cause: new Error("repository cannot store network policy") }));
+  }
+  return repo.setNetworkPolicy({ id, policy: { ...policy }, status: { ...status } });
+}
+
+/** Only a restricted plan needs provider egress control; full egress is every provider's default. */
+function requireNetworkPolicySupport(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  plan: NetworkRulePlan,
+): Effect.Effect<void, VmOperationUnsupportedError> {
+  if (plan.publicEgress || providers.applyNetworkPolicy) return Effect.void;
+  return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "applyNetworkPolicy" }));
+}
+
+export function getVmNetworkPolicy(input: ExistingVmAccessInput): VmWorkflowProgram<VmNetworkPolicyView> {
+  return Effect.gen(function* () {
+    const vm = yield* requireAccessibleUserVm(input);
+    return {
+      policy: storedNetworkPolicy(vm.networkPolicy),
+      status: storedNetworkStatus(vm.networkPolicyStatus, vm.networkPolicy != null),
+    };
+  });
+}
+
+/**
+ * Store and apply a machine's outbound policy. The row records the intent
+ * first; the provider then converges the live rules (no restart, and a paused
+ * machine is not woken: Freestyle rules live outside the VM). A provider
+ * failure leaves the policy stored with a `failed` status the UI surfaces, and
+ * the next save retries the whole reconcile.
+ */
+export function updateVmNetworkPolicy(input: ExistingVmAccessInput & {
+  readonly policy: NetworkPolicy;
+}): VmWorkflowProgram<VmNetworkPolicyView> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    const plan = compileNetworkPolicy(input.policy);
+    yield* requireNetworkPolicySupport(providers, vm.provider, plan);
+    if (!providers.applyNetworkPolicy) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "applyNetworkPolicy" }));
+    }
+    yield* storeNetworkPolicy(repo, vm.id, input.policy, { state: "pending" });
+    const applied = yield* Effect.either(providers.applyNetworkPolicy(vm.provider, input.providerVmId, plan));
+    const status: VmNetworkPolicyStatus = Either.isRight(applied)
+      ? appliedNetworkStatus()
+      : { state: "failed", errorCode: networkPolicyErrorCode(applied.left) };
+    yield* repo.setNetworkPolicy!({ id: vm.id, status: { ...status } });
+    if (Either.isLeft(applied)) return yield* Effect.fail(applied.left);
+    return { policy: input.policy, status };
+  });
 }

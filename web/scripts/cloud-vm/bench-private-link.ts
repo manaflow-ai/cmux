@@ -185,7 +185,7 @@ function terminalId(runOutput: string): string {
   return id;
 }
 
-/** `terminal … screen wait` answers `{matched:false}` with exit 0 when its timeout expires. */
+/** `terminal … screen wait` answers `{matched:false}` when its timeout expires (exit 1 from newer cmux-tui builds, exit 0 from older ones). */
 function requireMatched(waitOutput: string): void {
   const parsed = JSON.parse(waitOutput) as Record<string, unknown>;
   const value = (parsed.value as Record<string, unknown> | undefined) ?? parsed;

@@ -11,7 +11,7 @@ final class NewMachineSheetKindUITests: XCTestCase {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-menuBarOnly", "false",
-            // The Cloud Machines beta gate: every Cloud entry point, the palette
+            // The Cloud activation marker: every Cloud entry point, the palette
             // command included, hides behind it.
             "-cloud.beta.machines.enabled", "YES",
         ]

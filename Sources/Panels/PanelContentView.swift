@@ -202,6 +202,13 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .coderouterGuide:
+            if panel is CoderouterGuidePanel {
+                CoderouterGuidePanelView(
+                    isFocused: isFocused,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .notifications:
             if panel is NotificationsPanel {
                 NotificationsPage(
@@ -231,6 +238,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .cloudVPNSetup:
+            if let cloudVPNSetupPanel = panel as? CloudVPNSetupPanel {
+                CloudVPNSetupPanelView(
+                    model: cloudVPNSetupPanel.model,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
 
         }
     }
@@ -249,7 +264,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .coderouterGuide, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return true
         case .terminal, .browser:
             return false

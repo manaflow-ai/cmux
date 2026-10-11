@@ -365,6 +365,17 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
     }
 
+    @Test
+    func sshPTYAttachCarriesConfiguredRemoteCommandAcrossMissingSessionFallback() throws {
+        let command = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-w-s",
+            remoteCommand: "while true; do tmux attach -t work || sleep 5; done"
+        )
+        #expect(command.contains("--command-b64"))
+        #expect(command.contains(Data("while true; do tmux attach -t work || sleep 5; done".utf8).base64EncodedString()))
+        #expect(command.contains("--require-existing"))
+    }
+
     /// The app-side restore/reattach startup script builder runs a
     /// foreground-auth `ssh ... <dest> true` hop that must override a
     /// host-configured RemoteCommand.
@@ -387,7 +398,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             remoteCommand: "printf ready"
         )
         #expect(
-            command.contains("-o RemoteCommand=none -T cmux-remotecommand-host true"),
+            command.contains("-o RemoteCommand=none -T -- cmux-remotecommand-host true"),
             "Restore foreground auth must override a host-configured RemoteCommand before running its command-line `true`; command: \(command)"
         )
         #expect(

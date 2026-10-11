@@ -243,6 +243,17 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         setConnectionStatus(status)
     }
 
+    /// Applies one panel's own transport status.
+    /// - Parameters:
+    ///   - status: The panel's transport status.
+    ///   - panelID: The browser panel identifier.
+    public func setBrowserStreamConnectionStatus(
+        _ status: BrowserStreamSurfaceState.ConnectionStatus,
+        panelID: String
+    ) {
+        statesByPanel[panelID]?.connectionStatus = status
+    }
+
     /// Marks active surfaces paused while background stop requests run.
     public func pauseBrowserStreams() {
         pauseActiveStreams()

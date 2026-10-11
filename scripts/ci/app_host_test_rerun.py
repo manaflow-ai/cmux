@@ -65,12 +65,21 @@ def gh_api(path: str) -> dict:
     return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
 
+# A run's artifacts pile up across re-run attempts; an older attempt's product may sit past page 1.
+MAX_ARTIFACT_PAGES = 5
+
+
 def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) -> dict | None:
     """The unexpired app-host product artifact a run uploaded, if any."""
-    listing = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100")
-    for artifact in listing.get("artifacts", []):
-        if artifact.get("name", "").startswith(PRODUCTS_PREFIX) and not artifact.get("expired"):
-            return artifact
+    for page in range(1, MAX_ARTIFACT_PAGES + 1):
+        more = f"&page={page}" if page > 1 else ""
+        artifacts = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100{more}").get(
+            "artifacts", [])
+        for artifact in artifacts:
+            if artifact.get("name", "").startswith(PRODUCTS_PREFIX) and not artifact.get("expired"):
+                return artifact
+        if len(artifacts) < 100:
+            break
     return None
 
 
@@ -166,6 +175,9 @@ def find_products(
 
 ADMISSION_JOB = "macOS compile admission"
 PRODUCT_RUNNERS = {"15": "blacksmith-6vcpu-macos-15", "26": "blacksmith-6vcpu-macos-26"}
+OWNED_POOL = re.compile(
+    r"^glaeda-(?:(?P<namespace>[a-z0-9]+)-)?(?:root-)?(?:xl|std|light)-xcode-(?P<xcode>[0-9.]+)$"
+)
 
 
 def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pages: int = 5) -> str:
@@ -186,7 +198,13 @@ def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pag
                 for label in job.get("labels", []):
                     # An owned Mac pool carries the pull-request lane's Xcode,
                     # which is the macOS 26 pools' pin (pr_runner_pool.py).
-                    if re.fullmatch(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9.]+", label):
+                    owned = OWNED_POOL.fullmatch(label)
+                    if owned:
+                        # AWS runners carry Xcode 26.3 while the hosted macOS
+                        # 26 image carries 26.6. A rerun must use the image
+                        # whose developer directory matches the products.
+                        if owned.group("namespace") == "aws" and owned.group("xcode") == "26.3":
+                            return PRODUCT_RUNNERS["15"]
                         return PRODUCT_RUNNERS["26"]
                     match = re.search(r"macos-(\d+)", label)
                     if match and match.group(1) in PRODUCT_RUNNERS:
@@ -236,7 +254,10 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
             )
         artifact = products_artifact(args.repository, args.source_run_id, api)
         if not artifact:
-            raise SystemExit(f"run {args.source_run_id} has no unexpired {PRODUCTS_PREFIX}* artifact")
+            adopted = (" A test-e2e.yml build that adopted another run's product uploads none of its own:"
+                       " pass the run named in its 'Compiled test product' summary instead."
+                       if run.get("path") == E2E_WORKFLOW else "")
+            raise SystemExit(f"run {args.source_run_id} has no unexpired {PRODUCTS_PREFIX}* artifact.{adopted}")
         found = {"revision": revision, "run_id": args.source_run_id, "artifact": artifact}
     else:
         revisions, blocker = eligible_revisions(head, args.max_commits)

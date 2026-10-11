@@ -65,6 +65,16 @@ final class AccountSignInModel {
         if isStartingSignIn {
             return .loading(.openingBrowser)
         }
+        // Switch Account is always mirrored: its sign-out leaves every gate
+        // signed out, and an idle Sign In there would start a second attempt
+        // that skips the account chooser.
+        if flow?.isSwitchingAccount == true {
+            if flow?.isCompletingSignIn == true { return .loading(.finishing) }
+            if flow?.isPresentingSignIn == true {
+                return .loading(flow?.signInIsSlow == true ? .waitingSlow : .waiting)
+            }
+            return .loading(.openingBrowser)
+        }
         // A pane only mirrors attempts it asked for. Embedded gates (Cloud
         // Machines) must keep showing their plain sign-in prompt while another
         // surface runs the shared attempt.
@@ -102,7 +112,7 @@ final class AccountSignInModel {
         hasRequestedSignIn = true
         linkCopyState = .idle
         browserOpenState = .idle
-        if flow.isPresentingSignIn {
+        if flow.isPresentingSignIn || flow.isSwitchingAccount {
             // Another surface already has the shared attempt up. Adopt it —
             // mirror its progress and reuse its callback-bound URL — instead
             // of tearing down that popup or silently doing nothing.

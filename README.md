@@ -159,7 +159,9 @@ For shell watcher churn and managed-Mac process audit volume, see the supported
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ N | New workspace |
+| ⌘ N | New local workspace |
+| ⌘ Y | New Cloud workspace on the last usable Cloud context; opens New Cloud Machine when none is available |
+| ⌘ ⇧ Y | New Cloud machine |
 | ⌘ 1–8 | Jump to workspace 1–8 |
 | ⌘ 9 | Jump to last workspace |
 | ⌃ ⌘ ] | Next workspace |
@@ -271,7 +273,8 @@ cmux does not checkpoint arbitrary live process state. Ordinary terminals,
 tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
 For live detach/reattach across cmux quit, crashes, and updates, opt in to the
 local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
-for its lifecycle and machine-sleep limits.
+for its lifecycle and machine-sleep limits. zellij users can use `cmux local-zellij`
+instead; see [`docs/local-zellij.md`](docs/local-zellij.md).
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -409,7 +412,7 @@ Yes. Skills are reusable workflows you can give any agent running in cmux, for t
 
 ### Can I customize keyboard shortcuts?
 
-Terminal keybindings are read from your Ghostty config file (`~/.config/ghostty/config`). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the [default shortcuts](https://cmux.com/docs/keyboard-shortcuts) for a full list.
+Terminal keybindings are read from your Ghostty config file (`~/.config/ghostty/config`), including leader sequences and key tables. Ghostty tab actions target cmux workspaces; see the [action mapping, precedence, and limitations](docs/ghostty-keybindings.md). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the [default shortcuts](https://cmux.com/docs/keyboard-shortcuts) for a full list.
 
 ### Can I customize cmux?
 
@@ -441,7 +444,7 @@ cmux is free and open source, and always will be. If you want to back developmen
 
 ### I have a feature request or found a bug?
 
-We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star History
 
@@ -455,7 +458,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 
 ## Contributing
 
-For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+New here? [Start here](docs/start-here.md) is the short path from "I want to
+change something" to a merged pull request, including what you can fix without a
+Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
 Ways to get involved:
@@ -526,4 +531,4 @@ If your organization cannot comply with GPL, commercial terms may be available
 for portions for which Manaflow controls the necessary rights. They do not
 relicense third-party material or outside contributions for which Manaflow
 lacks a separate grant. See [LICENSE](LICENSE) for the exact scope and contact
-[founders@manaflow.com](mailto:founders@manaflow.com) for details.
+[founders@cmux.com](mailto:founders@cmux.com) for details.

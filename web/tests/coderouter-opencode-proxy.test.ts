@@ -1,6 +1,9 @@
 import { vmToken } from "./vm-authorization-fixture";
 const SIGNED_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 import { describe, expect, test } from "bun:test";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { gzipSync } from "node:zlib";
 import {
   __test,
   openCodeClientConfig,
@@ -68,6 +71,93 @@ describe("coderouter OpenCode Go proxy", () => {
     await expect(__test.resolveProviderURL("https://provider.example/v1", async () => [
       { address: "2001:db8::10", family: 6 },
     ])).resolves.toMatchObject({ hostname: "provider.example" });
+  });
+
+  // DNS rebinding: the proxy checked the provider's addresses, then fetch
+  // looked the name up again and could connect to an internal address with
+  // the provider credential. The checked address is pinned for the request.
+  test("pins the checked provider address and connects only to it", async () => {
+    const target = await __test.resolveProviderURL("https://provider.example/v1", async () => [
+      { address: "2001:db8::10", family: 6 },
+    ]);
+    expect(target).toMatchObject({ hostname: "provider.example", pinnedAddress: "2001:db8::10", pinnedFamily: 6 });
+
+    const seen: string[] = [];
+    const server = createServer((request, response) => {
+      seen.push(request.headers.host ?? "");
+      request.resume();
+      request.on("end", () => {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end("pinned");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      // The name does not resolve at all; only the pin makes this connect.
+      const url = `http://rebind.invalid:${port}/v1/chat`;
+      const response = await __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toBe("pinned");
+      expect(seen).toEqual([`rebind.invalid:${port}`]);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // fetch decodes compressed bodies; the pinned path must too, or usage
+  // accounting and the client receive gzip bytes as if they were JSON.
+  test("pinned fetch decodes a compressed provider body", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
+      response.end(gzipSync('{"usage":{"total_tokens":3}}'));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const response = await __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(
+        `http://provider.invalid:${port}/v1/chat`,
+        { headers: { "accept-encoding": "gzip" } },
+      );
+      expect(response.headers.get("content-encoding")).toBeNull();
+      await expect(response.text()).resolves.toBe('{"usage":{"total_tokens":3}}');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("pinned fetch fails the upload when the client body fails", async () => {
+    let upstreamClosed!: () => void;
+    const closed = new Promise<void>((resolve) => { upstreamClosed = resolve; });
+    const server = createServer((request) => {
+      request.on("close", () => upstreamClosed());
+      request.resume();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+          setTimeout(() => controller.error(new Error("client went away")), 20);
+        },
+      });
+      const request = __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(
+        `http://provider.invalid:${port}/v1/chat`,
+        { method: "POST", body, duplex: "half" } as RequestInit,
+      );
+      await expect(request).rejects.toThrow();
+      await closed;
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   test("routes around an unavailable OpenCode account", async () => {
@@ -187,34 +277,30 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     expect(body.provider.go.options.apiKey).toBe(CLI_TOKEN);
   });
 
-  test("a bound token without the matching x-cmux-vm-id is rejected", async () => {
+  test("a signed token survives missing and forged VM headers", async () => {
     const missing = await openCodeClientConfig(
-      configRequest({ "x-coderouter-route-token": BOUND_TOKEN }),
+      configRequest({ authorization: `Bearer ${BOUND_TOKEN}` }),
       dependencies(),
     );
-    expect(missing.status).toBe(401);
+    expect(missing.status).toBe(200);
     await expect(missing.json()).resolves.toMatchObject({
-      error: "unauthorized",
-      message:
-        "This machine's coderouter credential does not match the machine it was issued to.",
+      provider: { go: { options: { apiKey: VM_PLACEHOLDER_API_KEY } } },
     });
 
     const wrong = await proxyOpenCodeRequest(
       new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
-          "x-coderouter-route-token": BOUND_TOKEN,
+          "authorization": `Bearer ${BOUND_TOKEN}`,
           "x-cmux-vm-id": "vm-2",
         },
         body: "{}",
       }),
       "go",
       ["chat"],
-      dependencies(),
+      dependencies([], { fetch: async () => new Response("ok", { status: 200 }) }),
     );
-    expect(wrong.status).toBe(401);
-    await expect(wrong.json()).resolves.toMatchObject({ error: "unauthorized" });
+    expect(wrong.status).toBe(200);
   });
 
   test("the placeholder API key alone is never looked up", async () => {
@@ -348,5 +434,71 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     expect(response.status).toBe(502);
     expect(configSignal).toBeDefined();
     expect(configSignal?.aborted).toBe(true);
+  });
+});
+
+describe("coderouter OpenCode with no account configured", () => {
+  const TOKEN = "crt_no-account";
+  function noAccountDependencies(configured: boolean) {
+    const checks: string[] = [];
+    return {
+      checks,
+      dependencies: {
+        authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+        select: async () => null,
+        credential: async (): Promise<never> => {
+          throw new Error("no account should be read");
+        },
+        remoteConfig: async (): Promise<never> => {
+          throw new Error("no config should be read");
+        },
+        hasConfiguredAccount: async (input: { teamId: string }) => {
+          checks.push(input.teamId);
+          return configured;
+        },
+      },
+    };
+  }
+  const terminalBody = {
+    error: {
+      message: "No OpenCode account is configured for this team or shared with this caller. Add one with `cr add opencode` or at coderouter.dev.",
+      type: "invalid_request_error",
+      code: "no_account_configured",
+    },
+  };
+  const configRequest = () => new Request("https://cmux.example/api/coderouter/opencode/config", {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  const proxyRequest = () => new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "x-coderouter-route-token": TOKEN },
+    body: "{}",
+  });
+
+  test("config answers a caller that can see no OpenCode account with the terminal 403", async () => {
+    const run = noAccountDependencies(false);
+    const response = await openCodeClientConfig(configRequest(), run.dependencies);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual(terminalBody);
+    expect(run.checks).toEqual(["team-1"]);
+  });
+
+  test("the provider proxy answers the same terminal 403", async () => {
+    const run = noAccountDependencies(false);
+    const response = await proxyOpenCodeRequest(proxyRequest(), "go", ["chat"], run.dependencies);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual(terminalBody);
+  });
+
+  test("a caller whose accounts are all unavailable keeps a retryable 503 on both surfaces", async () => {
+    const run = noAccountDependencies(true);
+    const config = await openCodeClientConfig(configRequest(), run.dependencies);
+    expect(config.status).toBe(503);
+    expect(config.headers.get("retry-after")).not.toBeNull();
+    const proxied = await proxyOpenCodeRequest(proxyRequest(), "go", ["chat"], run.dependencies);
+    expect(proxied.status).toBe(503);
+    expect(proxied.headers.get("retry-after")).not.toBeNull();
   });
 });

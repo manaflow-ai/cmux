@@ -1,0 +1,417 @@
+import Foundation
+import os
+@testable import CmuxMobileCloud
+
+/// Scripted control plane.
+final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
+    struct Calls: Sendable {
+        var list = 0
+        var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
+        var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
+        var enrollCredentials: [CloudAPITokenSource.TokenContext?] = []
+        var revoke: [(fingerprint: String, purpose: CloudTunnelPurpose)] = []
+        var revokeCredentials: [(accessToken: String, refreshToken: String, teamID: String?)] = []
+        var attach: [(machineID: String, fingerprint: String)] = []
+        var approve: [(machineID: String, invitationId: String)] = []
+        var pause: [String] = []
+        var resume: [String] = []
+        var delete: [String] = []
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: Calls())
+    private let revocationGate = OSAllocatedUnfairLock(initialState: 0)
+    var calls: Calls { lock.withLock { $0 } }
+
+    var machines: Result<[CloudMachine], any Error> = .success([])
+    var listResponses: [Result<[CloudMachine], any Error>] = []
+    var holdFirstListRequest = false
+    private let firstListStarted = TestSignal()
+    private let releaseFirstList = TestSignal()
+    var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
+    var holdCreation = false
+    private let creationStarted = TestSignal()
+    private let releaseCreation = TestSignal()
+    var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
+    var enrollmentSequence: [CloudTunnelEnrollment] = []
+    var enrollmentDelay: Duration?
+    private let enrollmentCompletion = TestSignal()
+    private let revocationStarted = TestSignal()
+    private let revocationCompletion = TestSignal()
+    private let releaseRevocation = TestSignal()
+    var revocationFailure: (any Error)?
+    var revocationsToHold: Int {
+        get { revocationGate.withLock { $0 } }
+        set { revocationGate.withLock { $0 = newValue } }
+    }
+    var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
+    var approvals: [Bool] = [true]
+    var approvalDelay: Duration?
+    var approvalFailure: (any Error)?
+    /// Thrown by pause, resume and delete when set.
+    var lifecycleFailure: (any Error)?
+    var holdLifecycleActions = false
+    private let lifecycleActionStarted = TestSignal()
+    private let releaseLifecycleAction = TestSignal()
+
+    func listMachines() async throws -> [CloudMachine] {
+        let index = lock.withLock { calls -> Int in
+            calls.list += 1
+            return calls.list - 1
+        }
+        if index == 0, holdFirstListRequest {
+            await firstListStarted.signal()
+            await releaseFirstList.wait()
+        }
+        let result = listResponses.indices.contains(index) ? listResponses[index] : machines
+        return try result.get()
+    }
+
+    func waitForFirstListStart() async { await firstListStarted.wait() }
+    func releaseHeldFirstList() async { await releaseFirstList.signal() }
+
+    func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
+        lock.withLock { $0.create.append((options, idempotencyKey)) }
+        if holdCreation {
+            await creationStarted.signal()
+            await releaseCreation.wait()
+        }
+        return try creation.get()
+    }
+
+    func waitForCreationStart() async { await creationStarted.wait() }
+    func releaseHeldCreation() async { await releaseCreation.signal() }
+
+    func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws -> CloudTunnelEnrollment {
+        try await performEnrollment(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            credentials: nil
+        )
+    }
+
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        try await performEnrollment(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            credentials: credentials
+        )
+    }
+
+    private func performEnrollment(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        let callIndex = lock.withLock { calls -> Int in
+            calls.enroll.append((clientPublicKey, deviceFingerprint, tunnelPurpose, deviceName))
+            calls.enrollCredentials.append(credentials)
+            return calls.enroll.count - 1
+        }
+        if let enrollmentDelay {
+            try? await ContinuousClock().sleep(for: enrollmentDelay)
+        }
+        await enrollmentCompletion.signal()
+        let result = enrollmentSequence.indices.contains(callIndex)
+            ? .success(enrollmentSequence[callIndex])
+            : enrollment
+        return try result.get()
+    }
+
+    func waitForEnrollmentCompletion() async {
+        await enrollmentCompletion.wait()
+    }
+
+    func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
+        try await performRevocation(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose
+        )
+    }
+
+    private func performRevocation(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose
+    ) async throws {
+        lock.withLock { $0.revoke.append((deviceFingerprint, tunnelPurpose)) }
+        let shouldHold = revocationGate.withLock { remaining -> Bool in
+            guard remaining > 0 else { return false }
+            remaining -= 1
+            return true
+        }
+        await revocationStarted.signal()
+        if shouldHold {
+            await releaseRevocation.wait()
+        }
+        await revocationCompletion.signal()
+        if let revocationFailure { throw revocationFailure }
+    }
+
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) async throws {
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            teamID: nil
+        )
+    }
+
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws {
+        lock.withLock {
+            $0.revokeCredentials.append((accessToken, refreshToken, teamID))
+        }
+        try await performRevocation(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose
+        )
+    }
+
+    func waitForRevocation() async {
+        await revocationCompletion.wait()
+    }
+
+    func waitForRevocationStart() async {
+        await revocationStarted.wait()
+    }
+
+    func releaseHeldRevocation() async {
+        await releaseRevocation.signal()
+    }
+
+    func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
+        lock.withLock { $0.attach.append((machineID, deviceFingerprint)) }
+        return try attach.get()
+    }
+
+    func approveEnrollment(machineID: String, invitationId: String) async throws -> Bool {
+        let index = lock.withLock { calls -> Int in
+            calls.approve.append((machineID, invitationId))
+            return calls.approve.count - 1
+        }
+        if let approvalDelay {
+            try await Task.sleep(for: approvalDelay)
+        }
+        if let approvalFailure { throw approvalFailure }
+        return index < approvals.count ? approvals[index] : approvals.last ?? true
+    }
+
+    func pauseMachine(id: String) async throws {
+        lock.withLock { $0.pause.append(id) }
+        await waitForLifecycleActionIfNeeded()
+        if let lifecycleFailure { throw lifecycleFailure }
+    }
+
+    func resumeMachine(id: String) async throws {
+        lock.withLock { $0.resume.append(id) }
+        await waitForLifecycleActionIfNeeded()
+        if let lifecycleFailure { throw lifecycleFailure }
+    }
+
+    func deleteMachine(id: String) async throws {
+        lock.withLock { $0.delete.append(id) }
+        await waitForLifecycleActionIfNeeded()
+        if let lifecycleFailure { throw lifecycleFailure }
+    }
+
+    private func waitForLifecycleActionIfNeeded() async {
+        guard holdLifecycleActions else { return }
+        await lifecycleActionStarted.signal()
+        await releaseLifecycleAction.wait()
+    }
+
+    func waitForLifecycleActionStart() async { await lifecycleActionStarted.wait() }
+    func releaseHeldLifecycleAction() async { await releaseLifecycleAction.signal() }
+}
+
+final class FakeTunnel: CloudTunnel {
+    let config: String
+    init(config: String) { self.config = config }
+}
+
+final class FakeTunnelStarter: CloudTunnelStarting, @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: [String]())
+    var startedConfigs: [String] { lock.withLock { $0 } }
+    var failure: (any Error)?
+
+    func start(wgQuickConfig: String) async throws -> any CloudTunnel {
+        lock.withLock { $0.append(wgQuickConfig) }
+        if let failure { throw failure }
+        return FakeTunnel(config: wgQuickConfig)
+    }
+}
+
+struct StubError: Error, Equatable { let message: String }
+
+final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
+    struct State {
+        var attached: String?
+        var attachStarted: [String] = []
+        var sent: [Data] = []
+        var resizes: [(Int, Int)] = []
+        var detached = 0
+        var disconnected = 0
+        var created: [String?] = []
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State())
+    var state: State { lock.withLock { $0 } }
+    var terminals: [CloudTerminalSummary] = [CloudTerminalSummary(id: "t1", name: "shell")]
+    var workspaces: [CloudWorkspaceSummary] = []
+    var loadCatalogCalls = 0
+    var createWorkspaceGate: (started: TestSignal, release: TestSignal)?
+    var createTerminalGate: (started: TestSignal, release: TestSignal)?
+    var attachGate: (started: TestSignal, release: TestSignal)?
+    var attachGates: [(started: TestSignal, release: TestSignal)] = []
+    var attachFailure: (any Error)?
+    var outputHandler: (@Sendable (CloudTerminalOutputEvent) -> Void)? {
+        lock.withLock { _ in handlerBox.withLock { $0 } }
+    }
+    private let handlerBox = OSAllocatedUnfairLock<(@Sendable (CloudTerminalOutputEvent) -> Void)?>(initialState: nil)
+
+    func listWorkspaces() async throws -> [CloudWorkspaceSummary] { workspaces }
+    func listTerminals() async throws -> [CloudTerminalSummary] { terminals }
+
+    func createWorkspace(name: String?) async throws -> String {
+        if let createWorkspaceGate {
+            await createWorkspaceGate.started.signal()
+            await createWorkspaceGate.release.wait()
+        }
+        return "workspace-created"
+    }
+
+    func loadCatalog() async throws -> (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary]) {
+        loadCatalogCalls += 1
+        return (workspaces, terminals)
+    }
+
+    func createTerminal(name: String?) async throws -> String {
+        if let createTerminalGate {
+            await createTerminalGate.started.signal()
+            await createTerminalGate.release.wait()
+        }
+        lock.withLock { $0.created.append(name) }
+        let id = "t\(terminals.count + 1)"
+        terminals.append(CloudTerminalSummary(id: id, name: name))
+        return id
+    }
+
+    func attach(terminalID: String, output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void) async throws {
+        if let attachFailure { throw attachFailure }
+        lock.withLock {
+            $0.attached = terminalID
+            $0.attachStarted.append(terminalID)
+        }
+        let gate: (started: TestSignal, release: TestSignal)? = {
+            attachGateLock.lock()
+            defer { attachGateLock.unlock() }
+            if attachGates.isEmpty { return attachGate }
+            return attachGates.removeFirst()
+        }()
+        if let gate {
+            await gate.started.signal()
+            await gate.release.wait()
+        }
+        handlerBox.withLock { $0 = output }
+    }
+
+    func detach() { lock.withLock { $0.detached += 1 } }
+    func send(_ bytes: Data) { lock.withLock { $0.sent.append(bytes) } }
+    func resize(cols: Int, rows: Int) { lock.withLock { $0.resizes.append((cols, rows)) } }
+    func disconnect() { lock.withLock { $0.disconnected += 1 } }
+
+    private let attachGateLock = NSLock()
+}
+
+final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {
+    struct Connect: Sendable {
+        var route: String
+        var stateDirectory: URL
+        var deviceName: String
+        var invitation: String?
+        var trustedCarrier = false
+        var hasTunnel: Bool
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: [Connect]())
+    var connects: [Connect] { lock.withLock { $0 } }
+    let session = FakeTerminalSession()
+    var failure: (any Error)?
+    var connectGate: (started: TestSignal, release: TestSignal)?
+
+    func connect(route: String, stateDirectory: URL, deviceName: String, invitation: String?, trustedCarrier: Bool, tunnel: (any CloudTunnel)?) async throws -> any CloudTerminalSession {
+        lock.withLock {
+            $0.append(Connect(route: route, stateDirectory: stateDirectory, deviceName: deviceName, invitation: invitation, trustedCarrier: trustedCarrier, hasTunnel: tunnel != nil))
+        }
+        if let failure { throw failure }
+        if let connectGate {
+            await connectGate.started.signal()
+            await connectGate.release.wait()
+        }
+        return session
+    }
+}
+
+enum Fixtures {
+    static let serverConfig = """
+    [Interface]
+    PrivateKey =
+    Address = 100.64.0.7/32
+    Address = fd7a:7570:6c6b::7/128
+    MTU = 1200
+
+    [Peer]
+    PublicKey = c2VydmVyLXB1YmxpYy1rZXktYmFzZTY0LXBsYWNlaG9sZGVyPT0=
+    AllowedIPs = 10.0.0.0/8, fd00::/8
+    Endpoint = [2600:1f18::1]:51820
+    """
+
+    static let enrollment = CloudTunnelEnrollment(
+        tunnelId: "tun_1",
+        provider: "freestyle",
+        deviceFingerprint: "ios-abc",
+        clientConfig: serverConfig,
+        serverPublicKey: "c2VydmVyLXB1YmxpYy1rZXktYmFzZTY0LXBsYWNlaG9sZGVyPT0=",
+        endpointHost: "2600:1f18::1",
+        endpointPort: 51820,
+        routes: ["10.0.0.0/8", "fd00::/8"],
+        addressV4: "100.64.0.7",
+        addressV6: "fd7a:7570:6c6b::7",
+        created: true,
+        rotated: false
+    )
+
+    static let enrollmentJSON = """
+    {"tunnelId":"tun_1","provider":"freestyle","deviceFingerprint":"ios-abc",
+     "clientConfig":"[Interface]\\nPrivateKey =\\nAddress = 100.64.0.7/32\\nMTU = 1200\\n\\n[Peer]\\nPublicKey = spk\\nAllowedIPs = 10.0.0.0/8, fd00::/8\\nEndpoint = [2600:1f18::1]:51820\\n",
+     "clientPublicKey":"cpk","serverPublicKey":"spk","endpointHost":"2600:1f18::1","endpointPort":51820,
+     "routes":["10.0.0.0/8","fd00::/8"],"address":{"ipv4":"100.64.0.7","ipv6":"fd7a:7570:6c6b::7"},
+     "network":{"cidr":"10.100.0.0/16","cidrV6":"fd7a:7570:6c6b::/64"},"created":true,"rotated":false}
+    """
+
+    static func stateDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-cloud-tests-\(UUID().uuidString)", isDirectory: true)
+    }
+}

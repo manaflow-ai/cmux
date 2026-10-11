@@ -98,6 +98,24 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_cosmetic_binary_diagnostic_ignores_swiftpm_warning_error_text(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "warning: 'swift-crypto': skipping cache due to an error: The file “maintenance.lock” doesn’t exist.\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="CmuxCloud",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_cosmetic_binary_diagnostic_still_rejects_source_error(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "Foo.swift:1:2: error: x\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="CmuxCloud",
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+
     def test_assertion_failure_exit_stays_red(self) -> None:
         result = self.run_step(
             "✘ Test run with 2 tests failed after 0.001 seconds with 1 issue.\n", status=1,

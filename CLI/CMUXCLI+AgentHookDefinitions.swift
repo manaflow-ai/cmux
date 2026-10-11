@@ -360,9 +360,10 @@ extension CMUXCLI {
     /// inherited `CMUX_CODEX_PID` as its own owner identity.
     static func codexSynchronousAgentHookShellCommand(
         _ command: String,
-        for def: AgentHookDef
+        for def: AgentHookDef,
+        failOpen: Bool = false
     ) -> String {
-        let dispatch = agentHookShellCommand(command, for: def)
+        let dispatch = agentHookShellCommand(command, for: def, failOpen: failOpen)
         return "CMUX_CODEX_HOOK_PID=\"${PPID:-}\"; export CMUX_CODEX_HOOK_PID; \(dispatch)"
     }
 
@@ -561,7 +562,11 @@ extension CMUXCLI {
         let socket = shellSingleQuote(socketPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "nil")
         let statusField = statusExpression == nil ? "" : " status=%s"
         let statusArgument = statusExpression.map { " \($0)" } ?? ""
-        return "printf '%s \(agentName)Hook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
+        // Any local account can create names in /tmp, so append only to an
+        // existing regular file this user owns with a single link, never
+        // through a symlink or into a file someone else prepared.
+        let ownedLogCheck = "[ -n \"$(find \(logPath) -prune -type f -links 1 -user \"$(id -u)\" 2>/dev/null)\" ]"
+        return "\(ownedLogCheck) && printf '%s \(agentName)Hook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
 #else
         return ":"
 #endif

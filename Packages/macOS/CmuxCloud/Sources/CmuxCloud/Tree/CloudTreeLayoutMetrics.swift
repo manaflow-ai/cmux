@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxFoundation
 
 /// Geometry shared by the Cloud outline's document and row content.
 ///
@@ -10,8 +11,12 @@ public struct CloudTreeLayoutMetrics: Equatable, Sendable {
     /// The horizontal inset reserved for row accessories at the trailing edge.
     public let referenceInset: CGFloat
 
-    /// Creates Cloud tree geometry for the given content inset.
-    public init(referenceInset: CGFloat = 12) {
+    /// Creates Cloud tree geometry for the given content inset, defaulting to
+    /// the row grid's trailing padding. `titleWidth` has no caller in the app
+    /// yet, so this default is a statement of intent rather than something a
+    /// row renders from: whoever wires it up gets the column the rows already
+    /// reserve, instead of a second number that truncates titles early.
+    public init(referenceInset: CGFloat = CloudTreeRowGrid().trailingPadding) {
         self.referenceInset = max(0, referenceInset)
     }
 
@@ -35,5 +40,14 @@ public struct CloudTreeLayoutMetrics: Equatable, Sendable {
         trailingContentWidth: CGFloat
     ) -> CGFloat {
         max(0, rowWidth - leadingContentWidth - trailingContentWidth - referenceInset)
+    }
+    /// Horizontal origin shared by AppKit cell frames and wrapping Ports status measurements.
+    public func contentLeading(level: Int, style: CloudTreeStyle, magnification: Int = GlobalFontMagnification.storedPercent) -> CGFloat {
+        GlobalFontMagnification.scaledSize(8 + CGFloat(max(0, level)) * style.indentPerLevel, percent: magnification)
+            + GlobalFontMagnification.scaledSize(style.rowGrid.disclosureSlot + style.rowGrid.disclosureGap, percent: magnification)
+    }
+
+    public func portsContentWidth(columnWidth: CGFloat, level: Int, style: CloudTreeStyle) -> CGFloat {
+        max(1, columnWidth - contentLeading(level: level, style: style) - style.rowGrid.trailingPadding)
     }
 }

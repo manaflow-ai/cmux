@@ -27,7 +27,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computers,
                 id: "discovery",
-                title: String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"),
+                title: String(localized: "devices.discovery.toggle", defaultValue: "Discover other devices"),
                 detailText: String(localized: "devices.discovery.help", defaultValue: "Find and connect to other Macs signed in to your account. Turning this off disconnects their panes without closing their terminals."),
                 synonyms: "Discover other Macs discovery find connect other computers my devices"
             )

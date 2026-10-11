@@ -275,6 +275,27 @@ struct CloudFailureCard: View {
     var style: Style = .compactBordered
     var onRetry: (() -> Void)? = nil
     let onDismiss: () -> Void
+    @State private var themeObserver = GhosttyDialogThemeObserver.shared
+
+    var body: some View {
+        CloudFailureCardBody(
+            title: title, detail: detail, copyableText: copyableText,
+            style: style, onRetry: onRetry, onDismiss: onDismiss,
+            theme: themeObserver.theme
+        )
+        .ghosttyDialogTheme()
+    }
+}
+
+private struct CloudFailureCardBody: View {
+    typealias Style = CloudFailureCard.Style
+    let title: String
+    let detail: String
+    let copyableText: String
+    let style: Style
+    let onRetry: (() -> Void)?
+    let onDismiss: () -> Void
+    let theme: GhosttyDialogTheme
 
     private var cornerRadius: CGFloat {
         switch style {
@@ -303,18 +324,18 @@ struct CloudFailureCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: cornerRadius))
+        .background(Color(nsColor: theme.background), in: RoundedRectangle(cornerRadius: cornerRadius))
         .overlay {
             if style == .compactBordered {
                 Rectangle()
-                    .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
+                    .strokeBorder(Color(nsColor: theme.border), lineWidth: 1)
             } else if style != .inline {
                 RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                    .strokeBorder(Color(nsColor: theme.separator), lineWidth: 0.5)
             }
         }
         .overlay(alignment: .leading) {
-            if style == .inline { Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 2) }
+            if style == .inline { Rectangle().fill(Color(nsColor: theme.border)).frame(width: 2) }
         }
         .shadow(color: .black.opacity(style == .compact || style == .dialog ? 0.09 : 0), radius: 8, y: 3)
         .accessibilityIdentifier("CloudPaneCreationFailure")

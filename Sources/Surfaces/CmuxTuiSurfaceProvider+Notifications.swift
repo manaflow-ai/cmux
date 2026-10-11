@@ -134,6 +134,7 @@ extension CmuxTuiSurfaceProvider {
         let machineID = self.machineID
         return CloudNotificationLocalDelivery(
             machineID: machineID,
+            origin: .cloudVM(machineID: machineID),
             store: { AppDelegate.shared?.notificationStore },
             admit: { CloudNotificationSyncHub.shared.admit($0, machineID: machineID) },
             machineName: { [summary] in summary.preferredName },

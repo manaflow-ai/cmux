@@ -31,8 +31,8 @@ enum WorkspaceInitialCommandLoginShell {
     /// wrapper hooks. The payload therefore re-prepends the shim directory after
     /// profiles run; a duplicate PATH entry is harmless and matches what interactive
     /// shell integration already produces. The directory can sit in a shared
-    /// temporary directory, so it is prepended only when it is a real directory
-    /// (not a symlink) owned by this user.
+    /// temporary directory, so both the root and its ancestors are checked before
+    /// any PATH change. The shared agent root also supports Claude-disabled panes.
     static func wrap(_ command: String, userShell: String?) -> String {
         var shellPath: String
         if let userShell, userShell.hasPrefix("/") {
@@ -41,11 +41,19 @@ enum WorkspaceInitialCommandLoginShell {
             shellPath = "/bin/zsh"
         }
         let payload: String
+        let check = shellSingleQuoted(shimRootCheck)
 
         switch (shellPath as NSString).lastPathComponent {
         case "fish":
             payload = """
-            if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and not test -L "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -O "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
+            set -l _cmux_previous_shim ""
+            for _cmux_candidate_shim in "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" "$CMUX_AGENT_COMMAND_SHIM_ROOT"
+                if test -n "$_cmux_candidate_shim"; and test "$_cmux_candidate_shim" != "$_cmux_previous_shim"; and /bin/sh -c \(check) cmux "$_cmux_candidate_shim"
+                    set -gx PATH "$_cmux_candidate_shim" $PATH
+                    set _cmux_previous_shim "$_cmux_candidate_shim"
+                end
+            end
+            set -e _cmux_previous_shim _cmux_candidate_shim
             \(command)
             """
         case "zsh", "bash", "sh", "ksh", "dash":
@@ -64,7 +72,57 @@ enum WorkspaceInitialCommandLoginShell {
         return "\(shellSingleQuoted(shellPath)) -lc \(shellSingleQuoted(payload))"
     }
 
-    private static let posixShimRootPrepend = #"if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi"#
+    private static var posixShimRootPrepend: String {
+        """
+        _cmux_previous_shim=''
+        for _cmux_candidate_shim in "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" "${CMUX_AGENT_COMMAND_SHIM_ROOT:-}"; do
+            if [ -n "$_cmux_candidate_shim" ] && [ "$_cmux_candidate_shim" != "$_cmux_previous_shim" ] && /bin/sh -c \(shellSingleQuoted(shimRootCheck)) cmux "$_cmux_candidate_shim"; then
+                PATH="$_cmux_candidate_shim${PATH:+:$PATH}"; export PATH
+                _cmux_previous_shim=$_cmux_candidate_shim
+            fi
+        done
+        unset _cmux_previous_shim _cmux_candidate_shim
+        """
+    }
+
+    /// The same fixed POSIX predicate runs from every supported login shell;
+    /// the candidate is argv data and never interpolated into executable code.
+    private static let shimRootCheck = #"""
+    _cmux_root=$1
+    case "$_cmux_root" in /*) ;; *) exit 1 ;; esac
+    while [ "$_cmux_root" != / ] && [ "${_cmux_root%/}" != "$_cmux_root" ]; do _cmux_root=${_cmux_root%/}; done
+    [ -d "$_cmux_root" ] && [ ! -L "$_cmux_root" ] || exit 1
+    _cmux_uid=$(/usr/bin/id -u) || exit 1
+    _cmux_meta() {
+        _cmux_info=$(/usr/bin/stat -f '%HT:%u:%Mp%Lp' -- "$1" 2>/dev/null) || _cmux_info=$(/usr/bin/stat -c '%F:%u:%a' -- "$1" 2>/dev/null) || return 1
+        _cmux_kind=${_cmux_info%%:*}
+        _cmux_info=${_cmux_info#*:}
+        _cmux_owner=${_cmux_info%%:*}
+        _cmux_mode=${_cmux_info#*:}
+        case "$_cmux_mode" in ''|*[!0-7]*) return 1 ;; esac
+        _cmux_mode=$((0$_cmux_mode))
+    }
+    _cmux_chain_safe() {
+        _cmux_current=$1
+        while :; do
+            _cmux_meta "$_cmux_current" || return 1
+            [ "$_cmux_owner" = "$_cmux_uid" ] || [ "$_cmux_owner" = 0 ] || return 1
+            case "$_cmux_kind" in
+                Directory|directory) [ $((_cmux_mode & 0022)) -eq 0 ] || [ $((_cmux_mode & 01000)) -ne 0 ] || return 1 ;;
+                'Symbolic Link'|'symbolic link') ;;
+                *) return 1 ;;
+            esac
+            [ "$_cmux_current" = / ] && return 0
+            _cmux_current=${_cmux_current%/*}
+            [ -n "$_cmux_current" ] || _cmux_current=/
+        done
+    }
+    _cmux_meta "$_cmux_root" || exit 1
+    [ "$_cmux_owner" = "$_cmux_uid" ] && [ $((_cmux_mode & 0022)) -eq 0 ] || exit 1
+    _cmux_chain_safe "$_cmux_root" || exit 1
+    _cmux_resolved=$(CDPATH='' command cd -P "$_cmux_root" >/dev/null && /bin/pwd -P) || exit 1
+    _cmux_chain_safe "$_cmux_resolved"
+    """#
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"

@@ -29,6 +29,9 @@ public protocol ControlNotificationContext: AnyObject {
     ///   - title: The notification title.
     ///   - subtitle: The notification subtitle.
     ///   - body: The notification body.
+    ///   - effects: The caller's effects override (`cmux notify --desktop
+    ///     false`), or `nil` for the policy defaults. Hooks still run and may
+    ///     override it.
     /// - Returns: The delivery resolution.
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -36,7 +39,8 @@ public protocol ControlNotificationContext: AnyObject {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationCreateResolution
 
     /// Delivers a notification for `notification.create_for_surface`: resolves
@@ -50,6 +54,8 @@ public protocol ControlNotificationContext: AnyObject {
     ///   - title: The notification title.
     ///   - subtitle: The notification subtitle.
     ///   - body: The notification body.
+    ///   - effects: The caller's effects override, or `nil` for the policy
+    ///     defaults. Hooks still run and may override it.
     /// - Returns: The targeted delivery resolution (workspace-not-found carries
     ///   `nil`, matching the legacy `data: nil`).
     func controlNotificationCreateForSurface(
@@ -58,7 +64,8 @@ public protocol ControlNotificationContext: AnyObject {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Delivers a notification for `notification.create_for_target`: resolves
@@ -74,6 +81,8 @@ public protocol ControlNotificationContext: AnyObject {
     ///   - title: The notification title.
     ///   - subtitle: The notification subtitle.
     ///   - body: The notification body.
+    ///   - effects: The caller's effects override, or `nil` for the policy
+    ///     defaults. Hooks still run and may override it.
     /// - Returns: The targeted delivery resolution (workspace-not-found carries
     ///   `workspaceID`, matching the legacy `data.workspace_id`).
     func controlNotificationCreateForTarget(
@@ -83,7 +92,8 @@ public protocol ControlNotificationContext: AnyObject {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Snapshots every notification for `notification.list`, in store order,

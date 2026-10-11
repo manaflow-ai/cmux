@@ -21,12 +21,7 @@ WORKFLOWS = ROOT / ".github/workflows"
 # a maintainer has chosen the divergence; an entry that is no longer needed is an
 # error, so a synced workflow cannot keep a stale exemption.
 EXEMPTIONS: dict[str, str] = {
-    # The candidate complexity job runs contributor-controlled package install
-    # scripts. A pull request that edits this workflow must not be able to queue
-    # the job that would run its own edit, so the pull_request filter omits the
-    # workflow's own path while push -- trusted and post-merge -- keeps it.
-    # tests/test_web_complexity_trusted_workflow.py enforces the same boundary.
-    "web-complexity.yml": "a pull request must not self-queue the candidate job",
+    "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
 }
 
 FILTERS = ("paths", "paths-ignore")

@@ -38,7 +38,7 @@ extension GhosttySurfaceView {
         // renders, so anything but an active primary-screen gesture clears
         // the pixel state outright.
         guard scrollInteractionActive,
-              delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true,
+              ownsLocalPrimaryScreenScroll,
               localPixelScrollState.withLock({ $0.lastApplied }) != nil else {
             localPixelScrollState.withLock {
                 $0.epoch &+= 1

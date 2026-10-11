@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1096,6 +1097,9 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 	return readRelayAuthFile(socketPath)
 }
 
+// cliSocketPeerUserID reports the user serving a dialed Unix socket.
+var cliSocketPeerUserID = cloudCLIConnectionUserID
+
 // dialSocket connects to the cmux socket. If addr contains a colon and doesn't
 // start with '/', it's treated as a TCP address (host:port); otherwise Unix socket.
 // For TCP connections, refreshAddr is used only to recover from a stale socket_addr
@@ -1118,20 +1122,41 @@ func dialSocketUntil(addr string, refreshAddr func() string, deadline time.Time)
 		if err != nil {
 			return nil, err
 		}
-		if auth := currentRelayAuth(connectedAddr); auth != nil {
-			authDeadline := deadline
-			if authDeadline.IsZero() {
-				authDeadline = time.Now().Add(5 * time.Second)
-			}
-			if err := authenticateRelayConnUntil(conn, auth, authDeadline); err != nil {
-				conn.Close()
-				return nil, err
-			}
+		// A TCP address is a forwarded relay port that another remote user
+		// can bind while the forward is down, so never talk to it without
+		// credentials that let the relay prove itself.
+		auth := currentRelayAuth(connectedAddr)
+		if auth == nil {
+			conn.Close()
+			return nil, errors.New("no relay credentials for this address; reconnect this SSH workspace")
+		}
+		authDeadline := deadline
+		if authDeadline.IsZero() {
+			authDeadline = time.Now().Add(5 * time.Second)
+		}
+		if err := authenticateRelayConnUntil(conn, auth, authDeadline); err != nil {
+			conn.Close()
+			return nil, err
 		}
 		return conn, nil
 	}
 	dialer := net.Dialer{Deadline: deadline}
-	return dialer.Dial("unix", addr)
+	conn, err := dialer.Dial("unix", addr)
+	if err != nil {
+		return nil, err
+	}
+	// Another user can bind a vacated path in shared /tmp, so send requests
+	// only to a server running as this user, as the bridge requires of clients.
+	uid, err := cliSocketPeerUserID(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("cannot verify the socket's owner: %w", err)
+	}
+	if uid != uint32(os.Geteuid()) {
+		_ = conn.Close()
+		return nil, errors.New("socket is served by another user")
+	}
+	return conn, nil
 }
 
 // dialTCP connects with a 2-second timeout, capped by deadline when set.
@@ -1180,13 +1205,19 @@ func authenticateRelayConnUntil(conn net.Conn, auth *relayAuthState, deadline ti
 	}
 
 	tokenBytes, err := hex.DecodeString(auth.RelayToken)
-	if err != nil {
+	if err != nil || len(tokenBytes) == 0 {
 		return fmt.Errorf("invalid relay auth token")
 	}
+	clientNonceBytes := make([]byte, 32)
+	if _, err := rand.Read(clientNonceBytes); err != nil {
+		return fmt.Errorf("failed to create relay auth nonce: %w", err)
+	}
+	clientNonce := hex.EncodeToString(clientNonceBytes)
 	mac := computeRelayMAC(tokenBytes, auth.RelayID, challenge.Nonce, challenge.Version)
 	payload, err := json.Marshal(map[string]any{
-		"relay_id": auth.RelayID,
-		"mac":      hex.EncodeToString(mac),
+		"relay_id":     auth.RelayID,
+		"mac":          hex.EncodeToString(mac),
+		"client_nonce": clientNonce,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to encode relay auth response: %w", err)
@@ -1200,7 +1231,8 @@ func authenticateRelayConnUntil(conn net.Conn, auth *relayAuthState, deadline ti
 		return fmt.Errorf("failed to read relay auth result: %w", err)
 	}
 	var result struct {
-		OK bool `json:"ok"`
+		OK       bool   `json:"ok"`
+		RelayMAC string `json:"relay_mac"`
 	}
 	if err := json.Unmarshal([]byte(line), &result); err != nil {
 		return fmt.Errorf("invalid relay auth result")
@@ -1208,8 +1240,26 @@ func authenticateRelayConnUntil(conn net.Conn, auth *relayAuthState, deadline ti
 	if !result.OK {
 		return fmt.Errorf("relay auth rejected")
 	}
+	// Anyone who connected once has seen the relay ID, so only a proof over
+	// this client's nonce shows the listener holds the relay token.
+	receivedProof, err := hex.DecodeString(result.RelayMAC)
+	expectedProof := computeRelayProofMAC(tokenBytes, auth.RelayID, clientNonce, challenge.Nonce, challenge.Version)
+	if err != nil || !hmac.Equal(receivedProof, expectedProof) {
+		return fmt.Errorf("relay did not prove it holds the relay token; reconnect this SSH workspace")
+	}
 	_ = conn.SetDeadline(time.Time{})
 	return nil
+}
+
+// computeRelayProofMAC is the relay's answer to the client nonce. Its label
+// keeps it distinct from the client MAC, whose message starts with "relay_id=".
+func computeRelayProofMAC(token []byte, relayID, clientNonce, serverNonce string, version int) []byte {
+	mac := hmac.New(sha256.New, token)
+	_, _ = io.WriteString(mac, fmt.Sprintf(
+		"cmux-relay-server-proof\nrelay_id=%s\nclient_nonce=%s\nserver_nonce=%s\nversion=%d",
+		relayID, clientNonce, serverNonce, version,
+	))
+	return mac.Sum(nil)
 }
 
 func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {

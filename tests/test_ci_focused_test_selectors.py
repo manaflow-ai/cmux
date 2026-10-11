@@ -331,6 +331,19 @@ open(path, "w").write({json.dumps(json.dumps(enumeration))})
                 self.assertEqual(call["with"]["target"], "${{ needs.filter.outputs.target }}")
                 self.assertEqual(call["with"]["selectors"], "${{ needs.filter.outputs.selectors }}")
 
+    def test_ui_dispatches_use_the_bounded_app_host_wrapper(self):
+        run = action_step(E2E_TESTS, "Run selected tests")["run"]
+        ui_command = run[run.index('else\n', run.index('XCODEBUILD_CMD=')):]
+        self.assertIn(
+            "env CMUX_CI_APP_HOST_ISOLATION_REQUIRED=0\n"
+            "    scripts/ci/run-app-host-xcodebuild.sh",
+            ui_command,
+        )
+        self.assertIn(
+            '"$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"',
+            ui_command,
+        )
+
     def test_the_test_steps_resolve_selectors_before_running_them(self):
         resolve = action_step(E2E_TESTS, "Resolve selectors against the built tests")
         self.assertEqual(resolve["if"], "${{ inputs.target == 'cmuxTests' }}")

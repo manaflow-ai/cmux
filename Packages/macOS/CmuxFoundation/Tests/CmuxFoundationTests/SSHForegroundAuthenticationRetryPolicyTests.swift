@@ -467,28 +467,48 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         # Lower the helper shell's process ceiling only after the full fixture
-        # exists. Keep the limit just above the live per-user count so the
-        # fixture remains runnable while the old recursive cleanup receives
-        # EAGAIN on its short-lived scans.
+        # exists, so the cleanup runs under process pressure.
+        #
+        # The kernel charges RLIMIT_NPROC to the real user ID. Count by
+        # `ruid`, not `uid`: setuid-root processes the user started, such as
+        # the /usr/bin/login that every Terminal or cmux tab runs, report
+        # uid 0 but still count against this user's ceiling. Counting by
+        # effective uid put the ceiling below the live count on hosts with
+        # open terminals, so the harness could not fork the helper at all.
+        #
+        # The budget is explicit. The helper forks one command at a time and
+        # uses no pipelines or background jobs, so it needs at most three
+        # process slots at once: its subshell, a command-substitution child
+        # and the command that child runs. The remaining slots absorb other
+        # processes this user starts while cleanup runs. The count also
+        # includes the command substitution, ps and awk that take it; they
+        # exit before cleanup starts.
+        cmux_test_helper_process_slots=3
+        cmux_test_concurrent_activity_slots=13
         cmux_test_user_id=$(/usr/bin/id -u 2>/dev/null || true)
         cmux_test_process_count=$(
-          /bin/ps -axo uid= 2>/dev/null |
+          /bin/ps -axo ruid= 2>/dev/null |
             /usr/bin/awk -v uid="$cmux_test_user_id" '$1 == uid { count += 1 } END { print count + 0 }'
         ) || cmux_test_process_count=
         case "$cmux_test_process_count" in
-          ''|*[!0-9]*) cmux_test_process_count= ;;
+          ''|0|*[!0-9]*)
+            printf '%s\n' "could not count processes for uid $cmux_test_user_id" >&2
+            exit 97
+            ;;
         esac
-        if [ -n "$cmux_test_process_count" ]; then
-          ulimit -u "$((cmux_test_process_count + 16))" 2>/dev/null || \
-            ulimit -u 100 2>/dev/null || true
-        else
-          ulimit -u 100 2>/dev/null || true
-        fi
+        ulimit -u "$((cmux_test_process_count + cmux_test_helper_process_slots + cmux_test_concurrent_activity_slots))" || exit 96
         : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         # Exercise the event-enabled path without publishing an event. The
         # helper must reserve a force pass instead of rolling back after the
         # bounded FIFO wait.
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
+        cmux_test_cleanup_status=$?
+        if [ "$cmux_test_cleanup_status" -ne 0 ]; then
+          # Report the helper failure instead of waiting on a root it never
+          # signalled.
+          printf '%s\n' "cleanup helper exited with status $cmux_test_cleanup_status" >&2
+          exit "$cmux_test_cleanup_status"
+        fi
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
 

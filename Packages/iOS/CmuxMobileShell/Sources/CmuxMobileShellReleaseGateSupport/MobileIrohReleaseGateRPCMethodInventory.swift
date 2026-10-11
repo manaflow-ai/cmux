@@ -6,6 +6,10 @@ internal import CmuxMobileShell
 extension MobileShellComposite {
     static let irohReleaseGateRequiredRPCMethods: Set<String> = [
         "dogfood.feedback.submit",
+        "feed.exit_plan.reply",
+        "feed.list",
+        "feed.permission.reply",
+        "feed.question.reply",
         "mobile.attach_ticket.create",
         "mobile.browser.back",
         "mobile.browser.create",

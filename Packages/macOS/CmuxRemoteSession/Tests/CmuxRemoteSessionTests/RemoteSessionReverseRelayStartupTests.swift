@@ -40,14 +40,20 @@ struct RemoteSessionReverseRelayStartupTests {
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
         runner: any RemoteSessionProcessRunning,
         reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
-        relayPort: Int = 64_044,
+        relayPort: Int? = nil,
         sshOptions: [String]? = nil,
         persistentDaemonSlot: String? = nil,
+        identity: ResolvedControlPathFixture.Identity? = nil,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
         providesResolvedControlPath: Bool = true,
         ownershipRegistry: any NativeSSHControlMasterOwnershipTracking =
             PermissiveNativeSSHControlMasterOwnershipRegistry()
-    ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
+    ) throws -> (
+        coordinator: RemoteSessionCoordinator,
+        scratchDirectory: URL,
+        identity: ResolvedControlPathFixture.Identity
+    ) {
+        let identity = identity ?? ResolvedControlPathFixture.uniqueIdentity()
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-reverse-relay-startup-\(UUID().uuidString)",
@@ -61,10 +67,14 @@ struct RemoteSessionReverseRelayStartupTests {
             destination: "user@example.test",
             port: nil,
             identityFile: nil,
-            sshOptions: sshOptions ?? ["StrictHostKeyChecking=accept-new"],
+            // Keep the shared-master fixture on cmux's default ControlMaster
+            // path. Route-sensitive options such as StrictHostKeyChecking
+            // intentionally disable sharing and belong only in tests that
+            // exercise that behavior explicitly.
+            sshOptions: sshOptions ?? [],
             localProxyPort: nil,
-            relayPort: relayPort,
-            relayID: "relay-startup-cancellation",
+            relayPort: relayPort ?? identity.relayPort,
+            relayID: identity.relayID,
             relayToken: String(repeating: "a", count: 64),
             localSocketPath: scratchDirectory.appendingPathComponent("relay.sock").path,
             ownerWorkspaceID: UUID(),
@@ -74,7 +84,10 @@ struct RemoteSessionReverseRelayStartupTests {
         )
         let effectiveRunner: any RemoteSessionProcessRunning
         if providesResolvedControlPath {
-            effectiveRunner = ResolvedControlPathProcessRunner(base: runner)
+            effectiveRunner = ResolvedControlPathProcessRunner(
+                base: runner,
+                controlPath: identity.controlPath
+            )
         } else {
             effectiveRunner = runner
         }
@@ -119,6 +132,6 @@ struct RemoteSessionReverseRelayStartupTests {
             ),
             clock: clock
         )
-        return (coordinator, scratchDirectory)
+        return (coordinator, scratchDirectory, identity)
     }
 }

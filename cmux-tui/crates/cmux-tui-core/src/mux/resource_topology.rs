@@ -288,6 +288,8 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
+        // Read before the state lock: `surface_notifications` locks state.
+        let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -450,7 +452,32 @@ impl Mux {
             plan.workspace_ledger.as_ref(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
+        // Push the same coarse tree event a terminal-bearing create emits
+        // (`emit_committed_workspace_delta` in the legacy create path), so
+        // `subscribe` clients see the empty workspace now instead of when
+        // the next real change flushes an event.
+        let entity = crate::server::tree_entity_json(
+            &state,
+            &notifications,
+            TreeDeltaKind::WorkspaceAdded,
+            workspace_slot,
+        )
+        .expect("new empty workspace is present in tree snapshot");
         drop(state);
+        self.emit_committed_workspace_delta(
+            &registry,
+            TreeDelta {
+                kind: TreeDeltaKind::WorkspaceAdded,
+                workspace: workspace_slot,
+                screen: None,
+                pane: None,
+                surface: None,
+                index: Some(index),
+                entity,
+                workspace_revision,
+            },
+            index > 0,
+        );
         drop(registry);
         self.publish_resource_event();
         Ok(commit)
@@ -1788,7 +1815,7 @@ impl Mux {
                     root: Node::Leaf(target_pane),
                     active_pane: target_pane,
                     zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![target_pane]),
+                    creation_order_auto_layout: Some(vec![target_pane]),
                     viewport_splits: Default::default(),
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
@@ -2284,7 +2311,7 @@ impl Mux {
                         let target = &mut state.workspaces[workspace].screens[screen];
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
-                        target.zellij_auto_layout = layout.zellij_auto_layout;
+                        target.creation_order_auto_layout = layout.creation_order_auto_layout;
                         target.viewport_splits = layout.viewport_splits;
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
@@ -4744,7 +4771,7 @@ impl Mux {
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane_id]),
+                creation_order_auto_layout: Some(vec![pane_id]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -4830,7 +4857,7 @@ impl Mux {
                             id: split_id.expect("viewport split reserved an id"),
                             width,
                             root: Node::Leaf(pane_id),
-                            zellij_auto_layout: Some(vec![pane_id]),
+                            creation_order_auto_layout: Some(vec![pane_id]),
                         },
                     ),
                     "target pane disappeared from its layout"
@@ -4842,7 +4869,7 @@ impl Mux {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -4867,7 +4894,7 @@ impl Mux {
                 if in_viewport_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             } else if screen.layout_columns_active() {
                 let column = screen
@@ -4875,7 +4902,7 @@ impl Mux {
                     .context("target pane has no viewport column")?;
                 append_to_auto_layout(
                     &mut column.root,
-                    &mut column.zellij_auto_layout,
+                    &mut column.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -4883,7 +4910,7 @@ impl Mux {
             } else {
                 append_to_auto_layout(
                     &mut screen.root,
-                    &mut screen.zellij_auto_layout,
+                    &mut screen.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -5347,7 +5374,7 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None });
+                parsed.push(LayoutColumn { id, width, root, creation_order_auto_layout: None });
             }
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -5396,7 +5423,7 @@ fn parse_resource_layout_document(
         root,
         active_pane,
         zoomed_pane,
-        zellij_auto_layout: None,
+        creation_order_auto_layout: None,
         viewport_splits: Default::default(),
         viewport_base_width,
         layout_columns,
@@ -6399,7 +6426,7 @@ fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
 }
 
 fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if layout.layout_columns.is_empty() {
         let root = std::mem::replace(&mut layout.root, Node::Leaf(0));
         let Some(root) = root.remove_leaf(pane) else {
@@ -6413,7 +6440,7 @@ fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> b
         return true;
     };
     let column = &mut layout.layout_columns[index];
-    column.zellij_auto_layout = None;
+    column.creation_order_auto_layout = None;
     let root = std::mem::replace(&mut column.root, Node::Leaf(0));
     if let Some(root) = root.remove_leaf(pane) {
         column.root = root;
@@ -6425,7 +6452,7 @@ fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> b
         1 => {
             let column = layout.layout_columns.remove(0);
             layout.root = column.root;
-            layout.zellij_auto_layout = column.zellij_auto_layout;
+            layout.creation_order_auto_layout = column.creation_order_auto_layout;
             layout.viewport_splits.clear();
             layout.viewport_base_width = None;
             true
@@ -6466,7 +6493,7 @@ fn registry_screen_from_layout(
     };
     let layout_node = registry_layout_node(state, &layout.root)?;
     let auto_layout = layout
-        .zellij_auto_layout
+        .creation_order_auto_layout
         .as_ref()
         .map(|panes| {
             panes.iter().map(|pane| public_pane(*pane)).collect::<anyhow::Result<Vec<_>>>()
@@ -6486,7 +6513,7 @@ fn registry_screen_from_layout(
                 width: column.width,
                 layout: registry_layout_node(state, &column.root)?,
                 auto_layout: column
-                    .zellij_auto_layout
+                    .creation_order_auto_layout
                     .as_ref()
                     .map(|panes| {
                         panes
@@ -6603,7 +6630,7 @@ fn set_layout_split_ratio(
         changed
     };
     anyhow::ensure!(changed, "unknown split");
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     Ok(())
 }
 
@@ -6628,13 +6655,13 @@ fn swap_layout_panes(
     for column in &mut layout.layout_columns {
         if column.root.contains(first) || column.root.contains(second) {
             column.root.swap_leaf_ids(first, second);
-            column.zellij_auto_layout = None;
+            column.creation_order_auto_layout = None;
         }
     }
     if !layout.layout_columns.is_empty() {
         sync_layout_column_projection(layout);
     }
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if !both_present {
         if layout.active_pane == first {
             layout.active_pane = second;
@@ -6660,7 +6687,7 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.root = layout.root;
     screen.active_pane = layout.active_pane;
     screen.zoomed_pane = layout.zoomed_pane;
-    screen.zellij_auto_layout = layout.zellij_auto_layout;
+    screen.creation_order_auto_layout = layout.creation_order_auto_layout;
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
@@ -6674,7 +6701,7 @@ fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
     };
     layout.viewport_splits.clear();
     layout.viewport_base_width = Some(first.width);
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     let mut root = first.root.clone();
     let mut width_before = first.width;
     for column in layout.layout_columns.iter().skip(1) {

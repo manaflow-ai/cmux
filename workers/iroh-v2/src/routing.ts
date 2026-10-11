@@ -3,11 +3,13 @@ import type { StackAuthority, VerifiedAuthority } from "./auth";
 import { decodeJSON, errorResponse, httpFailure, inputOperation, inputRequestId, parseInput, parseSocketSetup, readBoundedBody, INPUT_BYTES } from "./boundary";
 import { identifier, timestamp } from "./contracts/common";
 import { SocketSetupSchema, type SocketSetup } from "./contracts/requests";
+import { accountOperation } from "./contracts/account";
 import { STORAGE_SCHEMA_VERSION, STORAGE_WRITE_SCHEMA_VERSION } from "./storage/migrations";
 import { HealthSchema } from "./health";
 import { CONTROL_PLANE_RULES, sourceRevision } from "./rules";
 import { API_TICKET_SECONDS, canonicalJSON, decodeBase64URL, encodeBase64URL, verifyTicket } from "./crypto";
 import { failureDiagnostics, OperationError } from "./errors";
+import { deviceObservability } from "./observability";
 
 export const SETUP_HEADER = "x-cmux-v2-setup";
 const INTERNAL_HEADER = "x-cmux-v2-verified-authority";
@@ -26,6 +28,8 @@ export interface RoutingDependencies {
   now: () => number;
   chargeOpen: (userId: string) => Promise<void>;
   dispatchTeam: (teamId: string, request: Request) => Promise<Response>;
+  /** The caller's AccountControl. `userId` is always the verified ticket's user, never a request field. */
+  dispatchAccount: (userId: string, request: Request) => Promise<Response>;
   observe?: (event: { event: string; [key: string]: unknown }) => void;
   /** Git revision the deploy script published as `CMUX_SOURCE_REVISION`; reported by the health route. */
   sourceRevision?: string | undefined;
@@ -42,17 +46,55 @@ const aliases: Readonly<Record<string, string>> = {
 export async function routeControl(request: Request, dependencies: RoutingDependencies): Promise<Response> {
   let requestId = "unidentified";
   // Where a failure happened, for telemetry only: route kind, the stage
-  // reached and the requested operation, never request contents.
+  // reached, the requested operation and bounded device attribution, never
+  // request contents.
   let route = "unknown", stage = "parse", operationName = "none";
+  let device: Record<string, string> = {};
   try {
     const url = new URL(request.url);
     const socket = url.pathname === "/v2/control/socket";
     const session = url.pathname === "/v2/control/session";
     const operation = url.pathname === "/v2/requests" || Object.hasOwn(aliases, url.pathname);
     const health = url.pathname === "/v2/health";
-    if ((!socket && !session && !operation && !health) || url.search) throw new OperationError("unsupported_method", 404);
-    route = socket ? "socket" : session ? "session" : operation ? "request" : health ? "health" : "unknown";
+    const accountSocket = url.pathname === "/v2/account/socket";
+    const accountRequest = url.pathname === "/v2/account/requests";
+    if ((!socket && !session && !operation && !health && !accountSocket && !accountRequest) || url.search) throw new OperationError("unsupported_method", 404);
+    route = socket ? "socket" : session ? "session" : operation ? "request" : health ? "health" : accountSocket ? "account.socket" : accountRequest ? "account.request" : "unknown";
     if (health) return healthResponse(request, dependencies);
+    if (accountSocket || accountRequest) {
+      // Per-user Mac directory. Ticket authority only: a Stack token is never
+      // verified here, the user scope is the signed ticket's, and the request
+      // can reach only that user's AccountControl, never a TeamControl.
+      if (request.method !== (accountSocket ? "GET" : "POST")) throw new OperationError("unsupported_method", 405);
+      if (accountSocket && request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
+      if (accountRequest && request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
+        throw new OperationError("unsupported_media_type", 415);
+      }
+      const setup = readSetup(request);
+      requestId = setup.requestId;
+      let input: unknown;
+      if (accountRequest) {
+        input = await readBoundedBody(request);
+        if (inputRequestId(input) !== requestId) throw new OperationError("invalid_request", 400);
+        operationName = accountOperation(input);
+      }
+      stage = "authenticate";
+      const header = request.headers.get("authorization");
+      if (!header?.startsWith("IrohTicket ")) throw new OperationError("unauthorized", 401);
+      const authorization = await authenticate(header, setup, dependencies);
+      device = deviceObservability(setup.device);
+      const headers = new Headers({ "content-type": "application/json", [INTERNAL_HEADER]: JSON.stringify(authorization) });
+      if (accountSocket) {
+        headers.set("upgrade", "websocket");
+        headers.set(SETUP_HEADER, encodeBase64URL(new TextEncoder().encode(JSON.stringify(setup))));
+      }
+      const forwarded = new Request("https://iroh-v2.internal/" + (accountSocket ? "socket" : "request"), {
+        method: accountSocket ? "GET" : "POST", headers,
+        ...(accountSocket ? {} : { body: JSON.stringify({ setup, input }) }),
+      });
+      stage = "dispatch";
+      return await dependencies.dispatchAccount(authorization.authority.userId, forwarded);
+    }
     if (request.method !== (socket ? "GET" : "POST")) throw new OperationError("unsupported_method", 405);
     if (socket && request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
     if (!socket && request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -72,6 +114,7 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
     if (operation) operationName = inputOperation(input);
     stage = "authenticate";
     const authorization = await authenticate(request.headers.get("authorization"), setup, dependencies);
+    if (!authorization.issueTicket) device = deviceObservability(setup.device);
     stage = "charge";
     if (!operation) await dependencies.chargeOpen(authorization.authority.userId);
     // A fresh Request deliberately copies no caller headers, cookies or credentials.
@@ -91,7 +134,7 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
     dependencies.observe?.({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable,
-      route, stage, operation: operationName, ...failureDiagnostics(error) });
+      route, stage, operation: operationName, ...device, ...failureDiagnostics(error) });
     return httpFailure(error, requestId);
   }
 }
@@ -158,4 +201,9 @@ export async function readInternalRequest(request: Request) {
 
 export function objectName(environment: string, projectId: string, subject: string): string {
   return JSON.stringify([environment, projectId, subject]);
+}
+
+/** One Stack user's AccountControl. The prefix keeps it apart from that user's UserUsage name. */
+export function accountObjectName(environment: string, projectId: string, userId: string): string {
+  return objectName(environment, projectId, "user:" + userId);
 }

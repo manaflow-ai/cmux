@@ -16,6 +16,7 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
+use crate::ssh_args::background_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -175,12 +176,12 @@ impl LinkGroup for SshLinkGroup {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
         let mut command = Command::new(&self.config.ssh_binary);
-        command.arg("-T");
-        if let Some(port) = self.port {
-            command.arg("-p").arg(port.to_string());
-        }
-        command.args(&self.config.extra_args);
-        command.arg(&self.destination).args(remote_link_command(&self.config));
+        // Forwarding stays as configured unless `extra_args` pin
+        // `ControlMaster=no`: otherwise this run can become the shared master
+        // that interactive sessions reuse.
+        command
+            .args(background_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
+            .args(remote_link_command(&self.config));
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -327,6 +328,60 @@ mod tests {
         link.close().await.unwrap();
 
         assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
+    }
+
+    /// The Swift carrier passes `ControlMaster=auto`, so this link can become
+    /// the shared master and keeps forwarding as configured.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provider_link_uses_hardened_ssh_argv() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let log = directory.path().join("argv");
+        let script = directory.path().join("ssh");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", log.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let group = SshLinkGroup {
+            description: "ssh://example.com:2222".into(),
+            destination: "alice@example.com".into(),
+            port: Some(2222),
+            config: SshProviderConfig {
+                ssh_binary: script.to_string_lossy().into_owned(),
+                extra_args: vec!["-o".into(), "ControlMaster=auto".into()],
+                ..SshProviderConfig::default()
+            },
+            evidence: CarrierEvidence::Ssh { destination: "ssh://example.com:2222".into() },
+            closed: AtomicBool::new(false),
+        };
+
+        let link = group
+            .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 1 })
+            .await
+            .unwrap();
+        link.close().await.unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
+            [
+                "-T",
+                "-p",
+                "2222",
+                "-o",
+                "ControlMaster=auto",
+                "--",
+                "alice@example.com",
+                "~/.local/bin/cmux-tui",
+                "remote-link",
+                "--stdio",
+                "--session",
+                "main",
+            ]
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import pathlib
 import re
 import sys
 import urllib.error
@@ -14,6 +15,10 @@ import urllib.request
 from collections import Counter
 from typing import Any
 
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from triage_rules import HIGH_RISK_PATTERNS, NIGHTLY_NO, NIGHTLY_YES  # noqa: E402
 
 API = "https://api.github.com"
 RADAR_TITLE_PREFIX = "[Triage Radar]"
@@ -57,24 +62,6 @@ NORMALIZE_PREFIXES = {
     "workspace": "workspace",
 }
 
-HIGH_RISK_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
-    (re.compile(r"\b(crash(?:es|ed|ing)?|panic)\b", re.I), 6, "crash/panic"),
-    (re.compile(r"\b(deadlock|freeze[sd]?|frozen|hang(?:s|ing)?)\b", re.I), 5, "hang/freeze"),
-    (re.compile(r"\b(data loss|los(?:e|es|t) (?:data|session|state)|session(?:s)? (?:are )?lost)\b", re.I), 6, "data/session loss"),
-    (re.compile(r"\b(wrong (?:terminal|pane|workspace|target)|route[sd]? to (?:the )?wrong)\b", re.I), 5, "wrong-target routing"),
-    (re.compile(r"\b(cannot connect|can't connect|could not connect|connection fail|auth(?:entication)? fail)\b", re.I), 4, "connectivity/auth failure"),
-    (re.compile(r"\b(unusable|unresponsive|stuck|wedged)\b", re.I), 3, "unusable/stuck"),
-    (re.compile(r"\b(regression|regressed|previously worked|used to work)\b", re.I), 3, "regression wording"),
-]
-
-NIGHTLY_YES = re.compile(
-    r"Can you reproduce this on cmux NIGHTLY\?.*?Yes, it still reproduces on NIGHTLY",
-    re.I | re.S,
-)
-NIGHTLY_NO = re.compile(
-    r"Can you reproduce this on cmux NIGHTLY\?.*?No, it does not reproduce on NIGHTLY",
-    re.I | re.S,
-)
 TITLE_VERSION = re.compile(r"\b\d+\.\d+\.\d+\b")
 
 

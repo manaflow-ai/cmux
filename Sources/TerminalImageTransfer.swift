@@ -8,6 +8,9 @@ import UniformTypeIdentifiers
 enum TerminalImageTransferMode: Codable, Sendable {
     case paste
     case drop
+    /// A clipboard read the terminal program started, such as OSC 52. It
+    /// takes the pasteboard's plain-text flavor only, never files or images.
+    case plainText
 }
 
 enum TerminalRemoteUploadTarget: Equatable {
@@ -211,6 +214,13 @@ enum TerminalImageTransferPlanner {
                 pasteboard: pasteboard,
                 pasteboardService: pasteboardService
             )
+        case .plainText:
+            guard let text = pasteboardService.fallbackPlainTextContents(
+                from: pasteboard
+            ), !text.isEmpty else {
+                return .reject
+            }
+            return .insertText(text)
         }
     }
 

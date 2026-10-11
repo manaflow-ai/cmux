@@ -376,13 +376,31 @@ func handleWebSocketLeaseInstall(w http.ResponseWriter, r *http.Request, cfg wsP
 		http.Error(w, "lease install disabled", http.StatusNotFound)
 		return
 	}
-	defer r.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	// No deferred r.Body.Close: on a server request it drains the unread body
+	// before the handler returns, which would wait on a client that withholds it.
+	// net/http closes the body after the response is written.
+	//
+	// Every body read on this connection, including the server's drain of an
+	// unread body after the handler returns, ends at this deadline.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(adminLeaseBodyReadTimeout))
+	// Decide as much as the headers allow before touching the body, so an
+	// unauthenticated client cannot hold a handler open by withholding it.
+	bearerAuthorized := adminLeaseBearerAuthorized(r, expectedHash)
+	signature, hasSignature := adminLeaseSignature(r, publicKey)
+	if !bearerAuthorized && !hasSignature {
+		// Closing the connection skips net/http's pre-response body drain.
+		w.Header().Set("Connection", "close")
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// Signed requests must deliver the whole body before the signature can be
+	// checked; the deadline above and the size cap bound that read.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAdminLeaseBodyBytes))
 	if err != nil {
 		http.Error(w, "read body failed", http.StatusBadRequest)
 		return
 	}
-	if !verifyAdminLeaseInstallAuth(r, body, expectedHash, publicKey) {
+	if !bearerAuthorized && !ed25519.Verify(publicKey, body, signature) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -431,26 +449,38 @@ func decodeAdminEd25519PublicKey(raw string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(decoded), nil
 }
 
-func verifyAdminLeaseInstallAuth(r *http.Request, body []byte, expectedHash []byte, publicKey ed25519.PublicKey) bool {
+// adminLeaseBodyReadTimeout bounds how long POST /admin/leases may take to
+// deliver its body once the headers carry a plausible credential.
+var adminLeaseBodyReadTimeout = 10 * time.Second
+
+const maxAdminLeaseBodyBytes = 1 << 20
+
+func adminLeaseBearerAuthorized(r *http.Request, expectedHash []byte) bool {
 	const bearerPrefix = "Bearer "
 	auth := r.Header.Get("Authorization")
-	if len(expectedHash) == sha256.Size && strings.HasPrefix(auth, bearerPrefix) {
-		actualHash := sha256.Sum256([]byte(strings.TrimPrefix(auth, bearerPrefix)))
-		if subtle.ConstantTimeCompare(expectedHash, actualHash[:]) == 1 {
-			return true
-		}
+	if len(expectedHash) != sha256.Size || !strings.HasPrefix(auth, bearerPrefix) {
+		return false
 	}
-	if len(publicKey) == ed25519.PublicKeySize {
-		signatureRaw := strings.TrimSpace(r.Header.Get("X-Cmux-Admin-Signature-Ed25519"))
-		signature, err := base64.StdEncoding.DecodeString(signatureRaw)
-		if err != nil {
-			signature, err = base64.RawStdEncoding.DecodeString(signatureRaw)
-		}
-		if err == nil && len(signature) == ed25519.SignatureSize && ed25519.Verify(publicKey, body, signature) {
-			return true
-		}
+	actualHash := sha256.Sum256([]byte(strings.TrimPrefix(auth, bearerPrefix)))
+	return subtle.ConstantTimeCompare(expectedHash, actualHash[:]) == 1
+}
+
+// adminLeaseSignature returns the well-formed Ed25519 signature header when a
+// verification key is configured. The signature covers the body, so the
+// caller still has to verify it after reading.
+func adminLeaseSignature(r *http.Request, publicKey ed25519.PublicKey) ([]byte, bool) {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return nil, false
 	}
-	return false
+	signatureRaw := strings.TrimSpace(r.Header.Get("X-Cmux-Admin-Signature-Ed25519"))
+	signature, err := base64.StdEncoding.DecodeString(signatureRaw)
+	if err != nil {
+		signature, err = base64.RawStdEncoding.DecodeString(signatureRaw)
+	}
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return nil, false
+	}
+	return signature, true
 }
 
 func writeLeaseFile(path string, lease *wsLease) error {

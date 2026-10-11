@@ -17,6 +17,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public static let taskModelResultEventName = "ios_task_model_result"
     /// The Axiom event name for one redacted Iroh path lifecycle edge.
     public static let pathEventName = "ios_iroh_path_event"
+    /// The Axiom event name for a bounded native Iroh path inventory snapshot.
+    public static let pathInventoryEventName = "ios_iroh_path_inventory"
 
     private enum Phase: String, Hashable, Sendable {
         case endpointStart = "endpoint_start"
@@ -79,6 +81,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
     private static let maxPendingStarts = 32
     private static let maxPendingCorrelationKeys = 32
+    private static let maximumReportedIrohPathCount = 64
 
     private struct Observation: Sendable {
         let phase: Phase
@@ -110,6 +113,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
                 ? Self.taskModelResultEventName
                 : Self.taskModelEventName
             emitter.capture(eventName, properties)
+            return
+        }
+        if let properties = pathInventoryProperties(for: event) {
+            emitter.capture(Self.pathInventoryEventName, properties)
             return
         }
         if let properties = Self.pathEventProperties(for: event) {
@@ -294,6 +301,44 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         }
         // Bound diagnostic slots before they leave the client. For path events,
         // `event_c` is the process-local Iroh session correlation ID.
+        for (key, slot) in [
+            ("event_a", event.a),
+            ("event_b", event.b),
+            ("event_c", event.c),
+        ] {
+            guard let slot, slot >= 0, slot <= Int(UInt32.max) else { continue }
+            properties[key] = .int(slot)
+        }
+        return properties
+    }
+
+    /// Builds a bounded Axiom payload for one native Iroh path inventory.
+    private func pathInventoryProperties(
+        for event: DiagnosticEvent
+    ) -> [String: AnalyticsValue]? {
+        guard event.code == .transportPathInventory,
+              let relayPaths = event.a,
+              let nonRelayPaths = event.b,
+              relayPaths >= 0,
+              nonRelayPaths >= 0,
+              relayPaths <= Self.maximumReportedIrohPathCount,
+              nonRelayPaths <= Self.maximumReportedIrohPathCount,
+              relayPaths + nonRelayPaths <= Self.maximumReportedIrohPathCount else {
+            return nil
+        }
+        let presentation = DiagnosticEventPresentation(locale: Locale(identifier: "en_US_POSIX"))
+        var properties: [String: AnalyticsValue] = [
+            "operation": .string("inventory"),
+            "transport": .string("iroh"),
+            "relay_path_count": .int(relayPaths),
+            "non_relay_path_count": .int(nonRelayPaths),
+            "path_count": .int(relayPaths + nonRelayPaths),
+            "event_code": .string(presentation.name(event.code)),
+            "event_code_raw": .int(Int(event.code.rawValue)),
+        ]
+        if let surface = event.surface {
+            properties["event_surface"] = .int(Int(surface))
+        }
         for (key, slot) in [
             ("event_a", event.a),
             ("event_b", event.b),

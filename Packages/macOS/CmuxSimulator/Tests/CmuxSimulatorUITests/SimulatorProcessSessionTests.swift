@@ -25,7 +25,15 @@ struct SimulatorProcessSessionTests {
 
         await eventually { didTerminate }
 
-        #expect(await output.snapshot() == "first\nsecond\n")
+        // The recorder is already final here: the termination handler awaits
+        // outputTask.value, which returns only once the reader has reached EOF and every
+        // onOutput append has completed, before it calls finishTermination. Bind the
+        // snapshot anyway, because Swift Testing cannot capture an awaited actor call in
+        // its failure diff, so an inline `await output.snapshot()` reports the comparison
+        // without the value and leaves a failure saying nothing about what did arrive.
+        let snapshot = await output.snapshot()
+
+        #expect(snapshot == "first\nsecond\n")
         #expect(session.isRunning == false)
     }
 

@@ -239,3 +239,75 @@ struct AgentSessionRecoveryPlannerTests {
         #expect(command.launcherPrefix == nil)
     }
 }
+
+/// A heavy user can have dozens of agents running when cmux dies; starting
+/// them all on relaunch spikes CPU and memory. Only a few start at once.
+@Suite("Agent session recovery start plan")
+struct AgentRecoveryStartPlanTests {
+    private let now = Date(timeIntervalSince1970: 1_790_428_300)
+
+    private func candidate(
+        _ id: String,
+        minutesAgo: Double,
+        workspaceId: UUID? = nil,
+        launcherPrefix: [String]? = nil
+    ) -> AgentRecoveryCandidate {
+        AgentRecoveryCandidate(
+            kind: "claude",
+            sessionId: id,
+            workspaceId: workspaceId?.uuidString,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(arguments: ["claude"], launcherPrefix: launcherPrefix),
+            lastActivity: now.addingTimeInterval(-minutesAgo * 60)
+        )
+    }
+
+    @Test("the most recently active sessions start now and the rest wait for a visit")
+    func startsMostRecentFirst() {
+        let plan = AgentRecoveryStartPlan(
+            candidates: (1...6).map { candidate("s\($0)", minutesAgo: Double(7 - $0)) },
+            immediateLimit: 2
+        )
+        #expect(plan.startNow.map(\.sessionId) == ["s6", "s5"])
+        #expect(plan.startOnVisit.map(\.sessionId) == ["s4", "s3", "s2", "s1"])
+    }
+
+    @Test("sessions from a workspace on screen start before more recent ones")
+    func visibleWorkspacesStartFirst() {
+        let visible = UUID()
+        let plan = AgentRecoveryStartPlan(
+            candidates: [
+                candidate("recent", minutesAgo: 1),
+                candidate("on-screen", minutesAgo: 30, workspaceId: visible),
+                candidate("older", minutesAgo: 5),
+            ],
+            visibleWorkspaceIds: [visible],
+            immediateLimit: 2
+        )
+        #expect(plan.startNow.map(\.sessionId) == ["on-screen", "recent"])
+        #expect(plan.startOnVisit.map(\.sessionId) == ["older"])
+    }
+
+    /// A session resumed through its recorded launcher takes its launch claim
+    /// when it is typed, and nothing would claim it on a later visit.
+    @Test("a session resumed through its recorded launcher always starts now")
+    func launcherSessionsStartNow() {
+        let plan = AgentRecoveryStartPlan(
+            candidates: [
+                candidate("a", minutesAgo: 1),
+                candidate("b", minutesAgo: 2),
+                candidate("launcher", minutesAgo: 3, launcherPrefix: ["sr", "claude", "proxy", "--account", "me"]),
+            ],
+            immediateLimit: 1
+        )
+        #expect(plan.startNow.map(\.sessionId) == ["a", "launcher"])
+        #expect(plan.startOnVisit.map(\.sessionId) == ["b"])
+    }
+
+    @Test("everything starts now when there are only a few sessions")
+    func fewSessionsAllStartNow() {
+        let plan = AgentRecoveryStartPlan(candidates: [candidate("a", minutesAgo: 1), candidate("b", minutesAgo: 2)])
+        #expect(plan.startNow.map(\.sessionId) == ["a", "b"])
+        #expect(plan.startOnVisit.isEmpty)
+    }
+}

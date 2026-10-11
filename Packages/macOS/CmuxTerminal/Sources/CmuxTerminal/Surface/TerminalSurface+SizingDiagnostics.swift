@@ -64,4 +64,14 @@ extension TerminalSurface {
         guard cols > 1, rows > 1 else { return nil }
         return (cols, rows)
     }
+    /// The grid Ghostty's terminal actually holds, or nil while a resize is
+    /// still queued on the IO thread (the app-facing size cache leads it).
+    /// Bytes parsed now land in exactly this grid.
+    @MainActor
+    public func settledGridCells() -> (columns: Int, rows: Int)? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "settledGridCells") else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+        return (Int(metrics.columns), Int(metrics.rows))
+    }
 }

@@ -165,7 +165,7 @@ export default async function TermsOfServicePage() {
       <p>
         You have the right to opt out of this arbitration agreement by sending
         written notice to{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> within 30
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a> within 30
         days of first becoming subject to it.
       </p>
 
@@ -181,7 +181,7 @@ export default async function TermsOfServicePage() {
       <h2>10. Contact</h2>
       <p>
         Questions about these Terms should be sent to{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a>.
       </p>
 
       <p>

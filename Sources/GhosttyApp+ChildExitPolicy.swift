@@ -38,6 +38,11 @@ extension GhosttyApp {
                 runtimeSurface.markShellExited()
                 guard let app = AppDelegate.shared else { return }
                 guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface else { return }
+                if let tabId, let surfaceId,
+                   let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                   let workspace = manager.tabs.first(where: { $0.id == tabId }) {
+                    workspace.dropTransientProgramStatus(panelId: surfaceId)
+                }
                 if !keepSurfaceVisible,
                    let surfaceId,
                    app.closeWindowDockRuntimeSurface(surfaceId: surfaceId, force: true) {

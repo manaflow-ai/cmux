@@ -16,7 +16,7 @@ import Foundation
 extension CMUXCLI {
     static var vmDevUsage: String {
         """
-        Usage: cmux vm dev <machine> [<local-dir>] [--name <workspace>] [--layout <file>] [--command "<dev command>"] [--port <n>] [--remote <path>] [--sync|--no-sync] [--no-open] [--dry-run] [--json]
+        Usage: cmux vm dev <machine> [<local-dir>] [--name <workspace>] [--layout <file>] [--command "<dev command>"] [--port <n>] [--remote <path>] [--sync|--no-sync] [--no-open] [--focus|--no-focus] [--dry-run] [--json]
 
         From a folder to a running dev layout on a cloud machine, in one command:
           1. route     confirm the machine (`vm.status`) and bind this folder to it, so
@@ -52,6 +52,8 @@ extension CMUXCLI {
           --sync | --no-sync   Push the folder first. Default: on when a folder is named or a project
                                was detected; off for a folder with nothing recognizable in it.
           --no-open            Build on the machine only; print the open command instead.
+          --focus | --no-focus Switch to the opened workspace, or open it in the background.
+                               \(openFocusDefaultHelp)
           --dry-run            Print the plan (detection, remote path, layout) without touching anything.
           --json               {machine, workspace_id, local_workspace_id, workspace_name, existing, local,
                                 remote, synced, command, port, url, terminals: {dev, shell}, layout_applied, opened}
@@ -425,7 +427,9 @@ extension CMUXCLI {
             print(Self.vmDevUsage)
             return
         }
-        let options = try Self.parseVMDevOptions(rest)
+        let (explicitFocus, devArgs) = try parseOpenFocusFlags(rest, command: "vm dev")
+        let focus = explicitFocus ?? Self.defaultFocusForUserOpen()
+        let options = try Self.parseVMDevOptions(devArgs)
         let machine = options.machine
 
         // The folder, resolved and checked before anything else: a typo must not push
@@ -625,7 +629,7 @@ extension CMUXCLI {
             guard let remoteWorkspace else {
                 throw CLIError(message: "vm dev: no remote workspace id is available to open")
             }
-            openedPayload = try vmDevOpenWorkspace(machine: machine, remoteWorkspace: remoteWorkspace, client: client)
+            openedPayload = try vmDevOpenWorkspace(machine: machine, remoteWorkspace: remoteWorkspace, focus: focus, client: client)
             let local = (openedPayload?["workspace_id"] as? String) ?? "?"
             lines.append("opened locally: workspace \(local)")
         } else {
@@ -791,14 +795,14 @@ extension CMUXCLI {
     /// the machine first (`vm.tree {refresh}`), then open, retrying briefly while the Mac
     /// catalog catches up with the daemon's event stream. (Same policy as
     /// CMUXCLI+VMLayoutEnv's file-private `openAppliedVMWorkspace`.)
-    private func vmDevOpenWorkspace(machine: String, remoteWorkspace: String, client: SocketClient) throws -> [String: Any] {
+    private func vmDevOpenWorkspace(machine: String, remoteWorkspace: String, focus: Bool, client: SocketClient) throws -> [String: Any] {
         _ = try client.sendV2(method: "vm.tree", params: ["id": machine, "refresh": true], responseTimeout: 120)
         var lastFailure = ""
         for attempt in 1...Self.vmLayoutOpenAttempts {
             do {
                 let payload = try client.sendV2(
                     method: "vm.workspace_open",
-                    params: ["id": machine, "workspace_id": remoteWorkspace],
+                    params: ["id": machine, "workspace_id": remoteWorkspace, "focus": focus],
                     responseTimeout: 240
                 )
                 let opened = (payload["opened"] as? Int) ?? 0
@@ -809,7 +813,7 @@ extension CMUXCLI {
                 lastFailure = error.message
             }
             if attempt < Self.vmLayoutOpenAttempts {
-                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay)
+                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay())
             }
         }
         throw CLIError(message: "vm dev: the layout is built in workspace \(remoteWorkspace) on \(machine), but it could not be opened here yet (\(lastFailure)). Open it with: cmux vm workspace open \(machine) \(remoteWorkspace)")

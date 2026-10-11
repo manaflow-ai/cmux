@@ -51,7 +51,7 @@ class WorkspaceInitialCommandShimRootOwner(unittest.TestCase):
         self.home = self.sandbox / "home"
         self.home.mkdir()
 
-    def path_entries(self, shell: str, kind: str, shim_root: str) -> list[str]:
+    def path_entries(self, shell: str, kind: str, shim_root: str, agent_root: str | None = None) -> list[str]:
         wrapped = subprocess.run([str(self.binary), shell, PRINT_PATH[kind]],
                                  capture_output=True, text=True, timeout=30, check=True).stdout[:-1]
         env = {
@@ -62,6 +62,8 @@ class WorkspaceInitialCommandShimRootOwner(unittest.TestCase):
             "XDG_DATA_HOME": str(self.home / ".local/share"),
             "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": shim_root,
         }
+        if agent_root is not None:
+            env["CMUX_AGENT_COMMAND_SHIM_ROOT"] = agent_root
         result = subprocess.run(["/bin/sh", "-c", wrapped], env=env, cwd=self.home,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, f"{shell}: {result.stderr}")
@@ -83,6 +85,40 @@ class WorkspaceInitialCommandShimRootOwner(unittest.TestCase):
         shim_root = self.sandbox / "shims"
         shim_root.mkdir(mode=0o700)
         self.assert_prepended(str(shim_root))
+
+    def test_owned_but_group_or_other_writable_directory_is_not_prepended(self) -> None:
+        for permissions in (0o770, 0o777):
+            with self.subTest(permissions=oct(permissions)):
+                shim_root = self.sandbox / f"shims-{permissions:o}"
+                shim_root.mkdir(mode=permissions)
+                shim_root.chmod(permissions)
+                self.assert_not_on_path(str(shim_root))
+
+    def test_owned_root_under_writable_ancestor_is_not_prepended(self) -> None:
+        parent = self.sandbox / "shared"
+        parent.mkdir()
+        parent.chmod(0o777)
+        shim_root = parent / "shims"
+        shim_root.mkdir(mode=0o700)
+        self.assert_not_on_path(str(shim_root))
+        alias = self.sandbox / "alias"
+        alias.symlink_to(parent, target_is_directory=True)
+        self.assert_not_on_path(str(alias / "shims"))
+
+    def test_sticky_shared_ancestor_is_allowed(self) -> None:
+        parent = self.sandbox / "shared"
+        parent.mkdir()
+        parent.chmod(0o1777)
+        shim_root = parent / "shims"
+        shim_root.mkdir(mode=0o700)
+        self.assert_prepended(str(shim_root))
+
+    def test_agent_root_is_used_without_claude_integration(self) -> None:
+        shim_root = self.sandbox / "agent-shims"
+        shim_root.mkdir(mode=0o700)
+        for shell, kind in self.shells.items():
+            with self.subTest(shell=shell):
+                self.assertEqual(self.path_entries(shell, kind, "", str(shim_root))[0], str(shim_root))
 
     def test_symlink_is_not_prepended(self) -> None:
         target = self.sandbox / "target"

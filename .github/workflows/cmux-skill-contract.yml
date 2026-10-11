@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "skills/cmux-browser/**"
+      - "skills/cmux-capture/**"
       - "skills/cmux-settings/**"
       - "web/data/cmux.schema.json"
       - "Sources/CmuxSettingsJSONPathSupport.swift"
@@ -13,6 +14,15 @@ on:
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_capture_skill.py"
+      - "CLI/CMUXCLI+Record.swift"
+      - "CLI/CMUXCLI+Screenshot.swift"
+      - "CLI/CMUXCLI+TaskHelp.swift"
+      - "Sources/WindowRecordingSession.swift"
+      - "Sources/TerminalController+WindowRecording.swift"
+      - "Sources/TerminalController+WindowScreenshotMethod.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowCapture/WindowScreenshotRequest.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowRecording/WindowRecordingRequest.swift"
       - "tests/test_cmux_settings_jsonc.py"
       - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
@@ -20,6 +30,7 @@ on:
     branches: [main]
     paths:
       - "skills/cmux-browser/**"
+      - "skills/cmux-capture/**"
       - "skills/cmux-settings/**"
       - "web/data/cmux.schema.json"
       - "Sources/CmuxSettingsJSONPathSupport.swift"
@@ -29,6 +40,15 @@ on:
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_capture_skill.py"
+      - "CLI/CMUXCLI+Record.swift"
+      - "CLI/CMUXCLI+Screenshot.swift"
+      - "CLI/CMUXCLI+TaskHelp.swift"
+      - "Sources/WindowRecordingSession.swift"
+      - "Sources/TerminalController+WindowRecording.swift"
+      - "Sources/TerminalController+WindowScreenshotMethod.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowCapture/WindowScreenshotRequest.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowRecording/WindowRecordingRequest.swift"
       - "tests/test_cmux_settings_jsonc.py"
       - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
@@ -55,6 +75,9 @@ jobs:
 
       - name: Exercise browser skill regression guard
         run: python3 tests/test_cmux_browser_skill.py
+
+      - name: Exercise capture skill regression guard
+        run: python3 tests/test_cmux_capture_skill.py
 
       - name: Exercise settings JSONC mutation regressions
         run: python3 tests/test_cmux_settings_jsonc.py

@@ -1421,8 +1421,11 @@ terminal_verb() {
       done
       [ -n "\$cmux_tv_pattern" ] || die "terminal wait: --pattern <regex> is required" 2
       cmux_tv_ms="\$(timeout_ms "\$cmux_tv_timeout")"
+      # cmux-tui exits 1 on an unmatched wait (older builds exit 0); either
+      # way the printed result says matched false, which is a timeout here.
       if cmux_tv_out="\$(tui --json terminal "\$cmux_tv_term" screen wait --pattern "\$cmux_tv_pattern" --timeout-ms "\$cmux_tv_ms" 2>&1)"; then :; else
-        die "terminal wait failed on \$cmux_tv_term: \$cmux_tv_out" 1
+        printf '%s\\n' "\$cmux_tv_out" | jq -e '(.value // .) | .matched == false' >/dev/null 2>&1 \\
+          || die "terminal wait failed on \$cmux_tv_term: \$cmux_tv_out" 1
       fi
       cmux_tv_matched="\$(printf '%s\\n' "\$cmux_tv_out" | jq -r '(.value // .) | if .matched == true then "true" else "false" end' 2>/dev/null || printf false)"
       if [ "\$cmux_tv_json" -eq 1 ]; then printf '%s\\n' "\$cmux_tv_out"; fi

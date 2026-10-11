@@ -1,8 +1,9 @@
 <!-- Before drafting or revising this description, read ../STYLE.md. Lead with the problem and the resulting behavior, keep it proportional, and delete any section or checklist line that does not apply. -->
+<!-- First pull request here? docs/start-here.md covers what reviewers look for and what CI runs for you: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md -->
 
 ## Summary
 
-<!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. -->
+<!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. If this closes an issue, say `Fixes #1234` here. -->
 
 ## Testing
 
@@ -24,11 +25,9 @@ Example: Fixed: Closing the last workspace no longer unfolds a collapsed sidebar
 Left empty or deleted, /release falls back to the PR title and flags the PR for a human to check. Don't edit CHANGELOG.md in this PR.
 -->
 
-## Demo Video
+## Proof
 
-For UI or behavior changes, include a short demo video or screenshots (GitHub upload, Loom, or other direct link).
-
-- Video URL or attachment:
+<!-- Before/after screenshots or a short clip for anything user-visible; otherwise one line on why not (e.g. CI only). -->
 
 ## Checklist
 

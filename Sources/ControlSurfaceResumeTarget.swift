@@ -63,6 +63,15 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    func hasRestorableAgentSession(_ sessionID: String) -> Bool {
+        guard let restoredAgent = restorableAgent else { return false }
+        return ManagedAgentSessionIdentity.sessionIDsMatch(
+            kind: restoredAgent.kind.rawValue,
+            lhs: sessionID,
+            rhs: restoredAgent.sessionId
+        )
+    }
+
     @discardableResult
     func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         switch self {
@@ -114,15 +123,29 @@ enum ControlSurfaceResumeTarget {
 
     func clearBinding(
         _ binding: SurfaceResumeBindingSnapshot?,
-        agentSessionEnded: Bool
+        agentSessionEnded: Bool,
+        expectedCheckpointID: String?
     ) {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
+            if binding == nil,
+               agentSessionEnded,
+               let expectedCheckpointID,
+               let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[surfaceID],
+               hasRestorableAgentSession(expectedCheckpointID) {
+                workspace.markRestoredAgentCompleted(panelId: surfaceID, snapshot: restoredAgent)
+            }
             _ = workspace.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 agentSessionEnded: agentSessionEnded
             )
         case .dock(_, let dock, let surfaceID):
+            if binding == nil,
+               agentSessionEnded,
+               let expectedCheckpointID,
+               hasRestorableAgentSession(expectedCheckpointID) {
+                dock.markRestoredAgentCompleted(panelId: surfaceID)
+            }
             _ = dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 binding: binding,

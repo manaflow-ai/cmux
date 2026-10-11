@@ -33,7 +33,7 @@
           "afterBullets": [
             "Aplikacja macOS sprawdza dostępność aktualizacji za pośrednictwem Sparkle, który może wysyłać wersje systemu operacyjnego i aplikacji do naszego serwera aktualizacji. Aplikacja iPhone i iPad jest aktualizowana za pomocą App Store, a nie Sparkle.",
             "Witryna wykorzystuje PostHog do analiz przeglądania stron i nawigacji. PostHog przechowuje plik cookie w celu rozróżnienia odwiedzających. Jeśli dołączysz do listy oczekujących platformy, przesłany przez Ciebie adres e-mail zostanie zapisany w PostHog, abyśmy mogli Cię powiadomić. Jeśli prześlesz formularz kontaktowy dla przedsiębiorstwa, zarejestrujemy firmę i dane kontaktowe, które podałeś w PostHog i wyślemy je do naszego prywatnego obszaru roboczego Slack i skrzynki e-mail założycieli, abyśmy mogli odpowiedzieć. Możesz zablokować analitykę witryny internetowej za pomocą rozszerzenia przeglądarki, które blokuje skrypty śledzące.",
-            "Aplikacja iPhone i iPad wysyła zdarzenia związane z analizą produktu do naszego serwera proxy PostHog po stronie serwera. Zdarzenia te pomagają zdiagnozować niezawodność, zrozumieć wykorzystanie funkcji i ulepszyć Aplikację. Obejmują one uruchomienie aplikacji i zdarzenia sesji, status logowania, próby i wyniki parowania, przywrócenie połączenia, otwarcia obszaru roboczego, liczbę bajtów i linii wejściowych terminala oraz wyniki zgody na powiadomienie lub głębokiego łącza do powiadomień. Usługa Mobile Analytics nie wysyła tekstu poleceń terminala, wyników terminala, wybranych zdjęć ani transkrypcji mowy do PostHog. Przed zalogowaniem zdarzenia używają losowego identyfikatora klienta dla każdej instalacji. Po zalogowaniu nasz serwer dołącza identyfikator Twojego konta Stack Auth przed przekazaniem zdarzeń do PostHog. Analityka i raporty o awariach są domyślnie włączone; możesz je wyłączyć w Ustawieniach. Wyłączenie tej opcji powoduje zatrzymanie buforowania i wysyłania analiz oraz raportowanie awarii. Skontaktuj się z [founders@manaflow.com](mailto:founders@manaflow.com), aby poprosić o usunięcie statystyk powiązanych z Twoim kontem.",
+            "Aplikacja iPhone i iPad wysyła zdarzenia związane z analizą produktu do naszego serwera proxy PostHog po stronie serwera. Zdarzenia te pomagają zdiagnozować niezawodność, zrozumieć wykorzystanie funkcji i ulepszyć Aplikację. Obejmują one uruchomienie aplikacji i zdarzenia sesji, status logowania, próby i wyniki parowania, przywrócenie połączenia, otwarcia obszaru roboczego, liczbę bajtów i linii wejściowych terminala oraz wyniki zgody na powiadomienie lub głębokiego łącza do powiadomień. Usługa Mobile Analytics nie wysyła tekstu poleceń terminala, wyników terminala, wybranych zdjęć ani transkrypcji mowy do PostHog. Przed zalogowaniem zdarzenia używają losowego identyfikatora klienta dla każdej instalacji. Po zalogowaniu nasz serwer dołącza identyfikator Twojego konta Stack Auth przed przekazaniem zdarzeń do PostHog. Analityka i raporty o awariach są domyślnie włączone; możesz je wyłączyć w Ustawieniach. Wyłączenie tej opcji powoduje zatrzymanie buforowania i wysyłania analiz oraz raportowanie awarii. Skontaktuj się z [founders@cmux.com](mailto:founders@cmux.com), aby poprosić o usunięcie statystyk powiązanych z Twoim kontem.",
             "Aplikacja iPhone i iPad może rejestrować zamaskowane powtórki sesji za pośrednictwem Sentry, aby pomóc nam diagnozować awarie i niedziałające przepływy. Powtórka to nagranie w niskiej rozdzielczości własnych ekranów Aplikacji, pokazujące układ. Cały tekst, obrazy i treści internetowe są maskowane, a powierzchnie terminala, przeglądarki, przesyłanego strumieniowo ekranu i kamery są zawsze zasłaniane, na Twoim urządzeniu przed przesłaniem, dzięki czemu ich zawartość nigdy nie opuszcza Twojego urządzenia. Powtórki są rejestrowane dla niewielkiej próbki sesji oraz dla momentów poprzedzających błąd i tylko wtedy, gdy w Ustawieniach włączona jest opcja Udostępnij analizę i raporty o awariach. Wyłączenie tej opcji powoduje zatrzymanie rejestrowania powtórek i usunięcie buforowanych danych powtórek na urządzeniu."
           ]
         },
@@ -48,7 +48,7 @@
         {
           "heading": "3. Prywatność dzieci",
           "paragraphs": [
-            "Usługa nie jest skierowana do osób poniżej 13 roku życia i nie zbieramy świadomie informacji od osób poniżej 13 roku życia. Jeśli uważasz, że zebraliśmy takie informacje, skontaktuj się z [founders@manaflow.com](mailto:founders@manaflow.com)."
+            "Usługa nie jest skierowana do osób poniżej 13 roku życia i nie zbieramy świadomie informacji od osób poniżej 13 roku życia. Jeśli uważasz, że zebraliśmy takie informacje, skontaktuj się z [founders@cmux.com](mailto:founders@cmux.com)."
           ]
         }
       ]
@@ -99,7 +99,7 @@
         "Ograniczyć lub sprzeciwić się przetwarzaniu."
       ],
       "afterBullets": [
-        "Aby skorzystać z tych praw, skontaktuj się z [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Aby skorzystać z tych praw, skontaktuj się z [founders@cmux.com](mailto:founders@cmux.com)."
       ]
     },
     {
@@ -117,13 +117,13 @@
     {
       "heading": "VIII. Skontaktuj się z nami",
       "paragraphs": [
-        "Pytania dotyczące tej polityki można przesyłać na adres [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Pytania dotyczące tej polityki można przesyłać na adres [founders@cmux.com](mailto:founders@cmux.com)."
       ]
     },
     {
       "heading": "IX. Przechowywanie danych",
       "paragraphs": [
-        "Raporty o awariach i diagnostyka są przechowywane tylko tak długo, jak to konieczne. Zamaskowane powtórki sesji są usuwane z Sentry po 90 dniach od zarejestrowania. Identyfikatory konta i dane uwierzytelniania są przechowywane, gdy konto jest aktywne, a następnie usuwane lub anonimizowane, chyba że obowiązki bezpieczeństwa, prawne, podatkowe, rozliczeniowe lub zapobiegania oszustwom wymagają zachowania. Metadane urządzenia i parowania są przechowywane do odłączenia lub usunięcia, a tokeny Apple tylko przy włączonych powiadomieniach. Analityka internetowa i mobilna, analityka powiązana z kontem, zdarzenia cyklu rozliczeniowego i identyfikatory Stripe w PostHog są przechowywane do 24 miesięcy, chyba że poprosisz o wcześniejsze usunięcie. Ustawienia konta usuwają lub anonimizują dane cmux, usuwają powiązaną osobę PostHog i żądają usunięcia zdarzeń i nagrań analityki internetowej i mobilnej. Niektóre dane rozliczeniowe i identyfikatory Stripe mogą być przechowywane ze względu na obowiązki bezpieczeństwa, prawne, podatkowe, rozliczeniowe lub zapobiegania oszustwom. Usuwanie przez dostawców może być asynchroniczne. Poproś o usunięcie w ustawieniach lub przez [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Raporty o awariach i diagnostyka są przechowywane tylko tak długo, jak to konieczne. Zamaskowane powtórki sesji są usuwane z Sentry po 90 dniach od zarejestrowania. Identyfikatory konta i dane uwierzytelniania są przechowywane, gdy konto jest aktywne, a następnie usuwane lub anonimizowane, chyba że obowiązki bezpieczeństwa, prawne, podatkowe, rozliczeniowe lub zapobiegania oszustwom wymagają zachowania. Metadane urządzenia i parowania są przechowywane do odłączenia lub usunięcia, a tokeny Apple tylko przy włączonych powiadomieniach. Analityka internetowa i mobilna, analityka powiązana z kontem, zdarzenia cyklu rozliczeniowego i identyfikatory Stripe w PostHog są przechowywane do 24 miesięcy, chyba że poprosisz o wcześniejsze usunięcie. Ustawienia konta usuwają lub anonimizują dane cmux, usuwają powiązaną osobę PostHog i żądają usunięcia zdarzeń i nagrań analityki internetowej i mobilnej. Niektóre dane rozliczeniowe i identyfikatory Stripe mogą być przechowywane ze względu na obowiązki bezpieczeństwa, prawne, podatkowe, rozliczeniowe lub zapobiegania oszustwom. Usuwanie przez dostawców może być asynchroniczne. Poproś o usunięcie w ustawieniach lub przez [founders@cmux.com](mailto:founders@cmux.com)."
       ]
     }
   ]

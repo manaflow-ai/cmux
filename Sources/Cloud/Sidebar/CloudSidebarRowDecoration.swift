@@ -35,6 +35,9 @@ struct CloudSidebarRowDecoration: ViewModifier {
                     tint: Color(nsColor: .secondaryLabelColor)
                 )
                 .fixedSize()
+                // Machine rows have no icon after the pin, so the pin keeps
+                // its own gap before the name.
+                .padding(.trailing, GlobalFontMagnification.scaledSize(3, percent: magnification))
                 .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
             content

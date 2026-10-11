@@ -8,15 +8,20 @@ public struct SurfaceResourcePlacement: Hashable, Codable, Sendable {
     public let resource: SurfaceResourceID
     public let remoteWorkspaceID: String?
     public let remoteTabID: String?
+    /// Exact frontend display membership identity, when this placement came
+    /// from the Cloud workspace projection rather than a daemon tab.
+    public let cloudDisplayMembershipViewID: String?
 
     public init(
         resource: SurfaceResourceID,
         remoteView: SurfaceRemoteView? = nil,
         remoteWorkspaceID: String? = nil,
-        remoteTabID: String? = nil
+        remoteTabID: String? = nil,
+        cloudDisplayMembershipViewID: String? = nil
     ) {
         self.resource = resource
         self.remoteWorkspaceID = remoteView?.workspace.id ?? remoteWorkspaceID
-        self.remoteTabID = remoteView?.tabID ?? remoteTabID
+        self.remoteTabID = remoteView?.isCloudDisplayMembershipView == true ? nil : (remoteView?.tabID ?? remoteTabID)
+        self.cloudDisplayMembershipViewID = remoteView?.cloudDisplayMembershipViewID ?? cloudDisplayMembershipViewID
     }
 }

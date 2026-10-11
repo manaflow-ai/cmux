@@ -257,3 +257,36 @@ test("streamPatch replaces many repeated paths by stable file order", async () =
   expect(batches.reduce((count, batch) => count + batch.length, 0)).toBe(2_000);
   expect(batches.at(-1)?.at(-1)?.id).toBe("repeat.ts?2");
 });
+
+test("streamed file diffs carry a patch fingerprint and patch size for viewed state", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).window = dom.window;
+  dom.window.document.hasFocus = () => false;
+  const fileA = "diff --git a/a.txt b/a.txt\nindex 1111111..2222222 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,3 @@\n one\n+two\n three\n";
+  const fileB = "diff --git a/b.txt b/b.txt\nnew file mode 100644\nindex 0000000..3333333\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+hello\n";
+  (globalThis as any).fetch = () => Promise.resolve(new Response(fileA + fileB, { status: 200 }));
+
+  const items: any[] = [];
+  await streamPatch({
+    getCollapsed: () => false,
+    initialFileTreeRowCount: 10,
+    label: createDiffViewerLabelResolver(undefined),
+    onBatch: (batch) => items.push(...batch),
+    onComplete: () => {},
+    onMetrics: () => {},
+    onRename: () => {},
+    onTreeSource: () => {},
+    parsePatchFiles: () => [],
+    patchURL: "http://127.0.0.1/p.patch",
+    processFile: (text) => ({ name: /b\/(\S+)/.exec(text)?.[1] ?? "", type: "change", hunks: [], additionLines: [], deletionLines: [] }),
+  });
+
+  expect(items).toHaveLength(2);
+  const fingerprints = items.map((item) => item.fileDiff.cmuxPatchFingerprint);
+  expect(fingerprints[0]).toMatch(/^[0-9a-f]{8}$/);
+  expect(fingerprints[1]).toMatch(/^[0-9a-f]{8}$/);
+  expect(fingerprints[0]).not.toBe(fingerprints[1]);
+  expect(items[0].fileDiff.cmuxPatchByteLength).toBeGreaterThan(0);
+  expect(items[0].fileDiff.cmuxPatchByteLength).toBeLessThanOrEqual(fileA.length);
+});

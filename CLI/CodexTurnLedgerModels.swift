@@ -12,6 +12,7 @@ struct CodexHookInvocation: Equatable, Sendable {
     static let ownerPIDEnvironmentKey = "CMUX_CODEX_PID"
     static let observedPIDEnvironmentKey = "CMUX_CODEX_HOOK_PID"
     static let ledgerPathEnvironmentKey = "CMUX_CODEX_TURN_LEDGER_PATH"
+    static let forkSessionEnvironmentKey = "CMUX_CODEX_FORK_SESSION"
 
     let token: String?
     let parentToken: String?
@@ -21,6 +22,7 @@ struct CodexHookInvocation: Equatable, Sendable {
     let observedGeneration: CodexProcessGeneration?
     let hasExplicitObservedPID: Bool
     let hasNestedAgentAncestor: Bool
+    let isForkSessionLaunch: Bool
 
     init(
         environment: [String: String],
@@ -37,6 +39,7 @@ struct CodexHookInvocation: Equatable, Sendable {
         ownerGeneration = ownerPID.flatMap { CodexProcessGeneration(pid: $0) }
         observedGeneration = observedPID.flatMap { CodexProcessGeneration(pid: $0) }
         self.hasNestedAgentAncestor = hasNestedAgentAncestor
+        isForkSessionLaunch = Self.normalized(environment[Self.forkSessionEnvironmentKey]) == "1"
     }
 
     private static func normalized(_ value: String?) -> String? {

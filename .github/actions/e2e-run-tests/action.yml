@@ -21,8 +21,16 @@ inputs:
     description: Every selector, comma-separated (the filter job's `selectors`).
     required: true
   count:
-    description: How many selectors there are (the filter job's `count`).
+    description: >-
+      How many selectors there are (the filter job's `count`). Zero when the
+      run only replays the fuzz regressions.
     required: true
+  fuzz-regressions:
+    description: >-
+      "true" to replay the UI fuzzer's checked-in repros against the app after
+      the selected tests (the filter job's `fuzz_regressions`).
+    required: false
+    default: "false"
   record-video:
     description: Whether to record the virtual display, "true" or "false".
     required: true
@@ -145,7 +153,16 @@ runs:
       if: ${{ inputs.record-video == 'true' }}
       shell: bash
       run: |
-        brew install --quiet ffmpeg
+        # The helper comes from this workflow's revision (checked out into
+        # .e2e-workflow beside this action) when it is there, since the tested
+        # revision may predate it.
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" ffmpeg
+        else
+          brew install --quiet ffmpeg
+        fi
         FFMPEG_PATH=$(which ffmpeg)
         echo "ffmpeg: $FFMPEG_PATH"
         ffmpeg -version | head -1
@@ -188,10 +205,23 @@ runs:
     # The display-churn regression establishes its own display later.
     # Keep its existing recorder startup check at that point.
 
+    # A runner that cannot capture its display runs the tests without video
+    # instead of failing them: on 2026-09-25/26, 8 of 45 sampled Blacksmith
+    # 12vcpu and 2 of 15 6vcpu jobs stopped here with "could not create image
+    # from display", per machine rather than per pool, and the rescue's
+    # Blacksmith re-runs land on those pools.
     - name: Verify screen capture before dependency setup
+      id: capture
       if: ${{ inputs.record-video == 'true' && inputs.filter != 'DisplayResolutionRegressionUITests' }}
       shell: bash
-      run: python3 scripts/ci/preflight-e2e-screen-capture.py
+      run: |
+        if python3 scripts/ci/preflight-e2e-screen-capture.py; then
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Screen capture is unavailable on $RUNNER_NAME; the tests run without video."
+          echo "**Recording:** skipped, screen capture is unavailable on runner \`$RUNNER_NAME\`; the tests ran without video." >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     # A console session that cannot activate apps fails every UI test after
     # a one-minute wait each, as "Failed to activate application". Probe it
@@ -214,7 +244,11 @@ runs:
     - name: Install tmux
       shell: bash
       run: |
-        if ! command -v tmux >/dev/null 2>&1; then
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" tmux
+        elif ! command -v tmux >/dev/null 2>&1; then
           brew install --quiet tmux
         fi
         tmux -V
@@ -236,6 +270,7 @@ runs:
         echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
     - name: Restore the compiled test product
+      id: restore
       env:
         ARTIFACT_ID: ${{ inputs.artifact-id }}
         ARTIFACT_PROVIDER_DIGEST: ${{ inputs.artifact-digest }}
@@ -393,6 +428,7 @@ runs:
 
     - name: Run selected tests
       id: tests
+      if: ${{ inputs.count != '0' }}
       env:
         TEST_FILTER: ${{ inputs.test-filter }}
         TEST_TARGET: ${{ inputs.target }}
@@ -401,7 +437,7 @@ runs:
         TEST_SELECTOR_COUNT: ${{ inputs.count }}
         NORMALIZED_FILTER: ${{ inputs.filter }}
         TEST_TIMEOUT: ${{ inputs.test-timeout }}
-        RECORD_VIDEO: ${{ inputs.record-video }}
+        RECORD_VIDEO: ${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false' && 'true' || 'false' }}
         DOGFOOD_SCENARIO_B64: ${{ inputs.dogfood-scenario }}
         # App-host crash recovery must not stall on interactive backtraces
         # (mirrors ci.yml's tests job hardening).
@@ -543,7 +579,13 @@ runs:
           XCTESTRUN_PATH="$CMUX_UI_XCTESTRUN"
           mkdir -p "$RUNNER_TEMP/cmux-app-host-xcresults"
           XCODEBUILD_CMD=(
-            xcodebuild
+            # UI dispatches used to invoke xcodebuild directly, bypassing the
+            # per-machine app-host lock and bounded retries already used by
+            # cmuxTests. Keep UI's existing non-isolated host environment,
+            # while applying the same runner-communication recovery. The
+            # wrapper removes a caller-owned result bundle before each retry.
+            env CMUX_CI_APP_HOST_ISOLATION_REQUIRED=0
+            scripts/ci/run-app-host-xcodebuild.sh
             -xctestrun "$XCTESTRUN_PATH"
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"
@@ -673,6 +715,59 @@ runs:
           exit 1
         fi
 
+    # The UI fuzzer's checked-in repros (dogfood/fuzz/regressions), replayed
+    # against the app restored above: one fresh launch per repro, driven over
+    # its debug socket in the console session, as the XCUITests are. A repro
+    # that reproduces fails the job. Socket steps only (--no-pointer): a
+    # pointer step needs cua-driver, and the repros are kept to socket steps.
+    # scripts/fuzz is the tested revision's.
+    - name: Replay the UI fuzzer regressions
+      id: fuzz
+      # After the XCUITests even when they failed, but not on a runner whose
+      # own setup (display, activation, restore) already failed.
+      if: ${{ !cancelled() && inputs.fuzz-regressions == 'true' && steps.restore.outcome == 'success' && (success() || steps.tests.outcome == 'failure') }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f scripts/fuzz ]; then
+          echo "::error::This revision has no scripts/fuzz, so there are no fuzz regressions to replay."
+          exit 1
+        fi
+        app="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
+        if [ ! -d "$app" ]; then
+          echo "::error::The restored product has no $app."
+          exit 1
+        fi
+        out="$RUNNER_TEMP/fuzz-regressions"
+        rm -rf -- "$out"
+        mkdir -p "$out"
+        # The fuzzer writes here as the console user, who may not be this one.
+        chmod 0777 "$out"
+        status=0
+        bash scripts/ci/run-and-capture.sh "$out/replay.log" \
+          scripts/ci/run-in-console-session.sh \
+          python3 scripts/fuzz regressions --app "$app" --out "$out" --no-pointer || status=$?
+        {
+          echo "### Fuzz regressions"
+          echo
+          echo '```'
+          grep -E '^(ok|FAIL) ' "$out/replay.log" || echo "(no repro reported a result)"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$status" -ne 0 ]; then
+          echo "::error::A fuzz regression reproduced, or the replay could not run (exit $status). Replay one locally with scripts/fuzz replay <repro> --app <cmux DEV.app>; the fuzz-regressions artifact has each replay's steps, frames and debug log."
+          exit "$status"
+        fi
+
+    - name: Upload the fuzz regression replays
+      if: ${{ always() && steps.fuzz.outcome == 'failure' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: fuzz-regressions
+        path: ${{ runner.temp }}/fuzz-regressions
+        if-no-files-found: ignore
+        retention-days: 14
+
     - name: Stop recording and trim
       if: ${{ always() && inputs.record-video == 'true' && env.RECORD_PID != '' }}
       shell: bash
@@ -731,7 +826,7 @@ runs:
 
     - name: Upload recording artifact
       id: recording
-      if: ${{ always() && inputs.record-video == 'true' }}
+      if: ${{ always() && inputs.record-video == 'true' && steps.capture.outputs.available != 'false' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: test-recording
@@ -777,21 +872,26 @@ runs:
     - name: Publish test summary
       if: always()
       env:
-        TEST_RESULT: ${{ steps.tests.outputs.test_result || 'failed' }}
+        TEST_RESULT: ${{ steps.tests.outputs.test_result || (inputs.count == '0' && steps.fuzz.outcome == 'success' && 'skipped') || 'failed' }}
+        FUZZ_RESULT: ${{ steps.fuzz.outcome }}
         TEST_SUMMARY: ${{ steps.tests.outputs.test_summary }}
         TEST_OUTPUT: ${{ steps.tests.outputs.test_output }}
         TEST_FILTER: ${{ inputs.test-filter }}
         COMMIT_SHA: ${{ inputs.source-revision }}
         REF_DISPLAY: ${{ inputs.ref-display }}
         RUN_ID: ${{ github.run_id }}
-        RECORD_VIDEO: ${{ inputs.record-video }}
+        RECORD_VIDEO: ${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false' && 'true' || 'false' }}
         RECORDING_URL: ${{ steps.recording.outputs.artifact-url }}
       shell: bash
       run: |
         set -euo pipefail
 
-        if [ "$TEST_RESULT" = "passed" ]; then
+        if [ "$FUZZ_RESULT" = "failure" ]; then
+          STATUS_EMOJI="FAILED"
+        elif [ "$TEST_RESULT" = "passed" ]; then
           STATUS_EMOJI="PASSED"
+        elif [ "$TEST_RESULT" = "skipped" ]; then
+          STATUS_EMOJI="NO TESTS SELECTED"
         else
           STATUS_EMOJI="FAILED"
         fi
@@ -804,6 +904,9 @@ runs:
           echo "**Ref:** \`$REF_DISPLAY\`"
           echo "**SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)"
           echo "**Test:** \`$TEST_FILTER\`"
+          if [ -n "$FUZZ_RESULT" ] && [ "$FUZZ_RESULT" != "skipped" ]; then
+            echo "**Fuzz regressions:** $FUZZ_RESULT"
+          fi
           echo "**Workflow run:** $RUN_URL"
 
           if [ "$RECORD_VIDEO" = "true" ]; then

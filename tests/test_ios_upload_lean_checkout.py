@@ -235,12 +235,28 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIs(step["continue-on-error"], True)
         self.assertIn('--notes-from-range "$LAST_UPLOADED_SHA"', run_text(steps[upload]))
 
-    def test_appstore_lane_reads_no_history(self):
+    def test_appstore_lane_fetches_only_the_notes_range(self):
+        # The official lane mirrors the INTERNAL lane's generated "What to
+        # Test" notes: the only history it reads is the notes range, fetched
+        # bounded and best effort so it can never hold or fail an upload.
         steps = load("ios-appstore-upload.yml")["jobs"]["upload"]["steps"]
-        for step in steps:
-            text = run_text(step)
-            with self.subTest(step=step.get("name")):
-                self.assertNotIn("--notes-from-range", text)
+        checkout = step_index(steps, "Checkout")
+        history = step_index(steps, "Fetch TestFlight notes history")
+        upload = step_index(steps, "Archive, export, and upload to App Store Connect")
+        self.assertLess(checkout, history)
+        self.assertLess(history, upload)
+        step = steps[history]
+        self.assertIn("needs.decide.outputs.last_upload_sha != ''", step["if"])
+        self.assertEqual(
+            step["env"]["LAST_UPLOAD_SHA"], "${{ needs.decide.outputs.last_upload_sha }}"
+        )
+        self.assertIn("./ios/scripts/fetch-testflight-notes-history.sh", run_text(step))
+        self.assertLessEqual(int(step["timeout-minutes"]), 5)
+        self.assertIs(step["continue-on-error"], True)
+        self.assertIn('--notes-from-range "$LAST_UPLOAD_SHA"', run_text(steps[upload]))
+        for other in steps:
+            text = run_text(other)
+            with self.subTest(step=other.get("name")):
                 self.assertNotIn("--auto-version", text)
                 self.assertNotIn("git fetch", text)
 

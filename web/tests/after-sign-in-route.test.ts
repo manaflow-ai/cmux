@@ -167,6 +167,21 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain("Path=/handler/after-sign-in");
   });
 
+  test("redirects verified release-candidate handoffs directly to cmux-rc", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-rc://auth-callback?cmux_auth_state=state-rc";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
+    expect(callbackURL.protocol).toBe("cmux-rc:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-rc");
+  });
+
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";

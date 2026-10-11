@@ -10,19 +10,28 @@ extension AgentLaunchSanitizer {
             "--agent",
             "--allow-tool",
             "--allow-url",
+            "--attachment",
+            "--auto-tier",
             "--available-tools",
             "--bash-env",
+            "-C",
             "--connect",
+            "--context",
             "--deny-tool",
             "--deny-url",
             "--disable-mcp-server",
+            "--dynamic-retrieval",
             "--effort",
+            "--enable-mcp-server",
             "--excluded-tools",
+            "--extension-sdk-path",
             "--interactive",
             "-i",
             "--log-dir",
             "--log-level",
+            "--max-ai-credits",
             "--max-autopilot-continues",
+            "--mcp-github-auth",
             "--mode",
             "--model",
             "-n",
@@ -34,8 +43,10 @@ extension AgentLaunchSanitizer {
             "--reasoning-effort",
             "--resume",
             "--secret-env-vars",
+            "--session-id",
             "--share",
-            "--stream"
+            "--stream",
+            "--usage-output-file"
         ],
         optionalValueOptions: [
             "--allow-tool",
@@ -81,13 +92,15 @@ extension AgentLaunchSanitizer {
             "--continue",
             "--interactive",
             "-i",
-            "--resume"
+            "--resume",
+            "--session-id"
         ],
         droppedOptionPrefixes: [
             "--connect=",
             "--interactive=",
             "-i=",
-            "--resume="
+            "--resume=",
+            "--session-id="
         ],
         rejectOptions: [
             "--acp",

@@ -1,5 +1,6 @@
 import CoreGraphics
 import Testing
+import UIKit
 
 @testable import CmuxMobileTerminal
 
@@ -45,5 +46,84 @@ struct AccessoryEdgeFadeTests {
         #expect(maskBounds.minY < rowBounds.minY)
         #expect(maskBounds.maxY > rowBounds.maxY)
         #expect(maskBounds.midY == rowBounds.midY)
+    }
+
+    @MainActor
+    @Test("shortcut row keeps native horizontal scroll physics")
+    func shortcutRowKeepsNativeScrollPhysics() throws {
+        let input = TerminalInputTextView()
+        let scrollView = try #require(Self.findAccessoryScrollView(in: input.toolbarView))
+
+        #expect(scrollView.bounces)
+        #expect(scrollView.alwaysBounceHorizontal)
+        #expect(scrollView.decelerationRate == .normal)
+    }
+
+    @MainActor
+    @Test("shortcut row defers layout correction during an active gesture")
+    func defersOffsetCorrectionDuringGesture() {
+        let input = TerminalInputTextView()
+        let decision = input.accessoryOffsetDecision(
+            geometryChanged: true,
+            interactionActive: true,
+            previousOffset: 100,
+            currentOffset: 130,
+            minimumOffset: 0,
+            maximumOffset: 120,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: true
+        )
+
+        #expect(decision == .deferUntilScrollEnds)
+    }
+
+    @MainActor
+    @Test("shortcut row clamps stale overscroll after the gesture ends")
+    func clampsStaleOverscrollAfterGesture() {
+        let input = TerminalInputTextView()
+        let decision = input.accessoryOffsetDecision(
+            geometryChanged: true,
+            interactionActive: false,
+            previousOffset: 100,
+            currentOffset: 130,
+            minimumOffset: 0,
+            maximumOffset: 120,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: true,
+            preserveEdge: false
+        )
+
+        #expect(decision == .set(120))
+    }
+
+    @MainActor
+    @Test("shortcut row keeps the trailing edge through a resting resize")
+    func keepsTrailingEdgeThroughResize() {
+        let input = TerminalInputTextView()
+        let decision = input.accessoryOffsetDecision(
+            geometryChanged: true,
+            interactionActive: false,
+            previousOffset: 100,
+            currentOffset: 100,
+            minimumOffset: 0,
+            maximumOffset: 120,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: true
+        )
+
+        #expect(decision == .set(120))
+    }
+
+    @MainActor
+    private static func findAccessoryScrollView(in view: UIView) -> AccessoryEdgeFadeScrollView? {
+        if let scrollView = view as? AccessoryEdgeFadeScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let scrollView = findAccessoryScrollView(in: subview) {
+                return scrollView
+            }
+        }
+        return nil
     }
 }

@@ -156,7 +156,9 @@ def assert_stale_pr_cache_is_still_cleared(shell_name: str, directory: Path, soc
     case_directory.mkdir()
     panel_id = str(uuid.uuid4()).upper()
     environment = base_environment(case_directory, socket_path, panel_id, watch=False)
-    cache_files = [Path(f"/tmp/cmux-pr-cache-{panel_id}.{suffix}") for suffix in PR_CACHE_SUFFIXES]
+    state_directory = Path(environment["TMPDIR"]) / f"cmux-pr-{os.geteuid()}"
+    state_directory.mkdir(mode=0o700)
+    cache_files = [state_directory / f"cache-{panel_id}.{suffix}" for suffix in PR_CACHE_SUFFIXES]
     try:
         for path in cache_files[:2]:
             path.write_text("stale\n", encoding="utf-8")

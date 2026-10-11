@@ -83,6 +83,10 @@ public final class CloudImagePasteCoordinator {
     /// Releases the clipboard materialization reservation.
     public func endPreparation() { preparing = false }
 
+    /// True while a paste is reserved or uploading on the current attachment,
+    /// so a reattach would fail it.
+    public var isBusy: Bool { preparing || activeToken != nil || pending != nil }
+
     /// Retires the attachment and fails any pending request.
     public func disconnect() {
         endpoint = nil

@@ -33,6 +33,15 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         didAccept: { [weak self] in self?.publish() }
     )
     private var restoreTasks: [UUID: Task<Void, Never>] = [:]
+    /// This device's notification sync: feed rows in, local notifications and
+    /// `notification.feed.mark_read` round trips out.
+    var notificationSync: CloudNotificationSync?
+    /// The last accepted `notification.feed.list` reply.
+    var notificationFeed = DeviceNotificationFeed()
+    var notificationFeedTask: Task<Void, Never>?
+    /// A feed change arrived while a fetch was in flight; fetch once more.
+    var notificationFeedRefetch = false
+    var notificationPlacementObserver: (any NSObjectProtocol)?
 
     var machine: SurfaceMachineID { .device(instance) }
     var supportsPortPreviews: Bool { false }
@@ -44,6 +53,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         self.catalog = catalog
         link.onChange = { [weak self] in self?.publish() }
         link.onLayoutChange = { [weak self] snapshot in self?.layoutSync.accept(snapshot) }
+        link.onNotificationFeedChange = { [weak self] in self?.notificationFeedDidChange() }
+        installNotificationSync()
     }
 
     func update(record: DeviceDirectoryRecord) {
@@ -72,29 +83,39 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         for session in sessions.values { session.stop() }
         sessions.removeAll()
         layoutSync.stop()
+        stopNotificationSync()
         link.stop()
     }
 
     // MARK: - Catalog rows
 
     var info: SurfaceMachineInfo {
+        let live = link.isConnected
         let state = Self.linkState(
             record: record, phase: link.phase, lastFailure: link.lastFailure?.message, needsAuthorization: link.needsAuthorization
         )
+        // A restored mirror can still contain the last workspace snapshot after
+        // its transport has gone away. Never publish that stale snapshot as a
+        // connected device: the Cloud tree would otherwise make its terminals
+        // look openable even though the Mac is offline.
+        let effectiveState: (linkState: SurfaceLinkState, linkError: String?) =
+            (!live && state.linkState == .connected)
+                ? (.offline, nil)
+                : state
         let workspaces = link.mirror.workspaces.hasState
-            ? DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
+            ? DeviceWorkspaceProjection(machine: machine, isLive: live)
                 .remoteWorkspaces(link.mirror.workspaces.orderedRecords)
             : nil
         return SurfaceMachineInfo(
             id: machine,
             name: record.displayName,
-            status: record.isOnline || link.isConnected ? "running" : "offline",
+            status: record.isOnline || live ? "running" : "offline",
             image: nil,
             hasDesktop: false,
             memoryMb: nil,
             diskMb: nil,
-            linkState: state.linkState,
-            linkError: state.linkError,
+            linkState: effectiveState.linkState,
+            linkError: effectiveState.linkError,
             cpuPercent: nil,
             memoryUsedMb: nil,
             diskUsedMb: nil,

@@ -36,8 +36,84 @@ private final class RemoteOutputFixture {
     }
 }
 
+@MainActor
+private final class ReplayCompletionBox {
+    var called = false
+}
+
 @Suite(.serialized)
 struct TerminalSurfaceRemoteOutputTests {
+    @Test
+    func bufferedReplayOverflowReportsDiscardedInsteadOfApplying() async {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
+        let fixture = await MainActor.run {
+            RemoteOutputFixture(surface: makeSurface(runtimeSurfaceBits: runtimeSurfaceBits))
+        }
+        let completion = await MainActor.run { ReplayCompletionBox() }
+        let discard = await MainActor.run { ReplayCompletionBox() }
+        defer {
+            runtimeSurface.deallocate()
+        }
+
+        await MainActor.run {
+            fixture.releaseSurface()
+            fixture.surface.processRemoteReplay(Data("replay".utf8), onApplied: {
+                completion.called = true
+            }, onDiscarded: {
+                discard.called = true
+            })
+            fixture.surface.processRemoteOutput(
+                Data(repeating: 0x41, count: fixture.surface.maxPendingRemoteOutputBytes)
+            )
+            #expect(discard.called)
+            #expect(!completion.called)
+
+            let oversized = Data(repeating: 0x42, count: fixture.surface.maxPendingRemoteOutputBytes + 1)
+            fixture.surface.processRemoteReplay(oversized, onApplied: {
+                completion.called = true
+            }, onDiscarded: {
+                discard.called = true
+            })
+            #expect(discard.called)
+            #expect(!completion.called)
+        }
+    }
+
+    @Test
+    func bufferedReplayCompletionWaitsForRuntimeFlush() async {
+        let initialRuntime = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let replacementRuntime = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let initialBits = UInt(bitPattern: initialRuntime)
+        let replacementBits = UInt(bitPattern: replacementRuntime)
+        let fixture = await MainActor.run {
+            RemoteOutputFixture(surface: makeSurface(runtimeSurfaceBits: initialBits))
+        }
+        let completion = await MainActor.run { ReplayCompletionBox() }
+        let applied = AsyncStream<Void>.makeStream()
+        defer {
+            initialRuntime.deallocate()
+            replacementRuntime.deallocate()
+        }
+
+        await MainActor.run {
+            fixture.releaseSurface()
+            fixture.surface.processRemoteReplay(Data("buffered replay".utf8)) {
+                completion.called = true
+                applied.continuation.yield()
+            }
+            #expect(!completion.called)
+            let replacement = UnsafeMutableRawPointer(bitPattern: replacementBits)!
+            fixture.surface.installRuntimeSurfaceForTesting(replacement)
+            fixture.surface.flushPendingRemoteOutput(to: replacement)
+        }
+
+        var iterator = applied.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        #expect(await MainActor.run(body: { completion.called }))
+        await MainActor.run { fixture.releaseSurface() }
+    }
+
     @Test
     func remoteOutputDoesNotBlockTheMainActorOnNativeParser() async {
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -100,9 +176,34 @@ struct TerminalSurfaceRemoteOutputTests {
         runtimeSurface.deallocate()
     }
 
+    @Test
+    @MainActor
+    func automaticClipboardWritesRequireLocalExecOwnership() {
+        let local = makeSurface(runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)))
+        defer { local.surface!.deallocate() }
+        #expect(local.allowsAutomaticClipboardWrite)
+
+        let remote = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            isRemoteTerminal: true
+        )
+        defer { remote.surface!.deallocate() }
+        #expect(!remote.allowsAutomaticClipboardWrite)
+
+        let cloud = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            isRemoteTerminal: true,
+            allowsRemoteClipboardWrites: true
+        )
+        defer { cloud.surface!.deallocate() }
+        #expect(cloud.allowsAutomaticClipboardWrite)
+    }
+
     @MainActor
     private func makeSurface(
-        runtimeSurfaceBits: UInt
+        runtimeSurfaceBits: UInt,
+        isRemoteTerminal: Bool = false,
+        allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalSurface {
         let runtimeSurface = UnsafeMutableRawPointer(bitPattern: runtimeSurfaceBits)!
         let nativeView = FakeTerminalSurfaceNativeView(
@@ -114,6 +215,8 @@ struct TerminalSurfaceRemoteOutputTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            isRemoteTerminal: isRemoteTerminal,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: registry,
                 engine: FakeTerminalEngine(),
@@ -128,7 +231,7 @@ struct TerminalSurfaceRemoteOutputTests {
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(
+                    agentCommandShimRootDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),

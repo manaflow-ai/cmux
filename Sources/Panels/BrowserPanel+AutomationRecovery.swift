@@ -228,6 +228,20 @@ extension BrowserPanel {
             activeVisualAutomationCaptureCount == 0
     }
 
+    /// The web view a browser automation command should drive. A pane whose WebContent process
+    /// died while hidden becomes a discarded pane first, as showing it would, so the command
+    /// captures the web view its document-readiness wait restores rather than a dead one only a
+    /// reveal could replace. The command also counts as use of the pane, so hidden-pane discards
+    /// do not unload a page an agent is driving.
+    func webViewForAutomationCommand(now: Date = Date()) -> WKWebView {
+        webViewLastAutomationCommandAt = now
+        discardWebViewTerminatedWhileHidden(now: now)
+        if !isWebViewVisibleInUI {
+            reevaluateHiddenWebViewDiscardScheduling(reason: "automation_command")
+        }
+        return webView
+    }
+
     func waitForAutomationDocumentCommit(
         expectedWebViewIdentifier: ObjectIdentifier
     ) async -> BrowserAutomationDocumentReadinessOutcome {

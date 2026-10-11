@@ -138,14 +138,17 @@ struct TerminalWindowPortalCommittedGeometryTests {
         fixture.bind()
         try await fixture.requireCommit()
         try await fixture.requireScrollback()
-        let scrollView = try #require(fixture.hosted.subviews.compactMap { $0 as? NSScrollView }.first)
+        let scrollView = try #require(fixture.hosted.subviews.compactMap { $0 as? GhosttyScrollView }.first)
         let outerFrame = fixture.hosted.frame
+        // "Show scroll bars: Always" is the setting that selects legacy.
+        scrollView.showScrollBarsPreference = { "Always" }
         scrollView.scrollerStyle = .legacy
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         try await fixture.requireCommit(width: scrollView.contentView.bounds.width)
         #expect(scrollView.contentView.bounds.width < outerFrame.width)
         #expect(fixture.hosted.frame == outerFrame)
         #expect(fixture.surface.committedPaneGeometry?.size == scrollView.contentView.bounds.size)
+        scrollView.showScrollBarsPreference = { "Automatic" }
         scrollView.scrollerStyle = .overlay
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         try await fixture.requireCommit(width: scrollView.contentView.bounds.width)

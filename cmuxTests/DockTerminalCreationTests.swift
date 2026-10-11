@@ -12,7 +12,7 @@ extension DockSocketLifecycleTests {
     @Test("surface.focus accepts handles for a window-owned Dock")
     @MainActor
     func surfaceFocusAcceptsDockSurfaceHandles() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withDockShortcutHarness { app, manager, _, store, sidebar, _ in
                 let windowID = try #require(app.windowId(for: manager))
                 let pane = try #require(store.bonsplitController.allPaneIds.first)
@@ -38,7 +38,7 @@ extension DockSocketLifecycleTests {
     )
     @MainActor
     func dockTerminalCreationInjectsInitialInput(method: String) throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext { _, _, windowID in
                 let initialInput = " printf '  preserved  '\t\r"
                 var params: [String: Any] = [

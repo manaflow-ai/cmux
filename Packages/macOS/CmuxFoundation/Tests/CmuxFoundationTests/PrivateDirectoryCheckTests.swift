@@ -66,4 +66,16 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(!PrivateDirectoryCheck().makePrivate(atPath: path("missing")))
     }
+
+    @Test func rejectsARealDirectoryUnderANonStickySharedAncestor() throws {
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let shared = path("shared")
+        try FileManager.default.createDirectory(atPath: shared, withIntermediateDirectories: false)
+        #expect(chmod(shared, 0o777) == 0)
+        let target = path("shared/target")
+        try FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: false)
+        #expect(chmod(target, 0o700) == 0)
+        #expect(!PrivateDirectoryCheck().makePrivate(atPath: target))
+        #expect(mode(atPath: target) == 0o700)
+    }
 }

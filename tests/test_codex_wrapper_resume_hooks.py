@@ -71,6 +71,7 @@ done
   printf 'CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND=%s\\n' "${CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND-__UNSET__}"
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
+  printf 'CMUX_CODEX_HEADLESS=%s\\n' "${CMUX_CODEX_HEADLESS-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -346,6 +347,31 @@ def test_subrouter_marker_is_bound_to_current_launch_argv(failures: list[str]) -
     )
 
 
+def test_headless_marker_follows_the_subcommand(failures: list[str]) -> None:
+    # The agent message hooks skip headless runs, so an exec run in the same
+    # pane never takes messages meant for the interactive session.
+    cases = [
+        (["exec", "hi"], "1"),
+        (["e", "hi"], "1"),
+        (["-m", "gpt", "exec", "hi"], "1"),
+        (["--add-dir", "../lib", "exec", "hi"], "1"),
+        (["--local-provider", "ollama", "exec", "hi"], "1"),
+        (["--remote-auth-token-env", "TOKEN", "exec", "hi"], "1"),
+        (["-i", "shot.png", "exec", "hi"], "1"),
+        (["--image", "shot.png", "exec", "hi"], "1"),
+        (["fix this"], "0"),
+        (["--add-dir", "exec", "fix this"], "0"),
+        (["--", "exec"], "0"),
+    ]
+    for argv, expected in cases:
+        _, _, _, observed_env, stderr = run_wrapper(socket_state="stale", argv=argv)
+        expect(
+            observed_env.get("CMUX_CODEX_HEADLESS") == expected,
+            f"headless {argv}: expected {expected}, got {observed_env.get('CMUX_CODEX_HEADLESS')} ({stderr})",
+            failures,
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     test_every_resume_route_is_instrumented(failures)
@@ -356,6 +382,7 @@ def main() -> int:
     test_injection_failure_preserves_cmux_context(failures)
     test_non_session_command_still_bypasses_hooks(failures)
     test_subrouter_marker_is_bound_to_current_launch_argv(failures)
+    test_headless_marker_follows_the_subcommand(failures)
     if failures:
         print("FAIL: Codex session-entrypoint wrapper reliability checks failed")
         for failure in failures:

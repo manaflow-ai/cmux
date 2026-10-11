@@ -28,6 +28,7 @@ SWIFT_FAIL = re.compile(r"✘ Test (.+?)(?: with \d+ test cases?)? failed(?: aft
 SWIFT_RUN_SUMMARY = re.compile(r"^run with \d+ tests?\b")
 RESTART = "Restarting after unexpected exit"
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
+APP_HOST_JOB = re.compile(r"app-host unit tests \(\d+/\d+\)")
 
 
 def _clean(value):
@@ -165,7 +166,7 @@ def download_runs(run_ids):
         jobs = payload.get("jobs", payload if isinstance(payload, list) else [])
         for job in jobs:
             name = job.get("name", "")
-            if not re.search(r"app-host unit tests \([1-6]/6\)", name):
+            if not APP_HOST_JOB.search(name):
                 continue
             try:
                 text = _gh_api("repos/manaflow-ai/cmux/actions/jobs/{}/logs".format(job["id"]))

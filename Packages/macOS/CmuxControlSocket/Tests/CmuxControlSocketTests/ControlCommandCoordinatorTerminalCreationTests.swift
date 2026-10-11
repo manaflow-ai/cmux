@@ -221,4 +221,22 @@ struct ControlCommandCoordinatorTerminalCreationTests {
         #expect(context.splitInputs == nil)
         #expect(context.createInputs == nil)
     }
+
+    /// A split refused by the minimum pane size answers `no_space` (#15371),
+    /// which `cmux new-split` and `cmux new-pane` print as their error.
+    @Test(arguments: ["surface.split", "pane.create"])
+    func refusedSplitReportsNoSpace(method: String) {
+        let context = FakeSurfaceControlCommandContext()
+        context.splitResolution = .noSpace
+        context.paneCreateResolution = .noSpace
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: method,
+            params: ["direction": .string("down")]
+        ))
+
+        #expect(result == .err(code: "no_space", message: "No space for new pane", data: nil))
+    }
 }

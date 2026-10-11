@@ -523,7 +523,6 @@ def check_truthful_broad_suites_leave_focused_gates(
         "AgentChatSessionRegistryLifecycleReviewRegressionTests",
         "AgentRestoreLiveOwnerAdmissionTests",
         "BackgroundPrimeStartableSurfaceTests",
-        "BrowserSystemProxyMirrorTests",
         "BrowserViewportRuntimeTests",
         "CLISSHSessionAttachAnchorTests",
         "CLISendQueuedOutputTests",
@@ -720,17 +719,16 @@ def check_focused_gates_run_once() -> int:
         print(f"FAIL: ci-macos.yml strict steps name suites cmuxTests does not declare: {undeclared}")
         return 1
 
-    groups = {
-        env.get(name)
-        for name in (
-            "CMUX_APP_HOST_CLI_REGRESSION_SHARD",
-            "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD",
-            "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD",
-            "CMUX_APP_HOST_GLOBAL_SEARCH_SHARD",
-        )
-    }
+    group_names = (
+        "CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD",
+        "CMUX_APP_HOST_CLOUD_ORDERING_SHARD",
+        "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD",
+        "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD",
+        "CMUX_APP_HOST_GLOBAL_SEARCH_SHARD",
+    )
+    groups = {env.get(name) for name in group_names}
     reserved = {value.split("=")[0] for value in env.get("CMUX_APP_HOST_RESERVED_WALL_SECONDS", "").split()}
-    if None in groups or len(groups) != 4 or groups != reserved:
+    if None in groups or groups != reserved:
         print(f"FAIL: shared strict groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
         return 1
     print("PASS: strict suites run once, exist, and every worker that runs them has wall time reserved")

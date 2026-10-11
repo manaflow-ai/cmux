@@ -42,12 +42,6 @@ EXPECTED_NOTIFY = {
     "category": "needs-permission", "pending_work": False,
     "request_identity": "approval-tool-1",
 }
-EXPECTED_RESOLUTION = {
-    "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
-    "request_identity": "approval-tool-1",
-}
-
-
 def codex_payload(event: str) -> dict:
     return {
         "session_id": "codex-permission-prompt",
@@ -180,30 +174,24 @@ def test_permission_request_sends_gated_notification_before_feed_push(
         )
 
 
-def test_post_tool_use_resolves_exact_request_before_feed_push(cli_path: str, root: Path) -> None:
+def test_post_tool_use_sends_ordered_feed_for_host_side_resolution(cli_path: str, root: Path) -> None:
     stdout, frames, _ = run_feed_hook_capture(
         cli_path, root / "cmux-clear.sock", "PostToolUse"
     )
     if stdout != {}:
         raise AssertionError(f"PostToolUse must stay non-blocking: {stdout!r}")
-    commands = [view for command in raw_commands(frames) if (view := resolution_view(command)) is not None]
-    if EXPECTED_RESOLUTION not in commands:
-        raise AssertionError(
-            f"missing resolved-approval clear, got raw commands {commands!r}"
-        )
-    clear_index = frame_index(
-        frames,
-        lambda frame: "raw" in frame
-        and resolution_view(strip_capability_prefix(frame["raw"])) == EXPECTED_RESOLUTION,
-    )
     feed_index = frame_index(frames, lambda frame: frame.get("method") == "feed.push")
     if feed_index == -1:
-        raise AssertionError(f"missing feed.push telemetry frame: {frames!r}")
-    if clear_index > feed_index:
-        raise AssertionError(
-            f"clear must precede telemetry (clear at {clear_index}, "
-            f"feed.push at {feed_index}): {frames!r}"
-        )
+        raise AssertionError(f"missing ordered feed.push frame: {frames!r}")
+    event = frames[feed_index].get("params", {}).get("event", {})
+    if event.get("hook_event_name") != "PostToolUse":
+        raise AssertionError(f"unexpected PostToolUse event: {event!r}")
+    if event.get("_cmux_ordered_hook") is not True:
+        raise AssertionError(f"PostToolUse must use the ordered hook lane: {event!r}")
+    if not isinstance(event.get("_hook_sent_at_ms"), int):
+        raise AssertionError(f"ordered PostToolUse must carry its send timestamp: {event!r}")
+    if any(resolution_view(command) is not None for command in raw_commands(frames)):
+        raise AssertionError("approval resolution belongs to the host after feed acceptance")
 
 
 def test_pre_tool_use_sends_no_attention_command(cli_path: str, root: Path) -> None:
@@ -450,7 +438,7 @@ def main() -> int:
         try:
             test_native_permission_request_does_not_replay_previous_completion(cli_path, root)
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
-            test_post_tool_use_resolves_exact_request_before_feed_push(cli_path, root)
+            test_post_tool_use_sends_ordered_feed_for_host_side_resolution(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
             test_native_request_identity_aliases_share_semantic_key(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)

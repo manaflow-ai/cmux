@@ -64,6 +64,10 @@ export type RouteEventInput = {
   readonly attemptCount: number;
   readonly refreshRetryCount: number;
   readonly durationMs: number;
+  /** Time the request waited for upstream capacity before its answer. */
+  readonly heldMs?: number;
+  /** How many times the request waited for capacity. */
+  readonly holdCount?: number;
   readonly responseStreamed: boolean;
   readonly upstreamAccountId?: string;
 };
@@ -108,6 +112,8 @@ export type RouteEventRow = {
   readonly attempt_count: number;
   readonly refresh_retry_count: number;
   readonly duration_ms: number;
+  readonly held_ms: number;
+  readonly hold_count: number;
   readonly response_streamed: 0 | 1;
   readonly request_id: string;
   readonly upstream_account_id: string;
@@ -224,6 +230,8 @@ export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow 
     attempt_count: boundedInteger(input.attemptCount, MAX_UINT8),
     refresh_retry_count: boundedInteger(input.refreshRetryCount, MAX_UINT8),
     duration_ms: boundedInteger(Math.round(input.durationMs), MAX_UINT32),
+    held_ms: boundedInteger(Math.round(input.heldMs ?? 0), MAX_UINT32),
+    hold_count: boundedInteger(input.holdCount ?? 0, MAX_UINT16),
     response_streamed: input.responseStreamed ? 1 : 0,
     request_id: boundedText(input.requestId, 64),
     upstream_account_id: ledgerAccountId(input.upstreamAccountId),

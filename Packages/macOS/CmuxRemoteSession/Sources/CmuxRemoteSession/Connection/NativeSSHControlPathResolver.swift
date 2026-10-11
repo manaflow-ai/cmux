@@ -22,7 +22,7 @@ struct NativeSSHControlPathResolver: Sendable {
         for option in effectiveOptions {
             arguments += ["-o", option]
         }
-        arguments.append(configuration.destination)
+        arguments += ["--", configuration.destination]
         return arguments
     }
 

@@ -51,6 +51,48 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         )
     }
 
+    @Test func nestedIdleReminderFeedTelemetryCarriesLifecycleMarker() throws {
+        let context = try FeedTelemetryTestContext(name: "nested-idle-marker")
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-nested-idle-marker"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "claude", "--event", "Notification"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: #"{"session_id":"claude-nested-idle","hook_event_name":"Notification","notification":{"notificationType":"idle_prompt"}}"#,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
+        let event = try #require(
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "Notification" },
+            "Expected Notification feed telemetry, saw \(context.state.commandsSnapshot())"
+        )
+        #expect(event["_is_idle_reminder"] as? Bool == true, "Nested idle marker must survive feed compaction: \(event)")
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/7962: Claude Code
     // renders any plain-text hook stdout as a visible "hook success" block in the
     // conversation transcript — for prompt-submit hooks, a bare "OK" on every
@@ -92,6 +134,53 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         #expect(result.timedOut == false, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
+    }
+
+    // Feed retires a Claude permission request decided outside cmux when a
+    // later hook from the same agent arrives, which needs each telemetry
+    // frame's send stamp and subagent identity.
+    @Test func feedTelemetryCarriesSendStampAndAgentIdentity() throws {
+        let context = try FeedTelemetryTestContext(name: "sent-at")
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-sent-at"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let startedAtMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: #"{"session_id":"claude-sent-at-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","agent_id":"subagent-7"}"#,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
+        let event = try #require(
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "SessionStart" },
+            "Expected SessionStart feed telemetry, saw \(context.state.commandsSnapshot())"
+        )
+        let sentAtMs = try #require((event["_hook_sent_at_ms"] as? NSNumber)?.int64Value, "event=\(event)")
+        #expect(sentAtMs >= startedAtMs, "event=\(event)")
+        #expect(event["agent_id"] as? String == "subagent-7", "event=\(event)")
     }
 }
 

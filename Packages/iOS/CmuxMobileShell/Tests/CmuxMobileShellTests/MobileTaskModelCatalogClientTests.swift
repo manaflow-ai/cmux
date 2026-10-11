@@ -119,18 +119,30 @@ struct MobileTaskModelCatalogClientTests {
         #expect(await probe.requestCount == 2)
     }
 
+    @Test func prefetchRejectsAnInvalidPresentProviderInsteadOfSilentlySkippingIt() async {
+        let client = MobileTaskModelCatalogClient(endpoint: endpoint) { _ in
+            Data(#"{"schemaVersion":1,"providers":{"claude":{"models":[]},"codex":{"models":[{"id":"gpt","label":"GPT"}]}}}"#.utf8)
+        }
+
+        await #expect(throws: Error.self) {
+            try await client.allResults()
+        }
+    }
+
     @MainActor
-    @Test func authoritativeHostCatalogPerformsZeroBackendRequests() async {
+    @Test func authoritativeHostCatalogPerformsZeroBackendRequests() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
         ])
-        let store = MobileShellComposite(
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            hostCapabilities: [],
             taskModelCatalogClient: makeClient(probe: probe)
         )
 
         await store.refreshTaskModels(
             provider: .claude,
-            macDeviceID: "mac-host",
+            macDeviceID: "test-mac",
             hostResult: MobileTaskModelListResult(
                 models: [
                     MobileTaskAgentModel(
@@ -144,12 +156,12 @@ struct MobileTaskModelCatalogClientTests {
 
         #expect(store.discoveredTaskModels(
             provider: .claude,
-            macDeviceID: "mac-host",
+            macDeviceID: "test-mac",
             instanceTag: nil
         )?.map(\.id) == ["host-next-999"])
         #expect(store.taskModelListSource(
             provider: .claude,
-            macDeviceID: "mac-host",
+            macDeviceID: "test-mac",
             instanceTag: nil
         ) == .discovered)
         #expect(await probe.requestCount == 0)

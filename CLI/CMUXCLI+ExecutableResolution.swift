@@ -59,6 +59,13 @@ extension CMUXCLI {
             }
             return rawPath
         }
+        if let home = environment["HOME"], home.hasPrefix("/") {
+            shimRoots.append(
+                URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent(".cmuxterm/cmux-cli-shims", isDirectory: true)
+                    .standardizedFileURL.path
+            )
+        }
         shimRoots.append(contentsOf: [
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
@@ -267,8 +274,8 @@ extension CMUXCLI {
     }
 
     /// The whole point of `cmux claude-teams` is "just start a team." Claude Code's
-    /// Task tool only opens a teammate in its own split pane when it is called with
-    /// a `name`; without a name it runs an in-process subagent (no pane). Left to a
+    /// spawn tool (`Agent`, named `Task` before 2.x) only opens a teammate in its
+    /// own split pane when it is called with a `name`; without a name it runs an in-process subagent (no pane). Left to a
     /// bare prompt the lead tends to use the nameless form — or stops to ask "demo
     /// *what*?" — so a plain `cmux claude-teams "make a demo team with 5 subagents"`
     /// produced no panes. Append a small system-prompt nudge that steers the lead to
@@ -283,8 +290,9 @@ extension CMUXCLI {
         Agent teams are enabled and every NAMED teammate opens in its own split \
         pane. When the user asks you to start a team, demo teams, or run several \
         subagents/teammates in parallel, spawn them as named teammates: make one \
-        Task tool call per teammate, each with a distinct `name` (a short role), all \
-        in a single message so they run concurrently in their own split panes. \
+        Agent tool call per teammate (that tool is named Task on pre-2.x CLIs), each \
+        with a distinct `name` (a short role), all in a single message so they run \
+        concurrently in their own split panes. \
         Prefer named teammates over in-process subagents for any team or \
         parallel-agent request. If the user asks for an open-ended demo such as \
         "make a demo team with 5 subagents" without naming a topic, do not ask which \

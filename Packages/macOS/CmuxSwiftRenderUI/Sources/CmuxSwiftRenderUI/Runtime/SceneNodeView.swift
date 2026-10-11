@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Sends a scene UI event (tap, move) back to the JS runtime.
@@ -200,7 +201,7 @@ private struct SceneNodeContent: View {
 
     /// Applies the node's style props in one fixed, documented order:
     /// font → color → lineLimit/truncation → fixedSize → padding →
-    /// background → cornerRadius → border → frame → opacity → tap.
+    /// background → cornerRadius → border → frame → opacity → cursor → tap.
     @ViewBuilder
     private func styled(_ view: some View) -> some View {
         // Hover-revealed children (a row's close button): present only while
@@ -215,6 +216,7 @@ private struct SceneNodeContent: View {
             .modifier(SceneFixedSize(node: node))
             .modifier(SceneTrailingFade(node: node))
             .modifier(SceneBoxStyle(node: node))
+            .modifier(SceneCursor(node: node))
             // A truncating Text and a Spacer are both "flexible" to HStack
             // layout, which would split the width between them and truncate
             // the text at half the row. Truncating text therefore outranks
@@ -282,6 +284,33 @@ private struct SceneNodeContent: View {
             return dslFontSpec(named: "body", size: nil, weight: weight)
         }
         return nil
+    }
+}
+
+/// Applies the pointer cursor without routing hover through JavaScript. The
+/// modifier owns its push/pop pair so a disappearing row cannot leave the
+/// global cursor stack in the wrong state.
+private struct SceneCursor: ViewModifier {
+    let node: SceneNode
+    @State private var pointerIsPushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                guard node.string("cursor")?.lowercased() == "pointer",
+                      hovering != pointerIsPushed else { return }
+                pointerIsPushed = hovering
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .onDisappear {
+                guard pointerIsPushed else { return }
+                NSCursor.pop()
+                pointerIsPushed = false
+            }
     }
 }
 

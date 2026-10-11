@@ -1,6 +1,8 @@
 import CmuxMobileRPC
 import CmuxMobileHost
 import CmuxTerminal
+import CmuxTerminalSharing
+import CmuxTerminalSizing
 import Foundation
 import GhosttyKit
 import Testing
@@ -133,6 +135,51 @@ struct DeviceTerminalMirrorTests {
             if method == "mobile.terminal.replay" { break }
         }
         #expect(methods == ["mobile.terminal.replay"])
+    }
+
+    @Test("A viewing Mac decodes the host's size state and detach pushes for its surface")
+    func sizingPushesDecodePerSurface() throws {
+        let state = #"{"generation":2,"cols":118,"rows":38,"reason":"latest","owners":["mac:h"],"policy":{"mode":"latest","priority":[],"fixed":null},"participants":[]}"#
+        let sizePayload = Data(#"{"surface_id":"\#(surfaceID.uuidString)","state":\#(state),"self_participant_id":"mobile:mac-1"}"#.utf8)
+        let sized = try #require(DeviceTerminalEvent.decode(MobileEventEnvelope(topic: DeviceTerminalEvent.sizeStateTopic, payloadJSON: sizePayload, streamID: nil)))
+        #expect(sized.surfaceID == surfaceID)
+        guard case let .sizeState(decoded, selfID) = sized.event else {
+            Issue.record("expected sizeState, got \(sized.event)")
+            return
+        }
+        #expect(decoded.size == TerminalGridSize(cols: 118, rows: 38))
+        #expect(selfID == "mobile:mac-1")
+        let detachedPayload = Data(#"{"surface_id":"\#(surfaceID.uuidString)","reason":"disconnected-by","by":{"display_name":"Kai"},"at":"2026-09-30T12:00:00Z"}"#.utf8)
+        let detached = try #require(DeviceTerminalEvent.decode(MobileEventEnvelope(topic: DeviceTerminalEvent.detachedTopic, payloadJSON: detachedPayload, streamID: nil)))
+        guard case let .sharingDetached(reason, _) = detached.event else {
+            Issue.record("expected sharingDetached, got \(detached.event)")
+            return
+        }
+        #expect(reason == .disconnectedBy(TerminalDetachActor(displayName: "Kai")))
+        #expect(DeviceLink.eventTopics.isSuperset(of: [DeviceTerminalEvent.sizeStateTopic, DeviceTerminalEvent.detachedTopic]))
+    }
+
+    @Test("A viewing Mac's input names its client, and a detach reaches its viewer", .timeLimit(.minutes(1)))
+    func participantInputCarriesClientID() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var inputs: [[String: Any]] = []
+        let session = DeviceTerminalMirrorSession(
+            remoteWorkspaceID: "workspace", remoteSurfaceID: surfaceID,
+            events: events, isConnected: { true },
+            requestData: { method, params in
+                if method == "mobile.terminal.input" { inputs.append(params) }
+                return try JSONSerialization.data(withJSONObject: ["columns": 80, "rows": 24, "seq": 0, "data_b64": ""])
+            },
+            viewer: RemoteMacTerminalViewer(clientID: "mac-1", identity: TerminalSharingIdentity(deviceName: "Studio", deviceID: "d1"))
+        )
+        defer { session.stop(); events.finishAll() }
+        session.start()
+        try await Self.waitUntil { session.phase == .attached }
+        session.inputRouter.enqueue(.bytes(Data("x".utf8)))
+        try await Self.waitUntil { !inputs.isEmpty }
+        #expect(inputs.first?["client_id"] as? String == "mac-1")
+        events.send(.sharingDetached(.disconnectedBy(nil), at: nil), surfaceID: surfaceID)
+        try await Self.waitUntil { session.viewer?.detachment != nil }
     }
 
     @Test("A reserved pane delivers what was typed before its Mac attached", .timeLimit(.minutes(1)))

@@ -72,6 +72,40 @@ class AppHostTestOutputTests(unittest.TestCase):
 
         self.assertFalse(passed)
 
+    def test_zero_executed_tests_is_not_a_passing_run(self) -> None:
+        passed, _ = MODULE.classify("Executed 0 tests, with 0 failures (0 unexpected)\n")
+
+        self.assertFalse(passed)
+
+    def test_swift_testing_failure_is_not_masked_by_expected_xctest_failures(self) -> None:
+        passed, message = MODULE.classify(
+            "Executed 4 tests, with 1 failure (0 unexpected)\n"
+            "Test run with 3 tests in 1 suite failed after 0.1 seconds.\n"
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("Swift Testing reported a failed test run", message)
+
+    def test_swift_testing_assertion_is_not_masked_by_expected_xctest_failures(self) -> None:
+        passed, message = MODULE.classify(
+            "Executed 4 tests, with 1 failure (0 unexpected)\n"
+            "✘ Test accountPersists() recorded an issue at AccountTests.swift:42:7: "
+            "Expectation failed: expected true\n"
+            "Test run with 3 tests in 1 suite passed after 0.1 seconds.\n"
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("test assertion failure", message)
+
+    def test_expected_xctest_failure_diagnostic_does_not_spoof_swift_testing(self) -> None:
+        passed, message = MODULE.classify(
+            "XCTExpectFailure: matcher accepted Assertion Failure: XCTAssertTrue failed\n"
+            "Expectation failed: this application diagnostic is expected in the fixture\n"
+            "Executed 1 test, with 0 failures (0 unexpected)\n"
+        )
+
+        self.assertTrue(passed, message)
+
     def test_unexpected_failure_in_earlier_summary_is_not_masked(self) -> None:
         passed, message = MODULE.classify(
             "Executed 4 tests, with 1 failure (1 unexpected)\n"

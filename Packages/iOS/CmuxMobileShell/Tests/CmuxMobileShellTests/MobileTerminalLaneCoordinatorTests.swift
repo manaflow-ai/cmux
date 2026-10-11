@@ -319,12 +319,82 @@ struct MobileTerminalLaneCoordinatorTests {
         )
     }
 
+    @Test
+    func acknowledgementsReachTheSenderAndNeverTheOutputConsumer() async throws {
+        let acknowledgement = MobileTerminalInputAcknowledgement(
+            status: .applied,
+            streamID: UUID(),
+            sequence: 4
+        )
+        let lane = TerminalLaneTestConnection(
+            frames: [
+                Self.frame(kind: .replay, sequence: 0, bytes: ""),
+                .inputAcknowledgement(acknowledgement),
+                Self.frame(kind: .chunk, sequence: 0, bytes: "ok"),
+            ],
+            waitsAfterFrames: true
+        )
+        let provider = TerminalLaneTestProvider(lanes: [lane])
+        let coordinator = MobileTerminalLaneCoordinator { request, surfaceID, cursor in
+            try await provider.callAsFunction(request, surfaceID, cursor: cursor)
+        }
+        let consumed = TerminalLaneFrameRecorder()
+        let acknowledged = TerminalLaneAcknowledgementRecorder()
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(),
+            cursor: { 0 },
+            consume: { frame in
+                await consumed.append(frame)
+                return .accepted(outputReady: true)
+            },
+            readinessChanged: { _ in },
+            acknowledged: { await acknowledged.append($0) }
+        ))
+        #expect(await acknowledged.waitForCount(1) == [acknowledgement])
+        #expect(await consumed.waitForFrameCount(2).map(\.kind) == [.replay, .chunk])
+        await coordinator.deactivateAll()
+    }
+
+    @Test
+    func identifiedInputOnlyTravelsOnItsOwnTerminalsLane() async throws {
+        let lane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+            waitsAfterFrames: true
+        )
+        let provider = TerminalLaneTestProvider(lanes: [lane])
+        let coordinator = MobileTerminalLaneCoordinator { request, surfaceID, cursor in
+            try await provider.callAsFunction(request, surfaceID, cursor: cursor)
+        }
+        let readiness = TerminalLaneReadinessRecorder()
+        var readinessIterator = await readiness.stream().makeAsyncIterator()
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(),
+            cursor: { nil },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { await readiness.append($0) }
+        ))
+        #expect(await readinessIterator.next() == true)
+
+        let own = MobileTerminalInputDelivery(
+            surfaceID: try #require(UUID(uuidString: Self.surfaceID)),
+            streamID: UUID(),
+            sequence: 1
+        )
+        let foreign = MobileTerminalInputDelivery(surfaceID: UUID(), streamID: UUID(), sequence: 1)
+        #expect(await coordinator.sendInput("mine", surfaceID: Self.surfaceID, delivery: own) == .sent)
+        #expect(await coordinator.sendInput("theirs", surfaceID: Self.surfaceID, delivery: foreign) == .unavailable)
+        #expect(await lane.identifiedInputs().map(\.text) == ["mine"])
+        #expect(await lane.identifiedInputs().map(\.delivery) == [own])
+        await coordinator.deactivateAll()
+    }
+
     private static func configuration(
         mode: MobileTerminalLaneCoordinator.LaneMode = .output,
         providerRequest: CmxByteTransportRequest,
         cursor: @escaping @Sendable () async -> UInt64?,
         consume: @escaping @Sendable (MobileTerminalLaneOutputFrame) async -> MobileTerminalLaneCoordinator.FrameDisposition,
-        readinessChanged: @escaping @Sendable (Bool) async -> Void
+        readinessChanged: @escaping @Sendable (Bool) async -> Void,
+        acknowledged: @escaping @Sendable (MobileTerminalInputAcknowledgement) async -> Void = { _ in }
     ) -> MobileTerminalLaneCoordinator.Configuration {
         MobileTerminalLaneCoordinator.Configuration(
             request: providerRequest,
@@ -332,7 +402,8 @@ struct MobileTerminalLaneCoordinatorTests {
             mode: mode,
             cursor: cursor,
             consume: consume,
-            readinessChanged: readinessChanged
+            readinessChanged: readinessChanged,
+            acknowledged: acknowledged
         )
     }
 }
@@ -360,6 +431,20 @@ private actor TerminalLaneTestConnection: MobileTerminalLaneConnection {
 
     func sendInput(_ input: String) {
         sentInputs.append(input)
+    }
+
+    private var sentIdentifiedInputs: [(text: String, delivery: MobileTerminalInputDelivery)] = []
+
+    func sendInput(
+        _ input: String,
+        sequence: UInt64?,
+        delivery: MobileTerminalInputDelivery
+    ) {
+        sentIdentifiedInputs.append((input, delivery))
+    }
+
+    func identifiedInputs() -> [(text: String, delivery: MobileTerminalInputDelivery)] {
+        sentIdentifiedInputs
     }
 
     func close() {
@@ -440,12 +525,21 @@ private actor TerminalLaneReadinessRecorder {
 
 private actor TerminalLaneFrameRecorder {
     private var recordedFrames: [MobileTerminalLaneOutputFrame] = []
+    private var waiters: [(Int, CheckedContinuation<[MobileTerminalLaneOutputFrame], Never>)] = []
 
     func append(_ frame: MobileTerminalLaneOutputFrame) {
         recordedFrames.append(frame)
+        let ready = waiters.filter { recordedFrames.count >= $0.0 }
+        waiters.removeAll { recordedFrames.count >= $0.0 }
+        for (_, waiter) in ready { waiter.resume(returning: recordedFrames) }
     }
 
     func frames() -> [MobileTerminalLaneOutputFrame] { recordedFrames }
+
+    func waitForFrameCount(_ count: Int) async -> [MobileTerminalLaneOutputFrame] {
+        if recordedFrames.count >= count { return recordedFrames }
+        return await withCheckedContinuation { waiters.append((count, $0)) }
+    }
 }
 
 private actor TerminalLaneCursor {
@@ -468,4 +562,21 @@ private actor TerminalLaneFlag {
 
     func value() -> Bool { storedValue }
     func setValue(_ value: Bool) { storedValue = value }
+}
+
+private actor TerminalLaneAcknowledgementRecorder {
+    private var recorded: [MobileTerminalInputAcknowledgement] = []
+    private var waiters: [(Int, CheckedContinuation<[MobileTerminalInputAcknowledgement], Never>)] = []
+
+    func append(_ acknowledgement: MobileTerminalInputAcknowledgement) {
+        recorded.append(acknowledgement)
+        let ready = waiters.filter { recorded.count >= $0.0 }
+        waiters.removeAll { recorded.count >= $0.0 }
+        for (_, waiter) in ready { waiter.resume(returning: recorded) }
+    }
+
+    func waitForCount(_ count: Int) async -> [MobileTerminalInputAcknowledgement] {
+        if recorded.count >= count { return recorded }
+        return await withCheckedContinuation { waiters.append((count, $0)) }
+    }
 }

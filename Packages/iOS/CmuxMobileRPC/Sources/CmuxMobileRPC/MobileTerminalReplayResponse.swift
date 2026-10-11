@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxTerminalSizing
 public import Foundation
 
 /// Typed decoder for the `mobile.terminal.replay` RPC result.
@@ -9,6 +10,11 @@ public import Foundation
 /// older hosts. ``sequence`` carries the explicit end sequence when the host
 /// reports one outside the render grid.
 public struct MobileTerminalReplayResponse: Decodable, Sendable {
+    /// The terminal the host captured. Absent on hosts that predate it.
+    public let surfaceID: String?
+    /// Whether `surface_id` was present but not a string. An identity that
+    /// cannot be read is never treated as absent.
+    private let surfaceIDMalformed: Bool
     /// Base64-encoded raw byte tail, the lowest-fidelity fallback.
     public let dataBase64: String?
     /// Base64-encoded VT snapshot, the mid-fidelity fallback.
@@ -28,8 +34,14 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     /// slow host capture from a slow or stalled transport. Absent on hosts
     /// that predate the field.
     public let hostElapsedMilliseconds: UInt32?
+    /// The shared sizing state (`size_state`) for this terminal. Absent on
+    /// hosts that predate shared sizing; a malformed value is ignored.
+    public let sizeState: TerminalSizingState?
+    /// This phone's participant id (`self_participant_id`).
+    public let selfParticipantID: String?
 
     private enum CodingKeys: String, CodingKey {
+        case surfaceID = "surface_id"
         case dataBase64 = "data_b64"
         case snapshotBase64 = "snapshot_data_b64"
         case renderGrid = "render_grid"
@@ -37,10 +49,19 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         case columns
         case rows
         case hostElapsedMilliseconds = "host_elapsed_ms"
+        case sizeState = "size_state"
+        case selfParticipantID = "self_participant_id"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        do {
+            surfaceID = try container.decodeIfPresent(String.self, forKey: .surfaceID)
+            surfaceIDMalformed = false
+        } catch {
+            surfaceID = nil
+            surfaceIDMalformed = true
+        }
         dataBase64 = try container.decodeIfPresent(String.self, forKey: .dataBase64)
         snapshotBase64 = try container.decodeIfPresent(String.self, forKey: .snapshotBase64)
         // A malformed render_grid must not fail the whole replay; the legacy
@@ -53,6 +74,8 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
             UInt32.self,
             forKey: .hostElapsedMilliseconds
         )
+        sizeState = try? container.decodeIfPresent(TerminalSizingState.self, forKey: .sizeState)
+        selfParticipantID = try? container.decodeIfPresent(String.self, forKey: .selfParticipantID)
     }
 
     /// Decode a replay response from raw JSON data.
@@ -61,5 +84,15 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     /// - Throws: A decoding error if the payload is not a JSON object.
     public static func decode(_ data: Data) throws -> MobileTerminalReplayResponse {
         try JSONDecoder().decode(Self.self, from: data)
+    }
+}
+
+extension MobileTerminalReplayResponse {
+    /// Whether any part of this response names a terminal other than
+    /// `surfaceID`. Such a response is never applied, not even its bytes.
+    public func namesAnotherTerminal(than surfaceID: String) -> Bool {
+        if surfaceIDMalformed { return true }
+        let names = [self.surfaceID, renderGrid?.surfaceID].compactMap { $0 }
+        return names.contains { $0.caseInsensitiveCompare(surfaceID) != .orderedSame }
     }
 }

@@ -92,7 +92,7 @@ import Testing
     }
 
     private func renderedImage(in view: CmuxResolvedIconImageView) -> NSImage? {
-        view.subviews.compactMap { $0 as? NSImageView }.first?.image
+        view.subviews.compactMap { $0 as? BitmapView }.first?.image
     }
 
     private func directDraw(_ image: NSImage, size: NSSize) -> NSImage? {

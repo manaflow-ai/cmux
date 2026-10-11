@@ -99,6 +99,19 @@ const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
+/// Upper bound on untracked files appended to an unstaged session patch. Later
+/// paths are left out rather than spawning one git process per file in an
+/// unignored build tree; the CLI's legacy unstaged source uses the same bound.
+const MAX_UNSTAGED_UNTRACKED_PATHS: usize = 512;
+/// Upper bound on the `git ls-files` listing read to find those paths.
+const MAX_UNTRACKED_LISTING_BYTES: usize = 4 * 1024 * 1024;
+/// Upper bound on changed paths sent to `git check-attr` for generated-file
+/// detection; larger diffs skip the attribute lookup and only use the
+/// viewer's lockfile heuristic.
+const MAX_GENERATED_ATTRIBUTE_PATHS: usize = 8192;
+/// Upper bound on one untracked file's added-file patch. A larger file is left
+/// out of the unstaged session patch instead of consuming the whole budget.
+const MAX_UNTRACKED_FILE_PATCH_BYTES: u64 = 8 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
 const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
@@ -566,6 +579,7 @@ async fn open_session(
                 revision: 1,
             },
             source: params.source,
+            generated_paths: Vec::new(),
         });
     }
     let _permit = state
@@ -610,6 +624,7 @@ async fn open_session(
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    let generated_paths = git_generated_paths(&source, &canonical_repo).await;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -645,6 +660,7 @@ async fn open_session(
             revision: 1,
         },
         source,
+        generated_paths,
     })
 }
 
@@ -793,6 +809,61 @@ async fn run_git_patch_with_limit(
         }
     }
 
+    let mut output = tokio::fs::File::create(output_path)
+        .await
+        .map_err(|_| SessionOpenError::Failed)?;
+    let mut bytes_written = 0_u64;
+    let result = async {
+        stream_git_stdout(
+            arguments,
+            &[0],
+            &mut output,
+            &mut bytes_written,
+            max_patch_bytes,
+        )
+        .await?;
+        if matches!(source, DiffSource::Unstaged { .. }) {
+            // Untracked (non-ignored) files are part of the unstaged working
+            // tree, but plain `git diff` omits them, which hid files an agent
+            // had just created. Append one added-file patch per path.
+            // Best effort: an untracked file git cannot read, or one that does
+            // not fit the remaining budget, is left out. It must never fail the
+            // session or hide the tracked diff, which plain `git diff` shows.
+            let untracked = git_untracked_paths(repo).await.unwrap_or_default();
+            for path in untracked {
+                let budget = max_patch_bytes
+                    .saturating_sub(bytes_written)
+                    .min(MAX_UNTRACKED_FILE_PATCH_BYTES);
+                let Some(patch) = git_untracked_file_patch(repo, path, budget).await else {
+                    continue;
+                };
+                output
+                    .write_all(&patch)
+                    .await
+                    .map_err(|_| SessionOpenError::Failed)?;
+                bytes_written += patch.len() as u64;
+            }
+        }
+        output.flush().await.map_err(|_| SessionOpenError::Failed)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(output_path).await;
+        return Err(SessionOpenError::Failed);
+    }
+    Ok(())
+}
+
+/// Streams one git command's stdout into `output`, enforcing the shared byte
+/// limit and the per-command timeout. Any failure kills the child; the caller
+/// owns the partially written file.
+async fn stream_git_stdout(
+    arguments: Vec<String>,
+    allowed_exit_codes: &[i32],
+    output: &mut tokio::fs::File,
+    bytes_written: &mut u64,
+    max_patch_bytes: u64,
+) -> Result<(), SessionOpenError> {
     let mut command = Command::new("/usr/bin/git");
     command
         .args(arguments)
@@ -803,14 +874,9 @@ async fn run_git_patch_with_limit(
     let mut child = command.spawn().map_err(|_| SessionOpenError::Failed)?;
     let Some(mut stdout) = child.stdout.take() else {
         let _ = child.kill().await;
-        let _ = tokio::fs::remove_file(output_path).await;
         return Err(SessionOpenError::Failed);
     };
     let result = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
-        let mut output = tokio::fs::File::create(output_path)
-            .await
-            .map_err(|_| SessionOpenError::Failed)?;
-        let mut bytes_written = 0_u64;
         let mut buffer = vec![0_u8; 64 * 1024];
         loop {
             let read = stdout
@@ -830,11 +896,13 @@ async fn run_git_patch_with_limit(
                 .write_all(&buffer[..read])
                 .await
                 .map_err(|_| SessionOpenError::Failed)?;
-            bytes_written = next_size;
+            *bytes_written = next_size;
         }
-        output.flush().await.map_err(|_| SessionOpenError::Failed)?;
         let status = child.wait().await.map_err(|_| SessionOpenError::Failed)?;
-        if status.success() {
+        if status
+            .code()
+            .is_some_and(|code| allowed_exit_codes.contains(&code))
+        {
             Ok(())
         } else {
             Err(SessionOpenError::Failed)
@@ -844,10 +912,210 @@ async fn run_git_patch_with_limit(
     if !matches!(result, Ok(Ok(()))) {
         let _ = child.kill().await;
         let _ = child.wait().await;
-        let _ = tokio::fs::remove_file(output_path).await;
         return Err(SessionOpenError::Failed);
     }
     Ok(())
+}
+
+/// Changed paths whose `.gitattributes` mark them generated
+/// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
+/// oversized listing yields an empty list so a session never fails over it.
+async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
+    let Ok(mut paths) = git_changed_paths(source, repo).await else {
+        return Vec::new();
+    };
+    if matches!(source, DiffSource::Unstaged { .. }) {
+        if let Ok(untracked) = git_untracked_paths(repo).await {
+            paths.extend(untracked);
+        }
+    }
+    if paths.is_empty() || paths.len() > MAX_GENERATED_ATTRIBUTE_PATHS {
+        return Vec::new();
+    }
+    let mut stdin_bytes = Vec::new();
+    for path in &paths {
+        stdin_bytes.extend_from_slice(path.as_bytes());
+        stdin_bytes.push(0);
+    }
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(["check-attr", "-z", "--stdin", "linguist-generated", "diff"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let Ok(mut child) = command.spawn() else {
+        return Vec::new();
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return Vec::new();
+    };
+    let write = async move {
+        let _ = stdin.write_all(&stdin_bytes).await;
+        drop(stdin);
+    };
+    let ((), output) = tokio::join!(write, child.wait_with_output());
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    // `-z` output is `path NUL attribute NUL value NUL` triplets.
+    let fields: Vec<&[u8]> = output.stdout.split(|byte| *byte == 0).collect();
+    let mut generated = Vec::new();
+    for triplet in fields.chunks_exact(3) {
+        let path = String::from_utf8_lossy(triplet[0]).into_owned();
+        let attribute = triplet[1];
+        let value = triplet[2];
+        let marks_generated = match attribute {
+            b"linguist-generated" => value == b"set" || value == b"true",
+            b"diff" => value == b"unset",
+            _ => false,
+        };
+        if marks_generated && !generated.contains(&path) {
+            generated.push(path);
+        }
+    }
+    generated
+}
+
+/// Paths changed by the source, mirroring the range `run_git_patch` diffs.
+async fn git_changed_paths(
+    source: &DiffSource,
+    repo: &Path,
+) -> Result<Vec<String>, SessionOpenError> {
+    let mut arguments = vec!["diff".to_owned(), "--name-only".to_owned(), "-z".to_owned()];
+    match source {
+        DiffSource::Unstaged { .. } => {}
+        DiffSource::Staged { .. } => arguments.push("--cached".to_owned()),
+        DiffSource::Branch {
+            base_ref: Some(base_ref),
+            ..
+        } => {
+            let base_commit = git_single_line(
+                repo,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{base_ref}^{{commit}}"),
+                ],
+            )
+            .await?;
+            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
+            arguments.push(merge_base);
+        }
+        DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
+            return Err(SessionOpenError::Failed);
+        }
+    }
+    arguments.push("--".to_owned());
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(&arguments)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(SESSION_GIT_TIMEOUT, command.output())
+        .await
+        .map_err(|_| SessionOpenError::Failed)?
+        .map_err(|_| SessionOpenError::Failed)?;
+    if !output.status.success() || output.stdout.len() > MAX_UNTRACKED_LISTING_BYTES {
+        return Err(SessionOpenError::Failed);
+    }
+    Ok(output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| String::from_utf8_lossy(entry).into_owned())
+        .collect())
+}
+
+/// The added-file patch for one untracked `path`, or `None` when git fails on
+/// it, times out, or its output exceeds `budget` bytes. Output is buffered so a
+/// rejected file leaves nothing in the session patch.
+async fn git_untracked_file_patch(repo: &Path, path: String, budget: u64) -> Option<Vec<u8>> {
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args([
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "--no-index",
+            "--",
+            "/dev/null",
+        ])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let collected = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
+        let mut collected_bytes = Vec::new();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let read = stdout.read(&mut buffer).await.ok()?;
+            if read == 0 {
+                break;
+            }
+            if (collected_bytes.len() + read) as u64 > budget {
+                return None;
+            }
+            collected_bytes.extend_from_slice(&buffer[..read]);
+        }
+        // `--no-index` exits 1 when the files differ, which an added file
+        // always does.
+        let status = child.wait().await.ok()?;
+        matches!(status.code(), Some(0 | 1)).then_some(collected_bytes)
+    })
+    .await
+    .ok()
+    .flatten();
+    if collected.is_none() {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+    collected
+}
+
+/// Untracked, non-ignored paths relative to `repo`, bounded so a huge
+/// unignored tree degrades to the tracked-only diff instead of stalling.
+async fn git_untracked_paths(repo: &Path) -> Result<Vec<String>, SessionOpenError> {
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(["ls-files", "--others", "--exclude-standard", "-z"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(SESSION_GIT_TIMEOUT, command.output())
+        .await
+        .map_err(|_| SessionOpenError::Failed)?
+        .map_err(|_| SessionOpenError::Failed)?;
+    if !output.status.success() {
+        return Err(SessionOpenError::Failed);
+    }
+    if output.stdout.len() > MAX_UNTRACKED_LISTING_BYTES {
+        return Ok(Vec::new());
+    }
+    Ok(output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .take(MAX_UNSTAGED_UNTRACKED_PATHS)
+        .map(|entry| String::from_utf8_lossy(entry).into_owned())
+        .collect())
 }
 
 async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, SessionOpenError> {
@@ -1943,7 +2211,7 @@ mod tests {
 
     use super::{
         AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
+        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, git_generated_paths, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
         reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
@@ -2164,6 +2432,189 @@ mod tests {
             response.error.as_ref().map(|error| error.code.as_str()),
             Some("requestTimeout")
         );
+    }
+
+    #[tokio::test]
+    async fn unstaged_patch_includes_untracked_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-untracked-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join(".gitignore"), ".gitignore\nignored.txt\n")
+            .expect("write gitignore");
+        std::fs::write(repo.join("story.txt"), "one\n").expect("write initial file");
+        run_git(&["add", "story.txt"]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), "one\ntwo\n").expect("write changed file");
+        std::fs::write(repo.join("untracked.txt"), "brand new content\n")
+            .expect("write untracked file");
+        std::fs::write(repo.join("ignored.txt"), "ignored content\n").expect("write ignored file");
+        let patch_path = root.join("unstaged.patch");
+        let source = DiffSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+
+        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
+            .await
+            .expect("write unstaged patch");
+
+        // Untracked (non-ignored) files are part of the unstaged working tree,
+        // so the session patch carries them as added files after `git diff`.
+        let patch = std::fs::read_to_string(&patch_path).expect("read patch");
+        assert!(patch.contains("+two"), "{patch}");
+        assert!(patch.contains("b/untracked.txt"), "{patch}");
+        assert!(patch.contains("new file mode"), "{patch}");
+        assert!(patch.contains("+brand new content"), "{patch}");
+        assert!(!patch.contains("ignored content"), "{patch}");
+
+        // An untracked-only working tree is not an empty diff.
+        std::fs::write(repo.join("story.txt"), "one\n").expect("restore tracked file");
+        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
+            .await
+            .expect("write untracked-only patch");
+        let patch = std::fs::read_to_string(&patch_path).expect("read untracked-only patch");
+        assert!(!patch.contains("+two"), "{patch}");
+        assert!(patch.contains("+brand new content"), "{patch}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn generated_paths_follow_gitattributes_and_lockfiles() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-generated-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join("dist")).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(
+            repo.join(".gitattributes"),
+            "dist/** linguist-generated=true\n*.min.js -diff\n",
+        )
+        .expect("write gitattributes");
+        std::fs::write(repo.join("story.txt"), "one\n").expect("write story");
+        std::fs::write(repo.join("dist/bundle.js"), "x\n").expect("write bundle");
+        std::fs::write(repo.join("app.min.js"), "y\n").expect("write min");
+        run_git(&["add", "."]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), "one\ntwo\n").expect("change story");
+        std::fs::write(repo.join("dist/bundle.js"), "xx\n").expect("change bundle");
+        std::fs::write(repo.join("app.min.js"), "yy\n").expect("change min");
+        // Untracked files are part of the unstaged source and get attributes too.
+        std::fs::write(repo.join("dist/untracked.js"), "z\n").expect("write untracked");
+        let source = DiffSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+
+        let mut generated = git_generated_paths(&source, &repo).await;
+        generated.sort();
+        assert_eq!(
+            generated,
+            vec![
+                "app.min.js".to_owned(),
+                "dist/bundle.js".to_owned(),
+                "dist/untracked.js".to_owned()
+            ]
+        );
+
+        // Staged and branch sources only consult their own changed paths.
+        run_git(&["add", "story.txt"]);
+        let staged = DiffSource::Staged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+        assert!(git_generated_paths(&staged, &repo).await.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn unstaged_patch_skips_untracked_files_it_cannot_include() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-untracked-skip-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join("story.txt"), "one\n").expect("write initial file");
+        run_git(&["add", "story.txt"]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), "one\ntwo\n").expect("write changed file");
+        std::fs::write(repo.join("readable.txt"), "kept untracked\n").expect("write readable");
+        let unreadable = repo.join("unreadable.txt");
+        std::fs::write(&unreadable, "secret\n").expect("write unreadable");
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000))
+            .expect("chmod unreadable");
+        std::fs::write(repo.join("huge.txt"), "x".repeat(64 * 1024)).expect("write huge");
+        let patch_path = root.join("unstaged.patch");
+        let source = DiffSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+
+        // A 16 KiB budget fits the tracked change and the small untracked file
+        // but not the 64 KiB one. Neither the oversized nor the unreadable
+        // untracked file may fail the session or hide the tracked diff.
+        let result = run_git_patch_with_limit(&source, &repo, &patch_path, 16 * 1024).await;
+        let _ = std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644));
+        result.expect("write unstaged patch");
+        let patch = std::fs::read_to_string(&patch_path).expect("read patch");
+        assert!(patch.contains("+two"), "{patch}");
+        assert!(patch.contains("+kept untracked"), "{patch}");
+        assert!(!patch.contains("b/huge.txt"), "{patch}");
+        assert!(!patch.contains("secret"), "{patch}");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]

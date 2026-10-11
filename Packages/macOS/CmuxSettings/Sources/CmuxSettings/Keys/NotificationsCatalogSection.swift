@@ -26,6 +26,26 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashEnabled"
     )
 
+    /// Blink the pane flash twice instead of one short pulse.
+    public let paneFlashDoubleBlink = DefaultsKey<Bool>(
+        id: "notifications.paneFlashDoubleBlink",
+        defaultValue: true,
+        userDefaultsKey: "notificationPaneFlashDoubleBlink"
+    )
+
+    /// Flash the pane when terminal typing dismisses its notification.
+    public let paneFlashOnTyping = DefaultsKey<Bool>(
+        id: "notifications.paneFlashOnTyping",
+        defaultValue: true,
+        userDefaultsKey: "notificationPaneFlashOnTyping"
+    )
+
+    public let paneFlashThemeColor = DefaultsKey<Bool>(
+        id: "notifications.paneFlashThemeColor",
+        defaultValue: false,
+        userDefaultsKey: "notificationPaneFlashThemeColor"
+    )
+
     /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
     /// Empty (the default) uses the cmux accent (`app.accentColor`).
     public let paneFlashColorHex = DefaultsKey<String>(

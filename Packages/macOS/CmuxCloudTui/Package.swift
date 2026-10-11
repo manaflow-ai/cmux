@@ -9,12 +9,13 @@ let package = Package(
         .package(path: "../CmuxCloudImagePaste"),
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSurfaceCatalogModel"),
-        .package(path: "../CmuxTerminal")
+        .package(path: "../CmuxTerminal"),
+        .package(path: "../../Shared/CmuxTerminalSizing")
     ],
     targets: [
         .target(
             name: "CmuxCloudTui",
-            dependencies: ["CmuxCloudImagePaste", "CmuxFoundation", "CmuxSurfaceCatalogModel", "CmuxTerminal"],
+            dependencies: ["CmuxCloudImagePaste", "CmuxFoundation", "CmuxSurfaceCatalogModel", "CmuxTerminal", "CmuxTerminalSizing"],
             // The files moved out of the app target unchanged; keep its language mode.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

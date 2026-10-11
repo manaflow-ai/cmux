@@ -8,6 +8,10 @@ final class HighlightrThemeAdapter {
     /// Creates an adapter when Highlightr can initialize its JavaScript engine.
     init?() {
         guard let highlightr = Highlightr() else { return nil }
+        // File Preview handles source files that embed another language (for
+        // example dbt SQL with Jinja delimiters). Keep valid tokens around
+        // grammar-illegal characters instead of aborting the whole document.
+        highlightr.ignoreIllegals = true
         self.highlightr = highlightr
     }
 

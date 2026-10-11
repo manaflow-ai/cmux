@@ -95,13 +95,13 @@ final class CmuxEventBusTests: XCTestCase {
         await secondBus.waitUntilRestored()
         let snapshot = secondBus.subscribe(afterSequence: 0, names: [], categories: [])
         defer { secondBus.unsubscribe(snapshot.subscription) }
-
         XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, ["one", "two"])
         XCTAssertEqual(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2])
         XCTAssertEqual((snapshot.ack["resume"] as? [String: Any])?["gap"] as? Bool, false)
-
         secondBus.publish(name: "three", category: "test", source: "second")
-        XCTAssertEqual(secondBus.latestSequence, 3)
+        secondBus.flushEventLogForTesting()
+        let expectedSequence = Int64(CmuxEventSequenceStore.defaultBlockSize + 1)
+        XCTAssertEqual(secondBus.latestSequence, expectedSequence)
     }
 
     func testDurableReplayRebasesSequenceAfterAnOlderBootSegment() async throws {
@@ -247,7 +247,7 @@ final class CmuxEventBusTests: XCTestCase {
         let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL, maxEventLogBytes: 256)
         await bus.waitUntilRestored()
         bus.publish(name: "new", category: "test", source: "test")
-
+        bus.flushEventLogForTesting()
         XCTAssertEqual(bus.latestSequence, 101)
         let snapshot = bus.subscribe(afterSequence: 100, names: [], categories: [])
         defer { bus.unsubscribe(snapshot.subscription) }
@@ -559,8 +559,8 @@ final class CmuxEventBusTests: XCTestCase {
 
         store.replaceNotificationsForTesting(notifications)
         CmuxEventBus.shared.resetForTesting()
-
         store.clearNotifications(forTabId: workspaceId, discardQueuedNotifications: false)
+        CmuxEventBus.shared.flushEventLogForTesting()
 
         let events = CmuxEventBus.shared.retainedSnapshot()
         XCTAssertEqual(events.compactMap { $0["name"] as? String }, ["notification.cleared"])
@@ -592,8 +592,8 @@ final class CmuxEventBusTests: XCTestCase {
         let surfaceId = UUID()
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
-
         CmuxSocketEventMapper.publish(command: "notify_surface \(surfaceId.uuidString) done", response: "OK")
+        CmuxEventBus.shared.flushEventLogForTesting()
 
         let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
         XCTAssertEqual(event["name"] as? String, "notification.requested")
@@ -721,7 +721,7 @@ final class CmuxEventBusTests: XCTestCase {
                 payload: ["index": index]
             )
         }
-
+        bus.flushEventLogForTesting()
         let backlog = bus.eventLogBacklogSnapshotForTesting()
         XCTAssertEqual(backlog.pending, 2)
         XCTAssertEqual(backlog.dropped, 3)

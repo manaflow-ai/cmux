@@ -1,6 +1,7 @@
 import AppKit
 import CmuxSettings
 import CmuxSimulatorUI
+import CmuxTerminal
 import WebKit
 
 struct ShortcutEventFocusContext {
@@ -88,6 +89,13 @@ func shortcutResponderAcceptsTextEditing(_ responder: NSResponder) -> Bool {
 struct ShortcutEventFocusContextCache {
     let event: NSEvent
     let context: ShortcutEventFocusContext
+}
+
+/// The alternate-screen state read for one key event, so several actions whose
+/// clauses name `terminalAlternateScreen` share a single viewport read.
+struct ShortcutEventAlternateScreenCache {
+    let event: NSEvent
+    let isActive: Bool
 }
 
 extension Notification.Name {
@@ -308,6 +316,105 @@ extension AppDelegate {
         if shortcutEventFocusContextCache?.event === event {
             shortcutEventFocusContextCache = nil
         }
+        if shortcutEventAlternateScreenCache?.event === event {
+            shortcutEventAlternateScreenCache = nil
+        }
+    }
+
+    /// The context `action`'s `when` clause evaluates against for `event`.
+    ///
+    /// Adds `terminalAlternateScreen` only when `clause` reads it and the event
+    /// could trigger `action`, because the value comes from serializing the
+    /// focused terminal's viewport. Every other keystroke, and every clause that
+    /// never names the key, costs nothing extra.
+    ///
+    /// - Parameters:
+    ///   - action: The action whose clause is being evaluated.
+    ///   - clause: That action's effective `when` clause.
+    ///   - event: The key event being routed.
+    /// - Returns: The context to evaluate `clause` against.
+    func shortcutWhenClauseContext(
+        for action: KeyboardShortcutSettings.Action,
+        clause: ShortcutWhenClause,
+        event: NSEvent
+    ) -> ShortcutContext {
+        var context = shortcutEventFocusContext(event).whenClauseContext(for: action)
+        let key = ShortcutContextKnownKey.terminalAlternateScreen.rawValue
+        guard clause.references(key: key) else { return context }
+        // A keystroke that cannot trigger the action never reaches the
+        // action's handler, so the clause result is irrelevant and the
+        // viewport read is skipped.
+        let isActive = shortcutEventMayTriggerAction(event, action: action)
+            && shortcutEventTerminalAlternateScreenActive(event)
+        context.setBool(key, isActive)
+        return context
+    }
+
+    /// A conservative pre-check for whether `event` could trigger `action`.
+    ///
+    /// Whether `event` could reach `action`, used only to skip the viewport
+    /// read when it plainly cannot.
+    ///
+    /// This must over-approximate. A `false` result writes `false` into the
+    /// clause context rather than omitting the key, so a negated clause like
+    /// `!terminalAlternateScreen` evaluates to true. Under-approximating here
+    /// therefore does not lose an optimization, it makes a negated clause
+    /// silently permissive: `closeTab` would fire while vim is focused, which
+    /// is the exact case the clause exists to prevent. Anything this cannot
+    /// rule out has to fall through to the read.
+    ///
+    /// Every matcher (plain, numbered digit, directional, Tab) requires the
+    /// event's modifiers to equal the relevant stroke's, so that is checked
+    /// first. Numbered-digit actions then fall back to that modifier check.
+    /// Everything else uses the real stroke matcher, which matches arrow and
+    /// Tab strokes by physical key code, so an unrelated Control+arrow never
+    /// pays for the viewport read.
+    private func shortcutEventMayTriggerAction(
+        _ event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        // Media keys arrive as `.systemDefined` and carry no key code, so no
+        // matcher below can judge them. Over-approximate instead of claiming
+        // the terminal is not on the alternate screen.
+        guard event.type == .keyDown else { return true }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard !shortcut.isUnbound else { return false }
+        let stroke: ShortcutStroke
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard shortcut.firstStroke == prefix, let secondStroke = shortcut.secondStroke else {
+                return false
+            }
+            stroke = secondStroke
+        } else {
+            stroke = shortcut.firstStroke
+        }
+        guard ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags) == stroke.modifierFlags else {
+            return false
+        }
+        if action.usesNumberedDigitMatching {
+            return true
+        }
+        // `matchesTab` matches key code 48 whatever the stroke's key says, so a
+        // Tab event can reach a matcher the stroke matcher below would reject.
+        if event.keyCode == 48 {
+            return true
+        }
+        return matchShortcutStroke(event: event, stroke: stroke)
+    }
+
+    /// Whether the terminal that would receive `event` is on the alternate
+    /// screen. Memoized per event; `false` when no terminal owns the responder.
+    private func shortcutEventTerminalAlternateScreenActive(_ event: NSEvent) -> Bool {
+        if let cache = shortcutEventAlternateScreenCache, cache.event === event {
+            return cache.isActive
+        }
+        let window = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        // Hosted inputs (TextBox, find field) count as the terminal they sit on,
+        // so a focused TextBox over vim still reads as the alternate screen.
+        let terminalView = window?.firstResponder.cmuxTerminalFocusOwningGhosttyView()
+        let isActive = terminalView?.terminalSurface?.isAlternateScreenActive() ?? false
+        shortcutEventAlternateScreenCache = ShortcutEventAlternateScreenCache(event: event, isActive: isActive)
+        return isActive
     }
 
     func shortcutEventFocusedBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
@@ -489,9 +596,10 @@ extension AppDelegate {
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
-        if event.windowNumber > 0,
-           let window = NSApp.window(withWindowNumber: event.windowNumber) {
-            return window
+        if event.windowNumber > 0 {
+            if let window = NSApp.window(withWindowNumber: event.windowNumber) {
+                return window
+            }
         }
         return event.window
     }

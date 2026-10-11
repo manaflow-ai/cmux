@@ -21,7 +21,12 @@ extension TerminalController {
         let store = TerminalNotificationStore.shared
         store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
         let snapshot = store.notificationFeedHistory.snapshot
-        let items = snapshot.notifications.map(mobileNotificationFeedWireItem)
+        // A record mirrored from another Mac belongs to that Mac's feed. A
+        // client connected to both would see it twice, and two Macs mirroring
+        // each other would relay it back and forth.
+        let items = snapshot.notifications
+            .filter { !Self.isMirroredFromDevice($0) }
+            .map(mobileNotificationFeedWireItem)
         let fittedItems = await Self.mobileNotificationFeedItemsFittingFrame(
             responseID: responseID,
             revision: snapshot.revision,
@@ -248,6 +253,11 @@ extension TerminalController {
         ])
     }
 
+    nonisolated static func isMirroredFromDevice(_ record: NotificationFeedHistoryRecord) -> Bool {
+        if case .deviceMac = record.origin { return true }
+        return false
+    }
+
     private func mobileNotificationFeedWireItem(
         _ record: NotificationFeedHistoryRecord
     ) -> MobileNotificationFeedWireItem {
@@ -302,7 +312,8 @@ extension TerminalController {
                     $0,
                     limitedToUTF8Bytes: Self.mobileNotificationFeedMetadataByteLimit
                 )
-            }
+            },
+            originKind: (record.origin ?? .local).kind
         )
     }
 

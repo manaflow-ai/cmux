@@ -141,7 +141,7 @@ class VMOpenDeviceTargetTests(unittest.TestCase):
         if not cls.cli or not os.access(cls.cli, os.X_OK):
             raise RuntimeError("Set CMUX_CLI_BIN to the built CLI")
 
-    def run_cli(self, path: str, args: list[str]) -> subprocess.CompletedProcess[str]:
+    def run_cli(self, path: str, args: list[str], extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         environment = {key: value for key, value in os.environ.items() if not key.startswith("CMUX")}
         environment.update({
             "CMUX_SOCKET_PATH": path,
@@ -150,6 +150,7 @@ class VMOpenDeviceTargetTests(unittest.TestCase):
             "LANG": "en_US.UTF-8",
             "LC_ALL": "en_US.UTF-8",
         })
+        environment.update(extra_env or {})
         return subprocess.run(
             [self.cli, "--socket", path, *args],
             env=environment, stdin=subprocess.DEVNULL,
@@ -189,6 +190,23 @@ class VMOpenDeviceTargetTests(unittest.TestCase):
         with DeviceOpenSocket() as server:
             completed = self.run_cli(server.path, ["vm", "open", target, "--workspace", LOCAL_WORKSPACE])
             self.assert_projected(server, completed)
+
+    def test_focus_defaults_to_background_for_a_script(self) -> None:
+        # No terminal on stdin or stdout reads as an agent or a script: the pane opens
+        # beside the person instead of taking focus. `--focus`, or an interactive run
+        # (CMUX_FOCUS_NEW=1 stands in for a terminal here), opts in; the flag always wins.
+        target = f"{DEVICE}/{REMOTE_WORKSPACE}/{TERMINAL}"
+        cases = [
+            ([], {}, False),
+            (["--focus"], {}, True),
+            ([], {"CMUX_FOCUS_NEW": "1"}, True),
+            (["--no-focus"], {"CMUX_FOCUS_NEW": "1"}, False),
+        ]
+        for flags, extra_env, expected in cases:
+            with self.subTest(flags=flags, env=extra_env), DeviceOpenSocket() as server:
+                completed = self.run_cli(server.path, ["vm", "open", target, "--workspace", LOCAL_WORKSPACE, *flags], extra_env)
+                params = self.assert_projected(server, completed)
+                self.assertIs(params.get("focus"), expected)
 
     def test_workspace_name_resolves_on_the_device(self) -> None:
         # The remote workspace may be named instead of addressed by id.

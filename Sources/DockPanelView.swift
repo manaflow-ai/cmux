@@ -82,6 +82,8 @@ struct DockPanelView: View {
             )
             .frame(width: 0, height: 0)
         )
+        // Keep the container identifiable without replacing its hosted controls' identities.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")

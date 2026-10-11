@@ -11,10 +11,10 @@ boundary instead:
   named for its run attempt (`request`), then waits for the verdict of the
   dispatch that serves it and reports it as its own result (`await-verdict`),
   so ci-status still gates on the UI tests.
-- ci-ui-tests.yml runs from the default branch on every CI run attempt
-  (`workflow_run: requested`). It waits for that attempt's request
-  (`await-request`), re-validates it, and runs main's dispatcher on it
-  (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
+- ci-ui-tests.yml runs from the default branch. The build controller
+  dispatches it when a CI attempt's `ui-tests` job starts. It waits for that
+  attempt's request (`await-request`), re-validates it, and runs main's
+  dispatcher on it (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
   or its `ui-tests` job gave up) it cancels the dispatched run.
 
 Nothing from the request artifact is trusted beyond selectors that match
@@ -52,16 +52,39 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_SELECTORS = 8
 MAX_REQUEST_BYTES = 16_384
 UI_TEST_PREFIX = "cmuxUITests/"
+# Not a test class: test-e2e.yml reads this entry as "replay the UI fuzzer's
+# checked-in repros (dogfood/fuzz/regressions) against the app", after the
+# selected classes or alone.
+FUZZ_REGRESSIONS_SELECTOR = "cmuxUITests/FuzzRegressions"
+# What those repros exercise: the sidebar, splits and panes, and the main
+# window's size, plus the fuzzer and its repros. choose_ci_suite.py adds the
+# selector for a diff that touches one; a path ending in "/" is a directory.
+FUZZ_REGRESSION_PATHS = (
+    "dogfood/fuzz/",
+    "scripts/fuzz",
+    "vendor/bonsplit",
+    "Packages/macOS/CmuxPanes/",
+    "Packages/macOS/CmuxSidebar/",
+    "Sources/Sidebar/",
+    "Sources/App/CmuxMainWindow.swift",
+    "Sources/App/MainWindowFrameReconciler.swift",
+    "Sources/AppDelegate+WindowFramePolicy.swift",
+)
+# Workspace's split code: Workspace+EqualizeSplitsSupport.swift and the like.
+FUZZ_REGRESSION_PATTERN = re.compile(r"Sources/Workspace\+[^/]*Split[^/]*\.swift")
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
-# The request follows compile admission, usually tens of minutes after the
-# attempt starts, so its wait reads less often.
-REQUEST_POLL_SECONDS = 120
+# The dispatch starts with the `ui-tests` job, which uploads the request
+# within a minute.
+REQUEST_POLL_SECONDS = 20
 # How long the waiting side looks for the dispatch run of its attempt. The
-# dispatch run is created when the CI attempt is, so it normally exists before
-# `ui-tests` starts.
+# build controller dispatches it seconds after `ui-tests` starts.
 FIND_DISPATCH_SECONDS = 20 * 60
+# How long a cancelled dispatch run's replacement may take to appear in the
+# runs list, and how often it is read meanwhile.
+REPLACEMENT_SECONDS = 120
+REPLACEMENT_POLL_SECONDS = 10
 MAX_CONSECUTIVE_ERRORS = 10
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
 # dispatch-focused-test.py attaches to an identical run already in flight;
@@ -81,10 +104,11 @@ def dispatch_title(run_id: int | str, attempt: int | str) -> str:
 def rerun_dispatch(run_id: int | str, attempt: int | str, ref: str = "main") -> tuple[str, dict]:
     """The workflow_dispatch that serves a CI attempt a bot re-ran.
 
-    A re-run made with GITHUB_TOKEN (the owned-pool rescue, failure
-    attribution) may not emit workflow_run, so those callers start this
-    workflow themselves. Returns (path under repos/<repo>/, body). A duplicate
-    from a workflow_run event joins the same concurrency group and replaces it.
+    The bots that re-run CI (the owned-pool rescue, failure attribution)
+    start this workflow for the new attempt. The build controller dispatches
+    it again when that attempt's `ui-tests` job starts; the duplicate joins the
+    same concurrency group and replaces it. Returns (path under
+    repos/<repo>/, body).
     """
     return (f"actions/workflows/{DISPATCH_WORKFLOW_FILE}/dispatches",
             {"ref": ref, "inputs": {"run_id": str(run_id), "run_attempt": str(attempt)}})
@@ -184,11 +208,19 @@ def serves(run: dict, repository: str) -> str | None:
     return None
 
 
-def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
-    """Whether any of these pull requests changes cmuxUITests/; None when unknown.
+def fuzz_regression_path(path: str) -> bool:
+    """Whether a change to `path` asks for the UI fuzzer's regression replays."""
+    return FUZZ_REGRESSION_PATTERN.fullmatch(path) is not None or any(
+        path.startswith(entry) if entry.endswith("/") else path == entry or path.startswith(entry + "/")
+        for entry in FUZZ_REGRESSION_PATHS)
 
-    Only a cmuxUITests/ change yields selectors (choose_ci_suite.changed_ui_selectors),
-    so this spares every other pull request the wait for a request.
+
+def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
+    """Whether any of these pull requests changes cmuxUITests/ or a fuzz regression path; None when unknown.
+
+    Only those changes yield selectors (choose_ci_suite.changed_ui_selectors and
+    FUZZ_REGRESSIONS_SELECTOR), so this spares every other pull request the wait
+    for a request.
     """
     if not pull_numbers:
         return None
@@ -197,7 +229,7 @@ def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
             files = gh.get(f"repos/{{repo}}/pulls/{number}/files?per_page=100&page={page}")
             for entry in files:
                 for name in (entry.get("filename"), entry.get("previous_filename")):
-                    if isinstance(name, str) and name.startswith(UI_TEST_PREFIX):
+                    if isinstance(name, str) and (name.startswith(UI_TEST_PREFIX) or fuzz_regression_path(name)):
                         return True
             if len(files) < 100:
                 break
@@ -251,7 +283,8 @@ def await_request(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
     numbers = [int(pr["number"]) for pr in run.get("pull_requests") or [] if isinstance(pr.get("number"), int)]
     touched = retrying(lambda: touches_ui_tests(gh, numbers), sleep=sleep)
     if touched is False:
-        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX}.", flush=True)
+        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX} "
+              "and no path the fuzz regressions cover.", flush=True)
         return None
     name = request_artifact(attempt)
     print(f"Waiting for {name} from {run.get('html_url', run_id)} (head {head_sha}).", flush=True)
@@ -406,8 +439,209 @@ def dispatch_step_conclusion(gh: GitHub, dispatch_run_id: int | str) -> str | No
     return None
 
 
+E2E_WORKFLOW_FILE = "test-e2e.yml"
+ADMISSION_JOB = "macOS compile admission"
+# test-e2e.yml's macOS jobs, in order; the Linux jobs before them take seconds.
+E2E_MACOS_JOBS = ("build", "test")
+E2E_COMPILE_STEP = "Build the app-host and UI test product"
+E2E_TESTS_STEP = "Run selected tests"
+# Progress reads once every this many verdict polls (60 s each), so the wait
+# makes a third more REST calls on the job token, not twice as many.
+PROGRESS_EVERY = 3
+
+
+def _seconds(start: str | None, end: dt.datetime) -> int | None:
+    if not start:
+        return None
+    return max(0, int((end - parse_time(start)).total_seconds()))
+
+
+def _duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "?"
+    minutes, rest = divmod(seconds, 60)
+    return f"{minutes}m{rest:02d}s" if minutes else f"{rest}s"
+
+
+class Progress:
+    """One line per poll on what the UI test run is doing, so the wait never looks stuck.
+
+    Each report makes one bounded read beside the verdict's own: the jobs of
+    the test-e2e.yml run serving this request once it is known, otherwise
+    either the listing that finds that run (by its title: the selectors, and
+    the merge or head it tests) or this attempt's compile admission, whose
+    product the dispatch waits for. Progress is only ever printed: a failed
+    or odd read skips a line and never touches the verdict.
+    """
+
+    def __init__(self, gh: GitHub, run_id: str, attempt: str, selectors: list[str], revisions: list[str],
+                 since: dt.datetime, now: Callable[[], dt.datetime] | None = None) -> None:
+        self.gh = gh
+        self.run_id = run_id
+        self.attempt = attempt
+        self.test_filter = ",".join(selectors)
+        self.count = len(selectors)
+        self.revisions = [revision for revision in revisions if revision]
+        self.since = since
+        self.now = now or (lambda: dt.datetime.now(dt.timezone.utc))
+        self.e2e: dict | None = None
+        self.polls = 0
+        self.ticks = 0
+
+    def report(self) -> str | None:
+        """Every PROGRESS_EVERY-th poll: its read then adds a third to the wait's."""
+        self.polls += 1
+        if self.polls % PROGRESS_EVERY:
+            return None
+        self.ticks += 1
+        try:
+            line = self._line()
+        except Exception as error:  # noqa: BLE001 - progress must never touch the verdict
+            print(f"(progress unavailable this minute: {type(error).__name__})", flush=True)
+            line = None
+        if line:
+            print(line, flush=True)
+        return line
+
+    def _line(self) -> str | None:
+        if self.e2e is None:
+            if self.ticks % 2 == 1:
+                self.e2e = self._find_e2e()
+                if self.e2e is not None:
+                    return f"UI test run: {self.e2e.get('html_url')}"
+                return None
+            return self._admission()
+        return self._e2e_state()
+
+    def _find_e2e(self) -> dict | None:
+        if not self.test_filter or not self.revisions:
+            return None
+        created = self.since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        runs = self.gh.get(
+            f"repos/{{repo}}/actions/workflows/{E2E_WORKFLOW_FILE}/runs"
+            f"?event=workflow_dispatch&created=%3E%3D{created}&per_page=100"
+        ).get("workflow_runs", [])
+
+        wanted = sorted(self.test_filter.split(","))
+
+        def ours(run: dict) -> bool:
+            # An identical run already in flight is reused whatever order it
+            # names the same selectors in.
+            title = str(run.get("display_title") or "")
+            return (sorted(title.split(" on ", 1)[0].split(",")) == wanted
+                    and any(f" @ {revision}" in title for revision in self.revisions))
+
+        return max((run for run in runs if ours(run)), key=lambda run: run.get("created_at", ""), default=None)
+
+    def _admission(self) -> str | None:
+        jobs = self.gh.get(
+            f"repos/{{repo}}/actions/runs/{self.run_id}/attempts/{self.attempt}/jobs?per_page=100"
+        ).get("jobs", [])
+        job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
+        now = self.now()
+        if job is None:
+            return "Waiting for the dispatcher to start a UI test run."
+        if job.get("status") == "completed":
+            return (f"Compile admission ended {job.get('conclusion')}; waiting for the dispatcher "
+                    "to start a UI test run on its product.")
+        if job.get("started_at") and job.get("runner_name") and job.get("status") == "in_progress":
+            step = next((step for step in job.get("steps") or [] if step.get("status") == "in_progress"), None)
+            doing = f", at '{step.get('name')}'" if step else ""
+            return (f"Waiting for compile admission's product: compiling on {job['runner_name']} for "
+                    f"{_duration(_seconds(job['started_at'], now))}{doing}.")
+        labels = ", ".join(job.get("labels") or []) or "a runner"
+        return (f"Waiting for compile admission's product: admission is queued for {labels} "
+                f"for {_duration(_seconds(job.get('created_at'), now))}.")
+
+    def _e2e_state(self) -> str | None:
+        assert self.e2e is not None
+        jobs = self.gh.get(f"repos/{{repo}}/actions/runs/{self.e2e['id']}/jobs?filter=latest&per_page=30").get("jobs", [])
+        now = self.now()
+        by_name = {job.get("name"): job for job in jobs}
+        macos = [by_name[name] for name in E2E_MACOS_JOBS if name in by_name]
+        live = next((job for job in macos if job.get("status") != "completed"), None)
+        if live is None:
+            if macos and all(job.get("status") == "completed" for job in macos):
+                done = [f"{job['name']} {job.get('conclusion')}" for job in macos]
+                # Look again next time: the dispatcher may start a newer run.
+                self.e2e = None
+                return f"UI test run finished ({', '.join(done)}); waiting for its verdict."
+            pending = [job for job in jobs if job.get("status") != "completed"]
+            if pending:
+                return f"UI test run: {pending[0].get('name')} is {pending[0].get('status')} (Linux setup)."
+            return None
+        name = live.get("name")
+        if live.get("status") != "in_progress" or not live.get("runner_name"):
+            labels = ", ".join(live.get("labels") or []) or "a runner"
+            return (f"UI test run: {name} is queued for {labels} "
+                    f"for {_duration(_seconds(live.get('created_at'), now))}.")
+        steps = live.get("steps") or []
+        step = next((step for step in steps if step.get("status") == "in_progress"), None)
+        compiled = next((step for step in steps if step.get("name") == E2E_COMPILE_STEP), None)
+        product = ""
+        if compiled and compiled.get("conclusion") == "skipped":
+            product = "; adopted the compiled product, no build"
+        elif compiled and compiled.get("status") == "completed":
+            product = f"; compiled in {_duration(_seconds(compiled.get('started_at'), parse_time(compiled['completed_at'])))}"
+        doing = "between steps"
+        if step is not None:
+            doing = f"'{step.get('name')}' for {_duration(_seconds(step.get('started_at'), now))}"
+            if step.get("name") == E2E_TESTS_STEP:
+                doing = (f"testing {self.count} selected class{'es' if self.count != 1 else ''} "
+                         f"for {_duration(_seconds(step.get('started_at'), now))}")
+            elif step.get("name") == E2E_COMPILE_STEP:
+                doing = f"compiling the app and UI tests for {_duration(_seconds(step.get('started_at'), now))}"
+        return (f"UI test run: {name} on {live['runner_name']} for "
+                f"{_duration(_seconds(live.get('started_at'), now))}, {doing}{product}.")
+
+
+# app_host_test_rerun.PRODUCTS_PREFIX; ci.yml's sparse checkout holds only this file.
+PRODUCTS_PREFIX = "app-host-products-v1-"
+ADMISSION_FAILURES = frozenset({"failure", "cancelled", "timed_out"})
+
+
+def admission_ended_without_product(gh: GitHub, run_id: str, attempt: str) -> dict | None:
+    """This attempt's compile admission job, once it failed and left no app-host product.
+
+    The UI tests run on that product, so none can run: the fleet refused the
+    job, lost its runner, or the code failed to compile. Waiting on held the
+    run open (run 36435812903, 14:30 to past 15:27), and the owned-pool rescue
+    re-runs a refused job only once its run has finished. A skipped admission
+    (an earlier run's product reused) or one that uploaded its product and
+    then failed its changed suites still waits for the verdict.
+    """
+    jobs = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100").get("jobs", [])
+    job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
+    if job is None or job.get("status") != "completed" or job.get("conclusion") not in ADMISSION_FAILURES:
+        return None
+    if str(job.get("run_attempt")) != str(attempt):
+        # Carried over from an earlier attempt (only ui-tests was re-run), or of
+        # unknown attempt: the dispatcher compiles for itself, so the UI tests
+        # still run.
+        return None
+    listing = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/artifacts?per_page=100")
+    artifacts = listing.get("artifacts", [])
+    if int(listing.get("total_count") or 0) > len(artifacts):
+        return None  # A truncated listing cannot rule the product out.
+    if any(str(artifact.get("name", "")).startswith(PRODUCTS_PREFIX) and not artifact.get("expired")
+           for artifact in artifacts):
+        return None
+    return job
+
+
+def admission_failure(job: dict) -> int:
+    print(
+        f"::error::This run's compile admission ended {job.get('conclusion')} without an app-host product "
+        f"({job.get('html_url') or ADMISSION_JOB}), so no UI test run can use it and this job does not wait for one. "
+        "Fix or re-run compile admission: re-running this run's failed jobs requests the UI tests again.",
+        flush=True,
+    )
+    return 1
+
+
 def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep,
-                  now: Callable[[], float] = time.monotonic, default_branch: str = "main") -> int:
+                  now: Callable[[], float] = time.monotonic, default_branch: str = "main",
+                  selectors: list[str] | None = None, revisions: list[str] | None = None) -> int:
     run = retrying(lambda: source_attempt(gh, run_id, attempt), sleep=sleep)
     # The dispatch run is created when the attempt is requested: for attempt 1
     # that is the run's creation (a labeled run can then queue for hours before
@@ -420,23 +654,58 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         match = find_dispatch_run(gh, run_id, attempt, since, default_branch)
         if match is not None:
             return match
+        ended = admission_ended_without_product(gh, run_id, attempt)
+        if ended is not None:
+            return {"admission": ended}
         return False if now() >= deadline else None
 
     found = poll(find, sleep=sleep)
+    if isinstance(found, dict) and "admission" in found:
+        return admission_failure(found["admission"])
     if found is False:
         print(
             f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
-            "so nothing dispatched the UI tests. Re-run this job: a re-run requests them again.",
+            "so nothing dispatched the UI tests (the build controller dispatches it when this job starts). "
+            "Re-run this job: a re-run requests them again.",
             flush=True,
         )
         return 1
     print(f"UI tests for this run: {found.get('html_url')}", flush=True)
+    progress = Progress(gh, run_id, attempt, selectors or [], revisions or [], since) if selectors else None
 
-    def check() -> dict | None:
-        run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
-        return run if run.get("status") == "completed" else None
+    while True:
+        watched = found
 
-    finished = poll(check, sleep=sleep)
+        def check() -> dict | None:
+            run = gh.get(f"repos/{{repo}}/actions/runs/{watched['id']}")
+            if run.get("status") == "completed":
+                return run
+            ended = admission_ended_without_product(gh, run_id, attempt)
+            if ended is not None:
+                return {"admission": ended}
+            if progress is not None:
+                progress.report()
+            return None
+
+        finished = poll(check, sleep=sleep)
+        if "admission" in finished:
+            return admission_failure(finished["admission"])
+        if finished.get("conclusion") != "cancelled":
+            break
+        # A second dispatch for this attempt joins the same concurrency group and cancels the one watched here; follow it.
+        replaced_by = now() + REPLACEMENT_SECONDS
+
+        def replacement() -> dict | bool | None:
+            newer = find_dispatch_run(gh, run_id, attempt, since, default_branch)
+            if newer is not None and newer["id"] != watched["id"] and newer.get("created_at", "") >= watched.get("created_at", ""):
+                return newer
+            return False if now() >= replaced_by else None
+
+        newer = poll(replacement, sleep=sleep, interval=REPLACEMENT_POLL_SECONDS)
+        if newer is False:
+            break
+        found = newer
+        print(f"{watched.get('html_url')} was replaced; UI tests for this run: {found.get('html_url')}", flush=True)
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)
@@ -467,8 +736,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Requesting {' '.join(body['selectors'])} at {body['head_sha']}.", flush=True)
             return 0
         if args.command == "await-verdict":
+            # SELECTORS and the revisions only name the run to report
+            # progress on; the verdict never reads them.
             return await_verdict(github_from_env(), os.environ["RUN_ID"], os.environ["RUN_ATTEMPT"],
-                                 default_branch=os.environ.get("DEFAULT_BRANCH") or "main")
+                                 default_branch=os.environ.get("DEFAULT_BRANCH") or "main",
+                                 selectors=os.environ.get("SELECTORS", "").split(),
+                                 revisions=[os.environ.get("MERGE_SHA", ""), os.environ.get("HEAD_SHA", "")])
         if args.command == "await-request":
             found = await_request(github_from_env(), os.environ["SOURCE_RUN_ID"], os.environ["SOURCE_RUN_ATTEMPT"])
             if found is None:

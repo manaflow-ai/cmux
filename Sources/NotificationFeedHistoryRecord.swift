@@ -18,6 +18,9 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
     var isRead: Bool
     /// Optional so history written before origins existed still decodes (`nil` = local).
     var origin: TerminalNotificationOrigin?
+    /// Whether an agent hook produced this notification. Optional so history
+    /// written before the flag existed still decodes (`nil` = unknown, kept).
+    var isAgentEvent: Bool?
 
     init(
         id: UUID,
@@ -30,7 +33,8 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
         body: String,
         createdAt: Date,
         isRead: Bool,
-        origin: TerminalNotificationOrigin? = nil
+        origin: TerminalNotificationOrigin? = nil,
+        isAgentEvent: Bool? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -43,6 +47,7 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
         self.createdAt = createdAt
         self.isRead = isRead
         self.origin = origin
+        self.isAgentEvent = isAgentEvent
     }
 
     init(notification: TerminalNotification) {
@@ -56,6 +61,7 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
         body = notification.body
         createdAt = notification.createdAt
         isRead = notification.isRead
+        isAgentEvent = notification.isAgentEvent
         origin = notification.origin.isRemote ? notification.origin : nil
     }
 
@@ -79,7 +85,8 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
             body: Self.string(body, limitedToUTF8Bytes: Self.historyBodyByteLimit),
             createdAt: createdAt,
             isRead: isRead,
-            origin: origin
+            origin: origin,
+            isAgentEvent: isAgentEvent
         )
     }
 

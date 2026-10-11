@@ -1,11 +1,13 @@
 import { accountAccessForIdentity } from "./accountAccess";
 import {
   authenticateRouteToken,
+  hasConfiguredAccount,
   markAccountCooldown,
+  nextCapacityAvailableAt,
   selectAccountForRequest,
   selectAccountForSession,
 } from "./repository";
-import { freshCredential, stickyRefreshPatience } from "./refresh";
+import { CodeRouterCredentialBroken, freshCredential, stickyRefreshPatience } from "./refresh";
 import type { StickyRefreshPatience } from "./refreshSignal";
 import { fetchProviderRead } from "./providerFetch";
 import { RESPONSES_PROVIDERS, type CodeRouterCredential } from "./types";
@@ -39,6 +41,14 @@ import {
   upstreamHeadersTimeoutMs,
   withCoderouterOperationDeadline,
 } from "./upstreamFetch";
+import {
+  CapacityHold,
+  capacityHoldBudgetMs,
+  capacityHoldTelemetry,
+  type CapacityHoldStats,
+  defaultCapacityHoldRuntime,
+  type CapacityHoldRuntime,
+} from "./capacityHold";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
@@ -68,6 +78,18 @@ type CodexResponsesDependencies = {
   ) => Promise<void>;
   /** Defaults to the lease layer's refresh-completion wait. */
   readonly refreshPatience?: StickyRefreshPatience;
+  /**
+   * Soonest recovery of an account cooling for a transient reason. Without
+   * it, a request whose accounts were all cooled by other requests fails
+   * instead of holding for capacity.
+   */
+  readonly nextAvailableAt?: typeof nextCapacityAvailableAt;
+  /**
+   * Whether the caller can see any Codex-family account, in any state. When
+   * the first selection finds nothing and this is false, the request gets a
+   * terminal 403 instead of a retryable 503.
+   */
+  readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -76,13 +98,19 @@ export type CodexResponsesRuntimeOverrides = {
   readonly now?: () => number;
   readonly upstreamHeadersBudgetMs?: number;
   readonly upstreamHeadersTimeoutMs?: number;
+  readonly capacityHoldBudgetMs?: number;
+  readonly sleep?: CapacityHoldRuntime["sleep"];
+  readonly random?: () => number;
+  /** Wall clock for `nextAvailableAt` timestamps. */
+  readonly wallNow?: () => number;
 };
 
-type CodexResponsesRuntime = {
+type CodexResponsesRuntime = CapacityHoldRuntime & {
   readonly fetch: typeof fetch;
-  readonly now: () => number;
   readonly upstreamHeadersBudgetMs: number;
   readonly upstreamHeadersTimeoutMs: number;
+  readonly capacityHoldBudgetMs: number;
+  readonly wallNow: () => number;
 };
 
 /**
@@ -103,6 +131,8 @@ function sessionKeyFromRequest(request: Request): string | null {
  * non-error event.
  */
 const MAX_PREOUTPUT_PROBE_BYTES = 64 * 1024;
+/** Accounts tried per routing round before the request holds for capacity. */
+const MAX_ACCOUNTS_PER_ROUND = 8;
 const CAPACITY_COOLDOWN_MS = 60_000;
 const WORKSPACE_QUOTA_COOLDOWN_MS = 60 * 60_000;
 const PREOUTPUT_PROBE_IDLE_MS = 500;
@@ -138,6 +168,10 @@ export function createCodexResponsesProxy(
     now: runtimeOverrides.now ?? (() => performance.now()),
     upstreamHeadersBudgetMs: runtimeOverrides.upstreamHeadersBudgetMs ?? CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
     upstreamHeadersTimeoutMs: runtimeOverrides.upstreamHeadersTimeoutMs ?? upstreamHeadersTimeoutMs(),
+    capacityHoldBudgetMs: runtimeOverrides.capacityHoldBudgetMs ?? capacityHoldBudgetMs(),
+    sleep: runtimeOverrides.sleep ?? defaultCapacityHoldRuntime.sleep,
+    random: runtimeOverrides.random ?? defaultCapacityHoldRuntime.random,
+    wallNow: runtimeOverrides.wallNow ?? Date.now,
   };
   return async (request) => proxyCodexRequestWith(dependencies, runtime, request);
 }
@@ -147,7 +181,44 @@ export const proxyCodexRequest = createCodexResponsesProxy({
   select: selectAccountForSession,
   credential: freshCredential,
   cooldown: markAccountCooldown,
+  nextAvailableAt: nextCapacityAvailableAt,
+  hasConfiguredAccount,
 });
+
+/**
+ * Milliseconds until an account cooling for a transient reason recovers:
+ * `null` when none will, `undefined` when the lookup failed and the hold
+ * should fall back to plain backoff.
+ */
+async function capacityRetryAfterMs(
+  dependencies: CodexResponsesDependencies,
+  runtime: CodexResponsesRuntime,
+  identity: RouteTokenIdentity,
+  request: Request,
+  deadlineAt: number,
+): Promise<number | null | undefined> {
+  if (!dependencies.nextAvailableAt) return null;
+  const lookup = dependencies.nextAvailableAt;
+  try {
+    const availableAt = await withCoderouterOperationDeadline(
+      request.signal,
+      deadlineAt,
+      runtime.now,
+      (signal) => lookup({
+        teamId: identity.teamId,
+        provider: RESPONSES_PROVIDERS,
+        access: accountAccessForIdentity(identity),
+        signal,
+      }),
+    );
+    return availableAt === null ? null : Math.max(0, availableAt.getTime() - runtime.wallNow());
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    if (error instanceof CoderouterOperationDeadlineError) return null;
+    reportCoderouterFailure("rds", error, { provider: "codex", operation: "next_capacity_available_at" });
+    return undefined;
+  }
+}
 
 // oxlint-disable-next-line complexity -- Routing keeps authentication, refresh, capacity, and deadline transitions in one request boundary.
 async function proxyCodexRequestWith(
@@ -198,13 +269,40 @@ async function proxyCodexRequestWith(
     if (value) forwardedHeaders.set(name, value);
   }
   const sessionKey = sessionKeyFromRequest(request);
+  /** Accounts tried this round; cleared when the request holds for capacity. */
   const attempted: string[] = [];
+  let attemptCount = 0;
+  /** False when the round's last failure needs a human (broken credential). */
+  let lastFailureTransient = true;
+  const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
+  /**
+   * Holds before a new round. The cooldown lookup covers the accounts this
+   * round just cooled too, so the wait honors their `retry-after`. When it
+   * finds nothing but the round failed transiently (a cooldown write may have
+   * failed), plain backoff still applies.
+   */
+  const holdForNextRound = async (): Promise<boolean> => {
+    const cooldownMs = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
+    const retryAfterMs = attempted.length > 0 && lastFailureTransient ? cooldownMs ?? undefined : cooldownMs;
+    if (!(await hold.wait(retryAfterMs, request.signal))) return false;
+    addCoderouterBreadcrumb("routing", "Holding Codex request for capacity", {
+      hold_count: hold.holdCount,
+      held_ms: hold.heldMs,
+    }, "warning");
+    attempted.length = 0;
+    return true;
+  };
   let refreshRetries = 0;
   let failureStage: "account_selection" | "credential_refresh" | "upstream_transport" =
     "account_selection";
   let upstream: Response | null = null;
-  for (let attempt = 0; attempt < 8; attempt++) {
+  let noAccountConfigured = false;
+  for (let attempt = 0; ; attempt++) {
     throwIfRequestAborted(request);
+    if (attempted.length >= MAX_ACCOUNTS_PER_ROUND) {
+      if (await holdForNextRound()) continue;
+      break;
+    }
     if (remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
       runtime.now(),
@@ -254,8 +352,20 @@ async function proxyCodexRequestWith(
       startedAt: selectStartedAt,
       attributes: { provider: "codex", attempt: attempt + 1, sticky: account?.sticky ?? false, healthy: account !== null },
     });
-    if (!account) break;
+    if (!account) {
+      if (
+        attempt === 0 &&
+        !await teamHasCodexAccount(dependencies, identity, request.signal, upstreamHeaderDeadlineAt, runtime.now)
+      ) {
+        noAccountConfigured = true;
+        break;
+      }
+      if (await holdForNextRound()) continue;
+      break;
+    }
     attempted.push(account.id);
+    attemptCount += 1;
+    lastFailureTransient = true;
     addCoderouterBreadcrumb("routing", "Selected provider account", {
       provider: "codex",
       attempt: attempt + 1,
@@ -300,10 +410,16 @@ async function proxyCodexRequestWith(
       });
       if (error instanceof CoderouterOperationDeadlineError) break;
       if (tag === "CodeRouterRefreshBusy") continue;
-      if (tag === "CodeRouterCredentialBroken") continue;
+      if (tag === "CodeRouterCredentialBroken") {
+        lastFailureTransient = false;
+        continue;
+      }
       throw error;
     }
-    if (!servesResponses(credential)) continue;
+    if (!servesResponses(credential)) {
+      lastFailureTransient = false;
+      continue;
+    }
     throwIfRequestAborted(request);
     const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
@@ -404,15 +520,20 @@ async function proxyCodexRequestWith(
           error: error instanceof Error ? error.name : "refresh_failed",
           attributes: { provider: "codex", forced: true },
         });
-        reportCoderouterFailure("provider_refresh", error, {
-          provider: "codex",
-          forced: true,
-          request_id: requestId,
-        });
+        // The refresher already reported a revoked sign-in as a tenant fault
+        // and marked the account broken; a second report would page for it.
+        if (!(error instanceof CodeRouterCredentialBroken && error.reported)) {
+          reportCoderouterFailure("provider_refresh", error, {
+            provider: "codex",
+            forced: true,
+            request_id: requestId,
+          });
+        }
         if (error instanceof CoderouterOperationDeadlineError) {
           upstream = discardUpstreamResponse(upstream);
           break;
         }
+        lastFailureTransient = false;
         continue;
       }
     }
@@ -541,6 +662,9 @@ async function proxyCodexRequestWith(
     }
     break;
   }
+  if (noAccountConfigured) {
+    return noCodexAccountConfigured({ requestId, identity, request, startedAt });
+  }
   if (!upstream) {
     captureRouteHealth({
       requestId,
@@ -548,7 +672,8 @@ async function proxyCodexRequestWith(
       request,
       startedAt,
       status: 503,
-      attempted: attempted.length,
+      attempted: attemptCount,
+      hold: holdStats(hold),
       refreshRetries,
       outcome: "no_usable_account",
       failureStage,
@@ -586,7 +711,8 @@ async function proxyCodexRequestWith(
     request,
     startedAt,
     status,
-    attempted: attempted.length,
+    attempted: attemptCount,
+    hold: holdStats(hold),
     refreshRetries,
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
     responseStreamed: streamed,
@@ -968,7 +1094,12 @@ type CodexModelsDependencies = {
   readonly credential: typeof freshCredential;
   readonly cooldown: typeof markAccountCooldown;
   readonly providerRead: typeof fetchProviderRead;
+  /** Same contract as the responses proxy: false only when no account is visible. */
+  readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
+
+/** Model discovery has no request deadline; bound the visibility lookup. */
+const MODELS_ACCOUNT_LOOKUP_TIMEOUT_MS = 5_000;
 
 export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
   return async (request: Request): Promise<Response> => {
@@ -1003,7 +1134,28 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         startedAt: selectStartedAt,
         attributes: { provider: "codex", attempt: attempt + 1, healthy: account !== null },
       });
-      if (!account) break;
+      if (!account) {
+        if (
+          attempt === 0 &&
+          !await teamHasCodexAccount(
+            dependencies,
+            identity,
+            request.signal,
+            Date.now() + MODELS_ACCOUNT_LOOKUP_TIMEOUT_MS,
+            Date.now,
+          )
+        ) {
+          recordCoderouterOutcome({
+            outcome: "no_usable_account",
+            failureStage: "provider_config",
+            status: 403,
+            provider: "codex",
+            attempts: 0,
+          });
+          return noCodexAccountResponse();
+        }
+        break;
+      }
       attempted.push(account.id);
       let credential;
       try {
@@ -1113,6 +1265,7 @@ export const proxyCodexModels = createCodexModelsProxy({
   credential: freshCredential,
   cooldown: markAccountCooldown,
   providerRead: fetchProviderRead,
+  hasConfiguredAccount,
 });
 
 type ResponsesCredential = Extract<
@@ -1313,6 +1466,69 @@ function unauthorizedError(reason: RouteTokenAuthFailure): Response {
   );
 }
 
+/**
+ * False only when the lookup proves the caller can see no Codex-family
+ * account. An unknown answer keeps the retryable 503 rather than telling a
+ * client to stop.
+ */
+async function teamHasCodexAccount(
+  dependencies: { readonly hasConfiguredAccount?: typeof hasConfiguredAccount },
+  identity: RouteTokenIdentity,
+  requestSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
+): Promise<boolean> {
+  const lookup = dependencies.hasConfiguredAccount;
+  if (!lookup) return true;
+  try {
+    return await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
+      teamId: identity.teamId,
+      provider: RESPONSES_PROVIDERS,
+      access: accountAccessForIdentity(identity),
+      signal,
+    }));
+  } catch (error) {
+    // A caller cancellation still ends the request; a lookup failure or the
+    // request deadline keeps the retryable answer.
+    if (requestSignal.aborted) throw error;
+    return true;
+  }
+}
+
+/**
+ * The team has not added a Codex account. Codex retries 429 and 5xx, so a
+ * 403 in the OpenAI error shape surfaces once with the recovery step. It is
+ * still a tenant fault: `provider_config` marks it in the route record.
+ */
+function noCodexAccountConfigured(input: {
+  readonly requestId: string;
+  readonly identity: RouteTokenIdentity;
+  readonly request: Request;
+  readonly startedAt: number;
+}): Response {
+  captureRouteHealth({
+    ...input,
+    status: 403,
+    attempted: 0,
+    refreshRetries: 0,
+    outcome: "no_usable_account",
+    failureStage: "provider_config",
+    responseStreamed: false,
+  });
+  return noCodexAccountResponse();
+}
+
+/** Shared by every Codex surface: a terminal 403 in the OpenAI error shape. */
+function noCodexAccountResponse(): Response {
+  return Response.json({
+    error: {
+      message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
+      type: "invalid_request_error",
+      code: "no_account_configured",
+    },
+  }, { status: 403, headers: { "cache-control": "no-store" } });
+}
+
 function jsonError(
   error: string,
   status: number,
@@ -1332,6 +1548,10 @@ function jsonError(
   );
 }
 
+function holdStats(hold: CapacityHold): CapacityHoldStats | undefined {
+  return hold.holdCount === 0 ? undefined : { heldMs: hold.heldMs, holdCount: hold.holdCount };
+}
+
 function captureRouteHealth(input: {
   readonly requestId: string;
   readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
@@ -1339,6 +1559,7 @@ function captureRouteHealth(input: {
   readonly startedAt: number;
   readonly status: number;
   readonly attempted: number;
+  readonly hold?: CapacityHoldStats;
   readonly refreshRetries: number;
   readonly outcome:
     | "success"
@@ -1348,6 +1569,7 @@ function captureRouteHealth(input: {
   readonly failureStage?:
     | "none"
     | "auth"
+    | "provider_config"
     | "account_selection"
     | "credential_refresh"
     | "upstream_transport"
@@ -1356,6 +1578,7 @@ function captureRouteHealth(input: {
 }): void {
   const durationMs = Math.round(performance.now() - input.startedAt);
   const agent = agentFromUserAgent(input.request.headers.get("user-agent"));
+  const hold = capacityHoldTelemetry(input.hold);
   addCoderouterBreadcrumb(
     "request",
     "Model request completed",
@@ -1365,6 +1588,8 @@ function captureRouteHealth(input: {
       outcome: input.outcome,
       attempts: input.attempted,
       duration_ms: durationMs,
+      held_ms: hold.heldMs,
+      hold_count: hold.holdCount,
     },
     input.status >= 500 ? "error" : input.status >= 400 ? "warning" : "info",
   );
@@ -1383,6 +1608,8 @@ function captureRouteHealth(input: {
     agent,
     attempts: input.attempted,
     refreshRetries: input.refreshRetries,
+    heldMs: hold.heldMs,
+    holdCount: hold.holdCount,
     responseStreamed: input.responseStreamed,
   });
   recordRouteEvent({
@@ -1399,6 +1626,8 @@ function captureRouteHealth(input: {
     attemptCount: input.attempted,
     refreshRetryCount: input.refreshRetries,
     durationMs,
+    heldMs: hold.heldMs,
+    holdCount: hold.holdCount,
     responseStreamed: input.responseStreamed,
   });
 }

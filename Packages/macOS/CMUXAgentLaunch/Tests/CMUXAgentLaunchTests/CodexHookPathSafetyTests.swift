@@ -72,7 +72,7 @@ struct CodexHookPathSafetyTests {
             ? ["--enable=hooks", "--dangerously-bypass-hook-trust"]
             : ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for (index, event) in CodexHookInjectionSchema.current.events.enumerated() {
-            let value = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(command(event.cmuxSubcommand))''',timeout=\(event.timeoutMs)}]}]"
+            let value = event.configValue(command: command)
             let option = index.isMultiple(of: 2) ? "-c" : "--config"
             if joined {
                 arguments.append("\(option)=\(value)")

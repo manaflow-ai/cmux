@@ -122,18 +122,23 @@ extension CmuxTuiSurfaceProvider {
                     onFocus: { [weak session] in
                         session?.claimGeometry()
                     },
-                    attachment: session.attachmentStatus
+                    attachment: session.attachmentStatus,
+                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
                 )
             }
             session.bind(surface: created.surface)
-            // Preserve the workspace's existing notification-dismissal hook
-            // while re-claiming geometry when this pane receives explicit
-            // input. A cloud terminal can have more than one local projection;
-            // the pane the user is typing in must be the authoritative owner.
-            let existingExplicitInput = created.surface.onExplicitInput
-            created.surface.onExplicitInput = { [weak session] in
-                existingExplicitInput?()
-                session?.noteExplicitInput()
+            // Keep Cloud input convergence on the panel. Workspace transfer
+            // rebinds the ordinary terminal callback, while this hook resolves
+            // the panel's current owner after a move.
+            if let createdPanel = Workspace.liveWorkspace(id: created.workspaceID)?.panels[created.panelID] as? TerminalPanel {
+                Workspace.bindCloudManualMirrorInputConvergence(
+                    panel: createdPanel,
+                    isActive: { [weak session, weak createdPanel] in
+                        guard let session, let createdPanel else { return false }
+                        return session.phase != .stopped && session.surface === createdPanel.surface
+                    },
+                    onExplicitInput: { [weak session] in session?.noteExplicitInput() }
+                )
             }
             manualMirrorSessions[created.panelID] = session
             session.reconnect(socketPath: connected.socketPath)
@@ -263,7 +268,7 @@ extension CmuxTuiSurfaceProvider {
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {
-                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
                 }) else { continue }
             }
             for session in sessionsByTerminal[terminalID] ?? [] {

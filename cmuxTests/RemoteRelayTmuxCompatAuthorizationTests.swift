@@ -215,6 +215,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let admitted: [(String, [String: Any])] = [
             ("workspace.equalize_splits", ["workspace_id": workspaceID, "orientation": "vertical"]),
             ("surface.send_text", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID, "text": "ls\n"]),
+            ("terminal.paste", [
+                "workspace_id": workspaceID, "surface_id": leaderSurfaceID,
+                "text": "first line\nsecond line", "submit_key": "none",
+            ]),
             ("surface.close", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID]),
             ("surface.list", ["workspace_id": workspaceID]),
         ]
@@ -251,6 +255,13 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             "text": "echo foreign",
         ])
         #expect(foreignSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
+        let foreignPaste = try fixture.authorize(method: "terminal.paste", params: [
+            "workspace_id": workspaceID,
+            "surface_id": UUID().uuidString,
+            "text": "foreign",
+            "submit_key": "none",
+        ])
+        #expect(foreignPaste.errorResponse?.contains("remote_relay_surface_denied") == true)
 
         let missingSurface = try fixture.authorize(method: "surface.close", params: [
             "workspace_id": workspaceID,
@@ -323,9 +334,23 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
 
         let admitted = try fixture.authorize(method: "surface.send_text", params: params)
         #expect(admitted.errorResponse == nil)
+        let paste = try fixture.authorize(method: "terminal.paste", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString,
+            "text": "scoped",
+            "submit_key": "none",
+        ])
+        #expect(paste.errorResponse == nil)
         fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
         let revoked = try fixture.authorize(method: "surface.send_text", params: params)
         #expect(revoked.errorResponse?.contains("remote_relay_surface_denied") == true)
+        let revokedPaste = try fixture.authorize(method: "terminal.paste", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString,
+            "text": "scoped",
+            "submit_key": "none",
+        ])
+        #expect(revokedPaste.errorResponse?.contains("remote_relay_surface_denied") == true)
     }
 
     @Test
@@ -384,10 +409,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             "workspace_id": fixture.workspace.id.uuidString,
             "terminal_id": fixture.panelID.uuidString,
         ])
-        let admitted = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        let admitted = try await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
         try #require(admitted.errorResponse == nil)
         fixture.workspace.activeRemoteSessionControllerID = UUID()
-        let retired = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        let retired = try await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
         #expect(retired.errorResponse?.contains("remote_relay_authentication_failed") == true)
     }
 

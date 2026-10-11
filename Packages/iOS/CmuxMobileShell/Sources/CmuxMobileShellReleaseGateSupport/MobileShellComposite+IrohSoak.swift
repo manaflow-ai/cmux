@@ -21,6 +21,21 @@ extension MobileShellComposite {
         return await remoteClient?.transportContinuityID()
     }
 
+    /// Reconnects the current paired Mac through the same bounded retry path
+    /// used by the shell's manual reconnect action. Pairing state is retained.
+    public func recoverIrohSoakConnection() async -> Bool {
+        let identity = irohSoakUIIdentity()
+        disconnectLiveConnection()
+        guard await retryActiveMacReconnect(stackUserID: nil, force: true) else { return false }
+        if let identity {
+            await openWorkspace(.init(rawValue: identity.workspace))
+            selectTerminalFromChrome(.init(rawValue: identity.surface))
+            return selectedWorkspaceID?.rawValue == identity.workspace
+                && selectedTerminalID?.rawValue == identity.surface
+        }
+        return irohSoakUIIdentity() != nil
+    }
+
     /// Executes one deterministic usage step through the same actions as the app UI.
     /// - Parameters:
     ///   - cycle: Zero-based workload cycle; selects one of four fixed steps.
@@ -89,7 +104,19 @@ extension MobileShellComposite {
                 }
                 try await verifyTerminalRoundTrip(surfaceID: terminal.id.rawValue, marker: marker + "_NEW", session: terminalSession)
             } catch {
-                _ = await closeWorkspace(id: scratch.id)
+                // Restore the original target before the runner reconnects and
+                // retries this step. A failed cleanup must stop the workload.
+                let closed = await closeWorkspace(id: scratch.id)
+                guard case .success = closed,
+                      let original = irohReleaseGateCurrentWorkspace(matching: target.workspace) else {
+                    throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+                }
+                await openWorkspace(original.id)
+                selectTerminalFromChrome(target.terminalID)
+                guard selectedWorkspaceID == original.id,
+                      selectedTerminalID == target.terminalID else {
+                    throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+                }
                 throw error
             }
             let switchSeconds = soakSeconds(switchStarted)

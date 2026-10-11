@@ -15,7 +15,10 @@ struct SSHTuiPreflightTests {
     @Test("Runs a prompt-free ssh true over the carrier's route")
     func runsBatchSSHOverTheRoute() async throws {
         let commands = ScriptedPreflightCommands(exitStatus: 0)
-        let connection = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/cm", "ConnectTimeout=5"]))
+        let connection = SSHTuiConnection(
+            configuration: configuration(options: ["ControlPath=/tmp/cm", "ConnectTimeout=5"]),
+            environment: ["PATH": "/usr/bin"]
+        )
         try await SSHTuiPreflight(connection: connection, commands: commands, timeout: 7).run()
         let call = try #require(await commands.calls.first)
         #expect(call.executable == "/usr/bin/ssh")
@@ -25,7 +28,97 @@ struct SSHTuiPreflightTests {
         #expect(call.arguments == ["-T", "-o", "BatchMode=yes", "-o", "RemoteCommand=none", "-o", "RequestTTY=no",
                                    "-p", "2222", "-i", "/tmp/key", "-o", "ControlPath=/tmp/cm", "-o", "ConnectTimeout=5",
                                    "-o", "ControlMaster=auto", "-o", "ControlPersist=600",
-                                   "-o", "ConnectTimeout=15", "alice@example.invalid", "true"])
+                                   "-o", "ConnectTimeout=15", "--", "alice@example.invalid", "true"])
+    }
+
+    @Test("Interactive authentication and batch preflight reuse a route-specific control master")
+    func authenticationAndPreflightShareRouteSpecificControlMaster() throws {
+        let connection = SSHTuiConnection(configuration: configuration(options: ["ProxyJump=bastion"]))
+        let authenticationPath = connection.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+        let preflightPath = connection.preflightArguments.first { $0.hasPrefix("ControlPath=") }
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+
+        #expect(authenticationPath == preflightPath)
+        #expect(authenticationPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(authenticationPath?.dropFirst("ControlPath=\(socketDirectory)/".count).count == 40)
+        #expect(connection.authenticationArguments.contains("ControlMaster=auto"))
+        #expect(connection.preflightArguments.contains("ControlMaster=auto"))
+    }
+
+    @Test("Different SSH agent sockets use different route-specific control masters")
+    func agentSocketsDoNotShareRouteSpecificControlMaster() throws {
+        let first = SSHTuiConnection(configuration: configuration(agent: "/tmp/agent-a.sock", identityFile: nil))
+        let second = SSHTuiConnection(configuration: configuration(agent: "/tmp/agent-b.sock", identityFile: nil))
+        let firstPath = first.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+        let secondPath = second.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(first.id == second.id)
+        #expect(firstPath != secondPath)
+    }
+
+    @Test("Inherited agent sockets use the same value for the child and route identity")
+    func inheritedAgentSocketIsCapturedPerConnection() throws {
+        let first = SSHTuiConnection(
+            configuration: configuration(identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-a.sock"]
+        )
+        let second = SSHTuiConnection(
+            configuration: configuration(identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-b.sock"]
+        )
+
+        #expect(first.sshProcessEnvironment["SSH_AUTH_SOCK"] == "/tmp/inherited-agent-a.sock")
+        #expect(second.sshProcessEnvironment["SSH_AUTH_SOCK"] == "/tmp/inherited-agent-b.sock")
+        #expect(first.id == second.id)
+        #expect(first.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+            != second.authenticationArguments.first { $0.hasPrefix("ControlPath=") })
+    }
+
+    @Test("A caller-owned ControlPath cannot cross inherited agent routes")
+    func callerControlPathDisablesCrossAgentReuse() throws {
+        let options = ["ControlMaster=auto", "ControlPersist=600", "ControlPath=/tmp/shared-cmux-agent"]
+        let first = SSHTuiConnection(
+            configuration: configuration(options: options, identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-a.sock"]
+        )
+        let second = SSHTuiConnection(
+            configuration: configuration(options: options, identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-b.sock"]
+        )
+
+        #expect(first.authenticationArguments.contains("ControlPath=none"))
+        #expect(second.authenticationArguments.contains("ControlPath=none"))
+        #expect(!first.authenticationArguments.contains("ControlPath=/tmp/shared-cmux-agent"))
+        #expect(!second.authenticationArguments.contains("ControlPath=/tmp/shared-cmux-agent"))
+    }
+
+    /// Explicit disable must not reuse an inherited-agent control master.
+    @Test("An explicitly disabled agent uses a separate route from an inherited agent")
+    func disabledAgentDoesNotShareInheritedRoute() throws {
+        let inherited = SSHTuiConnection(configuration: configuration(agent: nil, identityFile: nil))
+        let disabled = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: 2222, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+            terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
+        ))
+
+        let inheritedPath = inherited.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+        let disabledPath = disabled.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(inheritedPath != disabledPath)
+    }
+
+    @Test("An explicit disabled socket preserves a caller IdentityAgent option")
+    func disabledAgentPreservesCallerIdentityAgent() throws {
+        let disabled = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: 2222, identityFile: nil,
+            sshOptions: ["IdentityAgent=/tmp/caller-agent.sock"],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+            terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
+        ))
+
+        #expect(disabled.authenticationArguments.contains("IdentityAgent=/tmp/caller-agent.sock"))
+        #expect(!disabled.authenticationArguments.contains("IdentityAgent=none"))
     }
 
     @Test("Passes the configured agent socket like the carrier")
@@ -36,6 +129,34 @@ struct SSHTuiPreflightTests {
         let call = try #require(await commands.calls.first)
         #expect(call.executable == "/usr/bin/env")
         #expect(call.arguments == ["SSH_AUTH_SOCK=/tmp/agent.sock"] + connection.preflightArguments)
+    }
+
+    @Test("Pins an inherited agent captured by the connection")
+    func passesCapturedInheritedAgentSocket() async throws {
+        let commands = ScriptedPreflightCommands(exitStatus: 0)
+        let connection = SSHTuiConnection(
+            configuration: configuration(agent: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent.sock"]
+        )
+        try await SSHTuiPreflight(connection: connection, commands: commands).run()
+        let call = try #require(await commands.calls.first)
+        #expect(call.executable == "/usr/bin/env")
+        #expect(call.arguments == ["SSH_AUTH_SOCK=/tmp/inherited-agent.sock"] + connection.preflightArguments)
+    }
+
+    /// Explicit disable removes the inherited socket before OpenSSH starts.
+    @Test("Removes an explicitly disabled agent socket from the preflight child")
+    func removesDisabledAgentSocket() async throws {
+        let commands = ScriptedPreflightCommands(exitStatus: 0)
+        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: 2222, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+            terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
+        ))
+        try await SSHTuiPreflight(connection: connection, commands: commands).run()
+        let call = try #require(await commands.calls.first)
+        #expect(call.executable == "/usr/bin/env")
+        #expect(call.arguments == ["-u", "SSH_AUTH_SOCK"] + connection.preflightArguments)
     }
 
     @Test("Reports OpenSSH's own failure with its diagnostic")
@@ -90,9 +211,9 @@ struct SSHTuiPreflightTests {
             CloudMachineLink.LinkError.exited(status: 1, output: "mkdir: /home/alice/.cmux: Permission denied")))
     }
 
-    private func configuration(options: [String] = [], agent: String? = nil) -> WorkspaceRemoteConfiguration {
+    private func configuration(options: [String] = [], agent: String? = nil, identityFile: String? = "/tmp/key") -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
-            destination: "alice@example.invalid", port: 2222, identityFile: "/tmp/key", sshOptions: options,
+            destination: "alice@example.invalid", port: 2222, identityFile: identityFile, sshOptions: options,
             localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
             terminalStartupCommand: nil, agentSocketPath: agent
         )

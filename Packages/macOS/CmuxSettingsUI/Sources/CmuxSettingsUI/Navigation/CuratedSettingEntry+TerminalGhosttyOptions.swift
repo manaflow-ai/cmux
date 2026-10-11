@@ -66,6 +66,12 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.terminal.ghostty.scrollbackLimit", defaultValue: "Scrollback Limit"),
                 synonyms: "scrollback-limit scrollback history buffer lines memory megabytes mb ghostty"
             ),
+            .init(
+                section: .terminal,
+                id: "middle-click-paste",
+                title: String(localized: "settings.terminal.ghostty.middleClickPaste", defaultValue: "Middle-Click Paste"),
+                synonyms: "middle-click-action middle click paste mouse button wheel scroll wheel accidental primary selection disable ghostty"
+            ),
         ]
     }
 }

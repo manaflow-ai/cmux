@@ -45,7 +45,7 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
 ///   prefix) and never records approvals for them, so they only run through
 ///   `cmux restore --surface`. A hook binding already covered by a rebuilt
 ///   built-in agent is dropped.
-/// - tmux start commands are dropped.
+/// - tmux start commands and recorded Claude background viewers are dropped.
 /// - Scrollback keeps text and SGR styling only; OSC (clipboard, notification,
 ///   hyperlink, title, cwd), DCS, APC, PM, SOS and other control sequences
 ///   are removed before replay.
@@ -104,13 +104,15 @@ enum SessionSnapshotImportTrust {
                 var workspace = window.tabManager.workspaces[workspaceIndex]
                 if workspace.remote != nil || workspace.cloudVM != nil
                     || workspace.environment?.isEmpty == false
-                    || workspace.surfaceProjections?.isEmpty == false {
+                    || workspace.surfaceProjections?.isEmpty == false
+                    || workspace.cloudMachineTeams?.isEmpty == false {
                     report.droppedRemoteWorkspaceCount += 1
                 }
                 workspace.remote = nil
                 workspace.cloudVM = nil
                 workspace.environment = nil
                 workspace.surfaceProjections = nil
+                workspace.cloudMachineTeams = nil
                 workspace.panels = sanitize(workspace.panels)
                 if var dock = workspace.dock {
                     dock.panels = sanitize(dock.panels)
@@ -179,6 +181,12 @@ enum SessionSnapshotImportTrust {
 
         if terminal.tmuxStartCommand != nil {
             terminal.tmuxStartCommand = nil
+            heldBack = true
+        }
+        // A recorded `claude attach` viewer carries a launch prefix and config
+        // directory that restore would type; a file must not supply them.
+        if terminal.claudeBackgroundViewer != nil {
+            terminal.claudeBackgroundViewer = nil
             heldBack = true
         }
         if heldBack {
@@ -279,8 +287,13 @@ enum SessionSnapshotImportTrust {
         sanitized.forwardHistoryURLStrings = browser.forwardHistoryURLStrings?.filter(isAllowedImportedURL)
         sanitized.profileID = nil
         sanitized.cloudResource = nil
+        sanitized.cloudTeamID = nil
         sanitized.diffViewerToken = nil
         sanitized.diffViewerRequestPath = nil
+        // WebKit's interaction state holds its own back/forward list, which
+        // would bypass the history filter above.
+        sanitized.interactionState = nil
+        sanitized.keepsPageActive = nil
         sanitized.transparentBackground = nil
         sanitized.developerToolsVisible = false
         let changed = sanitized.urlString != browser.urlString
@@ -288,8 +301,11 @@ enum SessionSnapshotImportTrust {
             || sanitized.forwardHistoryURLStrings != browser.forwardHistoryURLStrings
             || browser.profileID != nil
             || browser.cloudResource != nil
+            || browser.cloudTeamID != nil
             || browser.diffViewerToken != nil
             || browser.diffViewerRequestPath != nil
+            || browser.interactionState != nil
+            || browser.keepsPageActive != nil
             || browser.transparentBackground != nil
             || browser.developerToolsVisible
         return (sanitized, changed)

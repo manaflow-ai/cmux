@@ -41,9 +41,12 @@ extension TerminalController {
                 mainWindow: NSApp.mainWindow,
                 terminalWindow: self.tabManager?.window
             )
-            guard let window else { return nil }
+            guard let selected = window else { return nil }
+            // A window-modal sheet is what the person sees; when the app is
+            // not active its parent stays key, so capture the sheet directly.
+            let target = selected.attachedSheet.flatMap { $0.isVisible ? $0 : nil } ?? selected
             return WindowScreenshotTarget(
-                windowNumber: window.windowNumber
+                windowNumber: target.windowNumber
             )?.windowID
         }
         guard let captureTarget else {

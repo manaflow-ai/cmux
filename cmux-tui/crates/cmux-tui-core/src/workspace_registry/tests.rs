@@ -1,5 +1,7 @@
+use super::journal_extensions::JOURNAL_LIST_MAX_ITEMS;
 use super::*;
 use crate::resource::FrontendProjectionPublicId;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 const TERMINAL_ONE: &str = "00000000000040008000000000000001";
@@ -35,6 +37,99 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
             &json!({"key":key}),
         )
         .unwrap();
+}
+
+fn test_digest_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[test]
+fn journal_lists_are_bounded_by_the_resource_catalog() {
+    let registry = WorkspaceRegistry::in_memory("journal-list-bounds").unwrap();
+    for sequence in 1..=(JOURNAL_LIST_MAX_ITEMS + 1) {
+        let digest_input = json!({
+            "source_sequence": sequence.to_string(),
+            "reducer_version": 1,
+            "state": {},
+            "content_refs": [],
+        });
+        let digest = Sha256::digest(canonical_json(&digest_input).unwrap().as_bytes());
+        let checkpoint_id = format!("checkpoint_{}", test_digest_hex(&digest));
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_checkpoints(
+                   checkpoint_id, source_sequence, reducer_version, state_json,
+                   content_refs_json, sha256, created_at_ms
+                 ) VALUES(?1, ?2, 1, '{}', '[]', ?3, ?4)",
+                params![checkpoint_id, sequence as i64, digest.as_slice(), sequence as i64],
+            )
+            .unwrap();
+
+        let segment_digest = Sha256::digest(format!("segment-{sequence}").as_bytes());
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec,
+                   content, uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, ?2, ?3, 1, 'gzip', X'01', 1, ?4, ?5)",
+                params![
+                    format!("segment-{sequence}"),
+                    (sequence * 2 - 1) as i64,
+                    (sequence * 2) as i64,
+                    segment_digest.as_slice(),
+                    sequence as i64,
+                ],
+            )
+            .unwrap();
+    }
+
+    let checkpoints = registry.journal_checkpoints().unwrap();
+    assert_eq!(checkpoints.len(), JOURNAL_LIST_MAX_ITEMS);
+    assert_eq!(checkpoints[0].source_sequence, (JOURNAL_LIST_MAX_ITEMS + 1) as u64);
+
+    let segments = registry.journal_segments().unwrap();
+    assert_eq!(segments.len(), JOURNAL_LIST_MAX_ITEMS);
+    assert_eq!(segments[0].start_sequence, 1);
+}
+
+#[test]
+fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
+    let root = temp_root("journal-auto-vacuum-migration");
+    let database = {
+        let registry = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+        let database = registry.session_journal_database_path().unwrap();
+        registry
+            .connection
+            .execute("DELETE FROM meta WHERE key = ?1", [JOURNAL_AUTO_VACUUM_META_KEY])
+            .unwrap();
+        database
+    };
+
+    // Model a registry written before journal maintenance opted into
+    // incremental auto-vacuum.
+    let legacy = Connection::open(&database).unwrap();
+    legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+    drop(legacy);
+
+    let reopened = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 0, "legacy migration must not rewrite the registry during open");
+    assert!(meta_value(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap().is_none());
+    assert!(reopened.migrate_journal_auto_vacuum().unwrap());
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 2);
+    assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
+    assert!(!reopened.migrate_journal_auto_vacuum().unwrap());
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(windows)]
@@ -621,6 +716,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -716,6 +812,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -825,6 +922,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -5967,6 +6065,71 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     assert!(preflight_unsupported_schema(&database).is_none());
 
     fs::remove_dir_all(root).unwrap();
+}
+
+fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new(format!("reserve-{terminal_id}"), "test").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":terminal_id}),
+            None,
+            Some(expected_revision),
+            "terminal-added",
+            &terminal(terminal_id, "one"),
+            &json!({"terminal_id":terminal_id}),
+        )
+        .unwrap();
+}
+
+#[test]
+fn terminal_idle_policy_persists_across_reopen_and_null_clears_it() {
+    let root = temp_root("idle-policy");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "idle-policy").unwrap();
+        seed_workspace(&mut registry, "one");
+        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+        reserve_terminal(&mut registry, TERMINAL_TWO, 1);
+        registry.set_terminal_idle_policy(TERMINAL_ONE, Some(3_600)).unwrap();
+        registry.set_terminal_idle_policy(TERMINAL_TWO, Some(86_400)).unwrap();
+        registry.set_terminal_idle_policy(TERMINAL_TWO, Some(604_800)).unwrap();
+    }
+
+    let mut registry = WorkspaceRegistry::open(&root, "idle-policy").unwrap();
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_ONE).unwrap(), Some(3_600));
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_TWO).unwrap(), Some(604_800));
+    let live = registry.live_terminal_idle_policies().unwrap();
+    let live: Vec<_> =
+        live.into_iter().map(|policy| (policy.terminal_id, policy.idle_close_seconds)).collect();
+    assert_eq!(live, vec![(TERMINAL_ONE.to_string(), 3_600), (TERMINAL_TWO.to_string(), 604_800)]);
+
+    registry.set_terminal_idle_policy(TERMINAL_TWO, None).unwrap();
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_TWO).unwrap(), None);
+    assert_eq!(registry.live_terminal_idle_policies().unwrap().len(), 1);
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn terminal_idle_policy_rejects_invalid_and_closed_terminals() {
+    let mut registry = WorkspaceRegistry::in_memory("idle-policy-invalid").unwrap();
+    seed_workspace(&mut registry, "one");
+    reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+
+    assert!(registry.set_terminal_idle_policy(TERMINAL_ONE, Some(0)).is_err());
+    let too_long = Some(idle_policy_store::MAX_TERMINAL_IDLE_CLOSE_SECONDS + 1);
+    assert!(registry.set_terminal_idle_policy(TERMINAL_ONE, too_long).is_err());
+    let unknown = registry.set_terminal_idle_policy(TERMINAL_TWO, Some(60)).unwrap_err();
+    assert!(unknown.to_string().contains("terminal_not_found"));
+
+    registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap();
+    let close = WorkspaceMutation::new("close-idle", "test").unwrap();
+    registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
+    assert!(registry.live_terminal_idle_policies().unwrap().is_empty());
+    assert_eq!(registry.prune_terminal_idle_policies().unwrap(), 1);
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_ONE).unwrap(), None);
+    let closed = registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap_err();
+    assert!(closed.to_string().contains("terminal_not_found"));
 }
 
 #[cfg(windows)]

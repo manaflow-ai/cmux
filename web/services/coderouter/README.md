@@ -43,12 +43,12 @@ PostHog events go to the main cmux project (`POSTHOG_PROJECT_KEY` / `POSTHOG_HOS
 
 | event | when | key properties |
 | --- | --- | --- |
-| `$exception` | every failure that is not the caller's fault, and every `reportCoderouterFailure` | `$exception_fingerprint`, `$exception_level`, `$exception_list` with the scrubbed message and, for thrown errors, raw stack frames |
+| `$exception` | every operator or upstream failure, and every `reportCoderouterFailure` outside a route | `operation`, `$exception_fingerprint`, `$exception_level`, `$exception_list` with the scrubbed message and, for thrown errors, raw stack frames |
 | `coderouter_auth_rejected`, account and session lifecycle, CLI commands | unchanged closed-schema product analytics | now keyed by the Stack user, with `team_id` |
 
 Route outcomes, failures, tokens, models, providers, latency, and Cloud VM attribution are stored in ClickHouse `route_events` and `usage_events`. This avoids a second usage ledger in PostHog and keeps billing and product reporting on one authoritative dataset.
 
-Fault classification (`classifyCoderouterFault`, `faultClassification.ts`) decides who is paged; the alert cron uses the same function. `operator` (PlanetScale, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts) and `tenant` (no usable account): `warning`. `caller` (bad token, 4xx): trace only, no exception. Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
+Fault classification (`classifyCoderouterFault`, `faultClassification.ts`) decides who is paged; the alert cron uses the same function. `operator` (PlanetScale, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts): `warning`. `tenant` (no usable account: none added, or every account cooling down) and `caller` (bad token, 4xx): no exception; the ClickHouse route row and the alert cron below still count them. Every coderouter `$exception` carries `operation`: `coderouter.<surface>` from a route, `coderouter.background` from cron and deferred work (whose own step name is `coderouter_operation`). Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
 
 Unhandled throws in a route are no longer swallowed as a bare 503: the wrapper reports `route_crash` with the real stack (PostHog `$exception`, Sentry), then answers with the surface's own 503 shape. It also writes the `route_events` row the proxy never reached (outcome `route_crash`, the returned status, duration, request id), unless the proxy already wrote one for that request. The write is deferred and best effort; a ledger failure never changes the response. Before 2026-09-25 crashes wrote no row, so the 2026-09-24 signed-VM-auth outage (20,776 crashes in ten hours) was invisible to the alert cron.
 
@@ -57,6 +57,8 @@ A crash carries a safe structured cause (`errorCause.ts`), never the message: Dr
 `failure_stage` on a crash is `auth` when the throw happened after credential verification started but before it produced an identity, else `handler`. Attribution (`team_id`, `stack_user_id`, `vm_id` on the row; `team_id`, the distinct id and `coderouter_vm_id` on PostHog) uses the verified identity when there is one. For a signed VM credential whose JWT signature, audience and lifetime verified, but whose database ownership check crashed, it uses the signed claims; `coderouter_identity_source` is then `signed_vm_claims` instead of `authenticated`. Those claims were signed by us, so they identify the machine even though the request was not authorized.
 
 Upstream model calls are bounded to headers (`upstreamFetch.ts`, `CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS`, default 10 minutes). A hung provider fails over to the next account like a connection error instead of holding the function for the full 30 minute `maxDuration`. The body stream is never bounded.
+
+On capacity errors (429, 5xx/529, overloaded SSE events, transport failures before any output) the proxies hold the request and replay the same model instead of failing fast (`capacityHold.ts`, `CODEROUTER_CAPACITY_HOLD_MS`, default 20 minutes). Waits back off with jitter and honor the soonest account cooldown; a request fails at once when no account recovers within the budget. `route_events.held_ms` and `hold_count` record the wait.
 
 Investigating one failure: take the `x-coderouter-request-id`, query ClickHouse `SELECT * FROM coderouter.route_events WHERE request_id = '<id>'`, then use Axiom for the route span and PostHog Error Tracking for the operational issue.
 
@@ -88,7 +90,7 @@ Why the threshold checks stay in code rather than moving to PostHog insight aler
 
 Required env (audited by `bun scripts/cloud-vm/audit-env.mjs production`): `CLICKHOUSE_URL/USER/PASSWORD/DATABASE`, `CODEROUTER_KMS_KEY_ID` + `AWS_REGION`, and `CRON_SECRET`. Configure `CMUX_ALERTS_SLACK_WEBHOOK_URL` unless `CMUX_ALERTS_SINK_UNCONFIGURED_ACK` records the approved unconfigured sink. `POSTHOG_PROJECT_KEY` has an in-code default. The retired `POSTHOG_CODEROUTER_*` and `CODEROUTER_ANALYTICS_SCOPE_SECRET` keys are flagged as legacy by the audit and can be deleted from Vercel.
 
-Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge.
+Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge. No deploy or CI job runs it, and inserts silently drop columns the database lacks, so a new ClickHouse migration must also add its columns to `CLICKHOUSE_EXPECTED_COLUMNS` in `clickhouseSchema.ts` (a test enforces this). The `coderouter-alerts` cron compares that list with `system.columns` and sends one critical `coderouter-clickhouse-schema-drift` Slack alert plus a Sentry event per day while a migration is unapplied.
 
 ## VM team and account access
 
@@ -130,9 +132,23 @@ constraints; custom pool management UI is not part of this change.
 session and the selected team. Account administration requires Stack's
 `$manage_api_keys` permission, or the user's own personal scope. A private
 account additionally belongs to its importer. The dashboard exposes **Share
-with team** and **Make private**. A VM token cannot administer accounts or mint
-an organization session. The organization catalog returned to a VM contains
-only its own team and `fixed: true`.
+with team** and **Make private**. A VM token cannot change sharing or mint an
+organization session. The organization catalog returned to a VM contains only
+its own team and `fixed: true`.
+
+A VM-bound route token (`resolveCoderouterControlContext`) does manage provider
+accounts, so `cmux coderouter` inside a managed machine can add and remove
+them: it may list, import (`POST /api/coderouter/accounts`, `POST
+/api/coderouter/claude-upstream`), update (`PATCH
+/api/coderouter/claude-upstream/:id`) and remove (`DELETE` on the same routes)
+accounts. Its scope is fixed by the token: the VM's own team (it cannot choose
+another), only accounts its VM pool grants (`accountAccessPredicate`, `vm`
+access; an organization VM never reaches its creator's private accounts), and
+only while the machine is live. A chatmux machine token cannot manage
+accounts, and a token without a VM id is refused (`vm_bound_token_required`).
+Anything running in the machine can therefore remove or replace the pool's
+accounts; treat a VM token like a team member's account-management
+credential for that pool.
 
 Inside a managed machine, `cmux coderouter accounts --json` returns native and
 Claude account metadata under one team id, and `cmux coderouter org current

@@ -6,8 +6,8 @@ extension ShortcutAction {
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
+             .commandPalette, .agentInbox, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
+             .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread, .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
@@ -28,7 +28,7 @@ extension ShortcutAction {
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
              .newSurface, .toggleTerminalCopyMode, .previousAgentTurn, .nextAgentTurn, .focusTextBoxInput,
-             .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot,
+             .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow,
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown,
@@ -58,7 +58,8 @@ extension ShortcutAction {
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
              .diffViewerScrollToBottom, .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             return .browser
         }
     }

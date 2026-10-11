@@ -33,5 +33,12 @@ A run writes `run.json`, `summary.json` and one `session-NNN/` per app launch: `
 frames and, for a failure, `finding.json`, `repro.json`, `repro/frames/`, the debug log tail, a sample and
 any crash report. To fix a finding, replay its `repro.json` against your build; it passes once the bug is gone.
 
+Pull request CI replays every repro in `regressions/` when a same-repository pull request without the
+`no-full-ci` label touches what they exercise: the sidebar, splits and panes, the main window's size, or the
+fuzzer and its repros. A fork pull request gets no replay. The `ui-tests` job asks for
+`cmuxUITests/FuzzRegressions` (`scripts/ci/ui_tests_dispatch.py` lists the paths), and the UI test lane runs
+`scripts/fuzz regressions` on an owned Mac against the app it already adopted. `scripts/run-e2e.sh
+cmuxUITests/FuzzRegressions` runs the same replay for any pushed commit.
+
 Steps address panes, tabs and workspaces by position (a fraction of whatever exists), never by id, so any
 subsequence of a run still executes. `tests/test_ui_fuzzer_engine.py` covers the parts that need no app.

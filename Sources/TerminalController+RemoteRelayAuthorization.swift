@@ -52,12 +52,12 @@ extension TerminalController {
     #endif
     nonisolated func authorizeRemoteRelayRequestAsync(
         _ request: ControlRequest
-    ) async -> RemoteRelayAuthorizationResult {
+    ) async throws -> RemoteRelayAuthorizationResult {
         let snapshot: RemoteRelayAuthorizationSnapshot?
         if case .string(let ownerRaw)? = request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey],
            let ownerWorkspaceID = UUID(uuidString: ownerRaw),
            request.params[WorkspaceRemoteRelayCommandRewriter.requestAuthenticationCodeKey] != nil {
-            snapshot = await v2MainAsync {
+            snapshot = try await v2MainAsync {
                 self.remoteRelayAuthorizationSnapshot(ownerWorkspaceID: ownerWorkspaceID)
             }
         } else {
@@ -220,6 +220,34 @@ extension TerminalController {
         return workspace.isRemoteTerminalContext(surfaceID)
     }
 
+    /// Returns the current surface snapshot for an agent-message relay request.
+    /// The worker handler uses this again after ingress so workspace-level
+    /// recipient resolution cannot select a local split inside an SSH workspace.
+    func remoteRelayAgentMessageSurfaceIDs(
+        ownerWorkspaceID: UUID,
+        connectionID: UUID
+    ) -> Set<UUID>? {
+        guard let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: ownerWorkspaceID),
+              snapshot.connectionID == connectionID,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: ownerWorkspaceID) else {
+            return nil
+        }
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: ownerWorkspaceID,
+            surfaceID: nil,
+            paneID: nil,
+            remoteRelayOwnerWorkspaceID: ownerWorkspaceID,
+            remoteRelayConnectionID: snapshot.connectionID
+        )
+        guard remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else {
+            return nil
+        }
+        return snapshot.surfaceIDs
+    }
+
     /// A destination workspace can retain a moved remote surface for local
     /// lifecycle handling while the relay owner remains the launch workspace.
     /// Read paths must apply that same provenance boundary before returning
@@ -270,6 +298,40 @@ extension TerminalController {
                 }
             }
             return .err(code: "remote_relay_authentication_failed", message: remoteRelayAuthenticationFailedMessage, data: nil)
+        }
+        if method == "agent.message.poll"
+            || method == "agent.message.claim"
+            || method == "agent.message.mark_read" {
+            guard case .string(let surfaceRaw)? = params["surface_id"],
+                  let surfaceID = UUID(uuidString: surfaceRaw),
+                  let workspace = AppDelegate.shared?.workspaceFor(tabId: owner) else {
+                return .err(
+                    code: "remote_relay_surface_denied",
+                    message: "Relay surface is no longer active",
+                    data: nil
+                )
+            }
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: owner,
+                surfaceID: surfaceID,
+                paneID: nil,
+                remoteRelayOwnerWorkspaceID: owner,
+                remoteRelayConnectionID: snapshot.connectionID
+            )
+            guard remoteRelayTargetIsCurrent(
+                routing: routing,
+                workspace: workspace,
+                surfaceID: surfaceID
+            ) else {
+                return .err(
+                    code: "remote_relay_surface_denied",
+                    message: "Relay surface is no longer active",
+                    data: nil
+                )
+            }
         }
         switch remoteRelayAuthorizationPolicy().validate(method: method,
             parameters: params.mapValues(\.foundationObject), ownerWorkspaceID: owner, surfaceIDs: snapshot.surfaceIDs) {

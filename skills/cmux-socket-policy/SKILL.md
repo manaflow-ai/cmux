@@ -21,6 +21,7 @@ description: "Socket command threading and focus policy for cmux CLI/socket work
 - Only explicit focus-intent commands may mutate in-app focus/selection.
 - Explicit focus-intent commands include `window.focus`, `workspace.select/next/previous/last`, `surface.focus`, `pane.focus/last`, browser focus commands, and v1 focus equivalents.
 - All non-focus commands should preserve the current user focus context while still applying data/model changes.
+- Open commands (`vm`/`cloud` shell, tui, open, new, base, workspace new/open, agent; `surface open`/`new-terminal`; `cmux open`; `cmux ssh`) focus only when run interactively and stay in the background when run by an agent or script (`defaultFocusForUserOpen`); `--focus` opts in, `--no-focus` opts out. Their socket methods default `focus` to false, and a pane opened without focus is marked unread.
 
 ## Remote relay authorization
 

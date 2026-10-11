@@ -212,7 +212,7 @@ struct RemoteShellCWDRelayTests {
             encoding: .utf8
         )
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -251,7 +251,7 @@ struct RemoteShellCWDRelayTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/cmux-bash-integration.bash")

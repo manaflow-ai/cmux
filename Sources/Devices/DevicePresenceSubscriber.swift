@@ -1,8 +1,9 @@
 import Foundation
 
-/// Subscribes this Mac to the account's live presence stream
-/// (`GET /v1/presence/subscribe` on `workers/presence`, WebSocket), the same
-/// stream the iOS device tree renders from. Every subscribe delivers a
+/// Subscribes this Mac to the signed-in user's live device presence
+/// (`GET /v1/presence/subscribe?scope=account` on `workers/presence`,
+/// WebSocket). The account scope lists only this user's devices, whatever
+/// team each one has selected; a worker without it serves the team stream. Every subscribe delivers a
 /// snapshot first, then online/offline/seen/routes transitions; the same socket
 /// also serves the `devices` sync collection after a `sync.hello`, which is
 /// where device owners come from.
@@ -62,6 +63,7 @@ actor DevicePresenceSubscriber {
         }
         let basePath = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
         comps.path = basePath + "/v1/presence/subscribe"
+        comps.queryItems = [URLQueryItem(name: "scope", value: "account")]
         return comps.url
     }
 

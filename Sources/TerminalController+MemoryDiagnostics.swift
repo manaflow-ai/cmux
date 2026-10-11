@@ -7,11 +7,11 @@ extension TerminalController {
     #else
     @Sendable
     #endif
-    nonisolated func v2SystemMemory(params: [String: Any]) async -> V2CallResult {
+    nonisolated func v2SystemMemory(params: [String: Any]) async throws -> V2CallResult {
         var baseParams = params
         baseParams["include_processes"] = false
         let paramsValue = baseParams.compactMapValues { JSONValue(foundationObject: $0) }
-        let typedBase = await v2MainAsync {
+        let typedBase = try await v2MainAsync {
             self.v2RefreshKnownRefs()
             return Self.controlCallResult(fromLegacy: self.v2SystemTopBasePayload(params: paramsValue.mapValues(\.foundationObject)))
         }
@@ -82,7 +82,7 @@ extension TerminalController {
             topGroupLimit: topGroupLimit
         )
         let resources = await MemoryResourceSample(processSnapshot: processSnapshot)
-        let resourceContext = await v2MainAsync {
+        let resourceContext = try await v2MainAsync {
             JSONValue(foundationObject: resources.payload(
                 views: MemoryResourceViewCounts.capture(),
                 monitor: MemoryPressureMonitor.shared.resourceDiagnosticPayload()

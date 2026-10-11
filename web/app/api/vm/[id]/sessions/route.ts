@@ -7,6 +7,7 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { listVmSessions, openVmSession } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   optionalClientIdentifier,
   optionalString,
@@ -78,6 +79,7 @@ export async function POST(
         sessionId,
         attachmentId,
         title,
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const result = run.value;
@@ -97,6 +99,7 @@ function sessionPayload(session: CloudVmSessionRow) {
     title: session.title,
     kind: session.kind,
     status: session.status,
+    // Cumulative attaches over the session's life, never a live client count.
     attachmentCount: session.attachmentCount,
     effectiveCols: session.effectiveCols,
     effectiveRows: session.effectiveRows,

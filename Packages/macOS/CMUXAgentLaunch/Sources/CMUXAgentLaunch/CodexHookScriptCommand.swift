@@ -13,7 +13,7 @@ public extension CodexHookScriptName {
     /// - Parameter path: The absolute filesystem path of a generated hook script.
     /// - Returns: A command-string token that evaluates to exactly `path`.
     static func shellCommand(forScriptPath path: String) -> String {
-        guard path.range(of: shellSafePathPattern, options: .regularExpression) == nil else {
+        guard !isShellSafeWord(path) else {
             return path
         }
         // Close/reopen the single-quoted word around an apostrophe. This form
@@ -83,7 +83,24 @@ public extension CodexHookScriptName {
 }
 
 private extension CodexHookScriptName {
-    static let shellSafePathPattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+    static let shellSafePunctuation = Array("_@%+=:,./-".utf8)
+
+    /// Compares bytes rather than matching `^…$`: with NSString's ICU matching,
+    /// `$` also matches before a final line terminator, so a path ending in a
+    /// newline would stay bare and end the hook command early.
+    static func isShellSafeWord(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.allSatisfy { byte in
+            switch byte {
+            case UInt8(ascii: "A")...UInt8(ascii: "Z"),
+                 UInt8(ascii: "a")...UInt8(ascii: "z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"):
+                return true
+            default:
+                return shellSafePunctuation.contains(byte)
+            }
+        }
+    }
+
     static let shellMetacharacters = CharacterSet(
         charactersIn: "'\"`$&;|<>()[\\]{}*?!~#"
     )

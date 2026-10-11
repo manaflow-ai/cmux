@@ -85,3 +85,46 @@ partial, and out-of-order panel refreshes cannot change row identity. Cancellati
 tombstones remain until process termination instead of evicting live receipts.
 Retries retain their original CLI idempotency scope; backend allocation durability
 and the CLI's idempotency store remain outside this package.
+
+`CloudMachineDeletionCoordinator` owns optimistic machine deletion. `begin` hides a
+machine from every list before the destroy request starts; a second `begin` for the
+same machine is a no-op. On success or 404 the machine stays hidden as a confirmed
+deletion; on failure its row is listed again. A pending deletion stays hidden
+whatever a fleet read returns. A confirmed one stays hidden until the account ends:
+provider machine IDs are never reused, and each list polls on its own schedule, so
+no single read proves that every list has dropped the machine. The projection's
+`hiddenMachineIDs` is what lists omit; `pendingMachineIDs` is the subset that can
+still come back, so a view keeps rollback state only for those. `endAccount()`
+forgets every entry without rollback. The app adapter owns the CLI, alerts, and
+closing workspaces. Before closing the machine's workspaces it calls the create
+owner's `retireCreates(producing:presentedIn:)` with their IDs, so a create for the
+same machine stops without a second destroy request, even one whose receipt has
+not named the machine yet. It closes no presentation in those workspaces, since
+the adapter closes them whole, panes the person added included; a window's last
+tab stays open, emptied and unbound. A cancelled create's `cleanupMachineIDs`
+start deletions too, through `beginCleanup`, which hides the machine at once. Its
+presentations close only when `beginRequest` reports the cleanup's destroy
+request, after the create's presentation has closed, so a pane the person added
+there stays open. A cleanup whose CLI exits before the request lists the machine
+again with its presentations. After a failure the adapter calls
+`machineDeletionFailed(_:)`, so a create whose receipt first names the restored
+machine keeps it. The creates the delete stopped stay stopped, and
+receipts seen while it ran request nothing, so no create retries the destroy on
+its own. When the account ends, the create owner's `endAccount()` clears its
+deletions without an outcome and counts their machines as cleaned up, so a
+departed create never destroys one of them:
+
+```swift
+let deletions = CloudMachineDeletionCoordinator()
+guard deletions.begin("m1") else { return }       // hidden before any request
+_ = creates.retireCreates(producing: "m1", presentedIn: m1WorkspaceIDs)
+// Now close m1's workspaces whole; none has a create left to cancel.
+switch deletions.finish("m1", result: .deleted) {
+case .retired: break                              // close local registrations; m1 stays hidden
+case .restored:                                   // row is listed again; alert
+    creates.machineDeletionFailed("m1")
+case .ignored: break                              // duplicate, or the account ended
+}
+deletions.endAccount()                            // sign-out: both sets are empty
+_ = creates.endAccount()                          // departed creates never destroy m1
+```

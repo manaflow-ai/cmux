@@ -72,14 +72,7 @@ extension CmuxTuiSnapshotParser {
         fromSocketListing text: String,
         privateAddress: String?
     ) -> [Int] {
-        var loopbackOnlyByPort: [Int: Bool] = [:]
-        for binding in listeningPortBindings(fromSocketListing: text) {
-            loopbackOnlyByPort[binding.port] =
-                (loopbackOnlyByPort[binding.port] ?? true) && binding.isLoopbackOnly
-        }
-        return loopbackOnlyByPort.keys
-            .filter { privateAddress == nil || loopbackOnlyByPort[$0] == false }
-            .sorted()
+        CloudPortScanResult(socketListing: text)?.ports ?? []
     }
 }
 

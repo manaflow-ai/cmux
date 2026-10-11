@@ -464,7 +464,7 @@ private final class ReplayMaskProbeView: UIView {}
 
         let beforeSend = try #require(captured?.beforeSend)
         let event = Event()
-        event.message = SentryMessage(formatted: "dial from /Users/lawrence/dev failed")
+        event.message = SentryMessage(formatted: "dial from /Users/dev/dev failed")
         let scrubbed = try #require(beforeSend(event))
         #expect(scrubbed.message?.formatted == "dial from /Users/<redacted>/dev failed")
     }
@@ -485,7 +485,7 @@ private final class ReplayMaskProbeView: UIView {}
         )
 
         let beforeSendLog = try #require(captured?.beforeSendLog)
-        let log = SentryLog(level: .info, body: "retry from /Users/lawrence/dev")
+        let log = SentryLog(level: .info, body: "retry from /Users/dev/dev")
         let scrubbed = try #require(beforeSendLog(log))
         #expect(scrubbed.body == "retry from /Users/<redacted>/dev")
 

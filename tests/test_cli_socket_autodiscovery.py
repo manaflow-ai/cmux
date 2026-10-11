@@ -14,6 +14,8 @@ import tempfile
 import threading
 import time
 
+from claude_teams_test_utils import FIXTURE_SOCKET_PASSWORD, accept_fixture_socket_authentication
+
 
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
@@ -103,19 +105,18 @@ class PingServer:
     def _handle_connection(self, conn: socket.socket) -> None:
         with conn:
             conn.settimeout(2.0)
-            data = b""
             try:
-                while b"\n" not in data:
-                    chunk = conn.recv(4096)
-                    if not chunk:
-                        break
-                    data += chunk
+                with conn.makefile("rwb") as stream:
+                    for data in stream:
+                        if accept_fixture_socket_authentication(data, stream):
+                            continue
+                        if b"ping" in data:
+                            stream.write(self.response)
+                            stream.flush()
+                            self._done.set()
+                        return
             except (ConnectionResetError, socket.timeout, TimeoutError):
                 return
-
-            if b"ping" in data:
-                conn.sendall(self.response)
-                self._done.set()
 
 
 def write_marker(home: str, marker_name: str, socket_path: str) -> None:
@@ -200,7 +201,7 @@ def run_ping(
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
-        [cli_path, "ping"],
+        [cli_path, "--password", FIXTURE_SOCKET_PASSWORD, "ping"],
         text=True,
         capture_output=True,
         env=env,

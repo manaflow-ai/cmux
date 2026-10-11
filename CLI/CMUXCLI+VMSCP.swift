@@ -57,9 +57,9 @@ extension CMUXCLI {
         guard let host = response["host"] as? String, host == "127.0.0.1",
               let port = response["port"] as? Int, (1...65535).contains(port),
               let username = response["username"] as? String,
-              username.range(of: "^[A-Za-z_][A-Za-z0-9_.-]{0,63}$", options: .regularExpression) != nil,
+              username.range(of: "^[A-Za-z_][A-Za-z0-9_.-]{0,63}\\z", options: .regularExpression) != nil,
               let hostPublicKey = response["host_public_key"] as? String,
-              hostPublicKey.range(of: "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$", options: .regularExpression) != nil,
+              hostPublicKey.range(of: "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}\\z", options: .regularExpression) != nil,
               let expires = response["expires_at_unix"] as? Double,
               expires.isFinite, expires > Date().timeIntervalSince1970 else {
             throw CLIError(message: "Cloud SCP requires a private connection and a verified SSH host key.")

@@ -322,7 +322,8 @@ extension CloudWorkspaceRenameService {
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
             isBase: isBase ?? (sameMachine ? (previousBinding?.isBase ?? false) : false),
-            remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
+            remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil),
+            teamID: WorkspaceCloudVMBinding.owningTeamID(forVMID: vmID, previous: previousBinding)
         )
 
         // The placeholder is marked automatic at creation. An explicit user

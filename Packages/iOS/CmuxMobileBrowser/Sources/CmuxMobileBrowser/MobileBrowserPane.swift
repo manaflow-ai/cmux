@@ -1,148 +1,128 @@
 #if canImport(UIKit)
 public import SwiftUI
-import CmuxMobileSupport
+public import CmuxMobileSupport
 
-/// A complete phone browser pane: a navigation chrome bar (back / forward /
-/// reload / address field) over a hosted `WKWebView`, plus a determinate
-/// loading line.
+/// A complete phone browser pane: a hosted `WKWebView` with the same bottom
+/// glass chrome the streamed browser uses (``MobileBrowserChromeBar``: back,
+/// forward, address, reload or stop, and a load progress line).
 ///
 /// This is the browser sibling of the terminal surface view. It is driven
 /// entirely by an `@Observable` ``BrowserSurfaceState``: the chrome reads the
 /// state's flags and writes navigation commands back into it, and
-/// ``MobileBrowserView`` carries those into the web view. A close action
-/// returns the workspace to its terminal.
+/// ``MobileBrowserView`` carries those into the web view. Like the streamed
+/// browser it has no close button: choosing another surface in the workspace
+/// picker leaves it.
 public struct MobileBrowserPane: View {
     /// The browser surface state this pane drives and reflects.
     @State private var state: BrowserSurfaceState
 
-    /// Whether the address field currently has editing focus. While editing,
-    /// the field shows the user's in-progress text rather than the live URL.
-    @FocusState private var isAddressFocused: Bool
-
-    /// Invoked when the user closes the browser pane.
-    private let onClose: () -> Void
+    private let serverRoute: BrowserServerRoute?
+    private let modePicker: MobileBrowserModePicker?
+    private let addressIdentifier: String?
     private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
 
     /// Creates a browser pane.
     /// - Parameters:
     ///   - state: The browser surface state to host.
-    ///   - onClose: Invoked when the user dismisses the pane.
+    ///   - serverRoute: In an SSH workspace, browses through that computer
+    ///     (``BrowserServerRoute``), so `localhost:3000` is the computer's.
+    ///   - modePicker: The Streamed / On iPhone switch, when offered.
+    ///   - addressIdentifier: Accessibility identifier for the address
+    ///     field; defaults to `MobileBrowserAddressField`.
     public init(
         state: BrowserSurfaceState,
-        onClose: @escaping () -> Void,
+        serverRoute: BrowserServerRoute? = nil,
+        modePicker: MobileBrowserModePicker? = nil,
+        addressIdentifier: String? = nil,
         onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
     ) {
         _state = State(initialValue: state)
-        self.onClose = onClose
+        self.serverRoute = serverRoute
+        self.modePicker = modePicker
+        self.addressIdentifier = addressIdentifier
         self.onDiagnosticEvent = onDiagnosticEvent
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            chromeBar
-            progressLine
-            MobileBrowserView(state: state, onDiagnosticEvent: onDiagnosticEvent)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .background(Color(.systemBackground))
+        MobileBrowserView(state: state, serverRoute: serverRoute, onDiagnosticEvent: onDiagnosticEvent)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { failureOverlay }
+            .background(Color(.systemBackground))
+            .safeAreaInset(edge: .bottom, spacing: 0) { chromeBar }
     }
 
     private var chromeBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                onDiagnosticEvent(.backRequested)
-                state.request(.goBack)
-            } label: {
-                Image(systemName: "chevron.backward")
-            }
-            .disabled(!state.canGoBack)
-            .accessibilityLabel(L10n.string("mobile.browser.back", defaultValue: "Back"))
-            .accessibilityIdentifier("MobileBrowserBackButton")
-
-            Button {
-                onDiagnosticEvent(.forwardRequested)
-                state.request(.goForward)
-            } label: {
-                Image(systemName: "chevron.forward")
-            }
-            .disabled(!state.canGoForward)
-            .accessibilityLabel(L10n.string("mobile.browser.forward", defaultValue: "Forward"))
-            .accessibilityIdentifier("MobileBrowserForwardButton")
-
-            addressField
-
-            reloadOrStopButton
-
-            Button {
-                onDiagnosticEvent(.closed)
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
-            .accessibilityIdentifier("MobileBrowserCloseButton")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
-    }
-
-    private var addressField: some View {
-        TextField(
-            L10n.string("mobile.browser.addressPlaceholder", defaultValue: "Search or enter address"),
-            text: $state.addressText
+        MobileBrowserChromeBar(
+            page: .init(
+                url: state.addressText.isEmpty ? nil : state.addressText,
+                canGoBack: state.canGoBack,
+                canGoForward: state.canGoForward,
+                isLoading: state.isLoading,
+                progress: state.estimatedProgress
+            ),
+            actions: .init(
+                back: {
+                    onDiagnosticEvent(.backRequested)
+                    state.request(.goBack)
+                },
+                forward: {
+                    onDiagnosticEvent(.forwardRequested)
+                    state.request(.goForward)
+                },
+                reload: {
+                    onDiagnosticEvent(.reloadRequested)
+                    reload()
+                },
+                stop: {
+                    onDiagnosticEvent(.stopRequested)
+                    state.request(.stopLoading)
+                },
+                submit: { address in
+                    state.addressText = address
+                    return state.submitAddress()
+                },
+                editingChanged: { editing in
+                    // Keeps the web view's URL observer from overwriting
+                    // in-progress typing (see `isAddressEditing`).
+                    state.isAddressEditing = editing
+                }
+            ),
+            modePicker: modePicker,
+            identifiers: .init(prefix: "MobileBrowser", address: addressIdentifier)
         )
-        .textFieldStyle(.roundedBorder)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled(true)
-        .keyboardType(.webSearch)
-        .submitLabel(.go)
-        .focused($isAddressFocused)
-        .onChange(of: isAddressFocused) { _, focused in
-            // Mirror editing focus into the state so the web view's URL observer
-            // does not overwrite in-progress typing (see `isAddressEditing`).
-            state.isAddressEditing = focused
-        }
-        .onSubmit {
-            if state.submitAddress() {
-                isAddressFocused = false
-            }
-        }
-        .accessibilityIdentifier("MobileBrowserAddressField")
     }
 
+    /// Replaces a blank web view when an address failed before any page
+    /// from it showed (for example, nothing listens on that server port).
     @ViewBuilder
-    private var reloadOrStopButton: some View {
-        if state.isLoading {
-            Button {
-                onDiagnosticEvent(.stopRequested)
-                state.request(.stopLoading)
-            } label: {
-                Image(systemName: "xmark.circle")
+    private var failureOverlay: some View {
+        if let failedURL = state.failedURL, !state.isLoading {
+            ContentUnavailableView {
+                Label(
+                    L10n.string("mobile.browser.error.title", defaultValue: "Can't Open Page"),
+                    systemImage: "exclamationmark.triangle"
+                )
+            } description: {
+                Text(state.lastErrorMessage ?? "")
+            } actions: {
+                Button(L10n.string("mobile.browser.error.retry", defaultValue: "Try Again")) {
+                    state.load(failedURL)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("MobileBrowserRetryButton")
             }
-            .accessibilityLabel(L10n.string("mobile.browser.stop", defaultValue: "Stop"))
-            .accessibilityIdentifier("MobileBrowserStopButton")
-        } else {
-            Button {
-                onDiagnosticEvent(.reloadRequested)
-                state.request(.reload)
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .accessibilityLabel(L10n.string("mobile.browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("MobileBrowserReloadButton")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground))
+            .accessibilityIdentifier("MobileBrowserFailure")
         }
     }
 
-    @ViewBuilder
-    private var progressLine: some View {
-        if state.isLoading {
-            ProgressView(value: state.estimatedProgress)
-                .progressViewStyle(.linear)
-                .frame(height: 2)
-                .accessibilityIdentifier("MobileBrowserProgress")
+    /// Reload retries a failed address; otherwise it reloads the page.
+    private func reload() {
+        if let failedURL = state.failedURL {
+            state.load(failedURL)
         } else {
-            Color.clear.frame(height: 2)
+            state.request(.reload)
         }
     }
 }

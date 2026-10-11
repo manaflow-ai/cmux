@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import Foundation
 import Network
 
@@ -15,6 +16,13 @@ import Network
 /// frame cap, the constant-time MAC comparison, the 50ms minimum
 /// failure-response delay (anti-timing-oracle), and every NSError
 /// domain/code/message must not change.
+///
+/// Mutual authentication: a client that adds a `client_nonce` to its MAC line
+/// gets `relay_mac` in the success line, an HMAC over a
+/// `cmux-relay-server-proof` label, the relay ID and both nonces. Current
+/// remote CLIs require it before sending anything, so a listener another
+/// remote user binds on the forwarded port cannot impersonate the relay.
+/// Clients without a nonce get the unchanged v1 `{"ok":true}`.
 ///
 /// Post-authentication, every command line is authorized by
 /// `RemoteRelayCommandPolicy` (GHSA-9vmv-3hjw-j28c): deny-by-default method
@@ -34,18 +42,27 @@ import Network
 /// argument. The actor/async migration is a deliberate later-phase item
 /// (plan: "Modernization hot-spots").
 public final class RemoteCLIRelayServer: @unchecked Sendable {
-    /// Bounds authenticated and pre-auth relay work, including local socket waits.
+    /// Bounds authenticated relay work, including local socket waits.
     static let maximumConcurrentSessions = 16
+    /// Bounds connections that have not authenticated yet. Anyone on the
+    /// remote host can open these, so they have their own budget and, when
+    /// it is full, a new connection evicts the oldest one. Idle connections
+    /// therefore cannot keep the workspace's own CLI from authenticating.
+    static let maximumPendingAuthSessions = 32
 
     private let localSocketPath: String
     private let relayID: String
     private let relayToken: Data
     private let commandRewriter: any RemoteRelayCommandRewriting
     private let clock: any RemoteProxyRetryClock
+    private let localSocketPeerCheck: UnixSocketPeerCheck
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.cli-relay.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
     private var sessions: [UUID: Session] = [:]
+    /// Unauthenticated session IDs, oldest first.
+    private var pendingAuthSessionIDs: [UUID] = []
+    private var authenticatedSessionIDs: Set<UUID> = []
     private var isStopped = false
     private var localPort: Int?
     private var workspaceAliases: [UUID: UUID] = [:]
@@ -61,12 +78,16 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     ///     workspace model conforms).
     ///   - clock: Sleep seam for the minimum failure-response delay
     ///     (virtual time in tests).
+    ///   - localSocketPeerCheck: Check run on the local socket's listening
+    ///     peer before a forwarded command is written (default: the peer must
+    ///     run as this process's effective user).
     public init(
         localSocketPath: String,
         relayID: String,
         relayTokenHex: String,
         commandRewriter: any RemoteRelayCommandRewriting,
-        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        localSocketPeerCheck: UnixSocketPeerCheck = UnixSocketPeerCheck()
     ) throws {
         guard let relayToken = Session.hexData(from: relayTokenHex), !relayToken.isEmpty else {
             throw NSError(domain: "cmux.remote.relay", code: 7, userInfo: [
@@ -78,6 +99,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         self.relayToken = relayToken
         self.commandRewriter = commandRewriter
         self.clock = clock
+        self.localSocketPeerCheck = localSocketPeerCheck
     }
 
     /// Starts the loopback listener (idempotent) and returns its bound port,
@@ -166,6 +188,8 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
             localPort = nil
             let activeSessions = sessions.values
             sessions.removeAll()
+            pendingAuthSessionIDs.removeAll()
+            authenticatedSessionIDs.removeAll()
             for session in activeSessions {
                 session.stop()
             }
@@ -182,27 +206,53 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     }
 
     private func acceptConnectionLocked(_ connection: NWConnection) {
-        guard !isStopped,
-              sessions.count < Self.maximumConcurrentSessions else {
+        guard !isStopped else {
             connection.cancel()
             return
+        }
+        while pendingAuthSessionIDs.count >= Self.maximumPendingAuthSessions {
+            let oldestID = pendingAuthSessionIDs.removeFirst()
+            sessions.removeValue(forKey: oldestID)?.stop()
         }
         let sessionID = UUID()
         let session = Session(
             connection: connection,
             localSocketPath: localSocketPath,
+            localSocketPeerCheck: localSocketPeerCheck,
             relayID: relayID,
             relayToken: relayToken,
             commandEvaluator: { [weak self] commandLine in
                 self?.evaluateCommandLineLocked(commandLine) ?? .deny("relay authorization is unavailable")
             },
+            admitAuthenticated: { [weak self] in
+                self?.admitAuthenticatedSessionLocked(sessionID) ?? false
+            },
             queue: queue,
             clock: clock
         ) { [weak self] in
-            self?.sessions.removeValue(forKey: sessionID)
+            self?.forgetSessionLocked(sessionID)
         }
         sessions[sessionID] = session
+        pendingAuthSessionIDs.append(sessionID)
         session.start()
+    }
+
+    /// Moves a session that passed the handshake from the pre-auth budget
+    /// to the authenticated one, or refuses it when that budget is full.
+    private func admitAuthenticatedSessionLocked(_ sessionID: UUID) -> Bool {
+        guard sessions[sessionID] != nil,
+              authenticatedSessionIDs.count < Self.maximumConcurrentSessions else {
+            return false
+        }
+        pendingAuthSessionIDs.removeAll { $0 == sessionID }
+        authenticatedSessionIDs.insert(sessionID)
+        return true
+    }
+
+    private func forgetSessionLocked(_ sessionID: UUID) {
+        sessions.removeValue(forKey: sessionID)
+        pendingAuthSessionIDs.removeAll { $0 == sessionID }
+        authenticatedSessionIDs.remove(sessionID)
     }
 
     /// Applies the remote-relay authorization policy first; only allowed

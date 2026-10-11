@@ -11,5 +11,4 @@ public enum BrowserSurfaceDiagnosticEvent {
     case forwardRequested
     case reloadRequested
     case stopRequested
-    case closed
 }

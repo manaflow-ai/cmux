@@ -11,6 +11,8 @@ import SwiftUI
 /// drag whose drop projects the row as a pane in the main view.
 struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
+    /// Cloud machines whose delete is in flight; their rows keep expansion and selection for a rollback.
+    var pendingMachineDeletions: Set<String> = []
     /// Creates still running or failed, shown as pending rows above the fleet.
     var pendingCreates: [MachineCreateOperation] = []
     var adoptedOperationIDs: [String: UUID] = [:]
@@ -31,9 +33,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
-    /// Shows the Cloud Machines header's New Machine "+".
+    var coderouter = CloudTreeCoderouterSection()
+    var showsCloudVPNWarning = false
+    /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
+    var cloudMachinesUsage: CloudMachinesUsage? = nil, cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var reveal: CloudTreeRevealRequest? = nil
+    var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
@@ -59,6 +65,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.pendingWorkspaceDeletions = snapshot.pendingWorkspaceDeletions ?? [:]
+        context.coordinator.pendingMachineDeletions = pendingMachineDeletions
         context.coordinator.apply(style: style)
         context.coordinator.update(inputs: CloudTreeBuildInputs(
             machines: machines,
@@ -68,38 +75,56 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
             devicesSection: devicesSection,
-            canCreateCloudMachine: canCreateCloudMachine
+            coderouter: coderouter,
+            showsCloudVPNWarning: showsCloudVPNWarning,
+            canCreateCloudMachine: canCreateCloudMachine,
+            cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
         ))
         context.coordinator.reveal(reveal)
+        context.coordinator.reveal(creation: creationReveal)
     }
     // MARK: - Coordinator
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
+        let portsDemand = CloudPortsDiscoveryDemand()
+        let displaysDemand = CloudDisplaysDiscoveryDemand()
         let expansionStore: CloudTreeExpansionStore
         let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         private var organizationObserver: NSObjectProtocol?
         weak var outlineView: CloudTreeNSOutlineView?
+        /// The Coderouter guide, kept so a second "?" replaces it instead of stacking.
+        var guidePopover: NSPopover?
         var nodes: [CloudTreeNode] = []
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         /// The selected row's stable node id, restored across in-place reloads.
         var selectedNodeID: String?
+        /// The last focused local Cloud workspace/remote row pair reconciled
+        /// into the native outline selection. A stable pair lets user clicks
+        /// on other rows survive unrelated catalog refreshes.
+        var lastFocusedCloudWorkspace: CloudTreeFocusedWorkspaceSelection?
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
+        var pendingMachineDeletions: Set<String> = []
         private let deletionPresentation = CloudTreeDeletionPresentation()
-        private var lastRevealToken: UUID?
+        var lastRevealToken: UUID?
+        var creationRevealPresentation = CloudTreeCreationRevealPresentation()
+        /// Which detail tab each Cloud machine has open, and the display-only
+        /// regrouping of its rows around that tab row.
+        var machineDetailLayout = CloudTreeMachineDetailLayout()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
+        var machineLiftMouseUpMonitor: Any?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
         private weak var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
-        private var activeDragSequenceNumber: Int?
-        private var activeDragSession: NSDraggingSession?
+        var activeDragSequenceNumber: Int?
+        var activeDragSession: NSDraggingSession?
         private weak var activeDragSourceView: CloudTreeNSOutlineView?
         private var supersededDragSession: NSDraggingSession?
         private var supersededDragSequenceNumber: Int?
@@ -109,6 +134,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
+        /// Machine and workspace drags lift the real row; proposal-level tests turn it off.
+        var machineLiftEnabled = true
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -143,7 +170,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         deinit {
             if let organizationObserver { NotificationCenter.default.removeObserver(organizationObserver) }
+            if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
         }
+
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.registration.end()
         }
@@ -208,6 +237,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The boundary is safe because AppKit does not dispatch a new
         /// `mouseDown` while the older native drag loop is still running.
         func prepareForNativeDragBoundary(on sourceView: CloudTreeNSOutlineView) {
+            removeMachineLiftMouseUpMonitor()
             if let activeDragSourceView, activeDragSourceView !== sourceView,
                outlineView !== sourceView {
                 // A stale callback from an older outline must not retire the
@@ -215,6 +245,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // authoritative pointer boundary for the retained old source.
                 return
             }
+            finishMachineLift()
             if let activeDragSession = activeDragSession ?? sourceView.activeNativeDragSession {
                 supersededDragSession = activeDragSession
             }
@@ -256,7 +287,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func apply(nodes: [CloudTreeNode]) {
             apply(nodes: nodes, allowDuringNativeDrag: false)
         }
-
         /// Applies a snapshot immediately after a destination accepted a drop.
         /// AppKit's source session may send `endedAt` later, but the destination
         /// is complete and the user should see the new order now.
@@ -264,36 +294,47 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
-
+        /// Applies a tree snapshot immediately or retains it until a native drag ends.
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
                 return
             }
-            let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
-            // An optimistically hidden workspace keeps its expansion state and
-            // hands its selection to its machine; a rollback restores both.
+            let nodes = CloudSidebarOrganizationTree(nodes: machineDetailLayout.present(nodes)).arrange(using: organization.state)
+            // An optimistically hidden workspace or machine keeps its expansion
+            // state and gives up its selection; a rollback restores both.
             let deletion = deletionPresentation.update(
-                previous: self.nodes, next: nodes, pending: pendingWorkspaceDeletions, selectedNodeID: selectedNodeID
+                previous: self.nodes, next: nodes, pending: pendingWorkspaceDeletions,
+                pendingMachines: pendingMachineDeletions, selectedNodeID: selectedNodeID
             )
             selectedNodeID = deletion.selectedNodeID
             expansionStore.reconcile(nodes: deletion.expansionNodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
+            let structureUnchanged = nextStructure == structureSignature
+            let contentUnchanged = nextContent == contentSignature
             #if DEBUG
             let unreadRows = CloudTreeNodeBuilder.flattened(nodes).filter {
                 if case .terminal(let row) = $0.kind { return row.hasUnreadNotification }
                 return false
             }.count
-            cmuxDebugLog("cloudTree.apply structureChanged=\(nextStructure != structureSignature) contentChanged=\(nextContent != contentSignature) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
+            cmuxDebugLog("cloudTree.apply structureChanged=\(!structureUnchanged) contentChanged=\(!contentUnchanged) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
             #endif
-            guard nextStructure != structureSignature || nextContent != contentSignature else { return }
-            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
-            contentSignature = nextContent
-            if nextStructure == structureSignature, !self.nodes.isEmpty {
+            // Detail pools live outside the visible row/content signatures, so
+            // a closed tab can change without changing the outline. Adopt an
+            // equal-structure rebuild before the fast path or opening that tab
+            // later would reveal stale rows.
+            if structureUnchanged, !self.nodes.isEmpty {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
+            }
+            guard !structureUnchanged || !contentUnchanged else { return }
+            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
+            contentSignature = nextContent
+            if structureUnchanged, !self.nodes.isEmpty {
+                portsDemand.update(nodes: self.nodes)
+                displaysDemand.update(nodes: self.nodes, actions: nodeActions)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -304,6 +345,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             self.nodes = nodes
+            portsDemand.update(nodes: nodes)
+            displaysDemand.update(nodes: nodes, actions: nodeActions)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -313,6 +356,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
+        /// Tracks native drag state and drains the latest deferred snapshot on completion.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
             isDragging = dragging
@@ -330,6 +374,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     outlineView?.indentationPerLevel = style.indentPerLevel
                 }
                 apply(nodes: deferred)
+                if let selectedNodeID {
+                    selectFocusedCloudWorkspaceRow(selectedNodeID)
+                }
             } else if shouldReload, let outlineView {
                 outlineView.treeStyle = style
                 outlineView.indentationPerLevel = style.indentPerLevel
@@ -337,49 +384,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         private func reloadDataAndRestoreState(in outlineView: NSOutlineView) { withProgrammaticUpdate { outlineView.reloadData(); restoreExpansion(in: outlineView); restoreSelection(in: outlineView) } }
-        private func restoreExpansion(in outlineView: NSOutlineView) {
-            var row = 0
-            while row < outlineView.numberOfRows {
-                if let node = outlineView.item(atRow: row) as? CloudTreeNode,
-                   node.isExpandable,
-                   expansionStore.isExpanded(node) {
-                    outlineView.expandItem(node)
-                }
-                row += 1
-            }
-        }
-        private func restoreSelection(in outlineView: NSOutlineView) {
-            outlineView.deselectAll(nil)
-            guard let selectedNodeID else { return }
-            for row in 0..<outlineView.numberOfRows {
-                if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
-                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                    return
-                }
-            }
-        }
-        private func withProgrammaticUpdate(_ body: () -> Void) {
+        func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
             body()
             isUpdatingProgrammatically = false
-        }
-
-        func reveal(_ request: CloudTreeRevealRequest?) {
-            guard let request, request.token != lastRevealToken, let outlineView,
-                  let path = request.path(in: nodes), let node = path.last else { return }
-            for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
-                expansionStore.setExpanded(true, node: ancestor)
-                outlineView.expandItem(ancestor)
-            }
-            if node.isExpandable, !outlineView.isItemExpanded(node) {
-                expansionStore.setExpanded(true, node: node)
-                outlineView.expandItem(node)
-            }
-            let row = outlineView.row(forItem: node)
-            guard row >= 0 else { return }
-            lastRevealToken = request.token
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(row)
         }
         // MARK: NSOutlineViewDataSource
 
@@ -409,13 +417,40 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
+            var rowActions = nodeActions
+            rowActions.showRowMenu = { [weak self] nodeID in self?.popUpRowMenu(nodeID: nodeID) }
+            rowActions.showRowGuide = { [weak self] nodeID in self?.showCoderouterGuide(nodeID: nodeID) }
+            rowActions.selectMachineDetailTab = { [weak self] machine, tab in self?.toggleMachineDetailTab(tab, machine: machine) }
+            cell.configure(
+                node: node, machineActions: machineActions, nodeActions: rowActions, style: style,
+                level: outlineView.level(forItem: node),
+                panelLevel: panelLevel(of: node, in: outlineView)
+            ) { [weak self] in
+                self?.performPortAction($0, machineID: $1)
+            }
             configureMachineReorderAccessibility(cell, node: node)
             return cell
         }
 
+        /// The level of the machine tab row an item sits under, if any.
+        private func panelLevel(of item: Any, in outlineView: NSOutlineView) -> Int? {
+            guard let parent = outlineView.parent(forItem: item) as? CloudTreeNode,
+                  case .machineDetailTabs = parent.kind else { return nil }
+            return outlineView.level(forItem: parent)
+        }
+
+        /// An open tab's rows close only with their tab, never on their own.
+        func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
+            if let node = item as? CloudTreeNode, case .machineDetailTabs = node.kind { return false }
+            return true
+        }
+
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            CloudTreeRowView.reusable(in: outlineView)
+            let row = CloudTreeRowView.reusable(in: outlineView)
+            row.highlightLeading = panelLevel(of: item, in: outlineView)
+                .map { CloudTreeMachineDetailTabsView.panelHighlightLeading(tabRowLevel: $0, style: style) }
+                ?? CloudTreeHoverStyle.leading(level: outlineView.level(forItem: item), style: style)
+            return row
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
@@ -428,6 +463,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
+            creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
                 : nil
@@ -439,25 +475,35 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// open it — workspace rows included (austin, 2026-08-31: they used to
         /// toggle on the first click and open only on double-click, which made a
         /// double-click flip the container's expansion while opening). Extra
-        /// clicks of a double- or triple-click are ignored, so a habitual
-        /// double-click acts exactly once and never spawns twice. Expansion is
-        /// the chevron's job (and h/l on the keyboard), never a click side effect
-        /// on workspace rows; machine and group rows still toggle because toggle
-        /// IS their open verb.
+        /// clicks of a double- or triple-click are ignored for rows whose open
+        /// verb creates or focuses content, so a habitual double-click never
+        /// spawns twice. Disclosure rows still honor every activation because
+        /// toggling is their open verb. Expansion is the chevron's job (and h/l
+        /// on the keyboard), never a click side effect on workspace rows.
         @objc func handleSingleClick(_ sender: Any?) {
-            guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
+            guard let outlineView else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
             guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+            // A fast multi-click can leave AppKit's action callback carrying
+            // the combined click count. Leaf/workspace rows keep the one-open
+            // rule, but a disclosure row must honor that activation or its
+            // first toggle disappears when the callback arrives as click 2+.
+            let clickCount = NSApp.currentEvent?.clickCount ?? 1
+            guard clickCount <= 1 || node.kind.togglesOnActivation else { return }
 #if DEBUG
-            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
+            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(clickCount)")
 #endif
+            if case .display(let resource, _, _) = node.kind,
+               nodeActions.showDisplayOpenHint(resource.id) {
+                return
+            }
             open(node)
         }
 
         /// A double-click is the rename gesture for Cloud machines and their
-        /// remote workspaces. The first click still follows the normal open
-        /// path; `handleSingleClick` ignores the second click so it cannot
-        /// open or toggle the row a second time.
+        /// remote workspaces. AppKit sends the second activation through this
+        /// selector instead of `action`, so disclosure rows must still consume
+        /// it or a fast double-click silently drops that toggle.
         @objc func handleDoubleClick(_ sender: Any?) {
             guard let outlineView else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
@@ -465,9 +511,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #if DEBUG
             cmuxDebugLog("cloudTree.doubleClick row=\(row) kind=\(node.structureTag)")
 #endif
+            if node.kind.togglesOnActivation {
+                open(node)
+            }
             switch node.kind {
             case .machine(let machine, _):
-                machineActions.promptRename(machine.id, machine.label)
+                machineActions.promptRename(machine)
             case .workspace(let machine, let workspace, _, _, _):
                 nodeActions.renameWorkspace(machine, workspace)
             default:
@@ -482,10 +531,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Creation is never an open side effect: the hover
-        /// "+" and the context menu own it (an expired machine still prompts,
-        /// and the asleep placeholder still wakes, because those rows advertise
-        /// exactly that).
+        /// group rows toggle. A workspace row admits its local destination
+        /// through the shared optimistic open owner, while persistent create rows
+        /// use this same open path. The hover "+" and context menu remain alternate
+        /// entrypoints (an expired machine still prompts, and the asleep placeholder
+        /// still wakes, because those rows advertise exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):
@@ -494,10 +544,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup:
                 toggle(node)
-            case .devicesEmpty:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAccount:
                 break
+            case .createAction(let action):
+                action.perform(nodeActions)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
                 // CLI transcript); a running one has nothing to say beyond its row.
@@ -505,6 +557,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     machineActions.create.showFailure(operation.id)
                 }
             case .workspace(let machine, let workspace, _, _, let openIn):
+                // A row click is itself the latest Cloud context, even while
+                // opening its local projection is still awaiting the provider.
+                nodeActions.recordCloudWorkspaceSelection(machine)
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.
@@ -526,7 +581,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         nodeActions.project(openRow.resource.id, .tab, true)
                     }
                 } else if let group = node.dragGroup, !group.isEmpty {
-                    nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
+                    // A workspace-row activation owns the workspace itself. It
+                    // admits a local destination through the shared optimistic
+                    // creation coordinator; open-here/split and drag/drop keep
+                    // their explicit group destinations below.
+                    nodeActions.openWorkspace(machine, workspace, group)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
@@ -562,20 +621,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .resource:
                 break
             case .placeholder(let machineID, let placeholder):
-                // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
-                if placeholder.opensMachine, let machine = machine(id: machineID) {
-                    openMachine(machine)
+                if placeholder.style == .createMachine {
+                    nodeActions.newMachine()
+                    return
                 }
+                // A Ports status row's text never acts; only its own button refreshes or wakes.
+                guard placeholder.portStatus == nil else { return }
+                // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
+                if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
             }
         }
-        private func openMachine(_ machine: MachineSnapshot) {
-            if machine.freeAccess == .expired {
-                machineActions.promptUpgrade()
-            } else {
-                nodeActions.newTerminal(.cloud(machine.id), nil)
-            }
-        }
-
         private func toggle(_ node: CloudTreeNode) {
             guard let outlineView else { return }
 #if DEBUG
@@ -586,13 +641,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             } else {
                 outlineView.expandItem(node)
             }
-        }
-
-        private func machine(id: SurfaceMachineID) -> MachineSnapshot? {
-            for node in nodes {
-                if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
-            }
-            return nil
         }
 
         // MARK: Keyboard
@@ -743,7 +791,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         let title = if row.remoteView == nil {
                             String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
                         } else {
-                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
+                            String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")
                         }
                         items.append(item(title) { [nodeActions] in
                             nodeActions.renameTerminal(row.resource, row.remoteView)
@@ -758,15 +806,25 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     isLocal: row.resource.machine.isLocal,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: row.remoteView
-                )
+                ) + renameRemoteViewMenuItems(resource: row.resource, remoteView: row.remoteView)
             case .display(let resource, let openIn, let remoteView):
-                return resourceMenuItems(
+                var items = resourceMenuItems(
                     resource,
                     isLocal: false,
                     openInLocalWorkspace: openIn,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: remoteView
                 )
+                // A display's name belongs to the display, not to one view of it.
+                items += [.separator(), item(String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")) { [nodeActions] in
+                    nodeActions.renameDisplay(resource)
+                }]
+                if let remoteView, remoteView.isCloudDisplayMembershipView {
+                    items.append(item(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) { [nodeActions] in
+                        nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                    })
+                }
+                return items
             case .port(let resource, let url, let openIn):
                 return resourceMenuItems(
                     resource,
@@ -775,7 +833,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
-            case .browsersGroup, .portsGroup:
+            case .portsGroup(let machine):
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(machine) }]
+            case .browsersGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .resourcesPool, .resource:
                 return []
@@ -788,7 +848,45 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .coderouterSection:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshCoderouter() }]
+            case .coderouterProviderGroup(let provider, _):
+                guard provider.canAdd else { return [] }
+                return [item(provider.newAccountTitle) { [nodeActions] in nodeActions.addCoderouterAccount(provider) }]
+            case .coderouterAccount(let account):
+                return [item(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) { [nodeActions] in nodeActions.removeCoderouterAccount(account) }]
+            case .createAction, .machineEndSpacer: return []
+            case .machineDetailTabs(let tabs):
+                var items: [NSMenuItem] = []
+                if tabs.machine.cloudMachineID != nil {
+                    items.append(item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(tabs.machine, nil) })
+                    if case .displaysPool(_, _, let canCreate)? = node.detailPools.first(where: { $0.structureTag == "displaysPool" })?.kind {
+                        items.append(contentsOf: displayMenuItems(machine: tabs.machine, canCreate: canCreate).prefix(1))
+                    }
+                }
+                items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(tabs.machine) })
+                return items
             }
+        }
+
+        /// The rename verb for a row whose whole identity is one daemon tab: a
+        /// display or a browser. Empty when the row has no tab, which is the
+        /// local case and the not-yet-placed case. Terminals do not come
+        /// through here because a terminal row can stand for several tabs and
+        /// needs the all-views wording.
+        private func renameRemoteViewMenuItems(
+            resource: SurfaceResource,
+            remoteView: SurfaceRemoteView?
+        ) -> [NSMenuItem] {
+            guard CloudTreeOutlineView.canRenameRemoteView(resource: resource, remoteView: remoteView),
+                  let remoteView
+            else { return [] }
+            return [
+                .separator(),
+                item(String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")) { [nodeActions] in
+                    nodeActions.renameRemoteView(resource, remoteView)
+                },
+            ]
         }
 
         /// The verbs every surface row shares: open (reusing an open pane), open as a
@@ -851,12 +949,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
-            let item = CloudTreeMenuItem(title: title, action: action)
-            item.target = item
-            return item
-        }
-
         // MARK: Drag source
 
         /// Only the current native writer can reorder machines. Its captured
@@ -901,7 +993,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
             _ = screenPoint
-            _ = draggedItems
             if activeDrag != nil || isDragging {
                 if let activeSession = activeDragSession,
                    activeSession === session {
@@ -961,9 +1052,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             activeDragSequenceNumber = session.draggingSequenceNumber
             setDragging(true)
+            liftMachineDrag(session, draggedItems: draggedItems, in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+            removeMachineLiftMouseUpMonitor()
             if let supersededDragSession,
                supersededDragSession === session {
                 // This is the terminal callback for a source already retired
@@ -993,6 +1086,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // the registration for a newer surface drag.
                 return
             }
+            finishMachineLift()
             defer {
                 if let outlineView = outlineView as? CloudTreeNSOutlineView,
                    outlineView.activeNativeDragSession === session {

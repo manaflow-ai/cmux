@@ -127,6 +127,29 @@ struct PasteboardTextContentsTests {
         #expect(contents == "/tmp/with\\ space.png")
     }
 
+    // A clipboard read the terminal program starts gets this flavor only, so
+    // it must never turn copied files into paths or images into saved files.
+    @Test func plainTextFlavorNeverReadsFilesOrImages() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+
+        let files = ScratchPasteboard()
+        #expect(files.pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/copied.png") as NSURL]))
+        #expect(service.fallbackPlainTextContents(from: files.pasteboard) == nil)
+
+        let image = ScratchPasteboard()
+        image.pasteboard.declareTypes([.png], owner: nil)
+        image.pasteboard.setData(try tinyPNGData(), forType: .png)
+        #expect(service.fallbackPlainTextContents(from: image.pasteboard) == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratchDir.path).isEmpty)
+
+        let text = ScratchPasteboard()
+        text.pasteboard.declareTypes([.string], owner: nil)
+        text.pasteboard.setString("copied text", forType: .string)
+        #expect(service.fallbackPlainTextContents(from: text.pasteboard) == "copied text")
+    }
+
     @Test func imageOnlyHTMLWithNoVisibleTextReturnsNil() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()

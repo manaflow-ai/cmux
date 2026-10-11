@@ -1351,6 +1351,54 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    // The Sessions sidebar cwd filter skips the project-directory scan and looks up the encoded
+    // directory directly. Fixture directories are named by `expectedClaudeProjectDirName`, not the
+    // production encoder, so an encoder regression cannot move the fixture and the lookup together.
+    @Test
+    func testClaudeCandidateCwdFilterFindsDottedProjectDir() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-dot-cwd-filter-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let sessionRoot = SessionIndexStore.ClaudeSessionRoot(
+            configDir: configDir.path,
+            resumeConfigDirectory: nil
+        )
+
+        for relativeCwd in ["repo/.claude/worktrees/feat-X", "repo/.worktrees/feat-x"] {
+            let cwd = root.appendingPathComponent(relativeCwd, isDirectory: true)
+            let projectDirName = expectedClaudeProjectDirName(cwd.path)
+            // The pre-fix encoder kept ".", so a transcript there belongs to a different project dir.
+            let slashOnlyDirName = cwd.path.replacingOccurrences(of: "/", with: "-")
+            let otherProjectDirName = expectedClaudeProjectDirName(root.appendingPathComponent("other").path)
+            for (dirName, sessionId) in [
+                (projectDirName, "dotted-session"),
+                (slashOnlyDirName, "slash-only-session"),
+                (otherProjectDirName, "other-project-session"),
+            ] {
+                let projectDir = projectsDir.appendingPathComponent(dirName, isDirectory: true)
+                try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+                try writeClaudeTranscript(
+                    sessionId: sessionId,
+                    transcriptURL: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+                    cwd: cwd
+                )
+            }
+
+            let candidates = SessionIndexStore.enumerateClaudeJSONLCandidates(
+                root: sessionRoot,
+                cwdFilter: cwd.path,
+                prefilteredByRipgrep: false
+            )
+
+            XCTAssertEqual(candidates.map(\.url.lastPathComponent), ["dotted-session.jsonl"], relativeCwd)
+            XCTAssertEqual(candidates.map(\.dirName), [projectDirName], relativeCwd)
+            try fm.removeItem(at: projectsDir)
+        }
+    }
+
     private func setDirectoryModificationDate(_ date: Date, for directory: URL) throws {
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: directory.path)
     }

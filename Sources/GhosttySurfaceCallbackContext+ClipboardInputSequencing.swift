@@ -83,6 +83,7 @@ extension GhosttySurfaceCallbackContext {
     @MainActor
     func completeRuntimeClipboardRead(
         _ text: String,
+        readContent: RuntimeClipboardReadContent,
         requestID: UInt,
         stateAddress: UInt,
         surfaceAddress: UInt,
@@ -91,6 +92,7 @@ extension GhosttySurfaceCallbackContext {
         guard let surfaceView else {
             finishRuntimeClipboardRead(
                 text,
+                readContent: readContent,
                 requestID: requestID,
                 stateAddress: stateAddress,
                 surfaceAddress: surfaceAddress,
@@ -101,6 +103,7 @@ extension GhosttySurfaceCallbackContext {
         surfaceView.performClipboardReadCompletionWhenReady(requestID) {
             self.finishRuntimeClipboardRead(
                 text,
+                readContent: readContent,
                 requestID: requestID,
                 stateAddress: stateAddress,
                 surfaceAddress: surfaceAddress,
@@ -112,6 +115,7 @@ extension GhosttySurfaceCallbackContext {
     @MainActor
     private func finishRuntimeClipboardRead(
         _ text: String,
+        readContent: RuntimeClipboardReadContent,
         requestID: UInt,
         stateAddress: UInt,
         surfaceAddress: UInt,
@@ -133,14 +137,20 @@ extension GhosttySurfaceCallbackContext {
         guard completeRuntimeClipboardRequest(requestID) else { return }
 
         // Remote tmux mirror panes need tmux to bracket the paste because the
-        // local manual-I/O surface cannot know the remote pane's mode.
-        let handledByMirror = !text.isEmpty && (
+        // local manual-I/O surface cannot know the remote pane's mode. A read
+        // the terminal program started answers that program instead, so it
+        // never becomes input to the remote pane.
+        let handledByMirror = readContent == .pasteboard && !text.isEmpty && (
             AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
                 surfaceId: surfaceId,
                 text: text
             ) ?? false
         )
         let completionText = handledByMirror ? "" : text
+        if !text.isEmpty {
+            // Pasted text echoes ahead of the next keystroke's echo.
+            TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceId)
+        }
         completionText.withCString { pointer in
             ghostty_surface_complete_clipboard_request(
                 surface,
@@ -192,8 +202,9 @@ extension GhosttySurfaceCallbackContext {
             break
         case .askInWindowSheet:
             if let window,
-               askToConfirmUnsafePaste(
+               askToConfirmClipboardRequest(
                    text,
+                   isPasteRequest: isPasteRequest,
                    preview: policy.preview(of: text),
                    stateAddress: stateAddress,
                    surfaceIdentity: surfaceIdentity,
@@ -202,7 +213,7 @@ extension GhosttySurfaceCallbackContext {
                 return
             }
             // The request could not be tracked while the sheet is open, so
-            // there is no safe way to ask. Do not paste unasked.
+            // there is no safe way to ask. Do not paste or share unasked.
             NSSound.beep()
             finishConfirmedClipboardRead("", state: state, surface: surface)
             return
@@ -223,6 +234,10 @@ extension GhosttySurfaceCallbackContext {
         surface: ghostty_surface_t
     ) {
         let stateAddress = UInt(bitPattern: state)
+        if !text.isEmpty {
+            // Pasted text echoes ahead of the next keystroke's echo.
+            TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceId)
+        }
         text.withCString { pointer in
             ghostty_surface_complete_clipboard_request(
                 surface,
@@ -237,8 +252,10 @@ extension GhosttySurfaceCallbackContext {
         }
     }
 
-    /// Shows the `terminal.confirmUnsafePaste` sheet on `window` and answers
-    /// Ghostty when the user chooses.
+    /// Shows a sheet on `window` asking whether to complete the request, and
+    /// answers Ghostty when the user chooses: the `terminal.confirmUnsafePaste`
+    /// sheet for a paste, or a clipboard access sheet for a read the terminal
+    /// program started.
     ///
     /// The native request is registered again for the sheet's lifetime, so
     /// runtime teardown completes it and closes the sheet instead of leaving
@@ -246,8 +263,9 @@ extension GhosttySurfaceCallbackContext {
     ///
     /// - Returns: Whether the sheet was shown and now owns the request.
     @MainActor
-    private func askToConfirmUnsafePaste(
+    private func askToConfirmClipboardRequest(
         _ text: String,
+        isPasteRequest: Bool,
         preview: String,
         stateAddress: UInt,
         surfaceIdentity: TerminalClipboardRequestSurfaceIdentity,
@@ -255,25 +273,45 @@ extension GhosttySurfaceCallbackContext {
     ) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(
-            localized: "terminal.unsafePasteConfirmation.title",
-            defaultValue: "Paste Potentially Unsafe Text?"
-        )
-        let explanation = String(
-            localized: "terminal.unsafePasteConfirmation.message",
-            defaultValue: "This text could run commands as soon as it is pasted, for example because it contains a line break. Paste it only if you trust it."
-        )
+        let explanation: String
+        if isPasteRequest {
+            alert.messageText = String(
+                localized: "terminal.unsafePasteConfirmation.title",
+                defaultValue: "Paste Potentially Unsafe Text?"
+            )
+            explanation = String(
+                localized: "terminal.unsafePasteConfirmation.message",
+                defaultValue: "This text could run commands as soon as it is pasted, for example because it contains a line break. Paste it only if you trust it."
+            )
+            alert.addButton(withTitle: String(
+                localized: "terminal.unsafePasteConfirmation.paste",
+                defaultValue: "Paste"
+            ))
+            alert.addButton(withTitle: String(
+                localized: "common.cancel",
+                defaultValue: "Cancel"
+            ))
+        } else {
+            alert.messageText = String(
+                localized: "terminal.clipboardReadConfirmation.title",
+                defaultValue: "Allow Clipboard Access?"
+            )
+            explanation = String(
+                localized: "terminal.clipboardReadConfirmation.message",
+                defaultValue: "A program in this terminal wants to read your clipboard. Allow it only if you trust the program."
+            )
+            alert.addButton(withTitle: String(
+                localized: "common.allow",
+                defaultValue: "Allow"
+            ))
+            alert.addButton(withTitle: String(
+                localized: "terminal.clipboardReadConfirmation.deny",
+                defaultValue: "Deny"
+            ))
+        }
         alert.informativeText = preview.isEmpty
             ? explanation
             : explanation + "\n\n" + preview
-        alert.addButton(withTitle: String(
-            localized: "terminal.unsafePasteConfirmation.paste",
-            defaultValue: "Paste"
-        ))
-        alert.addButton(withTitle: String(
-            localized: "common.cancel",
-            defaultValue: "Cancel"
-        ))
 
         let surfaceAddress = surfaceIdentity.surfaceAddress
         let requestSurfaceView = surfaceView

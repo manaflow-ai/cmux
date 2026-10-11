@@ -396,6 +396,35 @@ struct RemotePTYBridgeServerTests {
         })
     }
 
+    @Test(
+        "a near-miss handshake token closes the connection without attaching",
+        arguments: ["lastByte", "prefix", "extended"]
+    )
+    func nearMissTokenCloses(variant: String) throws {
+        let rpc = RecordingPTYBridgeRPCClient()
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+        let token = endpoint.token
+        let offered: String
+        switch variant {
+        case "lastByte":
+            offered = String(token.dropLast()) + (token.hasSuffix("0") ? "1" : "0")
+        case "prefix":
+            offered = String(token.dropLast())
+        default:
+            offered = token + "0"
+        }
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(offered)\",\"cols\":120,\"rows\":40}\n".utf8))
+
+        #expect(client.waitForReceived { data, closed in
+            closed && data.isEmpty
+        })
+    }
+
     @Test("a failed attach reports the mapped error line before closing")
     func failedAttachReportsErrorLine() throws {
         let rpc = RecordingPTYBridgeRPCClient()

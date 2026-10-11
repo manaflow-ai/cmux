@@ -173,16 +173,17 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         ).restorableTmuxStartCommand(rawCommand)
     }
 
-    /// Returns a cmux-generated local-tmux attach command, if present.
+    /// Returns a cmux-generated local-tmux or local-zellij attach command, if present.
     ///
-    /// Local tmux ownership takes precedence over agent resume metadata: the
-    /// agent process is already alive inside the durable tmux server and must
-    /// not be started a second time during GUI restore.
+    /// Local session ownership takes precedence over agent resume metadata: the
+    /// agent process is already alive inside the durable tmux or zellij server
+    /// and must not be started a second time during GUI restore.
     ///
     /// - Parameter rawCommand: The persisted terminal startup command.
-    /// - Returns: The validated local-tmux command, or `nil` for ordinary commands.
+    /// - Returns: The validated attach command, or `nil` for ordinary commands.
     public func localTmuxStartCommand(_ rawCommand: String?) -> String? {
         LocalTmuxRestoreCommandPolicy().restorableCommand(rawCommand)
+            ?? LocalZellijRestoreCommandPolicy().restorableCommand(rawCommand)
     }
 
     /// Returns whether terminal scrollback should be persisted when closing/restoring.

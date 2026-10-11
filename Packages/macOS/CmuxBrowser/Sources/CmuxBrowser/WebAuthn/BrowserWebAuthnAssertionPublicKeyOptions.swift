@@ -23,7 +23,6 @@ extension BrowserWebAuthnAssertionPublicKeyOptions {
     func validateNativeRequestShape() throws {
         try challenge.validateByteCount(BrowserWebAuthnRequestParser.challengeByteRange)
         try rpId.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumRelyingPartyIDUTF8Bytes)
-        try userVerification.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
         let allowedCredentials = allowCredentials ?? []
         guard allowedCredentials.count <= BrowserWebAuthnRequestParser.maximumCredentialDescriptors else {
             throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
@@ -31,6 +30,5 @@ extension BrowserWebAuthnAssertionPublicKeyOptions {
         for descriptor in allowedCredentials {
             try descriptor.validateNativeRequestShape()
         }
-        try extensions?.validateNativeRequestShape()
     }
 }

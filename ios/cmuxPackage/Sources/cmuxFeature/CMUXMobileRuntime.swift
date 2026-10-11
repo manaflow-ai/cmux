@@ -40,6 +40,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var terminalInputLaneProvider: MobileTerminalLaneProvider?
     public var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider?
     public var artifactLaneProvider: MobileArtifactLaneProvider?
+    public var tunnelConnectProvider: MobileTunnelConnectProvider?
+    public var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider?
 
     /// Builds the production access-token provider over an injected
     /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG
@@ -152,7 +154,9 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         terminalInputLaneProvider: MobileTerminalLaneProvider? = nil,
         artifactLaneProvider: MobileArtifactLaneProvider? = nil,
         simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
-        independentEventsMergeSurfaceLanes: Bool = false
+        independentEventsMergeSurfaceLanes: Bool = false,
+        tunnelConnectProvider: MobileTunnelConnectProvider? = nil,
+        tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -170,6 +174,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.artifactLaneProvider = artifactLaneProvider
         self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
         self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
+        self.tunnelConnectProvider = tunnelConnectProvider
+        self.tunnelListeningPortsProvider = tunnelListeningPortsProvider
     }
 
     public init(
@@ -187,7 +193,9 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         terminalInputLaneProvider: MobileTerminalLaneProvider? = nil,
         artifactLaneProvider: MobileArtifactLaneProvider? = nil,
         simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
-        independentEventsMergeSurfaceLanes: Bool = false
+        independentEventsMergeSurfaceLanes: Bool = false,
+        tunnelConnectProvider: MobileTunnelConnectProvider? = nil,
+        tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? = nil
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -204,6 +212,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.artifactLaneProvider = artifactLaneProvider
         self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
         self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
+        self.tunnelConnectProvider = tunnelConnectProvider
+        self.tunnelListeningPortsProvider = tunnelListeningPortsProvider
         self.now = now
     }
 }

@@ -45,6 +45,7 @@ struct MobileIrohReleaseGateHostView: View {
         )
         .environment(\.releaseGateUIProbe, uiProbe)
         .environment(\.releaseGateSnapshotter, snapshotter)
+        .onAppear { uiProbe.record(.appRootVisible) }
         .task {
             uiProbe.captureTerminalEvidence = { try await snapshotter.captureTerminal() }
             await runner.run(store: store)

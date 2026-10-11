@@ -166,6 +166,47 @@ struct MobileCoreRPCIndependentEventTests {
     }
 
     @Test
+    func anEventOnAnotherTerminalsLaneIsRefusedAndNeverReachesListeners() async throws {
+        let route = try irohRoute(hexBytePair: "ac")
+        let source = IndependentEventSource()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
+            independentEventByteStreamProvider: { _ in await source.makeStream() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "014")
+        )
+        let subscription = await client.subscribe(to: ["terminal.render_grid"])
+        var events = subscription.makeAsyncIterator()
+        #expect(await client.prepareIndependentServerEvents())
+
+        func event(_ surfaceID: String) throws -> Data {
+            try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: [
+                "kind": "event",
+                "topic": "terminal.render_grid",
+                "payload": ["surface_id": surfaceID],
+            ]))
+        }
+        // Terminal A's lane carries a frame naming B, then A's own frame.
+        var laneA = try event("terminal-b")
+        laneA.append(try event("terminal-a"))
+        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: "terminal-a"))
+        // The shared lane is unscoped and delivers B's frame normally.
+        await source.yield(try event("terminal-b"))
+
+        let first = try #require(await events.next()?.payloadJSON)
+        let second = try #require(await events.next()?.payloadJSON)
+        let surfaces = try [first, second].map {
+            try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])["surface_id"]
+        }
+        #expect(surfaces == ["terminal-a", "terminal-b"])
+
+        await client.disconnect()
+    }
+
+    @Test
     func stateSyncDeltaRidesTheIndependentIrohLaneAndDecodesTyped() async throws {
         // Mobile state sync v2 events must be lane-agnostic: on an Iroh
         // connection the negotiated `iroh_server_events_v1` stream, not the

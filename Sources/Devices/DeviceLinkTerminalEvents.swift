@@ -1,5 +1,6 @@
 import CmuxMobileRPC
 import CmuxMobileHost
+import CmuxTerminalSizing
 import CoreFoundation
 import Foundation
 
@@ -16,6 +17,14 @@ enum DeviceTerminalEvent: Equatable, Sendable {
     case linkLost
     /// The bounded event queue overflowed; consult the current link and replay.
     case resyncRequired
+    /// The host's shared-sizing state (`mobile.terminal.size_state`).
+    case sizeState(TerminalSizingState, selfParticipantID: String?)
+    /// Someone disconnected this Mac's view (`mobile.terminal.detached`).
+    case sharingDetached(TerminalDetachReason, at: Date?)
+
+    /// The host's shared-sizing pushes this Mac subscribes to as a viewer.
+    static let sizeStateTopic = "mobile.terminal.size_state"
+    static let detachedTopic = "mobile.terminal.detached"
 
     /// Decode a `terminal.bytes` / `terminal.updated` envelope for its surface.
     /// Returns `(surfaceID, event)`; nil for payloads without a surface.
@@ -38,6 +47,14 @@ enum DeviceTerminalEvent: Equatable, Sendable {
                 columns: columns,
                 rows: rows
             ))
+        case Self.sizeStateTopic:
+            guard let event = try? MobileTerminalSizeStateEvent.decode(payload),
+                  let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
+            return (surfaceID, .sizeState(event.state, selfParticipantID: event.selfParticipantID))
+        case Self.detachedTopic:
+            guard let event = try? MobileTerminalDetachedEvent.decode(payload),
+                  let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
+            return (surfaceID, .sharingDetached(event.reason, at: event.at))
         default:
             return nil
         }
@@ -99,8 +116,9 @@ final class DeviceLinkTerminalEvents {
     private func deliver(_ event: DeviceTerminalEvent, to continuation: AsyncStream<DeviceTerminalEvent>.Continuation, surfaceID: UUID, id: UUID) {
         let isControl: Bool
         switch event {
-        case .linkReconnected, .linkLost, .resyncRequired: isControl = true
-        case .bytes, .updated: isControl = false
+        // A detach must never be dropped by the bounded queue.
+        case .linkReconnected, .linkLost, .resyncRequired, .sharingDetached: isControl = true
+        case .bytes, .updated, .sizeState: isControl = false
         }
         if isControl {
             pendingControls[surfaceID, default: [:]][id, default: []].append(event)

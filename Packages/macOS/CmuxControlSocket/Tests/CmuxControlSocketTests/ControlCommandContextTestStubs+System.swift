@@ -46,6 +46,7 @@ extension ControlSystemContext {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution { .tabManagerUnavailable }
     func controlSystemSurfaceNotFoundMessage() -> String { "Surface not found" }

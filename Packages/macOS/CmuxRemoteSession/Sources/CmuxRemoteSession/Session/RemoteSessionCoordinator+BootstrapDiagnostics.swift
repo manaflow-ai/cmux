@@ -14,7 +14,7 @@ extension RemoteSessionCoordinator {
         let result: RemoteCommandResult
         do {
             result = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, command],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, command],
                 timeout: 12
             )
         } catch {
@@ -51,7 +51,7 @@ extension RemoteSessionCoordinator {
         )
         let command = "sh -c \(script.shellSingleQuoted)"
         guard let result = try? sshExec(
-            arguments: daemonBootstrapSSHArguments() + [configuration.destination, command],
+            arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, command],
             timeout: 8
         ), result.status == 0 else {
             return nil

@@ -436,6 +436,7 @@ final class CodexTurnLedger {
         existing: CodexTurnLedgerRecord?,
         surfaceOwner: CodexTurnLedgerRecord?
     ) -> CodexTurnLedgerOwnership {
+        if case .sessionStart = event, invocation.isForkSessionLaunch { return .foreground }
         if let owner = existing ?? surfaceOwner {
             if invocation.parentToken != nil,
                invocation.parentToken == owner.owner.token,
@@ -554,7 +555,6 @@ final class CodexTurnLedger {
             updatedAt: Date.now.timeIntervalSince1970
         )
     }
-
     private func startChild(id: String?, turnID: String?, in record: inout CodexTurnLedgerRecord) {
         let key = turnKey(turnID ?? record.activeTurnID)
         guard record.activeChildrenByTurn[key] != nil || record.unknownChildrenByTurn[key] != nil || record.activeChildrenByTurn.count + record.unknownChildrenByTurn.count < Self.maximumTurnKeys else {

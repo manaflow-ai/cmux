@@ -9,6 +9,8 @@ protocol AccountSignInFlow: AnyObject {
     var isCompletingSignIn: Bool { get }
     var signInIsSlow: Bool { get }
     var lastSignInFailure: AccountSignInModel.Failure? { get }
+    /// True from Switch Account's sign-out until its private sign-in ends.
+    var isSwitchingAccount: Bool { get }
 
     /// Callback-bound URL of the attempt currently presenting, if any.
     var activeSignInURL: URL? { get }

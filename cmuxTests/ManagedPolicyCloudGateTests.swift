@@ -111,7 +111,8 @@ struct ManagedPolicyCloudGateTests {
             auth: coordinator,
             resourceStats: VMResourceStatsStore(),
             checkpointRenames: CloudRenameCoordinator(),
-            isDisabledByManagedPolicy: { policy.isEnforced }
+            isDisabledByManagedPolicy: { policy.isEnforced },
+            isCloudAvailable: { false }
         )
 
         // Representative operations across the API surface: discovery,
@@ -197,6 +198,50 @@ struct ManagedPolicyCloudGateTests {
         }
         let listRequest = try #require(RecordingCloudURLProtocol.recorder.requests.first)
         #expect(listRequest.timeoutInterval == 15)
+    }
+
+    @Test func coderouterClaudeImportsAreSharedWithTheSelectedTeam() async throws {
+        let suiteName = "ManagedPolicyCloudGateTests.coderouter.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        try #require(coordinator.isAuthenticated)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingCloudURLProtocol.self]
+        RecordingCloudURLProtocol.recorder.reset()
+        defer { RecordingCloudURLProtocol.recorder.reset() }
+        let client = CoderouterClient(
+            session: URLSession(configuration: configuration),
+            auth: coordinator
+        )
+
+        _ = try await client.addClaudeAccount(
+            .anthropicOAuth(token: "sk-ant-oat01-test-token"),
+            label: "work",
+            teamID: "team-explicit"
+        )
+
+        let request = try #require(RecordingCloudURLProtocol.recorder.requests.first)
+        var bodyData = request.httpBody ?? Data()
+        if bodyData.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                try #require(count >= 0)
+                if count == 0 { break }
+                bodyData.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        #expect(body["visibility"] as? String == "team")
+        #expect(body["token"] as? String == "sk-ant-oat01-test-token")
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == "team-explicit")
     }
 
     // MARK: - Helpers

@@ -1792,7 +1792,7 @@ private func setFontBindingResult(_ result: Bool)
                     interSpawnDelay: .zero
                 ),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(
+                    agentCommandShimRootDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),

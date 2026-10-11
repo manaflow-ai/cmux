@@ -198,9 +198,8 @@ extension Workspace {
     /// `panelTitles` or the workspace title, so an animation frame reaches the
     /// tab label without waking the sidebar, the titlebar, or the App body.
     ///
-    /// This is not free: `PaneState` is `@Observable` with `var tabs:
-    /// [TabItem]`, so writing one tab's title writes the whole `tabs` property
-    /// and re-renders the entire tab bar. Narrowing that is separate work.
+    /// Bonsplit observes the tab item itself, so this title-only update reaches
+    /// the affected tab view without re-rendering the entire tab bar.
     @discardableResult
     private func refreshTabLabel(panelId: UUID, displayTitle: String) -> Bool {
         guard !isRemoteTmuxMirror,

@@ -11,7 +11,9 @@ public import WebKit
 open class CmuxUndoableWebView: WKWebView {
     public let webContentUndoManager = UndoManager()
 
-    open override var undoManager: UndoManager? { webContentUndoManager }
+    // WebKit reads the responder's undo manager from framework callbacks; do
+    // not make that Objective-C getter enter a Swift MainActor check.
+    open nonisolated override var undoManager: UndoManager? { webContentUndoManager }
 
     /// Whether `event` is the keyboard-layout-aware Cmd+Z or Cmd+Shift+Z
     /// chord this view completes. The keyboard layout lookup lives in the

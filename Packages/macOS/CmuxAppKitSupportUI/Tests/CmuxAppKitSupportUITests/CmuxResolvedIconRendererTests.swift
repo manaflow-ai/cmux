@@ -409,7 +409,7 @@ import Testing
     }
 
     private func renderedImage(in view: CmuxResolvedIconImageView) -> NSImage? {
-        view.subviews.compactMap { ($0 as? NSImageView)?.image }.first
+        view.subviews.compactMap { ($0 as? BitmapView)?.image }.first
     }
 
     private func prewarmImageCache(_ image: NSImage) {

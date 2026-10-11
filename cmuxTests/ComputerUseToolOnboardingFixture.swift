@@ -68,7 +68,10 @@ final class ComputerUseToolOnboardingFixture {
             bundle: try #require(Bundle(url: bundleURL)),
             paths: persistence.paths,
             userDefaults: persistence.defaults,
-            isDisabledByPolicy: { false }
+            isDisabledByPolicy: { false },
+            // No helper runs here, so every status refresh would otherwise wait
+            // out the full production deadline (5 s per first tool call).
+            permissionStatusDeadline: .zero
         )
         let pid = ProcessInfo.processInfo.processIdentifier
         let identity = try #require(AgentPIDProcessIdentity(pid: pid))

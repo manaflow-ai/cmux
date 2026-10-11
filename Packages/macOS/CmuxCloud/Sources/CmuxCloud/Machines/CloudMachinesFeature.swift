@@ -1,12 +1,11 @@
 import CmuxSettings
 import Foundation
 
-/// The one application-side Cloud availability decision. The effective
-/// Cloud flag (including any permitted Nightly/debug override) must be enabled, the
-/// Beta Features opt-in must be on, and no managed profile may disable Cloud.
-/// Every Cloud entry point and background owner calls this policy; persisted
-/// Cloud identities remain untouched when it returns false. The app supplies
-/// the remote flag reads in `CloudMachinesFeature+FeatureFlags.swift`.
+/// The one application-side Cloud activation decision. Cloud is available to
+/// every user unless a managed profile disables it; the persisted first-use
+/// activation marker controls whether Cloud work may run. The right-sidebar
+/// discoverability check intentionally omits the activation marker so the
+/// Cloud tab can own first-use enablement.
 /// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping it is a separate change from this package move.
 public enum CloudMachinesFeature: Sendable {
     public nonisolated static var disabledMessage: String {
@@ -14,16 +13,17 @@ public enum CloudMachinesFeature: Sendable {
         return String(localized: "cloud.feature.disabled", defaultValue: "Cloud Machines are temporarily unavailable.")
     }
 
-    /// Pure decision helper for behavior tests and injected composition roots.
-    /// The effective flag is supplied by CmuxFeatureFlags; the Beta Features
-    /// toggle cannot bypass a disabled flag or managed policy.
+    /// Whether Cloud can be discovered on this Mac.
+    public nonisolated static func isAvailable(policy: ManagedDevicePolicy) -> Bool {
+        !policy.isEnforced(.disableCloud)
+    }
+
+    /// Whether Cloud work is enabled after local first-use activation.
     public nonisolated static func isEnabled(
         defaults: UserDefaults,
-        policy: ManagedDevicePolicy,
-        remoteEnabled: Bool
+        policy: ManagedDevicePolicy
     ) -> Bool {
-        guard !policy.isEnforced(.disableCloud) else { return false }
-        return remoteEnabled && localOptIn(defaults: defaults)
+        isAvailable(policy: policy) && localOptIn(defaults: defaults)
     }
 
     public nonisolated static func localOptIn(defaults: UserDefaults) -> Bool {

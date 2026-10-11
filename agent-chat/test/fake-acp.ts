@@ -1,4 +1,4 @@
-import { appendFile } from "node:fs/promises";
+import { access, appendFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 
 const modelFlag = Bun.argv.findIndex((arg) => arg === "--model");
@@ -21,6 +21,17 @@ for await (const line of rl) {
     send({ jsonrpc: "2.0", id: msg.id, result: { sessionId: `fake-${model || "default"}` } });
   } else if (msg.method === "session/prompt") {
     if (promptLog) await appendFile(promptLog, `${msg.params?.prompt?.[0]?.text ?? ""}\n`);
+    const gate = process.env.FAKE_ACP_PROMPT_GATE;
+    if (gate) {
+      while (true) {
+        try {
+          await access(gate);
+          break;
+        } catch {
+          await Bun.sleep(10);
+        }
+      }
+    }
     send({
       jsonrpc: "2.0",
       method: "session/update",

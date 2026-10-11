@@ -13,4 +13,7 @@ public enum ControlSidebarPaneSplitResolution: Sendable, Equatable {
     case mirrorInsertFirstRejected
     /// Creation failed.
     case failed
+    /// The split was refused because a resulting pane would fall below the
+    /// minimum pane size ("ERROR: No space for new pane").
+    case noSpace
 }

@@ -12,7 +12,7 @@ import Foundation
 /// `currentIdentity` / `availableTeams` / `selectedTeamID` from view
 /// bodies. Use `@Observable` so SwiftUI tracks changes.
 @MainActor
-public protocol AccountFlow: AnyObject {
+public protocol AccountFlow: AccountTeamManagement {
     /// The currently signed-in user, or `nil` if signed out.
     var currentIdentity: AccountIdentity? { get }
 

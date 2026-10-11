@@ -92,7 +92,8 @@ extension KeyboardShortcutSettings.Action {
              .simulatorRotateRight,
              .simulatorToggleAppearance,
              .simulatorToggleSoftwareKeyboard,
-             .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             .focusResolved
 
         case .openSettings, .openTeamPicker, .reloadConfiguration,
@@ -101,8 +102,8 @@ extension KeyboardShortcutSettings.Action {
              .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread,
+             .commandPalette, .agentInbox, .sendFeedback,
+             .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread,
              .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar,
@@ -122,6 +123,7 @@ extension KeyboardShortcutSettings.Action {
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedWorkspace,
+             .sizeTerminalToMyWindow,
              .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize,
              .resetWorkspaceTerminalFontSize,
@@ -185,6 +187,23 @@ extension AppDelegate {
         return focusedDockStoreForShortcut(
             preferredWindow: preferredWindow
         )
+    }
+
+    /// Focuses the TextBox composer from a menu or command entrypoint. The
+    /// terminal panel owns the same focus toggle as the keyboard shortcut:
+    /// the first invocation reveals/focuses TextBox and the next returns focus
+    /// to the terminal.
+    @discardableResult
+    func performFocusTextBoxInputShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        if let dock = focusedDockStoreForShortcut(
+            action: .focusTextBoxInput,
+            preferredWindow: targetWindow
+        ) {
+            return dock.performShortcutCommand(.focusTextBoxInput)
+        }
+        return activeTabManagerForCommands(preferredWindow: targetWindow)?
+            .focusFocusedTerminalTextBoxInputOrTerminal() ?? false
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.

@@ -34,6 +34,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/ci_process_tree.py",
     "scripts/ci/hung_test_watchdog.py",
     "scripts/ci/owned_spm_scratch.py",
+    "scripts/ci/package_interface_fingerprint.py",
     "scripts/ci/package-test-lane.sh",
     "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/run-swift-testing-suites.sh",

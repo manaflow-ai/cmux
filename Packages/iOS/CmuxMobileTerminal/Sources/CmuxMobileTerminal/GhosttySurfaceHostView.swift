@@ -670,6 +670,8 @@ public final class GhosttySurfaceHostView: UIView {
         let reveal = surfaceView.hostedScrollTopReveal
         appliedBlankBelowContent = blank
         appliedScrollTopReveal = reveal
+        // The dock now covers a different part of the viewport.
+        surfaceView.refreshSizingChrome()
         let constant = surfaceView.hostedBottomChromeReservation + blank + reveal
         guard abs(presentationContentCapConstraint.constant - constant) > 0.25 else { return }
         MobileDebugLog.anchormux(
@@ -698,6 +700,8 @@ public final class GhosttySurfaceHostView: UIView {
                 || abs(reveal - appliedScrollTopReveal) > 0.5 else { return }
         appliedBlankBelowContent = blank
         appliedScrollTopReveal = reveal
+        // The dock now covers a different part of the viewport.
+        surfaceView.refreshSizingChrome()
         let constant = surfaceView.hostedBottomChromeReservation + blank + reveal
         if surfaceView.scrollInteractionActive {
             UIView.performWithoutAnimation {

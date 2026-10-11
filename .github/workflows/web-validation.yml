@@ -130,8 +130,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Apply migrations, including an idempotent second pass
         run: |
-          bunx drizzle-kit migrate --config drizzle.config.ts
-          bunx drizzle-kit migrate --config drizzle.config.ts
+          bun scripts/db-migrate.mjs
+          bun scripts/db-migrate.mjs
       - run: bun run test:db:behavior
 
   web-validation:

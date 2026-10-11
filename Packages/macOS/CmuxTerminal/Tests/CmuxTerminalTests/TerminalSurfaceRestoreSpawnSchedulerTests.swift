@@ -124,7 +124,7 @@ import CmuxTerminalCore
         let scheduler = RecordingRestoreSpawnScheduler()
         let shimInstaller = ManualAgentCommandShimInstaller()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installAgentCommandShims: {
                 await shimInstaller.install(wrapperDirectoryURL: $0, surfaceId: $1, temporaryDirectory: $2)
             },
@@ -429,7 +429,7 @@ import CmuxTerminalCore
         paneHost: FakeTerminalSurfacePaneHost,
         engine: FakeTerminalEngine = FakeTerminalEngine(),
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installAgentCommandShims: { _, _, _ in nil },
             isExecutableFile: { _ in false }
         )

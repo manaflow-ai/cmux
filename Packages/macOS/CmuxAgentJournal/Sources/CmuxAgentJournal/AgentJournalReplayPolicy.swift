@@ -31,7 +31,7 @@ public struct AgentJournalReplayPolicy: Sendable {
                     phases[surfaceId, default: [:]][agentKey] = phase
                     newest[surfaceId, default: [:]][agentKey] =
                         snapshot.newestOccurredAtMs[surfaceId]?[agentKey] ?? 0
-                case .running, .idle, .unknown:
+                case .running, .backgroundWorkPending, .idle, .unknown:
                     continue
                 }
             }

@@ -12,9 +12,3 @@ struct BrowserWebAuthnCredentialParameter: Decodable {
         normalizedType == "public-key"
     }
 }
-
-extension BrowserWebAuthnCredentialParameter {
-    func validateNativeRequestShape() throws {
-        try type.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
-    }
-}

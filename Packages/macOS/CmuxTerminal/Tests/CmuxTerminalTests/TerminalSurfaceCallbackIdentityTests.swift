@@ -61,7 +61,7 @@ struct TerminalSurfaceCallbackIdentityTests {
                     interSpawnDelay: .zero
                 ),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(
+                    agentCommandShimRootDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),

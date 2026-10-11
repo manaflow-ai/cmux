@@ -222,6 +222,60 @@ import Testing
         #expect(active.commands == [.focus(.composer)])
     }
 
+    /// The pasteboard's "Allow Paste" alert makes the app inactive (a system
+    /// modal alert) without leaving the foreground. The terminal must get the
+    /// keyboard back so the Return after the paste is not dropped.
+    @Test func foregroundInterruptionRestoresTheFocusedOwner() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.terminal))
+        _ = state.handle(.focusCompleted(owner: .terminal, succeeded: true))
+
+        let inactive = state.handle(.sceneWillResignActive)
+        #expect(inactive.commands == [.resign(.terminal)])
+        _ = state.handle(.resignCompleted(owner: .terminal, succeeded: true))
+        _ = state.handle(.responderChanged(owner: .terminal, isFirstResponder: false))
+        #expect(state.interruptedOwner == .terminal)
+
+        let active = state.handle(.sceneDidBecomeActive)
+        #expect(active.commands == [.focus(.terminal)])
+        #expect(state.requestedOwner == .terminal)
+        #expect(state.interruptedOwner == nil)
+    }
+
+    @Test func backgroundingForgetsTheInterruptedOwner() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.composer))
+        _ = state.handle(.focusCompleted(owner: .composer, succeeded: true))
+        _ = state.handle(.sceneWillResignActive)
+        _ = state.handle(.resignCompleted(owner: .composer, succeeded: true))
+        _ = state.handle(.sceneDidEnterBackground)
+
+        let active = state.handle(.sceneDidBecomeActive)
+        #expect(active.commands.isEmpty)
+        #expect(state.requestedOwner == nil)
+    }
+
+    @Test func releaseDuringInterruptionIsNotUndoneByReactivation() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.terminal))
+        _ = state.handle(.focusCompleted(owner: .terminal, succeeded: true))
+        _ = state.handle(.sceneWillResignActive)
+        _ = state.handle(.resignCompleted(owner: .terminal, succeeded: true))
+        _ = state.handle(.releaseFocus)
+
+        let active = state.handle(.sceneDidBecomeActive)
+        #expect(active.commands.isEmpty)
+        #expect(state.requestedOwner == nil)
+    }
+
+    @Test func unfocusedInterruptionFocusesNothing() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.sceneWillResignActive)
+        let active = state.handle(.sceneDidBecomeActive)
+        #expect(active.commands.isEmpty)
+        #expect(state.requestedOwner == nil)
+    }
+
     @Test func surfaceDetachClearsInputWithoutMisreportingTheActiveScene() {
         var state = TerminalInputSessionState()
         _ = state.handle(.requestFocus(.terminal))

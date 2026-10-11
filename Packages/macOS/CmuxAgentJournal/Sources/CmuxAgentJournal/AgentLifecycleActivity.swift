@@ -36,13 +36,15 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
         switch current {
         case .idle:
             return previous == .running ? .turnFinished : nil
+        case .backgroundWorkPending:
+            return nil
         case .needsInput:
             return .needsInput
         case .error:
             return .error
         case .running:
             switch previous {
-            case nil, .unknown, .idle: return .promptSubmitted
+            case nil, .unknown, .idle, .backgroundWorkPending: return .promptSubmitted
             case .needsInput, .error, .running: return nil
             }
         case .unknown:
@@ -78,7 +80,7 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
             // attentionResolved does.
             guard current == .running else { return nil }
             switch previous {
-            case nil, .unknown, .idle, .error: return .promptSubmitted
+            case nil, .unknown, .idle, .backgroundWorkPending, .error: return .promptSubmitted
             case .needsInput, .running: return nil
             }
         default:

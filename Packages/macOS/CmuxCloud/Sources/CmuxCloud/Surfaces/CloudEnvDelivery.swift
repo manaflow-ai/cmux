@@ -195,7 +195,7 @@ public enum CloudEnvDelivery {
     }
 
     public static func isValidKey(_ key: String) -> Bool {
-        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil
+        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
     }
 
     /// The receiver's payload: one `KEY=VALUE` line per entry, values byte-literal.

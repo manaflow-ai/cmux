@@ -75,14 +75,18 @@ public final class NotificationDeliveryCoordinator {
     }
 
     /// Presentation options for a notification delivered while the app is in
-    /// the foreground.
-    public func presentationOptions(for notification: UNNotification) -> UNNotificationPresentationOptions {
-        presentationOptions(notificationHasSound: notification.request.content.sound != nil)
+    /// the foreground. `keepsSoundQuiet` drops the sound for a banner whose
+    /// target pane became focused after the banner was scheduled.
+    public func presentationOptions(
+        for content: UNNotificationContent,
+        keepsSoundQuiet: Bool = false
+    ) -> UNNotificationPresentationOptions {
+        presentationOptions(notificationHasSound: content.sound != nil && !keepsSoundQuiet)
     }
 
     /// Handles a notification response from `UNUserNotificationCenterDelegate`.
-    public func handleNotificationResponse(_ response: UNNotificationResponse) {
-        handle(NotificationDeliveryResponse(response))
+    public func handleNotificationResponse(_ response: UNNotificationResponse) async {
+        await handle(NotificationDeliveryResponse(response))
     }
 
     func presentationOptions(notificationHasSound: Bool) -> UNNotificationPresentationOptions {
@@ -93,11 +97,11 @@ public final class NotificationDeliveryCoordinator {
         return options
     }
 
-    func handle(_ response: NotificationDeliveryResponse) {
+    func handle(_ response: NotificationDeliveryResponse) async {
         if handleFeedNotificationResponse(response) {
             return
         }
-        handleTerminalNotificationResponse(response)
+        await handleTerminalNotificationResponse(response)
     }
 
     func notificationCategories() -> Set<UNNotificationCategory> {
@@ -342,7 +346,7 @@ public final class NotificationDeliveryCoordinator {
         }
     }
 
-    private func handleTerminalNotificationResponse(_ response: NotificationDeliveryResponse) {
+    private func handleTerminalNotificationResponse(_ response: NotificationDeliveryResponse) async {
         switch response.actionIdentifier {
         case terminalIdentifiers.replyActionIdentifier:
             guard let target = terminalTarget(response) else { return }
@@ -351,7 +355,7 @@ public final class NotificationDeliveryCoordinator {
                 openTerminalNotification(response, target: target)
                 return
             }
-            let didSend = terminalReplying.sendReply(
+            let didSend = await terminalReplying.sendReply(
                 text: text,
                 tabId: target.tabId,
                 surfaceId: target.surfaceId,

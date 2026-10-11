@@ -92,6 +92,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Journals agent sessions ended by closing their terminal. Tests point it
+    /// at a private journal.
+    @ObservationIgnored var agentSessionCloseJournal = AgentSessionCloseJournal()
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
@@ -153,6 +156,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
     @ObservationIgnored let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
+    /// The foreground process of a Dock terminal, as libghostty reports it.
+    @ObservationIgnored let foregroundProcessIDProvider: @MainActor (TerminalPanel) -> Int?
+    /// Reads a process's argv and environment for snapshot-time recognition.
+    @ObservationIgnored let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    /// The last `claude attach` viewer observation per Dock terminal.
+    @ObservationIgnored var claudeBackgroundViewerObservationsByPanelId: [UUID: ClaudeBackgroundViewerObservation] = [:]
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -315,7 +324,13 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil,
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        foregroundProcessIDProvider: @escaping @MainActor (TerminalPanel) -> Int? = {
+            $0.surface.foregroundProcessID()
+        },
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
@@ -329,6 +344,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.foregroundProcessIDProvider = foregroundProcessIDProvider
+        self.processArgumentsProvider = processArgumentsProvider
         self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {
             SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
         }
@@ -352,11 +369,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             configuration: Self.makeConfiguration(),
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
-            guard source == .closeButton else { return }
+            guard source == .closeButton || source == .middleClick else { return }
+            // Both pointer close gestures use the explicit tab-close path. This
+            // preserves the close warning and closed-surface history behavior.
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
         self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in

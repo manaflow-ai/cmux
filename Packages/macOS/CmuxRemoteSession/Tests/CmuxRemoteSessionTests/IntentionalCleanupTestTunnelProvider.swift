@@ -14,6 +14,7 @@ final class IntentionalCleanupTestTunnelProvider: RemoteProxyTunnelProviding, @u
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         onFatalError: @escaping @Sendable (String) -> Void
     ) -> any RemoteProxyTunneling {
         lock.withLock { _makeCount += 1 }

@@ -5,7 +5,7 @@ Codex discovers hooks per configuration layer and appends them from lowest to
 highest: the user's ``hooks.json`` and ``[hooks]`` table in ``config.toml``, a
 trusted project's ``.codex/hooks.json``, and finally the session flags. The
 ``-c hooks.<event>=...`` values cmux injects only define that session-flags
-layer, so they must carry exactly one cmux handler per event and must never
+layer, so they must carry exactly one cmux group per event and must never
 re-declare the user's handlers: a copied user handler is discovered twice and
 runs twice (https://github.com/manaflow-ai/cmux/issues/12081).
 
@@ -77,7 +77,8 @@ LIVE_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop"]
 # `.codex/hooks.json`).
 LIVE_USER_MARKERS = LIVE_EVENTS + ["SessionStart:config.toml", "SessionStart:project"]
 # cmux's own handlers that a one-turn `codex exec` with no tool calls fires.
-LIVE_CMUX_SUBCOMMANDS = ["session-start", "prompt-submit", "stop"]
+# The agent message handlers run too; in `codex exec` they return `{}` at once.
+LIVE_CMUX_SUBCOMMANDS = ["session-start", "prompt-submit", "stop", "inbox-drain", "inbox-stop"]
 
 
 def user_hooks_json(commands: dict[str, str]) -> dict:
@@ -135,11 +136,21 @@ def assert_injection_shape(arguments: list[str], context: str) -> None:
         assert rest[index + 1].startswith("hooks."), f"{context}: non-hook override: {rest[index + 1]!r}"
 
 
+# Events whose cmux group also carries the direct agent message handler.
+INBOX_COMPANIONS = {"UserPromptSubmit": "inbox-drain", "Stop": "inbox-stop"}
+
+
 def assert_single_cmux_group(event: str, values: list[str], context: str) -> None:
     assert len(values) == 1, f"{context}: {event} assigned {len(values)} times: {values}"
     value = values[0]
     assert value.count("{hooks=") == 1, f"{context}: {event} carries more than one group: {value}"
-    assert value.count('type="command"') == 1, f"{context}: {event} carries more than one handler: {value}"
+    expected_handlers = 2 if event in INBOX_COMPANIONS else 1
+    handlers = value.count('type="command"')
+    assert handlers == expected_handlers, (
+        f"{context}: {event} carries {handlers} handlers, expected {expected_handlers}: {value}"
+    )
+    if event in INBOX_COMPANIONS:
+        assert INBOX_COMPANIONS[event] in value, f"{context}: {event} lacks its agent message handler: {value}"
     assert value.startswith("[{hooks=[{type=\"command\",command='''"), f"{context}: {event} shape changed: {value}"
     assert "cmux-codex-hook" in value or "hooks codex" in value, f"{context}: {event} is not cmux's handler: {value}"
 
@@ -216,6 +227,26 @@ def test_persistent_cmux_hook_is_not_duplicated() -> None:
             assert_single_cmux_group(event, values, "persistent")
         assert_no_user_handlers(arguments, "persistent")
         assert hooks_path.read_bytes() == original_bytes, "inject-args rewrote hooks.json"
+
+
+def test_computer_use_notify_handler_is_preserved() -> None:
+    """Hook injection must coexist with Codex's single legacy notify slot."""
+    cli_path = resolve_cmux_cli()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        codex_home = root / "codex"
+        codex_home.mkdir()
+        (codex_home / "hooks.json").write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+        config_path = codex_home / "config.toml"
+        config_bytes = b'notify = ["/Applications/Codex Computer Use.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]\n'
+        config_path.write_bytes(config_bytes)
+
+        arguments = run_inject_args(cli_path, codex_home, root / "home")
+        assert_injection_shape(arguments, "computer-use notify")
+        assignments = hook_assignments(arguments)
+        assert "Stop" in assignments, f"completion hook missing with notify configured: {arguments}"
+        assert "notify" not in "\0".join(arguments), f"notify config leaked into injected args: {arguments}"
+        assert config_path.read_bytes() == config_bytes, "inject-args rewrote Computer Use notify config"
 
 
 class _FakeModelHandler(BaseHTTPRequestHandler):
@@ -502,6 +533,8 @@ if __name__ == "__main__":
     print("PASS: injected Codex hooks carry one cmux group per event and no user handlers")
     test_persistent_cmux_hook_is_not_duplicated()
     print("PASS: persistent cmux hooks are not duplicated and user hooks are not copied")
+    test_computer_use_notify_handler_is_preserved()
+    print("PASS: Computer Use notify remains configured alongside cmux Stop hooks")
     try:
         test_live_codex_runs_user_hooks_and_cmux_hook_once_each()
     except unittest.SkipTest as skipped:

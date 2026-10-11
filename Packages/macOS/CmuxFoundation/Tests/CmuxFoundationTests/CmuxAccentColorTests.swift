@@ -38,6 +38,62 @@ import Testing
         #expect(CmuxAccentColorMode.stored(in: defaults) == .cmux)
     }
 
+    @Test func customModeDrawsTheStoredColorInBothSchemes() throws {
+        let suite = "CmuxAccentColorTests.custom.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        defaults.set(CmuxAccentColorMode.custom.rawValue, forKey: CmuxAccentColorMode.userDefaultsKey)
+        defaults.set(" ff6a00 ", forKey: CmuxAccentColorMode.customHexUserDefaultsKey)
+        let accent = CmuxAccentColor.stored(in: defaults)
+        #expect(accent.mode == .custom)
+        #expect(accent.customHex == "#FF6A00")
+        #expect(rgbBytes(accent.nsColor(isDark: false)) == [255, 106, 0])
+        #expect(rgbBytes(accent.nsColor(isDark: true)) == [255, 106, 0])
+    }
+
+    @Test func customModeWithoutAValidColorFallsBackToCmuxBlue() {
+        for hex in [nil, "", "not-a-color", "#FF6A00AA"] {
+            let accent = CmuxAccentColor(mode: .custom, customHex: hex)
+            #expect(accent.customHex == nil)
+            #expect(rgbBytes(accent.nsColor(isDark: false)) == [0, 136, 255])
+            #expect(rgbBytes(accent.nsColor(isDark: true)) == [0, 145, 255])
+        }
+    }
+
+    @MainActor
+    @Test func observerPostsWhenTheCustomColorChanges() throws {
+        let suite = "CmuxAccentColorTests.customObserver.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(CmuxAccentColorMode.custom.rawValue, forKey: CmuxAccentColorMode.userDefaultsKey)
+        defaults.set("#FF6A00", forKey: CmuxAccentColorMode.customHexUserDefaultsKey)
+
+        let observer = CmuxAccentColorObserver(defaults: defaults, center: NotificationCenter())
+        #expect(observer.current.customHex == "#FF6A00")
+        defaults.set("#00FF00", forKey: CmuxAccentColorMode.customHexUserDefaultsKey)
+        #expect(observer.refresh() == true)
+        #expect(rgbBytes(observer.current.nsColor(isDark: true)) == [0, 255, 0])
+        #expect(observer.refresh() == false)
+    }
+
+    @Test func settingsFileValueRoundTripsEveryMode() throws {
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .cmux, customHex: "#FF6A00") == "cmux")
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .system, customHex: nil) == "system")
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .custom, customHex: "ff6a00") == "#FF6A00")
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .custom, customHex: nil) == nil)
+
+        for (mode, hex) in [(CmuxAccentColorMode.cmux, nil), (.system, nil), (.custom, "#FF6A00")] as [(CmuxAccentColorMode, String?)] {
+            let value = try #require(CmuxAccentColorMode.settingsFileValue(mode: mode, customHex: hex))
+            let parsed = try #require(CmuxAccentColorMode.parseSettingsFileValue(value))
+            #expect(parsed.mode == mode)
+            #expect(parsed.customHex == hex)
+        }
+        for invalid in ["custom", "purple", "#FF6A", "#FF6A00AA", ""] {
+            #expect(CmuxAccentColorMode.parseSettingsFileValue(invalid) == nil)
+        }
+    }
+
     @Test func appearanceResolvesToMatchingScheme() throws {
         let dark = try #require(NSAppearance(named: .darkAqua))
         let aqua = try #require(NSAppearance(named: .aqua))

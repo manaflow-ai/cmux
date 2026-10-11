@@ -12,12 +12,16 @@ public struct CloudGuestDisplay: Decodable, Sendable {
     public func resource(on machine: SurfaceMachineID, address: String?) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: id),
-            title: number == 1
-                ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
-                : String(format: String(localized: "cloud.display.numberedTitle", defaultValue: "Desktop %d"), number),
+            title: Self.title(for: number),
             detail: "noVNC", lifecycle: state, agent: nil, remoteWorkspace: nil,
             port: port, url: address.map { Self.privateDesktopURL(privateAddress: $0, port: port) }
         )
+    }
+
+    /// The sidebar names every guest screen by its stable display number.
+    public static func title(for number: Int) -> String {
+        let format = String(localized: "cloud.display.numberedTitle", defaultValue: "Display %d")
+        return format.replacingOccurrences(of: "%d", with: String(number))
     }
 
     /// The noVNC page for a guest display reached directly over the machine's private address.

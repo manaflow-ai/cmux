@@ -1,5 +1,7 @@
 import CmuxCloud
 import CmuxCloudTui
+import CmuxTerminalSizing
+import CmuxTerminalSharing
 import Darwin
 import Foundation
 import Testing
@@ -138,6 +140,51 @@ import Testing
 
         #expect(await Self.waitUntil { session.phase == .disconnected })
         #expect(reconnects.count >= 1)
+    }
+
+    /// A daemon that advertises modern attachment features but omits pending
+    /// VT-sequence framing can replay a partial escape into the next screen.
+    /// Keep the pane recoverable, but stop retrying the same stale VM forever.
+    @Test @MainActor
+    func staleReplayDaemonStopsAutomaticReconnectWithActionablePresentation() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        let reconnects = ReconnectCounter()
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine",
+            terminalID: Self.terminalID,
+            remoteSurfaceID: 17,
+            presentationPolicy: .immediate,
+            onNeedsReconnect: { reconnects.increment() }
+        )
+        defer { session.stop() }
+
+        session.sizingRelay.connectionStarted(capabilities: [CloudTerminalSizingRelay.capability])
+        _ = session.sizingRelay.receive(TerminalSizingState(
+            generation: 1, cols: 80, rows: 24, reason: .latest,
+            owners: [], policy: .latest, participants: []
+        ))
+        #expect(session.sizingRelay.state != nil)
+
+        session.reconnect(socketPath: fixture.socketPath)
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send([
+            "id": identify.id,
+            "ok": true,
+            "data": ["protocol": 12, "capabilities": ["view-attachment-lease-v1"]],
+        ])
+
+        #expect(await Self.waitUntil { session.phase == .disconnected })
+        #expect(!session.allowsAutomaticReconnect)
+        #expect(reconnects.count == 0)
+        #expect(session.sizingRelay.state == nil)
+        #expect(session.connectionPresentation != nil)
+        #expect(session.connectionPresentation?.detail == CloudTerminalAttachmentInterruption.staleDaemon.localizedDescription)
+        guard case let .reconnecting(_, reason) = session.attachmentStatus.state else {
+            Issue.record("expected a reconnecting state")
+            return
+        }
+        #expect(reason == .staleDaemon)
     }
 
     /// An attached stream that stops carrying frames is indistinguishable from

@@ -17,6 +17,15 @@ The PR Changelog lines are drafts. Edit them for tone and merge related lines, b
 - `release-pretag-guard.sh` fails on a non-monotonic build number: run `./scripts/bump-version.sh`, commit the bump, retry.
 - Release automation fails **before** signing: inspect workflow configuration and version metadata.
 - Release automation fails **during** signing or notarization: inspect secret availability and Apple account status.
+- A Nightly run that created the notarization recovery artifacts but timed out or failed while waiting for Apple is resumable. Use the **Continue nightly notarization** workflow with the exact source run ID, run attempt, head SHA, and published branch; do not rebuild or dispatch a second Nightly run. The recovery workflow validates the saved submission IDs and polls Apple from a Linux worker, then publishes the existing DMG when notarization completes:
+
+  ```bash
+  gh workflow run auto-resume-nightly-notarization.yml --repo manaflow-ai/cmux \
+    -f source_run_id=<nightly-run-id> \
+    -f source_run_attempt=<attempt> \
+    -f source_head_sha=<40-character-sha> \
+    -f source_branch=<published-branch>
+  ```
 
 ## Asset rename
 

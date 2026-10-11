@@ -27,7 +27,7 @@ struct AgentHookDeliveryEvent: Sendable {
         "session-end",
     ]
 
-    private static let allowedHookDataEnvironmentKeys: Set<String> = [
+    private static let allowedHookDataEnvironmentKeys: Set<String> = Set([
         "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
         AgentHookDeliveryPolicy.routeSnapshotEnvironmentKey,
@@ -35,12 +35,12 @@ struct AgentHookDeliveryEvent: Sendable {
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
         "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
         "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
-    ]
+    ]).union(SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys)
 
-    private static let optionalLaunchEnvironmentKeys: Set<String> = [
+    private static let optionalLaunchEnvironmentKeys: Set<String> = Set([
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
-    ]
+    ]).union(SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys)
 
     let agent: String
     let subcommand: String
@@ -160,6 +160,13 @@ struct AgentHookDeliveryEvent: Sendable {
     /// Returns whether this newer terminal state can supersede an older
     /// buffered state snapshot without discarding an independent side effect.
     func canReplaceBufferedLifecycleState(_ earlier: Self) -> Bool {
+        // Stop delivery has independent side effects: it journals the turn
+        // boundary, updates the resumable session record, and may publish a
+        // completion notification. Session teardown must not coalesce that
+        // work away while replacing stale state in the same lane.
+        if earlier.subcommand == "stop" {
+            return false
+        }
         guard Self.terminalStateSubcommands.contains(subcommand),
               Self.supersedableStateSubcommands.contains(earlier.subcommand),
               agent == earlier.agent,

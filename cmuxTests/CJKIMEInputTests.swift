@@ -1638,7 +1638,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
     }
 
     private func cmuxZshTerminalKeyboardResetSequence() throws -> Data {
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot

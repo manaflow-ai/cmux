@@ -1,15 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { identifier } from "./contracts/common";
 import { environmentScope, type Environment } from "./environment";
-import { failureDiagnostics, OperationError, publicError } from "./errors";
+import { failureDiagnostics, OperationError, publicError, type Result } from "./errors";
 import { observe } from "./observability";
 import { objectName } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { UserSocketStore } from "./storage/socket-store";
 import { UserUsageStore, type UsageOperation } from "./storage/user-usage";
-import type { ErrorCode } from "./contracts/responses";
 
-type Result<T> = { ok: true; value: T } | { ok: false; code: ErrorCode; status: number; retryable: boolean; retryAfterMs?: number };
 function result<T>(action: () => T, report?: (cause: string) => void): Result<T> {
   try { return { ok: true, value: action() }; }
   catch (error) {
@@ -20,10 +18,6 @@ function result<T>(action: () => T, report?: (cause: string) => void): Result<T>
     return { ok: false, code: failure.code, status: failure.status, retryable: failure.retryable,
       ...(failure.retryAfterMs === undefined ? {} : { retryAfterMs: failure.retryAfterMs }) };
   }
-}
-export function unwrap<T>(value: Result<T>): T {
-  if (!value.ok) throw new OperationError(value.code, value.status, value.retryable, value.retryAfterMs);
-  return value.value;
 }
 
 /** Private RPC object shared by all of a verified user's teams in this environment. */

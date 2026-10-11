@@ -15,6 +15,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     @Test("Cmd+T after session restore uses workspace cwd when focused agent has no terminal cwd")
     func cmdTAfterSessionRestoreUsesWorkspaceCurrentDirectoryForAgentPane() throws {
         let workspaceDirectory = "/tmp/cmux-cmdt-restore-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workspaceDirectory) }
         let agentPanelId = UUID()
         let snapshot = SessionWorkspaceSnapshot(
             workspaceId: UUID(),
@@ -396,6 +398,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
         let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
         let anchorDirectory = "/tmp/cmux-anchor-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: anchorDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: anchorDirectory) }
         let workspace = Workspace(workingDirectory: "/tmp/cmux-workspace-\(UUID().uuidString)")
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let selectedPanel = try #require(workspace.focusedTerminalPanel)
@@ -433,6 +437,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     func surfaceCreateInheritsWorkspaceCurrentDirectoryForAgentPane() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let workspaceDirectory = "/tmp/cmux-surface-create-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workspaceDirectory) }
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         workspace.currentDirectory = workspaceDirectory

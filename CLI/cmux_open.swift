@@ -297,10 +297,6 @@ extension CMUXCLI {
 
     struct DiffViewerAssets {
         var appModuleURL: String
-        var diffsModuleURL: String
-        var treesModuleURL: String
-        var workerPoolModuleURL: String
-        var workerModuleURL: String
         var files: [URL]
     }
 
@@ -532,7 +528,7 @@ extension CMUXCLI {
         }
 
         static func localized() -> DiffViewerLabels {
-            DiffViewerLabels(values: [
+            DiffViewerLabels(values: reviewParityLabels.merging([
                 "additions": CMUXDiffViewerLocalization.string("diffViewer.additions", defaultValue: "Additions"),
                 "addComment": CMUXDiffViewerLocalization.string("diffViewer.addComment", defaultValue: "Add comment"),
                 "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
@@ -611,7 +607,7 @@ extension CMUXCLI {
                 "switchToSplitDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToSplitDiff", defaultValue: "Switch to split diff"),
                 "switchToUnifiedDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToUnifiedDiff", defaultValue: "Switch to unified diff"),
                 "untitled": CMUXDiffViewerLocalization.string("diffViewer.untitled", defaultValue: "Untitled"),
-            ])
+            ], uniquingKeysWith: { $1 }))
         }
     }
 
@@ -829,7 +825,10 @@ extension CMUXCLI {
         } else {
             explicitFocus = nil
         }
-        let fileFocus = explicitFocus ?? true
+        // Run by a person, the opened file or page takes focus; run by an agent or a
+        // script, it opens beside them (`defaultFocusForUserOpen`).
+        let interactiveFocus = Self.defaultFocusForUserOpen()
+        let fileFocus = explicitFocus ?? interactiveFocus
 
         let targets = try parsedArgs.targets.map(resolveOpenTarget)
         var fileCount = 0
@@ -882,7 +881,7 @@ extension CMUXCLI {
                 directoryCount += 1
             case .url(let url, let defaultFocus):
                 try flushPendingFiles()
-                var params: [String: Any] = ["url": url, "focus": explicitFocus ?? defaultFocus]
+                var params: [String: Any] = ["url": url, "focus": explicitFocus ?? (defaultFocus && interactiveFocus)]
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceHandle { params["workspace_id"] = workspaceHandle }
                 if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -1419,57 +1418,6 @@ extension CMUXCLI {
         return roundedDiffViewerMetric(size)
     }
 
-    private func resolveDiffViewerLayout(rawLayout: String?) throws -> (layout: String, source: String) {
-        if let rawLayout {
-            return (try parseDiffViewerLayout(rawLayout, errorMessage: "--layout must be split|unified"), "explicit")
-        }
-        return (diffViewerDefaultLayoutSetting() ?? "unified", "default")
-    }
-
-    private func parseDiffViewerLayout(_ rawValue: String, errorMessage: String) throws -> String {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard normalized == "split" || normalized == "unified" else {
-            throw CLIError(message: errorMessage)
-        }
-        return normalized
-    }
-
-    private func diffViewerDefaultLayoutSetting() -> String? {
-        for path in diffViewerDefaultSettingsPaths() {
-            guard let root = diffViewerSettingsRoot(at: path),
-                  let section = root["diffViewer"] as? [String: Any],
-                  let rawLayout = section["defaultLayout"] as? String,
-                  let layout = try? parseDiffViewerLayout(
-                      rawLayout,
-                      errorMessage: "diffViewer.defaultLayout must be split|unified"
-                  ) else {
-                continue
-            }
-            return layout
-        }
-        return nil
-    }
-
-    private func diffViewerDefaultSettingsPaths() -> [String] {
-        [
-            Self.primarySettingsDisplayPath,
-            Self.legacySettingsDisplayPath,
-            Self.fallbackSettingsDisplayPath,
-        ].map(Self.absoluteDiffViewerSettingsPath)
-    }
-
-    private func diffViewerSettingsRoot(at path: String) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              !data.isEmpty,
-              let sanitized = try? JSONCParser.preprocess(data: data),
-              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any] else {
-            return nil
-        }
-        return root
-    }
-
     private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
         if let url = URL(string: raw),
            let scheme = url.scheme?.lowercased(),
@@ -1580,7 +1528,7 @@ extension CMUXCLI {
         let sourceLabel: String
         switch source {
         case .unstaged:
-            patch = try gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)
+            patch = try gitUnstagedPatchIncludingUntracked(in: repoRoot)
             sourceLabel = "git unstaged"
         case .staged:
             patch = try gitStdout(gitDiffPatchArguments(["--cached", "--"]), in: repoRoot)
@@ -2546,7 +2494,7 @@ extension CMUXCLI {
         return line
     }
 
-    private func gitStdout(
+    func gitStdout(
         _ arguments: [String],
         in directory: String,
         timeout: TimeInterval = 60
@@ -2566,11 +2514,11 @@ extension CMUXCLI {
         return result.stdout
     }
 
-    private func gitDiffPatchArguments(_ tail: [String]) -> [String] {
+    func gitDiffPatchArguments(_ tail: [String]) -> [String] {
         ["diff", "--no-ext-diff", "--no-color", "--binary"] + tail
     }
 
-    private func gitStdout(
+    func gitStdout(
         _ arguments: [String],
         in directory: String,
         timeout: TimeInterval = 60,
@@ -2612,7 +2560,7 @@ extension CMUXCLI {
         return result.stdout
     }
 
-    private func gitUntrackedPaths(in repoRoot: String, collapsingDirectories: Bool = false) throws -> [String] {
+    func gitUntrackedPaths(in repoRoot: String, collapsingDirectories: Bool = false) throws -> [String] {
         var arguments = ["ls-files", "--others", "--exclude-standard", "-z"]
         if collapsingDirectories {
             arguments += ["--directory", "--no-empty-directory"]
@@ -2701,7 +2649,7 @@ extension CMUXCLI {
         return joinedGitDiffPatches(patches)
     }
 
-    private func gitAddedUntrackedPatch(path: String, in repoRoot: String) throws -> String {
+    func gitAddedUntrackedPatch(path: String, in repoRoot: String) throws -> String {
         try gitStdout(
             gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
             in: repoRoot,
@@ -3160,7 +3108,7 @@ extension CMUXCLI {
         }
     }
 
-    private func joinedGitDiffPatches(_ patches: [String]) -> String {
+    func joinedGitDiffPatches(_ patches: [String]) -> String {
         let trimmed = patches.map { $0.trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return "" }
         return trimmed.joined(separator: "\n") + "\n"
@@ -4974,10 +4922,11 @@ extension CMUXCLI {
                     try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
                     completion.completedPageURLs.insert(page.url)
                     return completion
-                } catch is EmptyDiffSourceError {
+                } catch {
+                    // Unusable fallback candidates (empty, or last-turn without a
+                    // workspace/surface context) are skipped so the selected source
+                    // renders its friendly empty state, not a raw error (#5246).
                     continue
-                } catch let fallbackError {
-                    throw fallbackError
                 }
             }
             // No source has changes: render the selected source's friendly empty
@@ -7270,7 +7219,7 @@ extension CMUXCLI {
         }
     }
 
-    private static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {
+    static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         let expanded: String
         if rawPath == "~" {
@@ -7472,7 +7421,10 @@ extension CMUXCLI {
             "sourceOptions": sourceOptions.map(\.jsonObject),
             "repoOptions": repoOptions.map(\.jsonObject),
             "baseOptions": baseOptions.map(\.jsonObject),
-            "generatedAt": sharedPayload.generatedAt
+            "generatedAt": sharedPayload.generatedAt,
+            // Persisted display toggles seed the page so first paint matches the
+            // user's last session; the viewerPrefs bridge re-syncs them after boot.
+            "viewerOptions": persistedDiffViewerOptionsPayload()
         ]
         // Browser-hosted builds can select Fetch or WebSocket with the same
         // generated protocol. The macOS app uses its reply-capable WebKit bridge,
@@ -7513,13 +7465,7 @@ extension CMUXCLI {
         }
         let assets = try preparedAssets ?? ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let config: [String: Any] = [
-            "payload": payload,
-            "assets": [
-                "diffsModuleURL": assets.diffsModuleURL,
-                "treesModuleURL": assets.treesModuleURL,
-                "workerPoolModuleURL": assets.workerPoolModuleURL,
-                "workerModuleURL": assets.workerModuleURL
-            ]
+            "payload": payload
         ]
         let configLiteral = try jsonScriptLiteral(config)
         let appModuleURL = htmlEscaped(assets.appModuleURL)
@@ -7611,75 +7557,37 @@ extension CMUXCLI {
     }
 
     func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
+        // The webviews bundle is the only asset directory: it holds the page
+        // entry, the lazy grammar/theme/WASM chunks and the highlight worker
+        // entry (`chunks/diff-worker.mjs`), which the page spawns relative to
+        // its own chunk URL.
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
-        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
+        // The shared /tmp asset cache is written by every running cmux build
+        // (stable, nightly, each tagged dev app). Content-key the directory so
+        // builds with different webview bundles coexist instead of clobbering
+        // each other's chunks, which broke pages whose per-token allowlist no
+        // longer matched the files on disk.
+        let assetDirectoryName = "cmux-webviews-app-\(try diffViewerAppAssetContentKey(directory: sourceDirectory))"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        let appAssets = try diffViewerBundledAppAssetDirectory(nextTo: sourceDirectory)
-        let appAssetDirectoryName = appAssets.targetDirectoryName
-        let targetAppDirectory = viewerURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
-        try FileManager.default.createDirectory(at: targetAppDirectory, withIntermediateDirectories: true)
-
         let assetPaths = try diffViewerBundledAssetRelativePaths(in: sourceDirectory)
-        guard assetPaths.contains("diffs.mjs"),
-              assetPaths.contains("trees.mjs"),
-              assetPaths.contains("worker-pool/worker-pool.mjs"),
-              assetPaths.contains("worker-pool/worker-portable.js") else {
-            throw CLIError(message: "Bundled diff viewer entry assets not found")
+        guard assetPaths.contains("main.mjs") else {
+            throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
+        }
+        guard assetPaths.contains("chunks/diff-worker.mjs") else {
+            throw CLIError(message: "Bundled diff viewer worker asset not found")
         }
         let copiedAssetURLs = try assetPaths.map {
             try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
         }
 
-        let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
-        guard appAssetPaths.contains("main.mjs") else {
-            throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
-        }
-        let copiedAppAssetURLs = try appAssetPaths.map {
-            try copyDiffViewerAsset(relativePath: $0, from: appAssets.sourceDirectory, to: targetAppDirectory)
-        }
-
         return DiffViewerAssets(
-            appModuleURL: "./assets/\(appAssetDirectoryName)/main.mjs",
-            diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
-            treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
-            workerPoolModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-pool.mjs",
-            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
-            files: copiedAssetURLs + copiedAppAssetURLs
+            appModuleURL: "./assets/\(assetDirectoryName)/main.mjs",
+            files: copiedAssetURLs
         )
-    }
-
-    private func diffViewerBundledAppAssetDirectory(
-        nextTo sourceDirectory: URL
-    ) throws -> (sourceDirectory: URL, targetDirectoryName: String) {
-        let sourceRoot = sourceDirectory.deletingLastPathComponent()
-        let candidates: [(sourceName: String, targetName: String)] = [
-            ("webviews-app", "cmux-webviews-app"),
-            ("diff-viewer-app", "cmux-diff-viewer-app")
-        ]
-        for candidate in candidates {
-            let appDirectory = sourceRoot
-                .appendingPathComponent(candidate.sourceName, isDirectory: true)
-                .standardizedFileURL
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
-               isDirectory.boolValue,
-               (try? diffViewerBundledAssetFileURL(relativePath: "main.mjs", in: appDirectory)) != nil {
-                // The shared /tmp asset cache is written by every running cmux
-                // build (stable, nightly, each tagged dev app). Content-key the
-                // directory so builds with different webview bundles coexist
-                // instead of clobbering each other's chunks, which broke pages
-                // whose per-token allowlist no longer matched the files on disk.
-                let targetName = "\(candidate.targetName)-\(try diffViewerAppAssetContentKey(directory: appDirectory))"
-                return (sourceDirectory: appDirectory, targetDirectoryName: targetName)
-            }
-        }
-        throw CLIError(message: "Bundled cmux diff viewer app assets not found")
     }
 
     private func diffViewerAppAssetContentKey(directory: URL) throws -> String {
@@ -7926,8 +7834,9 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
-          --focus <true|false>         Focus opened file previews (default: true)
-          --no-focus                   Do not focus opened file previews
+          --focus <true|false>         Focus opened file previews and web pages
+          --no-focus                   Open them in the background
+                                       \(Self.openFocusDefaultHelp)
 
         Examples:
           cmux open report.pdf
@@ -7959,7 +7868,7 @@ extension CMUXCLI {
           --focus <true|false>         Focus the diff browser split (default: false)
           --no-focus                   Do not focus the opened diff browser split
           --title <text>               Set the diff viewer title to the provided text
-          --layout <split|unified>     Diff layout (default: unified; configurable via diffViewer.defaultLayout in cmux.json)
+          --layout <split|unified>     Diff layout (default: your last choice in the viewer, then diffViewer.defaultLayout in cmux.json, then unified)
           --font-size <points>         Set diff font size (default: 10)
 
         Examples:

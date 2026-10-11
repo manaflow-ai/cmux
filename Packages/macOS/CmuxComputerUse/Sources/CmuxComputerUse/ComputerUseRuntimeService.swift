@@ -38,6 +38,12 @@ public final class ComputerUseRuntimeService {
     public let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
+    /// Which helper this build may install and launch (Developer ID only).
+    private let helperTrust: ComputerUseHelperTrust
+    /// True after an install attempt found no Developer ID signed helper: a
+    /// dev build without an installed cmux NIGHTLY, RC or release. Computer Use
+    /// is unavailable; nothing is installed, launched or offered for a grant.
+    public private(set) var helperUnavailableInThisBuild = false
     let transport: SocketTransport
     public let daemonAdmission: ComputerUseDaemonAdmissionService
     private var installedHelperURL: URL?
@@ -71,7 +77,14 @@ public final class ComputerUseRuntimeService {
     /// `DisableComputerUse` (MDM), read on every enable and start.
     private let isDisabledByPolicy: () -> Bool
 
+    /// Upper bound on waiting for an enabled helper's permission status.
+    private let permissionStatusDeadline: Duration
+
     /// Creates a ComputerUseRuntimeService with the supplied values.
+    ///
+    /// `permissionStatusDeadline` bounds how long a status refresh waits for an
+    /// enabled helper to answer. A test fixture with no helper passes a short
+    /// deadline instead of waiting out the production one on every refresh.
     public init(
         bundle: Bundle = .main,
         paths: ComputerUseRuntimePaths = ComputerUseRuntimePaths(),
@@ -80,9 +93,13 @@ public final class ComputerUseRuntimeService {
         uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isDisabledByPolicy: @escaping () -> Bool = {
             ManagedDevicePolicy().isEnforced(.disableComputerUse)
-        }
+        },
+        permissionStatusDeadline: Duration = .seconds(5),
+        helperTrust: ComputerUseHelperTrust = ComputerUseHelperTrust()
     ) {
+        self.helperTrust = helperTrust
         self.isDisabledByPolicy = isDisabledByPolicy
+        self.permissionStatusDeadline = permissionStatusDeadline
         self.paths = paths
         self.transport = transport
         self.uptime = uptime
@@ -318,6 +335,7 @@ public final class ComputerUseRuntimeService {
         let enabledAtStart = desiredEnabled
         let paths = self.paths
         let transport = self.transport
+        let deadline = permissionStatusDeadline
         let expectedPeerIdentity = processIdentity(for: .native).flatMap { identity in
             AgentPIDProcessIdentity(pid: identity.pid) == identity ? identity : nil
         }
@@ -330,7 +348,8 @@ public final class ComputerUseRuntimeService {
             ? await Self.waitForPermissionStatus(
                 paths: paths,
                 transport: transport,
-                expectedPeerIdentity: expectedPeerIdentity
+                expectedPeerIdentity: expectedPeerIdentity,
+                deadline: deadline
             )
             : await Self.queryPermissionStatus(
                 paths: paths,
@@ -875,8 +894,7 @@ public final class ComputerUseRuntimeService {
 
     private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
         guard acceptsNewLaunches, !Task.isCancelled,
-              helperInstallRetry.allowsAttempt(at: uptime()),
-              let bundledHelperAppURL else { return nil }
+              helperInstallRetry.allowsAttempt(at: uptime()) else { return nil }
         var installed = false
         defer {
             if !Task.isCancelled, acceptsNewLaunches {
@@ -886,9 +904,41 @@ public final class ComputerUseRuntimeService {
         }
         guard prepareRuntimeForLaunch() else { return nil }
         let destination = paths.installedHelperAppURL
+        // Only a Developer ID signed helper may be installed: this build's own
+        // nested helper in a release, else an installed NIGHTLY, RC or release
+        // helper. An ad-hoc copy cannot satisfy the TCC rows of
+        // com.cmuxterm.cua, and a grant to it replaces the release row.
+        let trust = helperTrust
+        let nested = bundledHelperAppURL
+        let sourceTask = Task.detached(priority: .userInitiated) {
+            trust.installSource(nested: nested)
+        }
+        let resolvedSource = await withTaskCancellationHandler {
+            await sourceTask.value
+        } onCancel: {
+            sourceTask.cancel()
+        }
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        guard let source = resolvedSource else {
+            // A Developer ID copy already installed here stays usable; an
+            // ad-hoc one is stopped and deleted.
+            if await keepTrustedOrRemoveInstalledHelper(at: destination) {
+                helperUnavailableInThisBuild = false
+                installed = true
+                installedHelperURL = destination
+                Self.registerHelperBundle(at: destination)
+                return destination
+            }
+            helperUnavailableInThisBuild = true
+            return nil
+        }
+        helperUnavailableInThisBuild = false
         let currentCheckTask = Task.detached(priority: .userInitiated) {
             let staging = ComputerUseHelperStaging()
-            let isCurrent = staging.isCurrent(nested: bundledHelperAppURL, destination: destination)
+            // Every helper this returns satisfies the trust requirement, so the
+            // reuse path checks the installed copy as the staged path does.
+            let isCurrent = staging.isCurrent(nested: source, destination: destination)
+                && trust.isTrusted(destination)
             if isCurrent {
                 // A copy staged by an earlier build can still carry the empty
                 // record #13602 wrote; release it in place instead of restaging.
@@ -917,9 +967,10 @@ public final class ComputerUseRuntimeService {
         let directory = paths.installedHelperDirectoryURL
         let installationTask = Task.detached(priority: .userInitiated) {
             ComputerUseHelperStaging().install(
-                nested: bundledHelperAppURL,
+                nested: source,
                 destination: destination,
-                directory: directory
+                directory: directory,
+                acceptsCopy: trust.isTrusted
             )
         }
         let result = await withTaskCancellationHandler {
@@ -940,6 +991,29 @@ public final class ComputerUseRuntimeService {
             helperBuildReplacedHandler?()
         }
         return result
+    }
+
+    /// With no install source: returns true when a Developer ID copy is
+    /// already at this build's helper path. Otherwise stops and deletes an
+    /// ad-hoc copy an earlier dev build installed there, so it is neither
+    /// launched nor offered in Privacy & Security, and returns false.
+    private func keepTrustedOrRemoveInstalledHelper(at destination: URL) async -> Bool {
+        installedHelperURL = nil
+        guard FileManager.default.fileExists(atPath: destination.path) else { return false }
+        let trust = helperTrust
+        let trustTask = Task.detached(priority: .userInitiated) { trust.isTrusted(destination) }
+        let trusted = await trustTask.value
+        guard acceptsNewLaunches, !Task.isCancelled else { return false }
+        if trusted { return true }
+        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return false }
+        let directory = paths.installedHelperDirectoryURL
+        let removal = Task.detached(priority: .userInitiated) {
+            ComputerUseHelperStaging().removeInstalled(destination: destination, directory: directory)
+        }
+        if await removal.value {
+            NSWorkspace.shared.noteFileSystemChanged(destination.path)
+        }
+        return false
     }
 
     func startIfNeededWithinLifecycle() async {
@@ -1992,7 +2066,8 @@ public final class ComputerUseRuntimeService {
     nonisolated private static func waitForPermissionStatus(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
-        expectedPeerIdentity: AgentPIDProcessIdentity? = nil
+        expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
+        deadline: Duration
     ) async -> ComputerUsePermissionStatus? {
         if let status = await queryPermissionStatus(
             paths: paths,
@@ -2028,7 +2103,7 @@ public final class ComputerUseRuntimeService {
             }
             group.addTask {
                 // Genuine upper deadline; readiness itself is driven by directory events.
-                try? await ContinuousClock().sleep(for: .seconds(5))
+                try? await ContinuousClock().sleep(for: deadline)
                 return nil
             }
             let result = await group.next() ?? nil

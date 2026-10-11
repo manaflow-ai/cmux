@@ -8,6 +8,8 @@ public enum ControlSidebarCloseSurfaceResolution: Sendable, Equatable {
     case surfaceNotFound
     /// Refused: the surface is the workspace's last.
     case lastSurface
+    /// The surface has a live foreground process and requires `force`.
+    case confirmationRequired
     /// The surface closed.
     case closed
     /// The close call returned failure.

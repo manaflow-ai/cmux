@@ -33,6 +33,9 @@ final class CloudTreeExpansionStore {
     }
 
     func isExpanded(_ node: CloudTreeNode) -> Bool {
+        // A machine's tab row has children only while a tab is open, and then
+        // always shows them; its tabs, not a disclosure, open and close it.
+        if case .machineDetailTabs = node.kind { return true }
         if node.isMachineRow {
             return !collapsedMachineIDs.contains(node.machine.rawValue)
         }
@@ -63,6 +66,7 @@ final class CloudTreeExpansionStore {
     }
 
     func setExpanded(_ expanded: Bool, node: CloudTreeNode) {
+        if case .machineDetailTabs = node.kind { return }
         if node.isMachineRow {
             let key = node.machine.rawValue
             let changed = expanded

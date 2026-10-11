@@ -38,7 +38,6 @@ struct RemoteDaemonBundledAssetsTests {
         let download = try repository.downloadBinary(entry: entry, version: "test-nightly.12301")
         #expect(try Data(contentsOf: download.binaryURL) == binaryFixture)
         #expect(FileManager.default.isExecutableFile(atPath: download.binaryURL.path))
-        #expect(!download.usedLiveManifestChecksumFallback)
         #expect(try repository.validatedCachedBinary(entry: entry, version: "test-nightly.12301") == download.binaryURL)
         // A second workspace may reach installation after another filled the cache.
         #expect(try repository.downloadBinary(entry: entry, version: "test-nightly.12301").binaryURL == download.binaryURL)

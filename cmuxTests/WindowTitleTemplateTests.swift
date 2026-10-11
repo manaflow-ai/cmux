@@ -15,6 +15,41 @@ struct WindowTitleTemplateTests {
     private let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
 
+    @MainActor
+    @Test func socketCreatesWindowWithInitialWorkspaceAndNativeTitle() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let defaults = UserDefaults.standard
+        let previousTemplate = defaults.object(forKey: WindowTitleTemplate.userDefaultsKey)
+        defaults.set("{activeWorkspace}", forKey: WindowTitleTemplate.userDefaultsKey)
+        defer {
+            if let previousTemplate {
+                defaults.set(previousTemplate, forKey: WindowTitleTemplate.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: WindowTitleTemplate.userDefaultsKey)
+            }
+        }
+        let title = "Build 日本語"
+        let request: [String: Any] = [
+            "id": "named-window", "method": "window.create", "params": ["title": title]
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let response = TerminalController.shared.handleSocketLine(String(decoding: requestData, as: UTF8.self))
+        let envelope = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        #expect(envelope["ok"] as? Bool == true)
+        let result = try #require(envelope["result"] as? [String: Any])
+        let windowID = try #require((result["window_id"] as? String).flatMap(UUID.init(uuidString:)))
+        let window = try #require(appDelegate.mainWindow(for: windowID))
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
+        #expect(manager.selectedWorkspace?.title == title)
+        // No run-loop turn or follow-up rename: the creation response must
+        // already expose the name to AppKit/window-manager consumers.
+        #expect(window.title == title)
+    }
+
     @Test func resolvesWindowPlaceholdersAndPreservesUnknownPlaceholders() throws {
         let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
         let template = WindowTitleTemplate(

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Structural contracts for the reusable Linux guard workflow."""
 
+import json
+import re
 from pathlib import Path
 
 import yaml
@@ -8,6 +10,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 REUSABLE_GUARD_COMMANDS = [
     "python3 tests/test_ci_guard_workflow_structure.py",
@@ -66,6 +69,56 @@ def test_cli_guard_matrix_runs_independent_slow_contracts_in_parallel() -> None:
         "- name: Validate cmux profiling support scripts\n"
         "        if: ${{ matrix.group == 'profiling' }}"
     ) in block
+
+
+def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["workflow-guard-tests"]["steps"]
+    chat_steps = [step for step in steps if step.get("working-directory") == "agent-chat"]
+    assert [step["name"] for step in chat_steps] == [
+        "Type-check agent-chat",
+        "Run agent-chat unit tests",
+    ]
+    assert all(step["if"] == "${{ matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
+    assert chat_steps[0]["run"].splitlines() == [
+        "bun install --frozen-lockfile",
+        "./node_modules/.bin/tsc --noEmit",
+    ]
+    assert chat_steps[1]["run"] == "bun run test"
+
+    package = json.loads((ROOT / "agent-chat/package.json").read_text(encoding="utf-8"))
+    assert re.fullmatch(r"\d+\.\d+\.\d+", package["devDependencies"]["typescript"])
+    assert package["scripts"]["check"] == "./node_modules/.bin/tsc --noEmit && bun run test"
+
+
+def test_python_syntax_check_uses_the_cheap_quality_lane() -> None:
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in workflow["jobs"]["workflow-guard-tests"]["steps"]
+        if step.get("name") == "Validate Python test harness syntax"
+    )
+    assert step["if"] == "${{ matrix.group == 'quality-determinism' }}"
+def test_ci_group_has_one_authoritative_dag_owner() -> None:
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["workflow-guard-tests"]
+    assert any(item.get("group") == "ci" for item in job["strategy"]["matrix"]["exclude"])
+    assert all("fast-guard" not in str(step) for step in job["steps"])
+    assert all("test_ci_fast_guard_status" not in str(step) for step in job["steps"])
+
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    fast = ci["jobs"]["fast-guards"]
+    assert fast["name"] == "CI fast guards"
+    assert "needs" not in fast
+    assert any(
+        step.get("run", "").startswith("scripts/ci/guards-local.sh --no-stamp --jobs 8")
+        for step in fast["steps"]
+    )
+    assert "fast-guards" in ci["jobs"]["macos-admission-gate"]["needs"]
+    assert "fast-guards" in ci["jobs"]["linux-preflight"]["needs"]
+    assert "fast-guards" in ci["jobs"]["ci-status"]["needs"]
+    assert "fast-guards" in ci["jobs"]["ci-timing"]["needs"]
+    assert ci["jobs"]["guards"]["permissions"] == {"contents": "read"}
 
 
 if __name__ == "__main__":

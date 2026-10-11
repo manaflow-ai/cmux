@@ -52,6 +52,9 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// snapshot cannot overwrite a disconnect delivered while it was awaited.
     private var linkStatusRevision = 0
     private var startTask: Task<Void, any Error>?
+    /// Invalidated whenever a stop request begins, so an admission or retry
+    /// suspended across that request cannot schedule a new start afterward.
+    private var startIntentGeneration = 0
     /// Bumped per start so a cancelled start that resumes late (activation
     /// approval is not cancellable) cannot clobber a newer start's state.
     private var startGeneration = 0
@@ -150,6 +153,7 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
 
     public func prepareForPrivateNetworkUse(_ use: CloudPrivateNetworkUse) async {
         guard backend.isNetworkExtension else { return }
+        let intent = startIntentGeneration
         if state != .up, isInFailureBackoff {
             // The last start just failed; a burst of dials must not re-run
             // enrollment, activation, and the configuration save each time,
@@ -161,13 +165,16 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             logger.notice("Cloud use refused: \(refusal.rawValue, privacy: .public)")
             return
         }
+        guard startIntentGeneration == intent else { return }
         if state == .up {
             restartIdleTimer()
             return
         }
         logger.info("Cloud use (\(use.purpose.rawValue, privacy: .public)) for \(use.machineID, privacy: .public): bringing the tunnel up")
         do {
-            try await withDeadline(timing.readinessBudget) { try await self.ensureUp() }
+            try await withDeadline(timing.readinessBudget) {
+                try await self.ensureUp(intent: intent)
+            }
             restartIdleTimer()
         } catch CloudTunnelError.deadlineExceeded {
             logger.notice("legacy non-browser preparation timed out")
@@ -185,16 +192,18 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         guard case .networkExtension = backend else {
             throw CloudTunnelError.backendUnavailable(backend.unavailableReason ?? .entitlementMissing)
         }
+        let intent = startIntentGeneration
         if let refusal = await admissionRefusal() {
             throw refusal.error
         }
+        guard startIntentGeneration == intent else { throw CancellationError() }
         if state == .up {
             restartIdleTimer()
             return
         }
         clearFailureBackoff()
         logger.info("Cloud browser use for \(use.machineID, privacy: .public): requiring the tunnel")
-        try await ensureUp()
+        try await ensureUp(intent: intent)
         restartIdleTimer()
     }
 
@@ -206,12 +215,14 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         guard case .networkExtension = backend else {
             throw CloudTunnelError.backendUnavailable(backend.unavailableReason ?? .entitlementMissing)
         }
+        let intent = startIntentGeneration
         if let refusal = await admissionRefusal() {
             throw refusal.error
         }
+        guard startIntentGeneration == intent else { throw CancellationError() }
         if pin { isPinned = true }
         clearFailureBackoff()
-        try await ensureUp()
+        try await ensureUp(intent: intent)
     }
 
     /// Kick off a start without waiting for it; pair with ``waitForState``.
@@ -220,9 +231,11 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     @discardableResult
     public func beginUp(pin: Bool) async -> CloudTunnelStartRefusal? {
         guard backend.isNetworkExtension else { return nil }
+        let intent = startIntentGeneration
         if let refusal = await admissionRefusal() {
             return refusal
         }
+        guard startIntentGeneration == intent else { return nil }
         if pin { isPinned = true }
         clearFailureBackoff()
         if state != .up { _ = startTaskIfNeeded() }
@@ -320,7 +333,20 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// Start if needed and wait for the outcome. Waits on the state stream
     /// rather than the start task's value so a caller's deadline can release
     /// it while the start itself carries on.
-    private func ensureUp() async throws {
+    private func ensureUp(intent: Int? = nil) async throws {
+        if state == .up { return }
+        let intent = intent ?? startIntentGeneration
+        guard startIntentGeneration == intent else { throw CancellationError() }
+
+        // A failed start publishes `.failed` before its cleanup (including
+        // the controller stop) and `defer` have finished. An explicit retry
+        // can therefore arrive while that task is still installed in
+        // `startTask`; wait for it to release ownership before creating the
+        // replacement, otherwise the retry simply observes the same failure.
+        if case .failed = state, let previousStart = startTask {
+            _ = try? await previousStart.value
+        }
+        guard startIntentGeneration == intent else { throw CancellationError() }
         if state == .up { return }
         _ = startTaskIfNeeded()
         let updates = subscribeToState(current: state)
@@ -616,6 +642,7 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// Retire the current start before yielding, so a subsequent up can only
     /// own a new generation. The stop task never cancels that replacement.
     private func beginTearDown() -> Task<Void, Never> {
+        startIntentGeneration &+= 1
         let wasOff = state == .off
         cancelIdleTimer()
         clearFailureBackoff()

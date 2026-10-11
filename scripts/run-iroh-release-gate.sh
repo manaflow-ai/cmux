@@ -6,7 +6,7 @@ usage() {
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
        [--staging-base-url <url>] [--v2-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator] [--simulator-id <dedicated-monitor-udid>]
-       [--report-output <path>] [--print-plan]
+       [--report-output <path>] [--print-plan] [--real-usage]
        [--soak-profile <basic|stress>]
        [--credentials-file <agent-profile-env>]
        [--production [--stack-env-file <secure-path>]]
@@ -45,7 +45,9 @@ V2_BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
+PHASE_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS:-2400}"
 DOGFOOD_CREDENTIALS_FILE=""
+REAL_USAGE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --print-plan) PRINT_PLAN=1; shift ;;
     --soak-profile) SOAK_PROFILE="${2:-}"; shift 2 ;;
     --credentials-file) DOGFOOD_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
+    --real-usage) REAL_USAGE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -70,6 +73,19 @@ done
 
 [[ -n "$MODE" ]] || { echo "error: --mode is required" >&2; exit 2; }
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; exit 2; }
+if [[ "$REAL_USAGE" -eq 1 && ( "$MODE" != automatic && "$MODE" != relay-only || "$SOAK_PROFILE" != stress ) ]]; then
+  echo "error: --real-usage requires automatic or relay-only stress" >&2
+  exit 2
+fi
+if [[ "$REAL_USAGE" -eq 1 && -z "$REPORT_OUTPUT" ]]; then
+  echo "error: --real-usage requires --report-output" >&2
+  exit 2
+fi
+[[ "$PHASE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "error: CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+}
+export CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS="$PHASE_TIMEOUT_SECONDS"
 if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
   echo "error: --production cannot be combined with --staging-base-url" >&2
   exit 2
@@ -116,12 +132,14 @@ if [[ -n "$SOAK_PROFILE" ]]; then
     # The app deadline is the workload duration plus the rollover probe and
     # its bounded readiness/teardown allowance. The waiter starts after the
     # prewarm launch below, so this margin only covers report delivery.
-    basic) REPORT_TIMEOUT=1170 ;;
+    basic)
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 2790 || printf 1170)"
+      ;;
     stress)
-      # Relay-only stress adds the 330-second rollover probe after the
+      # Relay-only stress adds the 1950-second rollover probe after the
       # one-hour workload. Leave enough time for that probe, teardown, and
       # report delivery.
-      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 4170 || printf 3870)"
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 5850 || printf 3870)"
       ;;
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
@@ -176,6 +194,42 @@ fi
 
 ACTIVE_BUILD_WRAPPER_PID=""
 
+run_phase_with_timeout() {
+  local label="$1"
+  shift
+  PHASE_TIMEOUT_SECONDS="$PHASE_TIMEOUT_SECONDS" /usr/bin/python3 - "$label" "$@" <<'PY_PHASE'
+import os
+import signal
+import subprocess
+import sys
+
+label, *command = sys.argv[1:]
+timeout_seconds = int(os.environ["PHASE_TIMEOUT_SECONDS"])
+process = subprocess.Popen(command, start_new_session=True)
+try:
+    return_code = process.wait(timeout=timeout_seconds)
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    raise SystemExit(
+        f"Iroh release gate phase '{label}' timed out after {timeout_seconds}s"
+    )
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY_PHASE
+}
+
 # Hosted logs are bounded, while a cold optimized iOS build can emit several
 # megabytes before it links. Keep the full build output on the runner, expose a
 # heartbeat to the job log, and print a bounded diagnostic tail only on failure.
@@ -195,8 +249,11 @@ import sys
 import time
 
 label, build_log, *command = sys.argv[1:]
+phase_timeout = int(os.environ.get("CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS", "1500"))
+start_time = time.monotonic()
 interrupted_by = None
 termination_deadline = None
+timed_out = False
 process = None
 
 def forward_signal(signum, _frame):
@@ -228,14 +285,14 @@ with open(build_log, "wb") as output:
             pass
 
     while True:
-        timeout = 60
+        timeout = min(60, int(os.environ.get("CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS", "2400")))
         if termination_deadline is not None:
             timeout = max(0.1, termination_deadline - time.monotonic())
         try:
             return_code = process.wait(timeout=timeout)
             break
         except subprocess.TimeoutExpired:
-            if termination_deadline is None:
+            if termination_deadline is None and time.monotonic() - start_time < phase_timeout:
                 print(f"==> {label} build still running", flush=True)
                 continue
             try:
@@ -243,10 +300,15 @@ with open(build_log, "wb") as output:
             except ProcessLookupError:
                 pass
             return_code = process.wait()
+            if termination_deadline is None:
+                timed_out = True
+                print(f"{label} build phase timed out after {phase_timeout}s", file=sys.stderr)
             break
 
 if interrupted_by is not None:
     raise SystemExit(128 + interrupted_by)
+if timed_out:
+    raise SystemExit(124)
 if return_code < 0:
     raise SystemExit(128 - return_code)
 raise SystemExit(return_code)
@@ -302,11 +364,15 @@ MAC_APP="$(cmux_attach_mac_app_path "$TAG")"
 IOS_APP="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$SLUG/Build/Products/Debug-iphonesimulator/cmux.app"
 SIMULATOR_NAME="cmux Iroh gate $SLUG"
 SIMULATOR_ID=""
+DATA_CONTAINER=""
 REPORT_FILENAME="cmux-iroh-release-gate.json"
 REPORT_READY_NOTIFICATION="dev.cmux.ios.iroh-release-gate.report-ready"
 REPORT_WAITER_PID=""
 UI_CAPTURE_WAITER_PID=""
 UI_CAPTURE_DIR=""
+REAL_USAGE_DIR=""
+CODEX_WORKLOAD_PID=""
+CODEX_SHUTDOWN_FILE=""
 STATE_DIR=""
 PROD_ENV_FILE=""
 PROD_CREDENTIALS_FILE=""
@@ -343,6 +409,45 @@ PY
   )
 }
 
+# Preserve the simulator's v2 startup journal and durable debug-log generations
+# alongside the release-gate report. The journal records the exact startup
+# boundaries that UI latency alone cannot distinguish. Every source is
+# redacted before it leaves the simulator container.
+capture_ios_release_gate_diagnostics() {
+  local prefix="$1"
+  local label="${2:-success}"
+  [[ -n "$SIMULATOR_ID" ]] || return 0
+  local data_container="${DATA_CONTAINER:-}"
+  if [[ -z "$data_container" ]]; then
+    data_container="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data 2>/dev/null || true)"
+  fi
+  [[ -n "$data_container" && -d "$data_container/Library/Application Support" ]] || return 0
+  local support_root="$data_container/Library/Application Support"
+  if [[ -d "$support_root" ]]; then
+    local index=0
+    while IFS= read -r source; do
+      [[ -f "$source" ]] || continue
+      local destination
+      case "$(basename "$source")" in
+        iroh-v2-journal.jsonl) destination="${prefix}-ios-iroh-v2-journal-${label}-${index}.jsonl" ;;
+        cmux-debug.log) destination="${prefix}-ios-debug-${label}-${index}.log" ;;
+        cmux-debug.log.1) destination="${prefix}-ios-debug-rotated-${label}-${index}.log" ;;
+        *) continue ;;
+      esac
+      sed -E \
+        -e 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]+/<redacted-email>/g' \
+        -e 's/[A-Za-z0-9_-]{24,}/<redacted-token>/g' \
+        -e 's/[[:xdigit:]]{64}/<redacted-endpoint>/g' \
+        "$source" > "$destination" || true
+      index=$((index + 1))
+    done < <(find "$support_root" -type f \( \
+      -name 'iroh-v2-journal.jsonl' -o \
+      -name 'cmux-debug.log' -o \
+      -name 'cmux-debug.log.1' \
+    \) -print 2>/dev/null)
+  fi
+}
+
 cleanup() {
   local exit_code=$?
   local cleanup_code=0
@@ -359,6 +464,10 @@ cleanup() {
     rm -f "$UI_CAPTURE_DIR/terminal.png"
     rmdir "$UI_CAPTURE_DIR" >/dev/null 2>&1 || true
   fi
+  if [[ -n "$CODEX_WORKLOAD_PID" ]]; then
+    kill -TERM "$CODEX_WORKLOAD_PID" >/dev/null 2>&1 || true
+    wait "$CODEX_WORKLOAD_PID" >/dev/null 2>&1 || true
+  fi
   # Preserve diagnostics when the app never emits a report. The normal
   # success path captures these below after the report arrives, but an early
   # readiness failure used to delete the only useful endpoint evidence during
@@ -369,7 +478,8 @@ cleanup() {
     failure_prefix="${REPORT_OUTPUT%.json}"
     if [[ -n "$SIMULATOR_ID" ]]; then
       xcrun simctl io "$SIMULATOR_ID" screenshot "${failure_prefix}-ios-failure.png" >/dev/null 2>&1 || true
-      xcrun simctl spawn "$SIMULATOR_ID" log show --style compact --last 10m \
+      capture_ios_release_gate_diagnostics "$failure_prefix" "failure"
+      xcrun simctl spawn "$SIMULATOR_ID" log show --style compact --last 30m \
         --predicate 'subsystem == "dev.cmux.ios"' 2>/dev/null \
         | sed -E 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]+/<redacted-email>/g; s/[A-Za-z0-9_-]{24,}/<redacted-token>/g' \
         > "${failure_prefix}-ios-failure.log" || true
@@ -694,6 +804,10 @@ defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MOD
 # Pin the Worker scope in both UserDefaults stores as well as the build
 # metadata. This prevents a retained dev app from reusing a prior environment
 # override when a production or staging gate is launched with a new tag.
+[[ -n "$V2_ENVIRONMENT" && -n "$V2_BASE_URL" ]] || {
+  echo "error: v2 environment and base URL must be resolved before app launch" >&2
+  exit 2
+}
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 # The current Iroh implementation owns a separate endpoint configuration.
@@ -719,6 +833,12 @@ xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
+# Enable the app-side monotonic latency trace before the measured process
+# launch. The e2e driver pairs scene.active with the target terminal's first
+# rd.present, excluding simctl, OCR, AXe, and Mac polling overhead from the
+# foreground budget.
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.debug.latency-trace -bool true
 
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
@@ -805,7 +925,11 @@ fi
 if [[ -n "$SOAK_PROFILE" ]]; then
   echo "==> prewarming cached Stack and v2 state before the measured launch"
   CMUX_DEV_AUTH_REPLACE_SESSION=1 \
-    ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+    run_phase_with_timeout prewarm ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+  # The first launch verified sign-in and pairing. The measured launch must
+  # restore those saved values through the same startup path as a user launch.
+  # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
+  MOBILE_LAUNCH_ARGS+=(--restore-pairing)
 fi
 
 # Wait for the app's atomic report-write signal. Start this after prewarm so
@@ -848,7 +972,9 @@ except subprocess.TimeoutExpired:
         except ProcessLookupError:
             pass
         process.wait()
-    raise SystemExit("Iroh release gate report signal timed out")
+    raise SystemExit(
+        f"Iroh release gate phase 'report' timed out after {os.environ['REPORT_TIMEOUT']}s"
+    )
 if process.returncode != 0:
     raise SystemExit(f"Iroh release gate report waiter exited with {process.returncode}")
 PY
@@ -954,7 +1080,8 @@ fi
 run_release_gate_launch() {
   local log_path="$1"
   shift
-  /usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+/usr/bin/python3 - "$log_path" "$PHASE_TIMEOUT_SECONDS" "$@" <<'PY_LAUNCH'
+import os
 import signal
 import subprocess
 import sys
@@ -982,7 +1109,9 @@ with open(log_path, "wb") as output:
             except ProcessLookupError:
                 pass
             process.wait()
-        raise SystemExit("Iroh release gate launcher timed out")
+        raise SystemExit(
+            f"Iroh release gate phase 'launch' timed out after {timeout_seconds}s"
+        )
 
 if return_code < 0:
     raise SystemExit(128 - return_code)
@@ -997,7 +1126,6 @@ CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
-CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="$([[ "$GATE_SCENARIO" == "relay_rollover" ]] && printf 180 || printf '')" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 run_release_gate_launch "$GATE_LAUNCH_LOG" ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" || launch_status=$?
 sed -E \
@@ -1008,6 +1136,22 @@ rm -f "$GATE_LAUNCH_LOG"
 if (( launch_status )); then
   echo "error: Iroh release gate launcher failed with status $launch_status" >&2
   exit "$launch_status"
+fi
+
+if [[ "$REAL_USAGE" -eq 1 ]]; then
+  REAL_USAGE_DIR="${REPORT_OUTPUT%.json}-real-usage"
+  mkdir -p "$REAL_USAGE_DIR"
+  CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown"
+  rm -f "$CODEX_SHUTDOWN_FILE"
+  echo "==> starting real Codex workload in three Mac workspaces"
+  CMUX_E2E_TAG="$TAG" \
+  CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
+  CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}" \
+  CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}" \
+  CMUX_CODEX_SHUTDOWN_FILE="$CODEX_SHUTDOWN_FILE" \
+  "$SCRIPT_DIR/e2e/iroh-codex-workload.sh" \
+    > "$REAL_USAGE_DIR/codex-workload.log" 2>&1 &
+  CODEX_WORKLOAD_PID=$!
 fi
 
 DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
@@ -1042,6 +1186,7 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
     cp "$UI_CAPTURE_DIR/terminal.png" "${REPORT_OUTPUT%.json}-ui-terminal.png"
   fi
   xcrun simctl io "$SIMULATOR_ID" screenshot "${REPORT_OUTPUT%.json}-ios.png" >/dev/null 2>&1 || true
+  capture_ios_release_gate_diagnostics "${REPORT_OUTPUT%.json}" "success"
 
   # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.
   # The host owns admission and stream lifetime, so an iOS-only report cannot
@@ -1090,6 +1235,7 @@ allowed_keys = {
     "selectedPath",
     "failure",
     "uiLatencies",
+    "startupPath",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
     "soak",
@@ -1117,18 +1263,22 @@ if soak_profile:
     allowed_paths["relayOnly"].add("relay")
     soak = report.get("soak") or {}
     duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
-    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 2:
         problems.append("soak profile or plan version mismatch")
     if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
         problems.append("soak did not complete its full observation window")
     if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
         problems.append("soak workload incomplete")
+    if report.get("startupPath") != "stored_pairing":
+        problems.append("soak did not use the saved-pairing startup path")
     required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                            "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
     if soak_profile == "stress":
         required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
                                 "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
-                                "terminal_after_restore"]
+                                "terminal_after_restore", "terminal_after_refresh"]
+    if soak.get("recoverableFailures") != {}:
+        problems.append("soak reported terminal failures or missing recovery evidence")
     counts = soak.get("operationCounts", {})
     for operation in required_operations:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
@@ -1168,8 +1318,8 @@ if expected_scenario == "relay_rollover":
     ):
         if report.get(key) is not True:
             problems.append(f"{key} was not true")
-    if report.get("soakDurationSeconds", 0) < 330:
-        problems.append("rollover soak was shorter than 330 seconds")
+    if report.get("soakDurationSeconds", 0) < 1950:
+        problems.append("rollover soak was shorter than 1950 seconds")
 elif expected_scenario == "relay_expiry":
     if report.get("unrefreshedExpiryDisconnectVerified") is not True:
         problems.append("unrefreshedExpiryDisconnectVerified was not true")
@@ -1179,5 +1329,96 @@ print(json.dumps(redacted_report, sort_keys=True))
 if problems:
     raise SystemExit("Iroh release gate failed: " + "; ".join(problems))
 PY
+
+if [[ "$REAL_USAGE" -eq 1 ]]; then
+  TARGET_WORKSPACE_ID=""
+  TARGET_SURFACE_ID=""
+  for _ in $(seq 1 30); do
+    if ! kill -0 "$CODEX_WORKLOAD_PID" >/dev/null 2>&1; then
+      wait "$CODEX_WORKLOAD_PID" || true
+      echo "error: real Codex workload exited before the terminal verification" >&2
+      cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
+      exit 1
+    fi
+    if [[ -s "$REAL_USAGE_DIR/codex-workload.jsonl" ]]; then
+      read -r TARGET_WORKSPACE_ID TARGET_SURFACE_ID < <(
+        /usr/bin/python3 - "$REAL_USAGE_DIR/codex-workload.jsonl" <<'PY_TARGET'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    for line in handle:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # The writer may still be appending its final line.
+        if row.get("event") == "session_started" and row.get("role") == "terminal":
+            print(row["workspace_id"], row["surface_id"])
+            break
+PY_TARGET
+      ) || true
+    fi
+    [[ -n "$TARGET_WORKSPACE_ID" && -n "$TARGET_SURFACE_ID" ]] && break
+    sleep 1
+  done
+  [[ -n "${TARGET_WORKSPACE_ID:-}" && -n "${TARGET_SURFACE_ID:-}" ]] || {
+    echo "error: Codex workload produced no target workspace/surface" >&2
+    exit 1
+  }
+  for cycle in 1 2 3; do
+    cycle_dir="$REAL_USAGE_DIR/background-cycle-$cycle"
+    mkdir -p "$cycle_dir"
+    background_seconds=0
+    if [[ "$cycle" -eq 2 ]]; then background_seconds=120; fi
+    echo "==> running iOS foreground/background cycle $cycle (background=${background_seconds}s)"
+    CMUX_E2E_TAG="$TAG" \
+    CMUX_E2E_SIM_UDID="$SIMULATOR_ID" \
+    CMUX_E2E_EVIDENCE_DIR="$cycle_dir" \
+    CMUX_E2E_WORKSPACE_ID="$TARGET_WORKSPACE_ID" \
+    CMUX_E2E_SURFACE_ID="$TARGET_SURFACE_ID" \
+    CMUX_E2E_BACKGROUND_SECONDS="$background_seconds" \
+    CMUX_E2E_VIDEO="$cycle_dir/ios-e2e.mp4" \
+      "$SCRIPT_DIR/e2e/ios-e2e-run.sh" \
+        --tag "$TAG" \
+        --sim-udid "$SIMULATOR_ID" \
+        --evidence-dir "$cycle_dir" \
+        --bundle-id "$IOS_BUNDLE_ID" \
+        --workspace-id "$TARGET_WORKSPACE_ID" \
+        --surface-id "$TARGET_SURFACE_ID" \
+        --background-seconds "$background_seconds" \
+        --video "$cycle_dir/ios-e2e.mp4"
+  done
+  touch "$CODEX_SHUTDOWN_FILE"
+  if ! wait "$CODEX_WORKLOAD_PID"; then
+    echo "error: real Codex workload failed" >&2
+    cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
+    exit 1
+  fi
+  CODEX_WORKLOAD_PID=""
+  REAL_USAGE_DIR="$REAL_USAGE_DIR" /usr/bin/python3 <<'PY_REAL_USAGE'
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ["REAL_USAGE_DIR"])
+cycles = []
+for index in (1, 2, 3):
+    path = root / f"background-cycle-{index}" / "background.json"
+    if not path.is_file():
+        raise SystemExit(f"missing background evidence: {path}")
+    with path.open(encoding="utf-8") as handle:
+        evidence = json.load(handle)
+    cycles.append(evidence)
+if len(cycles) != 3 or cycles[1].get("background_seconds", 0) < 120:
+    raise SystemExit("real usage did not include a 120-second background cycle")
+if any(
+    not isinstance(item.get("app_foreground_to_terminal_ready_seconds"), (int, float))
+    or float(item["app_foreground_to_terminal_ready_seconds"]) > 2.0
+    for item in cycles
+):
+    raise SystemExit("real usage app foreground-to-terminal exceeded two seconds")
+print(json.dumps({"cycles": cycles}, sort_keys=True))
+PY_REAL_USAGE
+fi
 
 echo "==> Iroh release gate passed: $MODE"

@@ -71,6 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     sudo \
     util-linux \
+    e2fsprogs \
     bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
@@ -275,6 +276,14 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY cmux-prompt.bash /etc/cmux/prompt.bash
+# Shadows Ubuntu's python completion (bash-completion searches /usr/local/share
+# first) so ble.sh ghost text on `python -m pkg.` lists one package's
+# submodules instead of importing every installed package per keystroke.
+COPY cmux-python-completion.bash /usr/local/share/bash-completion/completions/python
+RUN for f in /usr/share/bash-completion/completions/python?* /usr/share/bash-completion/completions/pypy* /usr/share/bash-completion/completions/micropython; do \
+       if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; fi; \
+     done \
+  && bash -n /usr/local/share/bash-completion/completions/python
 RUN echo cmux > /etc/cmux/vm-name
 COPY seed-history /etc/cmux/seed-history
 COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
@@ -382,11 +391,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
 # The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
 # TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
 # still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && chmod 0755 /usr/local/bin/cmux-tui-state-mount \
   && sh -n /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version

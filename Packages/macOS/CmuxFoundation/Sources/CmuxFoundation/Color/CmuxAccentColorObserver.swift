@@ -1,6 +1,7 @@
 public import AppKit
 
-/// Resolves ``CmuxAccentColor`` from `app.accentColor` once per change and
+/// Resolves ``CmuxAccentColor`` from `app.accentColor` (mode and custom
+/// color) once per change and
 /// posts ``CmuxAccentColor/didChangeNotification`` (with itself as the
 /// object) when the resolved accent changes: when the setting changes, or
 /// when the macOS accent changes while the setting follows it.
@@ -15,16 +16,22 @@ public final class CmuxAccentColorObserver {
     private let center: NotificationCenter
     private var systemColorsToken: (any NSObjectProtocol)?
     private var modeObservation: NSKeyValueObservation?
+    private var customHexObservation: NSKeyValueObservation?
 
     public init(defaults: UserDefaults = .standard, center: NotificationCenter = .default) {
         self.defaults = defaults
         self.center = center
-        self.current = CmuxAccentColor(mode: .stored(in: defaults))
+        self.current = .stored(in: defaults)
     }
 
     public func startObserving() {
         guard modeObservation == nil else { return }
         modeObservation = defaults.observe(\.appAccentColor, options: []) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
+        customHexObservation = defaults.observe(\.appAccentColorCustomHex, options: []) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 self?.refresh()
             }
@@ -44,7 +51,7 @@ public final class CmuxAccentColorObserver {
     /// draws differently than before. Returns whether it posted.
     @discardableResult
     public func refresh() -> Bool {
-        let next = CmuxAccentColor(mode: .stored(in: defaults))
+        let next = CmuxAccentColor.stored(in: defaults)
         guard next != current else { return false }
         current = next
         center.post(name: CmuxAccentColor.didChangeNotification, object: self)
@@ -57,5 +64,10 @@ extension UserDefaults {
     /// UserDefaults key so observation fires only for this key.
     @objc dynamic var appAccentColor: String? {
         string(forKey: CmuxAccentColorMode.userDefaultsKey)
+    }
+
+    /// KVO hook for the custom accent hex, named after its UserDefaults key.
+    @objc dynamic var appAccentColorCustomHex: String? {
+        string(forKey: CmuxAccentColorMode.customHexUserDefaultsKey)
     }
 }

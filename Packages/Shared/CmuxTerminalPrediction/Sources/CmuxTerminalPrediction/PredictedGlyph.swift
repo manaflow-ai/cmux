@@ -11,6 +11,12 @@ public struct PredictedGlyph: Sendable, Equatable {
         /// The remote echoed it. Keep drawing until the frame carrying the real
         /// character is on screen, otherwise the cell blanks for one frame.
         case confirmed
+        /// The user deleted this character before the remote erased it. Its
+        /// echo may still be on its way or already painted, so the host
+        /// paints the cell's background and nothing else until the erase
+        /// lands; otherwise the deleted character shows again for a round
+        /// trip. `character` is a space.
+        case erased
     }
 
     public let character: Character

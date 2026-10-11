@@ -10,6 +10,10 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::all)]
 
+#[cfg(test)]
+#[path = "../build_support.rs"]
+mod build_support;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Reimplementation of the `ghostty_mode_new` static inline helper from

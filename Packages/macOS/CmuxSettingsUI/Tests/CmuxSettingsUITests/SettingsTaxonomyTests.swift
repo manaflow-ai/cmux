@@ -15,7 +15,7 @@ struct SettingsTaxonomyTests {
 
     /// Locks the intended concept-to-leaf mapping for the browse sidebar.
     @Test func groupsFollowTheBrowseTaxonomy() {
-        #expect(SettingsTaxonomyGroup.general.sections == [.account, .app, .sleepyMode])
+        #expect(SettingsTaxonomyGroup.general.sections == [.account, .app, .themes, .sleepyMode])
         #expect(SettingsTaxonomyGroup.terminal.sections == [.terminal, .textBox])
         #expect(SettingsTaxonomyGroup.workspace.sections == [.workspaceColors])
         #expect(SettingsTaxonomyGroup.sidebarAndDock.sections == [.sidebarAppearance, .customSidebars])
@@ -44,6 +44,19 @@ struct SettingsTaxonomyTests {
             #expect(entry.anchorID == entryID)
             #expect(entry.kind == .section)
         }
+    }
+
+    /// Every theme setting lives on the Themes page, whichever cmux.json
+    /// namespace owns it, so search results for them open that page.
+    @Test func themeSettingsResolveToTheThemesSection() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "app.accentColor") == "setting:themes:accent-color")
+        #expect(index.anchorID(forSettingsPath: "terminal.adaptiveDefaultTheme") == "setting:themes:adaptive-default-theme")
+        #expect(index.anchorID(forSettingsPath: "browser.theme") == "setting:themes:browser-theme")
+
+        let hits = index.match("terminal theme")
+        let terminalTheme = try #require(hits.first { $0.id == "setting:themes:terminal-theme" })
+        #expect(terminalTheme.anchorID == "setting:themes:terminal-theme")
     }
 
     /// Ensures every visible taxonomy header resolves to nonempty localized copy.

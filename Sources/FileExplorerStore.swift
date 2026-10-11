@@ -649,7 +649,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
         // Batch mode, no TTY, connection timeout
         args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [connection.destination, command]
+        // Forwarding stays as configured: without `ControlMaster=no` this run
+        // can become the shared master that interactive sessions reuse.
+        args += ["--", connection.destination, command]
         return args
     }
 

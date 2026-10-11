@@ -186,17 +186,28 @@ impl KittyInFlightTracker {
         Ok((prefix, partial))
     }
 
-    pub(crate) fn replay_prefix_fits(&self, max_bytes: usize) -> Result<()> {
+    /// Whether the stream is inside a direct Kitty command this tracker
+    /// retains completely.
+    pub(crate) fn has_partial_command(&self) -> bool {
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
+    }
+
+    /// The completed upload chunks and the partial command, separately, under
+    /// the same budget as [`Self::replay_prefix_checked`].
+    pub(crate) fn replay_prefix_and_partial_checked(
+        &self,
+        max_bytes: usize,
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
         let (prefix, partial) = self.replay_prefix_parts()?;
-        let Some(total) = prefix.len().checked_add(partial.len()) else {
-            return Err(Error::OutOfSpace);
-        };
+        let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
         if total > max_bytes {
             return Err(Error::OutOfSpace);
         }
-        Ok(())
+        Ok((prefix.to_vec(), partial.to_vec()))
     }
 
+    #[cfg(test)]
     pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
         let (prefix, partial) = self.replay_prefix_parts()?;
         let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;

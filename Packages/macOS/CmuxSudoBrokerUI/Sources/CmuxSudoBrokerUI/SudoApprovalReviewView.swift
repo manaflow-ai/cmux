@@ -14,13 +14,27 @@ struct SudoApprovalReviewView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if presentation.containsHiddenCharacters {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label(presentation.hiddenCharacterBadge, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.orange.opacity(0.2), in: Capsule())
+                        .foregroundStyle(.orange)
+                    Text(presentation.hiddenCharacterWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            }
+
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                metadataRow(presentation.requestIDLabel, presentation.request.id)
-                metadataRow(presentation.reasonLabel, presentation.request.reason)
+                metadataRow(presentation.requestIDLabel, presentation.displayRequestID)
+                metadataRow(presentation.reasonLabel, presentation.displayReason)
                 metadataRow(presentation.requesterLabel, presentation.requesterSummary)
                 metadataRow(
                     presentation.workingDirectoryLabel,
-                    presentation.request.currentDirectory
+                    presentation.displayWorkingDirectory
                 )
                 metadataRow(presentation.queuedLabel, presentation.createdAtSummary)
             }
@@ -29,7 +43,7 @@ struct SudoApprovalReviewView: View {
                 .font(.headline)
 
             SudoScriptTextView(
-                script: presentation.script,
+                script: presentation.displayScript,
                 accessibilityLabel: presentation.scriptLabel
             )
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))

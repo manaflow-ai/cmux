@@ -60,7 +60,7 @@ public final class TerminalPasteboardService: Sendable {
     // SAFETY: immutable references; NSPasteboard handles are usable from any
     // thread and the legacy code already wrote to these pasteboards from
     // ghostty runtime threads.
-    nonisolated(unsafe) private let standardPasteboard: NSPasteboard
+    nonisolated(unsafe) let standardPasteboard: NSPasteboard
     nonisolated(unsafe) private let selectionPasteboard: NSPasteboard
     private let standardPasteboardLane: TerminalPasteboardTransactionLane
     private let selectionPasteboardLane: TerminalPasteboardTransactionLane

@@ -9,6 +9,10 @@ extension MobileShellComposite {
     /// Refreshes the streamable browser panels for a Mac-local workspace.
     /// - Parameter workspaceID: The Mac-local workspace identifier.
     public func refreshMobileBrowserPanels(workspaceID: String) async {
+        if sshOwnsSurface(workspaceID) {
+            await refreshSSHBrowserPanels(workspaceID: workspaceID)
+            return
+        }
         let startedAt = appDiagnosticNow()
         recordAppEvent(.browserListRefreshStarted, correlationID: workspaceID)
         guard supportsBrowserStream, let client = remoteClient else {
@@ -57,6 +61,12 @@ extension MobileShellComposite {
     public func createMobileBrowserPanel(workspaceID: String) async -> MobileBrowserPanelDescriptor? {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
+        // SSH computers cannot create provider-backed browser tabs from the
+        // phone yet; the caller falls back to the phone-local browser.
+        if sshOwnsSurface(workspaceID) {
+            recordAppEvent(.browserCreateFailed, correlationID: workspaceID, startedAt: startedAt, failure: .unsupportedRoute)
+            return nil
+        }
         guard connectionState == .connected,
               supportsBrowserStreamCreate,
               let client = remoteClient else {
@@ -118,6 +128,10 @@ extension MobileShellComposite {
     }
 
     private func performStartMobileBrowserStream(panelID: String) async {
+        if sshOwnsSurface(panelID) {
+            await performStartSSHBrowserStream(panelID: panelID)
+            return
+        }
         if startedMobileBrowserPanelIDs.contains(panelID) {
             recordAppEvent(.browserStreamStarted, correlationID: panelID)
             return
@@ -189,6 +203,10 @@ extension MobileShellComposite {
     /// - Parameter parameters: Panel-scoped viewport measured by the content view.
     public func updateMobileBrowserViewport(_ parameters: MobileBrowserViewportParameters) async {
         browserStreamEvents?.reportBrowserStreamViewport(parameters)
+        if sshOwnsSurface(parameters.panelID) {
+            await updateSSHBrowserViewport(parameters)
+            return
+        }
         guard connectionState == .connected, supportsBrowserStream else { return }
         if !startedMobileBrowserPanelIDs.contains(parameters.panelID) {
             await startMobileBrowserStream(panelID: parameters.panelID)
@@ -219,6 +237,10 @@ extension MobileShellComposite {
     /// Sends browser pointer input.
     /// - Parameter input: Page-point pointer input for the Mac browser.
     public func sendMobileBrowserPointer(_ input: MobileBrowserPointerInput) async {
+        if sshOwnsSurface(input.panelID) {
+            await sendSSHBrowserPointer(input)
+            return
+        }
         browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserInputFailed, correlationID: input.panelID, failure: .noRoute)
@@ -238,6 +260,10 @@ extension MobileShellComposite {
     /// Sends browser scroll input.
     /// - Parameter input: Page-point scroll input with native gesture phase.
     public func sendMobileBrowserScroll(_ input: MobileBrowserScrollInput) async {
+        if sshOwnsSurface(input.panelID) {
+            await sendSSHBrowserScroll(input)
+            return
+        }
         browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserInputFailed, correlationID: input.panelID, failure: .noRoute)
@@ -257,6 +283,10 @@ extension MobileShellComposite {
     /// Sends browser key input.
     /// - Parameter input: A key token and modifiers for the Mac browser.
     public func sendMobileBrowserKey(_ input: MobileBrowserKeyInput) async {
+        if sshOwnsSurface(input.panelID) {
+            await sendSSHBrowserKey(input)
+            return
+        }
         browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserInputFailed, correlationID: input.panelID, failure: .noRoute)
@@ -276,6 +306,10 @@ extension MobileShellComposite {
     /// Sends committed browser text input.
     /// - Parameter input: Committed text for the focused Mac page element.
     public func sendMobileBrowserText(_ input: MobileBrowserTextInput) async {
+        if sshOwnsSurface(input.panelID) {
+            await sendSSHBrowserText(input)
+            return
+        }
         browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserInputFailed, correlationID: input.panelID, failure: .noRoute)
@@ -297,6 +331,10 @@ extension MobileShellComposite {
     ///   - panelID: The Mac browser panel identifier.
     ///   - url: The smart address or search text interpreted by the Mac.
     public func navigateMobileBrowser(panelID: String, url: String) async {
+        if sshOwnsSurface(panelID) {
+            await navigateSSHBrowser(panelID: panelID, url: url)
+            return
+        }
         recordAppEvent(.browserNavigateStarted, correlationID: panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserNavigateFailed, correlationID: panelID, failure: .noRoute)
@@ -317,6 +355,10 @@ extension MobileShellComposite {
     /// Navigates a streamed Mac browser panel backward.
     /// - Parameter panelID: The Mac browser panel identifier.
     public func backMobileBrowser(panelID: String) async {
+        if sshOwnsSurface(panelID) {
+            await backSSHBrowser(panelID: panelID)
+            return
+        }
         recordAppEvent(.browserBackRequested, correlationID: panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserNavigateFailed, correlationID: panelID, failure: .noRoute)
@@ -336,6 +378,10 @@ extension MobileShellComposite {
     /// Navigates a streamed Mac browser panel forward.
     /// - Parameter panelID: The Mac browser panel identifier.
     public func forwardMobileBrowser(panelID: String) async {
+        if sshOwnsSurface(panelID) {
+            await forwardSSHBrowser(panelID: panelID)
+            return
+        }
         recordAppEvent(.browserForwardRequested, correlationID: panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserNavigateFailed, correlationID: panelID, failure: .noRoute)
@@ -355,6 +401,10 @@ extension MobileShellComposite {
     /// Reloads a streamed Mac browser panel.
     /// - Parameter panelID: The Mac browser panel identifier.
     public func reloadMobileBrowser(panelID: String) async {
+        if sshOwnsSurface(panelID) {
+            await reloadSSHBrowser(panelID: panelID)
+            return
+        }
         recordAppEvent(.browserReloadRequested, correlationID: panelID)
         guard let client = remoteClient else {
             recordAppEvent(.browserNavigateFailed, correlationID: panelID, failure: .noRoute)
@@ -477,9 +527,11 @@ extension MobileShellComposite {
     }
 
     func restartActiveMobileBrowserStreams() {
-        guard connectionState == .connected, supportsBrowserStream else { return }
         let selections = browserStreamEvents?.activeBrowserStreamSelections() ?? []
-        for selection in selections {
+        // SSH streams ride their own transport, not the Mac connection.
+        restartDetachedSSHBrowserStreams(selections)
+        guard connectionState == .connected, supportsBrowserStream else { return }
+        for selection in selections where !sshOwnsSurface(selection.panelID) {
             Task { await forceRestartMobileBrowserStream(panelID: selection.panelID) }
         }
     }
@@ -492,6 +544,12 @@ extension MobileShellComposite {
     /// started-dedupe set must not suppress the re-arm in that case, or the
     /// mirror freezes with no path back short of closing the surface.
     func forceRestartMobileBrowserStream(panelID: String) async {
+        if sshOwnsSurface(panelID) {
+            // Detach first: an SSH start is idempotent for a live stream.
+            await stopMobileBrowserStream(panelID: panelID)
+            await startMobileBrowserStream(panelID: panelID)
+            return
+        }
         MobileDebugLog.anchormux("browser.stream force-restart panel=\(panelID.prefix(8))")
         startedMobileBrowserPanelIDs.remove(panelID)
         diagnosedMobileBrowserFramePanelIDs.remove(panelID)
@@ -509,7 +567,11 @@ extension MobileShellComposite {
         }
     }
 
-    private func acknowledgeMobileBrowserFrame(panelID: String, sequence: UInt64) async {
+    func acknowledgeMobileBrowserFrame(panelID: String, sequence: UInt64) async {
+        if sshOwnsSurface(panelID) {
+            await acknowledgeSSHBrowserFrame(panelID: panelID, sequence: sequence)
+            return
+        }
         guard let client = remoteClient else {
             if diagnosedMobileBrowserFrameAckFailurePanelIDs.insert(panelID).inserted {
                 recordAppEvent(
@@ -538,6 +600,10 @@ extension MobileShellComposite {
     }
 
     private func performStopMobileBrowserStream(panelID: String) async {
+        if sshOwnsSurface(panelID) {
+            await performStopSSHBrowserStream(panelID: panelID)
+            return
+        }
         startedMobileBrowserPanelIDs.remove(panelID)
         diagnosedMobileBrowserFramePanelIDs.remove(panelID)
         diagnosedMobileBrowserStatePanelIDs.remove(panelID)

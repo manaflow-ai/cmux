@@ -27,12 +27,15 @@ extension ShortcutAction {
         case .openFolder: return "Open Folder"
         case .reopenPreviousSession: return "Restore Previous App Launch"
         case .goToWorkspace: return "Go to Workspace…"
-        case .commandPalette: return "Command Palette…"
+        case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
+        case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
         case .commandPaletteNext: return "Command Palette: Next"
         case .commandPalettePrevious: return "Command Palette: Previous"
         case .sendFeedback: return "Send Feedback"
         case .showNotifications: return "Show Notifications"
         case .jumpToUnread: return "Jump to Latest Unread"
+        case .jumpToLastPrompt:
+            return String(localized: "shortcut.jumpToLastPrompt.label", defaultValue: "Jump to Last Prompt")
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
         case .markAllNotificationsRead:
@@ -110,6 +113,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
         case .pasteLastScreenshot:
             return String(localized: "shortcut.pasteLastScreenshot.label", defaultValue: "Paste Last Screenshot")
+        case .sizeTerminalToMyWindow:
+            return String(localized: "shortcut.sizeTerminalToMyWindow.label", defaultValue: "Size Terminal to My Window")
         case .clearScreenKeepScrollback:
             return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
         case .focusLeft: return "Focus Pane Left"
@@ -231,6 +236,12 @@ extension ShortcutAction {
             return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
         case .diffViewerPreviousFile:
             return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
+        case .diffViewerNextHunk:
+            return String(localized: "shortcut.diffViewerNextHunk.label", defaultValue: "Diff Viewer: Next Hunk")
+        case .diffViewerPreviousHunk:
+            return String(localized: "shortcut.diffViewerPreviousHunk.label", defaultValue: "Diff Viewer: Previous Hunk")
+        case .diffViewerToggleViewed:
+            return String(localized: "shortcut.diffViewerToggleViewed.label", defaultValue: "Diff Viewer: Toggle Viewed")
         case .simulatorHome:
             return String(localized: "shortcut.simulatorHome.label", defaultValue: "Simulator: Home")
         case .simulatorRotateLeft:

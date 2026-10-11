@@ -20,6 +20,12 @@ public enum SSHPTYAttachExitCode: Int32, Sendable {
     /// A non-retryable attach failure.
     case fatal = 1
 
+    /// The app did not acknowledge the SSH launch before the CLI deadline.
+    ///
+    /// This is a local admission timeout, so the wrapper retries the launch
+    /// without treating it as an SSH or lifecycle failure.
+    case launchAcknowledgementTimedOut = 246
+
     /// Temporary daemon-side admission pressure that should retry without reauthentication.
     case retryableWithoutReauthentication = 251
 
@@ -66,7 +72,8 @@ public enum SSHPTYAttachExitCode: Int32, Sendable {
     /// Failures with these statuses keep app-side surface tracking intact
     /// because the wrapper immediately reattaches on the same surface.
     public var isWrapperRetryable: Bool {
-        self == .hostUnreachable ||
+        self == .launchAcknowledgementTimedOut ||
+            self == .hostUnreachable ||
             self == .controlMasterUnavailable ||
             self == .daemonNotReady ||
             self == .authenticationRequired ||

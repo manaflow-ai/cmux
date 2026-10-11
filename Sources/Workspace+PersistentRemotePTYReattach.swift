@@ -68,7 +68,11 @@ extension Workspace {
                     : nil
                 command = remotePTYAttachStartupCommand(
                     sessionID: sessionID,
-                    remoteCommand: restartedShellCommand,
+                    // Carry the approved workspace command through the attach wrapper.
+                    // Existing sessions ignore it; a missing-session fallback reuses it.
+                    remoteCommand: sessionEnded
+                        ? restartedShellCommand
+                        : configuration.configuredRemoteCommand,
                     requireExisting: !sessionEnded
                 )
             } else {

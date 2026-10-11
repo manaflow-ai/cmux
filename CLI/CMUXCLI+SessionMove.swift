@@ -168,7 +168,7 @@ extension CMUXCLI {
             if let port = target.port { sshArgs += ["--port", port] }
             if let identity = target.identityFile { sshArgs += ["--identity", identity] }
             for option in target.options { sshArgs += ["--ssh-option", option] }
-            if options.noFocus { sshArgs.append("--no-focus") }
+            sshArgs.append(options.noFocus ? "--no-focus" : "--focus")
             try runSSH(
                 commandArgs: sshArgs,
                 client: client,

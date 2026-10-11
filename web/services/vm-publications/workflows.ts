@@ -18,6 +18,7 @@ import {
 } from "./repository";
 import {
   VmPublicationProvider,
+  VmPublicationProviderError,
   VmPublicationProviderLive,
   isFreestylePlatformHostname,
   publicationRoutingDnsInstruction,
@@ -27,6 +28,7 @@ import {
   type VmPublicationProviderShape,
 } from "./provider";
 import { normalizePublicationHostname } from "./security";
+import { CMUX_TUI_PORT } from "../vms/drivers/cmuxTuiDaemon";
 
 const FORWARD_AUTH_LEASE_MS = 30_000;
 // Publication routes have a 120-second execution budget. Keep the durable VM
@@ -109,6 +111,7 @@ export type PublicationInvalidReason =
   | "public_confirmation_required"
   | "invalid_hostname"
   | "invalid_port"
+  | "reserved_port"
   | "invalid_access_mode"
   | "team_required"
   | "team_not_allowed"
@@ -389,7 +392,9 @@ function provisionPublicationsWaitingOnZone(input: {
     });
     for (const target of targets) {
       if (!publicationInCurrentAccount(target, { userId: input.ownerUserId, teamIds: input.teamIds })) continue;
-      if (target.publication.state !== "provisioning") continue;
+      // An `unavailable` row failed at the provider; a zone verification is
+      // the automatic retry for both, so a transient error never strands it.
+      if (target.publication.state !== "provisioning" && target.publication.state !== "unavailable") continue;
       const attempt = yield* Effect.either(provisionReservedPublication({
         repository: input.repository,
         provider: input.provider,
@@ -474,6 +479,11 @@ export function createPublication(input: {
     if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65_535) {
       return yield* new PublicationInputError({ reason: "invalid_port", field: "port" });
     }
+    // The cmux-tui daemon trusts every carrier link: it is reachable only over
+    // the VM's private VPC, never through a publication.
+    if (input.port === CMUX_TUI_PORT) {
+      return yield* new PublicationInputError({ reason: "reserved_port", field: "port" });
+    }
 
     // Publication ingress is a Freestyle TLS capability. Keeping this literal
     // prevents a future default VM provider from sending foreign VM ids to the
@@ -518,14 +528,17 @@ export function createPublication(input: {
     // resume this durable provisioning record after any provider failure.
     if (isCustom && domain) {
       if (domain.verificationState !== "verified") {
-        domain = yield* ensureCustomDomainVerification({
+        // A provider failure here strands the reserved row just like one in
+        // provisioning: mark it unavailable, which verify and every zone
+        // verification still retry.
+        domain = yield* markUnavailableOnProviderFailure({ repository, target, now }, ensureCustomDomainVerification({
           repository,
           provider,
           domain,
           publicationHostname: target.publication.hostname,
           ownerUserId: input.principal.userId,
           now,
-        });
+        }));
         target = { ...target, domain };
       }
       if (domain.verificationState !== "verified") return publicationDto(target);
@@ -656,6 +669,9 @@ export function updatePublicationAccess(input: {
     const publication = target.publication;
     if (access.accessMode === "team" && target.vm.billingTeamId && access.teamId !== target.vm.billingTeamId) {
       return yield* new PublicationConflictError({ reason: "invalid_access_policy" });
+    }
+    if (publication.state === "unavailable") {
+      return yield* new PublicationConflictError({ reason: "publication_failed" });
     }
     if (publication.state !== "active") {
       return yield* new PublicationProvisioningBusyError({
@@ -820,10 +836,18 @@ export function deletePublication(input: {
         publicationId: disabling.id,
         now,
       });
-      // Sweep by exact hostname, not just the persisted id. Reconcile may have
-      // created a rule immediately before a process died, and retries can leave
-      // duplicate exact-host rules that no local row names yet.
-      yield* provider.deleteTlsRulesForHostname(target.publication.hostname);
+      // The persisted id, plus (for a claimed hostname) crash-window
+      // duplicates on this publication's own VM that no local row names yet.
+      // Never every rule for the hostname: an unclaimed row shares it with
+      // the claimed owner's live rule.
+      // Ownership comes from the row locked by beginDisable, not the pre-lease
+      // read: a provision that finished in between recorded its rule there.
+      yield* provider.deletePublicationTlsRules([{
+        hostname: disabling.hostname,
+        providerVmId: target.vm.providerVmId,
+        providerTlsRuleId: disabling.providerTlsRuleId,
+        hostnameClaimed: disabling.hostnameClaimedAt !== null,
+      }]);
       yield* repository.finishDisablePublication({ id: disabling.id, now });
       return { deleted: true as const, id: disabling.id };
     }));
@@ -1015,6 +1039,40 @@ function ensureCustomDomainVerification(input: {
   });
 }
 
+/**
+ * Report a provider failure to the state machine (PUBLICATION_PROVISIONING_STATES
+ * in repository.ts). The repository decides: a row with no recorded rule moves
+ * to `unavailable`, which PATCH refuses with `publication_failed` and verify
+ * and zone verification retry; a row whose rule is recorded stays
+ * `provisioning`. Left `provisioning`, it read as "already being configured" and
+ * every PATCH answered a retryable 503 forever. Marking is best-effort and
+ * never replaces the provider's error.
+ */
+function markUnavailableOnProviderFailure<A, E, R>(
+  input: {
+    readonly repository: CloudVmPublicationRepositoryShape;
+    readonly target: CloudVmPublicationTarget;
+    readonly now: Date;
+  },
+  operation: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> {
+  return operation.pipe(Effect.tapError((error) => {
+    if (!(error instanceof VmPublicationProviderError)) return Effect.void;
+    // Suspended so a repository that throws while building its effect is
+    // caught below like any other marking failure.
+    return Effect.suspend(() => input.repository.markPublicationUnavailable({
+      id: input.target.publication.id,
+      expectedRoutingRevision: input.target.publication.routingRevision,
+      now: input.now,
+    })).pipe(
+      Effect.asVoid,
+      Effect.catchAllCause((cause) => Effect.sync(() => {
+        console.error("[vm-publications] could not mark a failed publication unavailable", input.target.publication.id, cause);
+      })),
+    );
+  }));
+}
+
 function provisionReservedPublication(input: {
   readonly repository: CloudVmPublicationRepositoryShape;
   readonly provider: VmPublicationProviderShape;
@@ -1030,7 +1088,7 @@ function provisionReservedPublication(input: {
       publicationId: input.target.publication.id,
       ownerUserId: input.ownerUserId,
       now: input.now,
-    }, Effect.gen(function* () {
+    }, markUnavailableOnProviderFailure(input, Effect.gen(function* () {
       let domain = input.target.domain;
       if (domain?.kind === "custom") {
         if (domain.verificationState !== "verified") {
@@ -1101,7 +1159,7 @@ function provisionReservedPublication(input: {
         now: input.now,
       });
       return { ...input.target, publication: active, domain };
-    }));
+    })));
   });
 }
 

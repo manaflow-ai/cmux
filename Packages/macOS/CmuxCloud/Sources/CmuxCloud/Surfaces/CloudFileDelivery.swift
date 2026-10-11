@@ -171,7 +171,7 @@ public enum CloudFileDelivery {
 
     /// Three or four octal digits: what `chmod` accepts and what the receiver echoes back.
     public static func isValidMode(_ mode: String) -> Bool {
-        mode.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil
+        mode.range(of: "^[0-7]{3,4}\\z", options: .regularExpression) != nil
     }
 
     /// What the daemon runs: the shim's receiver with its destination and mode as argv.

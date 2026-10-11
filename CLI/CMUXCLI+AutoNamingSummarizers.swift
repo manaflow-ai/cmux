@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Runs one generic agent's detached, tool-disabled title summarizer.
     func runAutoNamingSummarizer(
         def: AgentHookDef,
         prompt: String,
@@ -16,7 +17,9 @@ extension CMUXCLI {
         // summarizer with tools and network disabled (see the per-agent argv:
         // --pure / --no-tools / --disable-web-search / --no-subagents), so the
         // untrusted transcript text has no channel to exfiltrate those vars.
-        var summarizerEnv = policy.summarizerEnvironment(from: env)
+        var summarizerEnv = def.name == "opencode"
+            ? policy.openCodeSummarizerEnvironment(from: env)
+            : policy.summarizerEnvironment(from: env)
         summarizerEnv[def.disableEnvVar] = "1"
 
         func executable(_ name: String = def.binaryName) -> String? {
@@ -44,14 +47,10 @@ extension CMUXCLI {
         case "opencode":
             guard let promptPath = promptFile() else { return nil }
             executablePath = executable("opencode")
-            arguments = [
-                "run",
-                "--pure",
-                "--format", "default",
-                "--dir", tempRoot.path,
-                "--file", promptPath,
-                "Generate a 2-5 word title from the attached conversation excerpt. Output only the title."
-            ]
+            arguments = AutoNamingEnvironmentPolicy.openCodeSummarizerArguments(
+                directory: tempRoot.path,
+                promptPath: promptPath
+            )
             stdinPrompt = ""
         case "grok":
             guard let promptPath = promptFile() else { return nil }

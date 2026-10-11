@@ -16,7 +16,7 @@ import Testing
 /// (`SidebarWorkspaceChecklistDisplayPolicy`).
 struct WorkspaceTodoSidebarModelTests {
     private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
+        SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent() // cmuxTests
             .deletingLastPathComponent() // repo root
     }

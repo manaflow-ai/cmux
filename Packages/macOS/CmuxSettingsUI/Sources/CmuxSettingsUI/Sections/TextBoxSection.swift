@@ -3,7 +3,7 @@ import CmuxSettings
 import Foundation
 import SwiftUI
 
-/// **TextBox** section — beta controls for the rich terminal input.
+/// **TextBox** section — controls for the rich terminal input.
 @MainActor
 public struct TextBoxSection: View {
     @State private var showOnNewTerminals: DefaultsValueModel<Bool>
@@ -27,12 +27,8 @@ public struct TextBoxSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"), section: .textBox)
+            SettingsSectionHeader(String(localized: "settings.section.textBox", defaultValue: "TextBox"), section: .textBox)
             SettingsCard {
-                TextBoxBetaWarningNote(
-                    String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.")
-                )
-                SettingsCardDivider()
                 showOnNewTerminalsRow
                 SettingsCardDivider()
                 focusOnNewTerminalsRow
@@ -141,31 +137,5 @@ public struct TextBoxSection: View {
                 String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines")
             )
         }
-    }
-}
-
-@MainActor
-private struct TextBoxBetaWarningNote: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .cmuxFont(size: 12, weight: .semibold)
-                .foregroundStyle(.yellow)
-                .accessibilityHidden(true)
-
-            Text(text)
-                .cmuxFont(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -167,8 +167,8 @@ def test_fallback_sleep(tmp: Path, fake_bin: Path, log: Path) -> None:
         # The function override models a zsh build without zsh/zselect before
         # the integration is sourced, so the production capability probe takes
         # its documented fallback branch.
-        "zmodload() { return 1; }; source \"$1\"; (( !_CMUX_HAS_ZSELECT )) || exit 2; "
-        "print -r -- \"SLEEP_PATH:$(whence -p sleep)\"; "
+        "zmodload() { return 1; }; disable -b sleep 2>/dev/null || true; rehash; "
+        "source \"$1\"; (( !_CMUX_HAS_ZSELECT )) || exit 2; "
         "_cmux_sleep_cs 20; print -r -- FALLBACK_OK",
         env=env,
     )
@@ -224,6 +224,8 @@ def test_real_watchers_and_teardown(
         command = r'''
 if [[ "$CMUX_TEST_FORCE_NO_ZSELECT" == 1 ]]; then
     zmodload() { return 1; }
+    disable -b sleep 2>/dev/null || true
+    rehash
 fi
 source "$1"
 if (( _CMUX_HAS_ZSELECT )); then

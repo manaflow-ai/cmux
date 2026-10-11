@@ -47,3 +47,75 @@ struct AgentSessionCloseJournal: Sendable {
         }
     }
 }
+
+/// Owns terminal panels that can carry agent sessions: a workspace or a Dock.
+///
+/// Both close panels through their own teardown, and both call
+/// ``journalClosedAgentSessions(panelId:)`` from it, so a Claude pane closed
+/// anywhere is journaled the same way.
+@MainActor
+protocol AgentSessionPanelHost: AnyObject {
+    /// The workspace the journal attributes a closed panel's sessions to.
+    var agentSessionWorkspaceID: UUID { get }
+    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] { get }
+    /// Hook bindings that can name the agent session a panel carries.
+    func agentSessionBindingsForClose(panelId: UUID) -> [SurfaceResumeBindingSnapshot]
+    var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator { get }
+    var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] { get }
+    var agentSessionCloseJournal: AgentSessionCloseJournal { get }
+}
+
+extension AgentSessionPanelHost {
+    func agentSessionBindingsForClose(panelId: UUID) -> [SurfaceResumeBindingSnapshot] {
+        surfaceResumeBindingsByPanelId[panelId].map { [$0] } ?? []
+    }
+
+    /// Records the end of the recoverable agent sessions this panel carries,
+    /// so crash recovery never reopens a terminal the user closed. Call it
+    /// before the panel's bindings and restore state are discarded. Skipped
+    /// while the app quits: those sessions end with the app, and startup
+    /// restore owns them.
+    func journalClosedAgentSessions(panelId: UUID) {
+        guard AppDelegate.shared?.isTerminatingApp != true else { return }
+        let recoverable = Set(AgentSessionRecovery.recoverableKinds.map(\.rawValue))
+        var sessions: [(kind: String, sessionID: String)] = []
+        for binding in agentSessionBindingsForClose(panelId: panelId) where binding.isAgentHookBinding {
+            guard let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  recoverable.contains(kind),
+                  let sessionID = binding.checkpointId else { continue }
+            sessions.append((kind, sessionID))
+        }
+        let restoredAgents = [
+            restoredAgentLifecycle.snapshotsByPanelId[panelId],
+            deferredAgentResumeRestoresByPanelId[panelId]?.restorableAgent,
+        ]
+        for agent in restoredAgents.compactMap({ $0 }) where recoverable.contains(agent.kind.rawValue) {
+            sessions.append((agent.kind.rawValue, agent.sessionId))
+        }
+        guard !sessions.isEmpty else { return }
+        // A session another panel still carries (a restore that lost to a live
+        // owner, or a stale snapshot resumed elsewhere) did not end here.
+        let carriedElsewhere = AppDelegate.shared?.openAgentSessionIdsForRecovery(excludingPanelId: panelId) ?? []
+        sessions.removeAll { carriedElsewhere.contains($0.sessionID) }
+        guard !sessions.isEmpty else { return }
+        agentSessionCloseJournal.recordClosed(
+            sessions: sessions,
+            workspaceID: agentSessionWorkspaceID,
+            surfaceID: panelId
+        )
+    }
+}
+
+extension Workspace: AgentSessionPanelHost {
+    var agentSessionWorkspaceID: UUID { id }
+}
+
+extension DockSplitStore: AgentSessionPanelHost {
+    var agentSessionWorkspaceID: UUID { workspaceId }
+
+    /// The effective binding, plus the agent-hook binding the Dock keeps
+    /// aside while process detection shows another one (a tmux binding).
+    func agentSessionBindingsForClose(panelId: UUID) -> [SurfaceResumeBindingSnapshot] {
+        [surfaceResumeBindingsByPanelId[panelId], managedAgentResumeBindingsByPanelId[panelId]].compactMap { $0 }
+    }
+}

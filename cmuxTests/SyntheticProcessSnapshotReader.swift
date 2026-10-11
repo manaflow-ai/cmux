@@ -79,6 +79,9 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
                 info.e_tpgid = UInt32(pid)
                 info.pbi_start_tvsec = 100
                 return info
+            },
+            processHasExited: { [self] pid in
+                processHasExited(pid: Int(pid))
             }
         ).capture()
         return DarwinProcessListing(
@@ -129,4 +132,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
             return value.replacedPID != pid && key.startSeconds == 100
         }
     }
+
+    /// The synthetic census has no exited processes: a replaced PID is live.
+    func processHasExited(pid: Int) -> Bool { false }
 }

@@ -10,15 +10,14 @@ extension MobileIrxRuntimeComposition {
         let directory = await currentDirectory()
         let currentRelay = await endpointSupervisor?.homeRelayURL()
         let paths = await localPathSnapshot()
-        let selectedPath = await selectedTransportPath()
         let directIsBound = await directEndpointSupervisor?.boundEndpoint() != nil
         let status: CmxIrohSettingsSnapshot.RuntimeStatus
         if activeScope == nil { status = .inactive }
         else if await endpointSupervisor?.boundEndpoint() != nil || directIsBound { status = .active }
         else { status = .starting }
+        let selectedPath = await liveSelectedTransportPath()
         guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return .unavailable }
-        return CmxIrohSettingsSnapshot(runtimeStatus: status,
-            selectedTransportPath: selectedPath,
+        return CmxIrohSettingsSnapshot(runtimeStatus: status, selectedTransportPath: selectedPath,
             preference: .automatic, pathPreference: forceRelayOnly ? .relayOnly : .automatic,
             managedRelays: (cache?.relayCredentials ?? []).map {
                 .init(id: $0.relayURL, provider: "cmux", region: "", url: $0.relayURL, isSelected: $0.relayURL == currentRelay)
@@ -33,26 +32,33 @@ extension MobileIrxRuntimeComposition {
             failureDescription: lastFailure)
     }
 
-    public func settingsUpdates() -> AsyncStream<Void> { changes() }
-
-    /// Reports the path used by an admitted Mac session. The endpoint
-    /// supervisor owns the local iOS endpoint, while the peer engine owns the
-    /// connection that carries application traffic. Looking at the peer
-    /// session avoids reporting "unavailable" while relay traffic is already
-    /// flowing.
-    private func selectedTransportPath() async -> CmxIrohSelectedTransportPath {
+    /// The path application traffic uses right now, from the first admitted
+    /// peer session. A relay counts as managed only when it is one of this
+    /// account's signed relay credentials; any other relay stays
+    /// `.unavailable`, matching the fail-closed classifier the Iroh runtime
+    /// used before the v2 migration. Without this the snapshot always
+    /// reported `.unavailable`, so the release gate's relay-only path check
+    /// could never pass.
+    func liveSelectedTransportPath() async -> CmxIrohSelectedTransportPath {
         for engine in enginesByPeer.values {
-            guard let session = await engine.currentSession() else { continue }
-            let description = session.connection.selectedPathDescription()
-            if description.hasPrefix("relay:") {
-                return .managedRelay(provider: "cmux", region: "")
+            guard case .ready = await engine.currentState,
+                  let session = await engine.currentSession(),
+                  let path = session.connection.selectedPath() else { continue }
+            guard path.isRelay else { return .direct }
+            let normalized = Self.normalizedRelayURL(path.remoteAddress)
+            let managed = (cache?.relayCredentials ?? []).contains {
+                Self.normalizedRelayURL($0.relayURL) == normalized
             }
-            if description.hasPrefix("direct:") {
-                return .direct
-            }
+            return managed ? .managedRelay(provider: "cmux", region: "") : .unavailable
         }
         return .unavailable
     }
+
+    private static func normalizedRelayURL(_ url: String) -> String {
+        url.hasSuffix("/") ? String(url.dropLast()) : url
+    }
+
+    public func settingsUpdates() -> AsyncStream<Void> { changes() }
     public func refreshSettingsSnapshot() async {
         await invalidateDiscoverySnapshot()
         publish()

@@ -176,6 +176,41 @@ struct AccountSignInModelTests {
         #expect(!accountWorkspace.isRestorableInSessionSnapshot)
         #expect(!pairingWorkspace.isRestorableInSessionSnapshot)
     }
+
+    /// An embedded gate that never asked to sign in still mirrors Switch
+    /// Account, so its idle Sign In cannot replace the private attempt.
+    @Test
+    func switchAccountShowsProgressInAGateThatNeverRequestedSignIn() {
+        let flow = FakeAccountSignInFlow()
+        let model = AccountSignInModel(flow: flow)
+        flow.isSwitchingAccount = true
+
+        #expect(model.phase == .loading(.openingBrowser))
+        flow.isPresentingSignIn = true
+        #expect(model.phase == .loading(.waiting))
+        flow.signInIsSlow = true
+        #expect(model.phase == .loading(.waitingSlow))
+
+        flow.isSwitchingAccount = false
+        flow.isPresentingSignIn = false
+        #expect(model.phase == .idle)
+    }
+
+    /// The switch's attempt is adopted like any other, fallback link included:
+    /// it carries the chooser prompt, so the default browser asks too.
+    @Test
+    func presentingDuringASwitchAdoptsItsAttempt() {
+        let flow = FakeAccountSignInFlow()
+        let model = AccountSignInModel(flow: flow)
+        flow.isSwitchingAccount = true
+        flow.isPresentingSignIn = true
+
+        model.presentSignIn()
+
+        #expect(flow.startCount == 0)
+        #expect(model.signInURL == flow.issuedURL)
+        #expect(model.hasFallbackLink)
+    }
 }
 
 @MainActor
@@ -185,6 +220,7 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
     var isCompletingSignIn = false
     var signInIsSlow = false
     var lastSignInFailure: AccountSignInModel.Failure?
+    var isSwitchingAccount = false
     let issuedURL = URL(string: "https://example.com/sign-in?state=fixture")!
     private(set) var startCount = 0
     private(set) var openedURL: URL?

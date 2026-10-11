@@ -107,6 +107,17 @@ extension MobileShellComposite {
     /// budget.
     public var isMacSwitchInFlight: Bool { macSwitchAttemptID != nil }
 
+    /// A Mac switch is an explicit foreground connect, so it supersedes
+    /// automatic recovery and any stored-Mac reconnect the way pairing does.
+    /// Left running, recovery redialed the saved Macs (the switch's target
+    /// among them), retired the switch's dial, and failed the switch.
+    func supersedeConnectionRecoveryForMacSwitch() {
+        pendingInactiveRecoveryTrigger = nil
+        connectionRecoveryOwner.cancel()
+        applyConnectionRecoveryOwnerState()
+        invalidateStoredMacReconnectAttempt()
+    }
+
     func cancelMacSwitchAttempt(_ attemptID: UUID) -> Task<Bool, Never>? {
         macSwitchAttemptID == attemptID ? cancelPendingMacSwitch(restorePreviousOnCancel: true) : nil
     }

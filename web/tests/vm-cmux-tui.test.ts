@@ -70,6 +70,18 @@ describe("cmux-tui daemon source", () => {
     expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z", hookUrl: HOOK_URL, hookSha256: HOOK_SHA });
   });
 
+  test("pins binaries from the manifest commit when the manifest uses latest", () => {
+    const source = parseCmuxTuiManifest("https://files.cmux.com/cmux-tui/latest/manifest.json", {
+      commit: COMMIT,
+      binaries: {
+        "cmux-tui-x86_64-unknown-linux-musl": SHA,
+        "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA,
+      },
+    });
+    expect(source.url).toBe(URL);
+    expect(source.hookUrl).toBe(HOOK_URL);
+  });
+
   test("fails closed on a manifest without a commit, without the musl build, or without the hook helper", () => {
     const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
     expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);

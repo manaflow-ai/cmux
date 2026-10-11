@@ -38,7 +38,8 @@ than blaming the range. A tie lists pull requests labeled merged-unverified
 (merge_receipt.py: a judging check was not green when they merged) first.
 
 `report` writes a "New since" markdown section for the tracking issue (read
-by main_full_suite.py report --extra-section) and comments once on each
+by main_full_suite.py report --extra-section), which @-mentions the merger of
+each suspect pull request once, and comments once on each
 suspect pull request, idempotent through a hidden marker keyed on the pull
 request and its failing test set, and once per commit range. A test tied between more than
 MAX_PINGED_SUSPECTS pull requests is listed in the issue only. The section
@@ -97,6 +98,8 @@ INCOMPLETE_MARKERS = (
     "No typed xcresult test JSON found",
     "is not ratchetable",
     "selector matched zero built tests",
+    "inventory lists no built tests",
+    "no selectors: nothing was selected to run",
     "nonterminal or unknown result",
 )
 # app_host_result_accounting.py opens a restarted batch's verdicts with this.
@@ -154,6 +157,8 @@ class PullRequest:
     url: str
     merge_sha: str
     author: str = ""
+    # Who merged it: the issue section pings each suspect's merger once.
+    merger: str = ""
     # Suites the diff edits, and suites that name what the diff changes.
     edited_suites: set[str] = field(default_factory=set)
     reached_suites: set[str] = field(default_factory=set)
@@ -524,6 +529,7 @@ def merged_prs(
                     url=str(pr.get("url") or ""),
                     merge_sha=merge_sha,
                     author=str(((pr.get("author") or {}) or {}).get("login") or ""),
+                    merger=str(((pr.get("mergedBy") or {}) or {}).get("login") or ""),
                     unverified=any(
                         label.get("name") == UNVERIFIED_LABEL
                         for label in ((pr.get("labels") or {}).get("nodes") or [])
@@ -798,6 +804,9 @@ def issue_section(
     if not failures and not attributions:
         return "\n".join(lines)
     lines += ["", f"Pull requests merged in the range: " + (", ".join(f"#{pr.number}" for pr in prs) or "none")]
+    pings = merger_pings(failures, attributions)
+    if pings:
+        lines.append(pings)
     if direct and not prs:
         lines.append("Commits without a merged pull request: " + ", ".join(short(sha) for sha in direct[:10]))
     if commits is not None:
@@ -806,6 +815,30 @@ def issue_section(
             crashed=crashed,
         )]
     return "\n".join(lines)
+
+
+def merger_pings(
+    failures: Mapping[str, list[str]], attributions: Mapping[str, tuple[list[PullRequest], str]],
+) -> str:
+    """One line that @-mentions each suspect's merger once, with the suspects they merged.
+
+    The suspect pull requests hear through their own comment (pr_comment); the person who
+    merged one may not follow it, and is the one to fix main forward. A test tied between
+    more than MAX_PINGED_SUSPECTS pull requests pings nobody, as in comment_plan().
+    """
+    merged: dict[str, list[int]] = {}
+    for test in failures:
+        suspects, _ = attributions.get(test) or ([], "")
+        if len(suspects) > MAX_PINGED_SUSPECTS:
+            continue
+        for pr in suspects:
+            if pr.merger and pr.number not in merged.setdefault(pr.merger, []):
+                merged[pr.merger].append(pr.number)
+    if not merged:
+        return ""
+    return "Merged the suspects: " + ", ".join(
+        f"@{login} ({', '.join(f'#{n}' for n in numbers)})" for login, numbers in merged.items()
+    ) + ". Fix forward, or say on the pull request that it is not the cause."
 
 
 def pr_comment(
@@ -972,7 +1005,7 @@ def associated_prs(repo: str, shas: list[str]) -> dict[str, list[dict]]:
         chunk = shas[start:start + 40]
         fields = " ".join(
             f'c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 5) '
-            "{ nodes { number title url state baseRefName author { login } mergeCommit { oid } "
+            "{ nodes { number title url state baseRefName author { login } mergedBy { login } mergeCommit { oid } "
             "labels(first: 20) { nodes { name } } } } } }"
             for index, sha in enumerate(chunk)
         )

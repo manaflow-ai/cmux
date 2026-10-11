@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -156,6 +157,27 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn(delegated, status)
         self.assertGreaterEqual(status.count(standalone), 2)
         self.assertIn("required ci-status check", status)
+
+    def test_ci_web_caches_bun_packages_for_each_install_lockfile(self):
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        expected = {
+            "web-typecheck": "web/bun.lock",
+            "web-production-build": "web/bun.lock",
+            "web-tests": "web/bun.lock",
+            "web-instant-navigation": "web/bun.lock",
+            "diff-sidecar-check": "webviews/bun.lock",
+            "web-db-migrations": "web/bun.lock",
+            "agent-session-web-resources": "bun.lock",
+        }
+        for job, lockfile in expected.items():
+            with self.subTest(job=job):
+                start = workflow.index(f"  {job}:")
+                match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+                next_job = -1 if match is None else start + 3 + match.start()
+                block = workflow[start:] if next_job < 0 else workflow[start:next_job]
+                self.assertIn("uses: actions/cache@", block)
+                self.assertIn("path: ~/.bun/install/cache", block)
+                self.assertIn(f"hashFiles('{lockfile}')", block)
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

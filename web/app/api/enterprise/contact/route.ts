@@ -17,7 +17,7 @@ import {
 import { checkEmailDeliverable } from "../../waitlist/email-check";
 
 
-const enterpriseRecipient = "founders@manaflow.com";
+const enterpriseRecipient = "founders@cmux.com";
 
 const enterpriseContactSchema = z.object({
   firstName: z.string().trim().min(1).max(80),

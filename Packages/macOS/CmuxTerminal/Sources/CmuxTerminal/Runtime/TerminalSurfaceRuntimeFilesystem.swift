@@ -3,15 +3,15 @@ public import CmuxTerminalCore
 
 /// Filesystem operations injected into ``TerminalSurface`` runtime creation.
 public struct TerminalSurfaceRuntimeFilesystem: Sendable {
-    /// The root directory used for per-surface agent command shims.
-    public let agentCommandShimTemporaryDirectory: URL
+    /// The durable root directory used for per-surface agent command shims.
+    public let agentCommandShimRootDirectory: URL
 
     /// Installs per-surface agent command shims for the available bundled wrappers.
     public let installAgentCommandShims:
         @Sendable (
             _ wrapperDirectoryURL: URL,
             _ surfaceId: UUID,
-            _ temporaryDirectory: URL,
+            _ rootDirectory: URL,
             _ enabledCommands: Set<TerminalSurfaceAgentCommand>
         ) async -> TerminalSurfaceAgentCommandShimSet?
 
@@ -20,17 +20,17 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
 
     /// Creates the runtime filesystem seam with a policy-aware shim installer.
     public init(
-        agentCommandShimTemporaryDirectory: URL,
+        agentCommandShimRootDirectory: URL,
         installAgentCommandShims:
             @escaping @Sendable (
                 _ wrapperDirectoryURL: URL,
                 _ surfaceId: UUID,
-                _ temporaryDirectory: URL,
+                _ rootDirectory: URL,
                 _ enabledCommands: Set<TerminalSurfaceAgentCommand>
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
-        self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
+        self.agentCommandShimRootDirectory = agentCommandShimRootDirectory
         self.installAgentCommandShims = installAgentCommandShims
         self.isExecutableFile = isExecutableFile
     }
@@ -38,22 +38,22 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Creates the runtime filesystem seam with an installer that ignores
     /// command selection. This keeps existing tests and embedders source-compatible.
     public init(
-        agentCommandShimTemporaryDirectory: URL,
+        agentCommandShimRootDirectory: URL,
         installAgentCommandShims:
             @escaping @Sendable (
                 _ wrapperDirectoryURL: URL,
                 _ surfaceId: UUID,
-                _ temporaryDirectory: URL
+                _ rootDirectory: URL
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
         self.init(
-            agentCommandShimTemporaryDirectory: agentCommandShimTemporaryDirectory,
-            installAgentCommandShims: { wrapperDirectoryURL, surfaceId, temporaryDirectory, _ in
+            agentCommandShimRootDirectory: agentCommandShimRootDirectory,
+            installAgentCommandShims: { wrapperDirectoryURL, surfaceId, rootDirectory, _ in
                 await installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
-                    temporaryDirectory
+                    rootDirectory
                 )
             },
             isExecutableFile: isExecutableFile

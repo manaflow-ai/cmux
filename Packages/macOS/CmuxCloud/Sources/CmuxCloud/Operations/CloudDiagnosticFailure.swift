@@ -75,6 +75,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .timedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
             case .clientMissing, .spawnFailed, .exited: return .process
+            case .failureMessage: return .network
             }
         }
         if let error = error as? any CloudDiagnosticFailureClassifying { return error.cloudDiagnosticFailure }

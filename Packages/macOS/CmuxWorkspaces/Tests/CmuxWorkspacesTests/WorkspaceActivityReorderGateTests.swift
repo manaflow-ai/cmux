@@ -170,14 +170,4 @@ struct WorkspaceActivityReorderGateTests {
         #expect(gate.drain(mode: .notifications, now: at(1)) { _ in idle }.isEmpty)
         #expect(gate.pendingWorkspaceIds.isEmpty)
     }
-
-    @Test func forgetClearsCooldownAndPendingState() {
-        var gate = WorkspaceActivityReorderGate(cooldown: 10)
-        let id = UUID()
-        _ = gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: start)
-        _ = gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(1))
-        gate.forget(workspaceId: id)
-        #expect(gate.pendingWorkspaceIds.isEmpty)
-        #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(2)) == .moveNow)
-    }
 }

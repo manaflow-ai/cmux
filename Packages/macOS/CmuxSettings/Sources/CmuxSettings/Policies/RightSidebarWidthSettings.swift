@@ -20,8 +20,12 @@ public struct RightSidebarWidthSettings: Sendable {
     /// The stored sentinel value that means the built-in dynamic width cap is active.
     public static let noOverrideValue = -1.0
 
-    /// The smallest allowed right sidebar width, in points.
-    public static let minimumWidth = 276.0
+    /// The smallest allowed right sidebar width, in points, and the width a
+    /// new window opens with: room for a Cloud machine's Ports, Terminals,
+    /// Displays and Resources tabs with their counts, in their compact
+    /// spacing. Any wider and both sidebars no longer fit a half-screen
+    /// window on a 1470 pt display (`SidePanelWidthFit`).
+    public static let minimumWidth = 295.0
 
     /// The built-in right sidebar maximum width, in points, used when no override is active.
     public static let builtInMaximumWidth = 1200.0

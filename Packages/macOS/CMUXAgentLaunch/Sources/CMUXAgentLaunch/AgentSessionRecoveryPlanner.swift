@@ -195,3 +195,55 @@ public struct AgentSessionRecoveryPlanner: Sendable {
         return result
     }
 }
+
+/// Which recovered sessions start right away and which wait until their
+/// workspace is first shown.
+///
+/// A heavy user can have dozens of agents running when cmux dies, and starting
+/// them all on relaunch spikes CPU and memory. Only a few start now: sessions
+/// from a workspace on screen, then the most recently active. The rest open
+/// their workspace now and resume on its first visit, the way startup restore
+/// treats background workspaces.
+///
+/// A session resumed through its recorded launcher always starts now: its
+/// launch claim is taken when the command is typed, and nothing would take it
+/// on a later visit. Such sessions are rare.
+public struct AgentRecoveryStartPlan: Equatable, Sendable {
+    /// How many recovered sessions start right away by default.
+    public static let defaultImmediateLimit = 3
+
+    /// Sessions whose terminal starts now, in start order.
+    public private(set) var startNow: [AgentRecoveryCandidate] = []
+    /// Sessions whose workspace opens now and whose terminal starts on first visit.
+    public private(set) var startOnVisit: [AgentRecoveryCandidate] = []
+
+    /// - Parameters:
+    ///   - candidates: The sessions to recover.
+    ///   - visibleWorkspaceIds: Workspaces shown in a window right now.
+    ///   - immediateLimit: How many sessions start right away.
+    public init(
+        candidates: [AgentRecoveryCandidate],
+        visibleWorkspaceIds: Set<UUID> = [],
+        immediateLimit: Int = AgentRecoveryStartPlan.defaultImmediateLimit
+    ) {
+        func isVisible(_ candidate: AgentRecoveryCandidate) -> Bool {
+            candidate.workspaceId.flatMap(UUID.init(uuidString:)).map(visibleWorkspaceIds.contains) ?? false
+        }
+        let ranked = candidates.enumerated().sorted { lhs, rhs in
+            let lhsVisible = isVisible(lhs.element)
+            let rhsVisible = isVisible(rhs.element)
+            if lhsVisible != rhsVisible { return lhsVisible }
+            if lhs.element.lastActivity != rhs.element.lastActivity {
+                return lhs.element.lastActivity > rhs.element.lastActivity
+            }
+            return lhs.offset < rhs.offset
+        }
+        for (_, candidate) in ranked {
+            if startNow.count < immediateLimit || candidate.launcherResumeArguments != nil {
+                startNow.append(candidate)
+            } else {
+                startOnVisit.append(candidate)
+            }
+        }
+    }
+}
