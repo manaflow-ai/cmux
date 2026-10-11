@@ -64,6 +64,11 @@ enum BrowserHandlers {
             entry.chrome.toolbarButtons.modes.colorScheme = scheme
             (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
+        registry.bind("browserPrint", run: { invocation in
+            guard BrowserPagePrint(try context.page(invocation).tab).run() else {
+                throw ActionFailure(message: MiscHandlerStrings.printUnavailable)
+            }
+        })
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
             let logger = context.daemon.logger

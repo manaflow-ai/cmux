@@ -95,6 +95,14 @@
 //!   same user and can write those files can capture the key on the next
 //!   restart. Such an agent already has that user's power on that host, and
 //!   the key is valid only for that one daemon run.
+//! - Cloud machines (cx-0q7o slice 2d): the key reaches the daemon through
+//!   the cmux backend and the VM provider (trusted: they already run any
+//!   command as root there), only as the stdin of `daemon start
+//!   --person-key-fd 0`. Agents on a Cloud machine have passwordless sudo,
+//!   so an agent that gets one allowed shell command can read the key from
+//!   this daemon's memory at any time (not dumpable does not stop root). The
+//!   key then counts only for that one daemon run on that one machine.
+//!   See docs/security/threat-model.md "Remote approvals (acpmux person key)".
 //! - Same-uid file writes: an agent that edits config.json, a profile file
 //!   or the store directly. That needs an OS boundary between the agent and
 //!   the user's files.

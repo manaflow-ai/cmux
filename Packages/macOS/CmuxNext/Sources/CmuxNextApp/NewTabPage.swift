@@ -340,6 +340,8 @@ extension NewTabPage {
             return
         }
         openingPanes.remove(openingKey)
+        // The page's tab shows: from now on the key hold ends as soon as the pane shows another tab.
+        services.keyRouter.newTabInputCoordinator.didShow(in: pane.view.window)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
         if spare != nil, services.presentation.showNow(pane) {

@@ -37,6 +37,8 @@ export const HEADER_ACTIONS = {
   moveRight: "moveSurfaceToPaneRight",
   newWorkspace: "palette.moveTabToNewWorkspace",
   newWindow: "tab.moveToNewWindow",
+  /// Not an app action: Start Agent's panel holds the chat (CmuxNextAgentPane AgentPaneHeaderHooks.moveToFloatingChat).
+  floatingChat: "floatingChat",
   close: "closeTab",
 } as const;
 
