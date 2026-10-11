@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -547,8 +547,7 @@
+@@ -548,8 +548,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -10,7 +10,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -562,11 +561,11 @@
+@@ -563,11 +562,11 @@
              let d = CALayer()
              d.actions = noActions
              // Dot levels over the 13 lossless typing stills: dim (91, 91, 94), lit (133, 133, 135).
@@ -24,7 +24,7 @@
              hi.cornerRadius = 3.25
              hi.opacity = 0
              hi.name = "hi"
-@@ -610,7 +609,7 @@
+@@ -613,7 +612,7 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -33,7 +33,7 @@
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
              default: return nil
-@@ -639,7 +638,11 @@
+@@ -642,7 +641,11 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -46,7 +46,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1052,6 +1055,16 @@
+@@ -1055,6 +1058,16 @@
              RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
          }
          CATransaction.commit()
