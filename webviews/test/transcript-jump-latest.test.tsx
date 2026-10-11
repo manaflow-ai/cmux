@@ -116,7 +116,8 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     expect(jumps).toEqual([latest]);
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     expect(button()?.dataset.shown).toBeUndefined();
-    expect(button()?.tabIndex).toBe(-1);
+    // Hidden, it is inert: out of the tab order and the accessibility tree.
+    expect(button()?.hasAttribute("inert")).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }

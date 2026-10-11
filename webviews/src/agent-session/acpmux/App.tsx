@@ -689,7 +689,7 @@ const JUMP_LATEST_SETTLE_MS = 600;
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
-/// mounted while hidden so it fades out as it fades in (conversation.css).
+/// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
 function JumpToLatest({ shown, working, onJump }: { shown: boolean; working: boolean; onJump: () => void }) {
   const t = useT();
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
@@ -700,8 +700,8 @@ function JumpToLatest({ shown, working, onJump }: { shown: boolean; working: boo
       data-shown={shown ? "" : undefined}
       data-working={working ? "" : undefined}
       aria-label={label}
-      aria-hidden={shown ? undefined : true}
-      tabIndex={shown ? 0 : -1}
+      // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
+      inert={!shown}
       title={label}
       onClick={onJump}
     >
