@@ -99,7 +99,7 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
 
     init(model: AgentActivityModel, source: any AgentActivitySource) { self.model = model; self.source = source }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         view?.applyTheme(reload: true)
     }
 
