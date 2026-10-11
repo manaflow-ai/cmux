@@ -218,7 +218,7 @@ pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBu
             downloads.insert(payload.cache_path.clone(), receiver.clone());
             let payload = payload.clone();
             tokio::spawn(async move {
-                let result = download(&payload).await.map_err(|error| error.to_string());
+                let result = download(&payload).await;
                 DOWNLOADS
                     .get_or_init(Default::default)
                     .lock()
