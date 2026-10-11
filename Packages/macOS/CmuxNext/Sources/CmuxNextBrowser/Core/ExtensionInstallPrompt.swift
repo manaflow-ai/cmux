@@ -75,7 +75,7 @@ public nonisolated struct ExtensionInstallPrompt: Equatable, Sendable, Identifia
 }
 
 /// The "extension added" notice that follows a successful install
-/// (prompt id 0). Chrome shows a bubble at its toolbar; cmux shows a notice.
+/// (prompt id 0), shown on the tab.
 public nonisolated struct ExtensionInstalledNotice: Equatable, Sendable {
     public var extensionID: String
     public var name: String

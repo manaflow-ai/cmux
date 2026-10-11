@@ -1,7 +1,7 @@
 /// Cell and padding sizes of one Ghostty surface, in backing pixels, taken
 /// from a surface Ghostty sized to an exact grid.
 ///
-/// `ghostty_surface_set_grid_size` resolves the surface to
+/// A surface sized to an exact grid resolves to
 /// `columns * cell + padding` (renderer/size.zig `screenForGrid`), so the
 /// padding is the resolved size minus the cells. ``grid(fittingWidth:height:)``
 /// then answers the grid a pixel size fits with Ghostty's own formula

@@ -140,6 +140,33 @@ dbTest("a signed VM authorization authenticates against the live VM row", async 
   expect(await authenticateRouteToken(signed.token)).toBeNull();
 });
 
+dbTest("a selected team's shared Codex account is routable through the VM model plane", async () => {
+  const credential = codexCredential(USER, "cloud-codex-workspace");
+  const accountId = await insertLegacyCodexAccount(credential, "team");
+  const privateAccountId = await insertLegacyCodexAccount(
+    codexCredential(USER, "private-cloud-codex-workspace"),
+    "private",
+  );
+  await db`delete from coderouter_pool_accounts where pool_id = ${poolA}`;
+
+  const signed = await issueVmAuthorizationToken(TEAM_A, USER, vmA);
+  expect(await authenticateRouteToken(signed.token)).toMatchObject({
+    teamId: TEAM_A,
+    vmId: vmA,
+    poolId: poolA,
+  });
+
+  const vmAccess = access();
+  expect((await listAccounts(TEAM_A, vmAccess)).map((account) => account.id)).toContain(accountId);
+  expect((await listAccounts(TEAM_A, vmAccess)).map((account) => account.id)).not.toContain(privateAccountId);
+  expect((await selectAccountForRequest(TEAM_A, "codex", [], undefined, vmAccess))?.id).toBe(accountId);
+  expect((await listClaudeAccounts(TEAM_A, vmAccess)).map((account) => account.id)).toContain(claudeA);
+
+  await db`delete from coderouter_pool_accounts where pool_id = ${poolA} and account_id = ${accountId}`;
+  await issueVmAuthorizationToken(TEAM_A, USER, vmA);
+  expect((await listAccounts(TEAM_A, vmAccess)).map((account) => account.id)).not.toContain(accountId);
+});
+
 dbTest("pool membership and account visibility constrain selection and cached sessions", async () => {
   const first = await selectAccountForSession({ teamId: TEAM_A, provider: 'openai-apikey', sessionKey: 'same-session', access: access() });
   expect(first?.id).toBe(sharedA);
@@ -219,9 +246,13 @@ dbTest("personal VMs can use their owner's private pool without granting organiz
 });
 
 
-dbTest("VM account mutations retain the pool boundary and cannot borrow the creator's private access", async () => {
+dbTest("a VM token gets no account rights; the repository still keeps the pool boundary", async () => {
   const resolved = await resolveCoderouterControlContext(guest('/api/coderouter/accounts', {'x-cmux-team-id': TEAM_B}));
-  expect(resolved).toMatchObject({ok:true,value:{team:{teamId:TEAM_A},access:access()}});
+  expect(resolved.ok).toBe(false);
+  if (!resolved.ok) {
+    expect(resolved.response.status).toBe(403);
+    expect(await resolved.response.json()).toEqual({error:'machine_token_cannot_manage_accounts'});
+  }
   for (const accountId of [privateA, sharedB]) {
     expect(await deleteAccount({teamId:TEAM_A,stackUserId:USER,accountId,access:access()})).toMatchObject({removed:false});
   }

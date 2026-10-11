@@ -1,0 +1,17 @@
+{
+  "comment": "Owned by the license review. cmuxd-remote (CGO_ENABLED=0, no libc) links the Go standard library and runtime and these modules (go list -deps for linux and darwin). scripts/remote_daemon_notices.py fails on a module or text that is not listed here.",
+  "go": {
+    "minor": "go1.26",
+    "license": "BSD-3-Clause",
+    "files": {
+      "LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "PATENTS": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"
+    },
+    "source": "go/LICENSE and go/PATENTS in https://go.dev/dl/go1.26.8.src.tar.gz (sha256 4e39b98e42f946fa05ac8bc5b71877df97dbdb7cbb1a777b541667ad7117fd2e)"
+  },
+  "modules": {
+    "github.com/creack/pty@v1.1.24": {"license": "MIT", "files": {"LICENSE": "a2a1cea59d9c2d71908082f516f86bb560abf857646ecf69d70c121ead14aef4"}},
+    "golang.org/x/sys@v0.30.0": {"license": "BSD-3-Clause", "files": {"LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad", "PATENTS": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"}},
+    "nhooyr.io/websocket@v1.8.17": {"license": "ISC", "files": {"LICENSE.txt": "0b12dba478a73e88a239b33a23aad4721ad692d70d428130c2e2064bf9c5aa60"}}
+  }
+}

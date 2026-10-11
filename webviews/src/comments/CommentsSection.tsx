@@ -26,12 +26,7 @@ export function CommentsSidebarSection({
           <div className="comments-empty">{labels.noComments}</div>
         ) : (
           entries.map((entry) => (
-            <button
-              key={entry.comment.id}
-              type="button"
-              className="comment-entry"
-              onClick={() => onSelect(entry)}
-            >
+            <button key={entry.comment.id} type="button" className="comment-entry" onClick={() => onSelect(entry)}>
               <span className="comment-entry-header">
                 <span className="comment-entry-location">{commentDisplayName(entry.comment)}</span>
                 {!entry.pending && entry.anchor.state === "outdated" ? (

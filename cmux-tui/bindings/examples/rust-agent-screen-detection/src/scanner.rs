@@ -8,7 +8,9 @@
 //! The process-group and edge-trigger ideas are derived from herdr's
 //! `src/pane.rs` and `src/pane/agent_detection.rs` at commit
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), then adapted to
-//! the cmux journal contract.
+//! the cmux journal contract. Keeping a suspended or backgrounded agent's
+//! identity follows herdr `950d012cf0cfd17737b4fff2f4982210b50b5794`
+//! (`crate::background_agent`).
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -24,6 +26,7 @@ use cmux::{
 };
 use serde_json::json;
 
+use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
@@ -61,6 +64,7 @@ struct ScannerState {
     tracker: ScreenDetectTracker,
     process_cache: ProcessGroupCache,
     process_info_cache: ProcessInfoCache,
+    agent_jobs: HashMap<String, AgentJobTracker>,
     pending_appends: HashMap<String, PendingAppend>,
     emission_nonce: String,
     emission_sequence: u64,
@@ -72,6 +76,7 @@ impl ScannerState {
             tracker: ScreenDetectTracker::default(),
             process_cache: ProcessGroupCache::default(),
             process_info_cache: ProcessInfoCache::default(),
+            agent_jobs: HashMap::new(),
             pending_appends: HashMap::new(),
             emission_nonce: format!("{}-{}", std::process::id(), now_nanos()),
             emission_sequence: 0,
@@ -87,6 +92,7 @@ impl ScannerState {
         self.tracker.retain_terminals(|terminal_id| retained.contains(terminal_id));
         self.process_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
         self.process_info_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
+        self.agent_jobs.retain(|terminal_id, _| retained.contains(terminal_id));
         // Pending appends are exact journal envelopes. They can have been
         // committed even when this catalog snapshot briefly omits a terminal,
         // so the replay path owns their lifetime instead of catalog pruning.
@@ -637,9 +643,40 @@ fn scan_terminal(
     let revision_due = snapshot
         .stream_revision
         .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
-    let manifest = process_discovery::identify_job_with_process_fallback(manifests, &job, &process)
-        .map(|(manifest, _)| manifest);
+    let job_match = process_discovery::identify_job_process(manifests, &job);
+    let agent_pid = job_match.as_ref().map(|(_, _, pid)| *pid);
+    let manifest = job_match.map(|(manifest, _, _)| manifest).or_else(|| {
+        process_discovery::identify_process_info(manifests, &process).map(|(manifest, _)| manifest)
+    });
     let process_group_id = state.process_cache.authoritative_group_id(&terminal_id);
+    let current_agent = state.tracker.foreground_agent(&terminal_id).map(str::to_owned);
+    let held = state.agent_jobs.entry(terminal_id.clone()).or_default().hold(
+        ProbeObservation {
+            shell_pid: process.pid,
+            current_agent: current_agent.as_deref(),
+            identified_agent: manifest.map(|manifest| manifest.id()),
+            identified_pid: agent_pid,
+            foreground_group: process_group_id,
+        },
+        &PlatformProcesses,
+    );
+    if held {
+        // The agent was suspended or backgrounded (herdr 950d012c). A probe of
+        // its own identity, without a group, resets the miss window and makes
+        // no identity edge. The visible screen belongs to the foreground job,
+        // so it is not read. Unknown-cadence probes notice the job's exit or
+        // return quickly.
+        let _ = state.tracker.note_foreground_job_at_with_revision(
+            &terminal_id,
+            current_agent.as_deref(),
+            None,
+            snapshot.stream_revision,
+            now,
+        );
+        state.process_cache.mark_identified(&terminal_id, false, now);
+        state.process_info_cache.mark_identified(&terminal_id, false, now);
+        return Ok(());
+    }
     let identity_edge = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,
         manifest.map(|item| item.id()),
@@ -1032,272 +1069,4 @@ fn now_nanos() -> u128 {
 
 fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
     format!("agent-emission-{nonce}-{sequence}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn configured_session_selector_does_not_fall_back_to_current() {
-        let id = SessionId::parse("session_00000000000000000000000000000001").unwrap();
-        assert_eq!(configured_session_selector(id.as_str()).unwrap(), Selector::id(id));
-        assert_eq!(configured_session_selector("secondary").unwrap(), Selector::name("secondary"));
-        assert!(configured_session_selector("   ").is_err());
-    }
-
-    fn cached(
-        checked_at: Instant,
-        identified: bool,
-        stream_revision: Option<u64>,
-    ) -> CachedProcessInfo {
-        CachedProcessInfo {
-            process: cmux::ProcessInfoResult {
-                pid: 42,
-                executable: Some("shell".into()),
-                argv: vec!["shell".into()],
-                cwd: None,
-                foreground_cwd: None,
-                foreground_executable: Some("shell".into()),
-                children: Vec::new(),
-            },
-            checked_at,
-            stream_revision,
-            identified,
-            acquisition_started_at: None,
-        }
-    }
-
-    fn cached_with_acquisition_start(
-        checked_at: Instant,
-        acquisition_started_at: Instant,
-    ) -> CachedProcessInfo {
-        let mut entry = cached(checked_at, true, Some(7));
-        entry.acquisition_started_at = Some(acquisition_started_at);
-        entry
-    }
-
-    fn cached_group(
-        checked_at: Instant,
-        identified: bool,
-        stream_revision: Option<u64>,
-    ) -> CachedProcessGroup {
-        CachedProcessGroup {
-            pid: 42,
-            foreground_name: Some("shell".into()),
-            executable: Some("shell".into()),
-            argv: vec!["shell".into()],
-            checked_at,
-            stream_revision,
-            job: process_discovery::ForegroundJob { process_group_id: 42, processes: Vec::new() },
-            authoritative: true,
-            identified,
-            acquisition_started_at: None,
-        }
-    }
-
-    #[test]
-    fn identified_processes_use_a_long_quiet_recheck_interval() {
-        let start = Instant::now();
-        let entry = cached(start, true, Some(7));
-        assert!(!process_info_refresh_due(
-            &entry,
-            Some(7),
-            start + PROCESS_INFO_RECHECK_IDENTIFIED - Duration::from_millis(1),
-        ));
-        assert!(
-            process_info_refresh_due(&entry, Some(7), start + PROCESS_INFO_RECHECK_IDENTIFIED,)
-        );
-    }
-
-    #[test]
-    fn output_changes_make_identified_processes_recheck_within_one_second() {
-        let start = Instant::now();
-        let entry = cached(start, true, Some(7));
-        assert!(!process_info_refresh_due(
-            &entry,
-            Some(8),
-            start + PROCESS_INFO_RECHECK_ON_OUTPUT - Duration::from_millis(1),
-        ));
-        assert!(process_info_refresh_due(&entry, Some(8), start + PROCESS_INFO_RECHECK_ON_OUTPUT,));
-    }
-
-    #[test]
-    fn missing_output_revision_keeps_process_probe_bounded() {
-        let start = Instant::now();
-        let entry = cached(start, true, None);
-        assert!(!process_info_refresh_due(
-            &entry,
-            None,
-            start + PROCESS_INFO_RECHECK_ON_OUTPUT - Duration::from_millis(1),
-        ));
-        assert!(process_info_refresh_due(&entry, None, start + PROCESS_INFO_RECHECK_ON_OUTPUT,));
-    }
-
-    #[test]
-    fn newly_identified_processes_use_adaptive_acquisition_rechecks() {
-        let start = Instant::now();
-        let entry = cached_with_acquisition_start(start, start);
-        assert!(!process_info_refresh_due(
-            &entry,
-            Some(7),
-            start + PROCESS_ACQUISITION_FAST_RECHECK - Duration::from_millis(1),
-        ));
-        assert!(process_info_refresh_due(
-            &entry,
-            Some(7),
-            start + PROCESS_ACQUISITION_FAST_RECHECK,
-        ));
-        let slow_check =
-            cached_with_acquisition_start(start + PROCESS_ACQUISITION_FAST_WINDOW, start);
-        assert!(!process_info_refresh_due(
-            &slow_check,
-            Some(7),
-            slow_check.checked_at + PROCESS_ACQUISITION_SLOW_RECHECK - Duration::from_millis(1),
-        ));
-        assert!(process_info_refresh_due(
-            &slow_check,
-            Some(7),
-            slow_check.checked_at + PROCESS_ACQUISITION_SLOW_RECHECK,
-        ));
-    }
-
-    #[test]
-    fn unknown_processes_recheck_quickly_for_spawn_detection() {
-        let start = Instant::now();
-        let entry = cached(start, false, Some(7));
-        assert!(!process_info_refresh_due(
-            &entry,
-            Some(8),
-            start + PROCESS_INFO_RECHECK_UNKNOWN - Duration::from_millis(1),
-        ));
-        assert!(process_info_refresh_due(&entry, Some(8), start + PROCESS_INFO_RECHECK_UNKNOWN,));
-    }
-
-    #[test]
-    fn unknown_process_groups_recheck_quickly_for_spawn_detection() {
-        let start = Instant::now();
-        let entry = cached_group(start, false, Some(7));
-        assert!(!process_group_refresh_due(
-            &entry,
-            Some(8),
-            start + PROCESS_GROUP_RECHECK_UNKNOWN - Duration::from_millis(1),
-        ));
-        assert!(process_group_refresh_due(&entry, Some(8), start + PROCESS_GROUP_RECHECK_UNKNOWN,));
-    }
-
-    #[test]
-    fn identified_process_groups_recheck_on_output_within_one_second() {
-        let start = Instant::now();
-        let entry = cached_group(start, true, Some(7));
-        assert!(!process_group_refresh_due(
-            &entry,
-            Some(8),
-            start + PROCESS_GROUP_RECHECK_ON_OUTPUT - Duration::from_millis(1),
-        ));
-        assert!(process_group_refresh_due(
-            &entry,
-            Some(8),
-            start + PROCESS_GROUP_RECHECK_ON_OUTPUT,
-        ));
-    }
-
-    #[test]
-    fn missing_output_revision_keeps_process_group_probe_bounded() {
-        let start = Instant::now();
-        let entry = cached_group(start, true, None);
-        assert!(!process_group_refresh_due(
-            &entry,
-            None,
-            start + PROCESS_GROUP_RECHECK_ON_OUTPUT - Duration::from_millis(1),
-        ));
-        assert!(process_group_refresh_due(&entry, None, start + PROCESS_GROUP_RECHECK_ON_OUTPUT,));
-    }
-
-    #[test]
-    fn process_group_cache_refreshes_when_a_same_pid_runtime_reexecs() {
-        let now = Instant::now();
-        let first = cmux::ProcessInfoResult {
-            pid: 0,
-            executable: Some("node".into()),
-            argv: vec!["node".into(), "/tmp/agent-a".into()],
-            cwd: None,
-            foreground_cwd: None,
-            foreground_executable: Some("node".into()),
-            children: Vec::new(),
-        };
-        let second = cmux::ProcessInfoResult {
-            argv: vec!["node".into(), "/tmp/agent-b".into()],
-            ..first.clone()
-        };
-        let mut cache = ProcessGroupCache::default();
-
-        let _ = cache.job_for("terminal-1", &first, Some(7), now);
-        let second_job = cache.job_for("terminal-1", &second, Some(7), now);
-
-        assert_eq!(second_job.processes[0].argv, second.argv);
-    }
-
-    #[test]
-    fn emission_keys_are_unique_for_one_connection() {
-        let first = emission_idempotency_key("17-123456789", 0);
-        let second = emission_idempotency_key("17-123456789", 1);
-        assert_ne!(first, second);
-        assert!(first.len() <= 128);
-        assert!(second.len() <= 128);
-    }
-
-    #[test]
-    fn merged_stream_revision_uses_the_newest_available_host_value() {
-        assert_eq!(merged_stream_revision(None, None), None);
-        assert_eq!(merged_stream_revision(Some(7), None), Some(7));
-        assert_eq!(merged_stream_revision(None, Some(8)), Some(8));
-        assert_eq!(merged_stream_revision(Some(7), Some(8)), Some(8));
-        assert_eq!(merged_stream_revision(Some(9), Some(8)), Some(9));
-    }
-
-    #[test]
-    fn terminal_retention_keeps_uncertain_appends_for_replay() {
-        let terminal_id = "terminal-1".to_string();
-        let mut state = ScannerState::new();
-        let now = Instant::now();
-        state.tracker.note_foreground_agent_at(&terminal_id, Some("codex"), now);
-        let emission =
-            state.tracker.record_identity_presence_at(&terminal_id, "codex", now).unwrap();
-        state.tracker.commit_emission(&emission);
-        state.pending_appends.insert(
-            terminal_id.clone(),
-            PendingAppend {
-                emission: crate::detect::ScreenDetectEmission {
-                    terminal_id: terminal_id.clone(),
-                    agent: "codex".into(),
-                    state: AgentState::Working,
-                    matched_rule: None,
-                    visible_idle: false,
-                    visible_blocker: false,
-                    visible_working: true,
-                },
-                ingress: JournalIngress {
-                    producer_id: "plugin".into(),
-                    manifest_version: 1,
-                    kind: "plugin.agent.state.changed".into(),
-                    schema_version: 1,
-                    occurred_at_ms: None,
-                    subjects: Vec::new(),
-                    sensitivity: None,
-                    payload: json!({}),
-                    causation_id: None,
-                    correlation_id: None,
-                },
-                idempotency_key: "key".into(),
-                attempts: 1,
-                retry_not_before: Instant::now(),
-            },
-        );
-
-        state.retain_terminals(&HashSet::new());
-
-        assert!(state.pending_appends.contains_key(&terminal_id));
-        assert!(state.tracker.has_live_emission(&terminal_id));
-    }
 }

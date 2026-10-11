@@ -18,7 +18,7 @@ jobs:
     # Background lane: dispatch-only and off the PR critical path, so it runs
     # on free GitHub-hosted capacity instead of the shared paid macOS pool.
     # See docs/ci-runners.md "Background lane".
-    runs-on: ${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
@@ -150,6 +150,17 @@ jobs:
             -Demit-macos-app=false \
             -Dsentry=false \
             -Dtest-filter="Page VT preserves a fully styled blank row" \
+            --summary all
+
+      - name: Test Ghostty config window padding
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="c_get: window padding" \
             --summary all
 
       - name: Build GhosttyKit.xcframework

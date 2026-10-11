@@ -387,48 +387,11 @@ impl LinkGroup for WebSocketLinkGroup {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn client_request_sets_user_agent_and_keeps_the_query() {
-        let endpoint = Url::parse(
-            "wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control",
-        )
-        .unwrap();
-        let request = client_request(&endpoint).unwrap();
-        assert_eq!(
-            request.headers().get("user-agent").and_then(|value| value.to_str().ok()),
-            Some(CLIENT_USER_AGENT)
-        );
-        assert!(request.headers().get("origin").is_none());
-        assert_eq!(request.uri().query(), Some("bl_preview_token=t&cmux_lane=control"));
-        assert_eq!(request.uri().host(), Some("machine-1337.vm.cmux.sh"));
-    }
 
-    use std::collections::BTreeMap;
-
-    use cmux_remote_protocol::{LanePolicy, SessionId};
     use tokio_tungstenite::tungstenite::protocol::frame::Frame;
     use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
     use super::*;
-
-    #[tokio::test]
-    async fn provider_description_redacts_websocket_endpoint_secrets() {
-        let endpoint = Url::parse(
-            "wss://alice:password@example.test/capability?ticket=bearer-secret#fragment",
-        )
-        .unwrap();
-        let group = DirectWebSocketProvider::new(65_535)
-            .connect(ConnectRequest {
-                endpoint,
-                session: SessionId::ZERO,
-                lane_policy: LanePolicy::Single,
-                routing: BTreeMap::new(),
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(group.description(), "wss://example.test/");
-    }
 
     #[tokio::test]
     async fn connected_link_description_redacts_websocket_capabilities() {

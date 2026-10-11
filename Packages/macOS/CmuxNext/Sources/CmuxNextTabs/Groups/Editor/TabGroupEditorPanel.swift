@@ -11,13 +11,15 @@ final class TabGroupEditorController {
 
     var isVisible: Bool { shownGroupID != nil }
 
-    func show(group: TabGroupItem, anchor: CGRect, parent: NSWindow) {
+    /// `themeAnchor` is the tab strip; the editor draws in its theme scope.
+    func show(group: TabGroupItem, anchor: CGRect, parent: NSWindow, themeAnchor: NSView) {
         let panel = panel ?? TabGroupEditorPanel()
         self.panel = panel
         panel.onCommand = { [weak self] command in self?.onCommand?(command) }
         panel.onClose = { [weak self] in self?.shownGroupID = nil }
         shownGroupID = group.id
         panel.configure(group)
+        panel.adoptThemeScope(of: themeAnchor)
         panel.present(below: anchor, parent: parent)
     }
 
@@ -39,25 +41,31 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onClose: (() -> Void)?
 
     private let nameField = NSTextField()
+    private let field = NSView()
+    /// The bubble's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
     private var swatches: [TabGroupSwatchView] = []
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
     private var dismissing = false
+    /// The chip the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
+    /// Bumped by every open and close, so a finished close that a reopen and
+    /// a second close overtook leaves the panel to the newer close.
+    private var generation = 0
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
         isReleasedWhenClosed = false
         hidesOnDeactivate = true
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        let content = NSView()
-        let glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        contentView = glass
+        let content = ThemeHookView()
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        adoptPopupStyle(card: glass)
+        self.glass = glass
+        // Adopting a scope and every theme change of it repaint the content.
+        content.onThemeChange = { [weak self] in self?.applyColors() }
         build(in: content)
         setAccessibilityLabel(Strings.axGroupEditor)
         // Shown without the keys (app inactive): close once another window takes them.
@@ -69,17 +77,14 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private func build(in content: NSView) {
         nameField.placeholderString = Strings.editorNamePlaceholder
         nameField.font = Typography.body
-        nameField.textColor = Palette.textPrimary
         nameField.isBezeled = false
         nameField.drawsBackground = false
         nameField.focusRingType = .none
         nameField.delegate = self
         nameField.lineBreakMode = .byTruncatingTail
-        let field = NSView()
         field.wantsLayer = true
         field.layer?.cornerRadius = Metrics.itemCornerRadius
         field.layer?.cornerCurve = .continuous
-        field.layer?.backgroundColor = Palette.hoverFill.cgColor
         nameField.translatesAutoresizingMaskIntoConstraints = false
         field.addSubview(nameField)
 
@@ -92,8 +97,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         swatchRow.spacing = Metrics.space2
         swatchRow.distribution = .equalSpacing
 
-        let separator = NSBox()
-        separator.boxType = .separator
+        let separator = HairlineView()
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
         let save = row(Strings.editorSave) { [weak self] group in group.isSaved ? .unsave(group.id) : .save(group.id) }
         saveRow = save
@@ -123,6 +128,16 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space4),
             nameField.centerYAnchor.constraint(equalTo: field.centerYAnchor),
         ] + ([field, swatchRow, separator] + rows).map { $0.widthAnchor.constraint(equalTo: stack.widthAnchor) })
+    }
+
+    private func applyColors() {
+        guard let glass else { return }
+        glass.applyTheme()
+        glass.performWithTheme {
+            nameField.textColor = Palette.textPrimary
+            field.layer?.backgroundColor = Palette.hoverFill.cgColor
+        }
+        styleFieldEditor()
     }
 
     private func row(_ title: String, command: @escaping (TabGroupItem) -> TabGroupCommand) -> TabGroupEditorRow {
@@ -156,31 +171,35 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
+        let reopening = dismissing && isVisible
         dismissing = false
+        ignoresMouseEvents = false
+        self.anchor = anchor
+        generation += 1
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
-        contentView?.layoutSubtreeIfNeeded()
-        let size = contentView?.fittingSize ?? .zero
+        glass?.layoutSubtreeIfNeeded()
+        let size = glass?.fittingSize ?? .zero
         var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
         if let screen = parent.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
             origin.y = max(origin.y, visible.minY + Metrics.space2)
         }
-        setFrame(CGRect(origin: origin, size: size), display: true)
-        alphaValue = 0
+        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
+        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }
+        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
     private func styleFieldEditor() {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill.blended(withFraction: 0.5, of: Palette.textSecondary) ?? Palette.selectionFill]
             editor.insertionPointColor = Palette.textPrimary
         }
@@ -190,9 +209,20 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard !dismissing, isVisible else { return }
         dismissing = true
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
+        // The keys go back to the window under it now, not when the fade ends.
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
         onClose?()
+        generation += 1
+        let closing = generation
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing, self.generation == closing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            self.resetPopupScale()
+        }
     }
 
     override func resignKey() {
@@ -204,7 +234,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismiss()
     }
 
-    // Return commits the name and closes, as in Chrome.
+    // Return commits the name and closes.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.insertNewline(_:)) {
             dismiss()

@@ -2,32 +2,28 @@
 
 ## herdr
 
-- Project: https://github.com/herdrdev/herdr
+- Project: https://github.com/ogulcancelik/herdr (also published as
+  https://github.com/herdrdev/herdr; the same repository)
 - License: Apache-2.0 (upstream ships a LICENSE file and no NOTICE file; a
   copy is included at
   `bindings/examples/rust-agent-screen-detection/manifests/LICENSE`)
-- Detector source reference commit: `7b675f42af35508eab66ac42fe1598628597a893`
-- Pi bundled-launcher correction commit: `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
-- Manifest snapshot commit: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
-- First-acquisition OSC retention commit: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
-- Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
-  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`,
-  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
-  Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
+- Upstream pin: commit `2563803dca97c040beaf3dc3acdcb5a3221b4238` (herdr
+  0.9.3, manifest engine version 3), recorded with per-file hashes in
+  `bindings/examples/rust-agent-screen-detection/HERDR_UPSTREAM.toml`.
+  `scripts/cmux-next/herdr-sync.py check` verifies it on every push, and the
+  scheduled `herdr-upstream-drift` workflow reports upstream changes.
 
 Derived material and vendored material:
 
-- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 19
-  manifests are unchanged from the manifest snapshot's
-  `src/detect/manifests/`; `claude.toml` is byte-identical to upstream commit
-  `987b070fbfa187e85009b45cd7e208fc6175ff6a`. `grok.toml` carries the one
-  documented cmux correction; `github-copilot.toml` is byte-identical to the
-  upstream snapshot. Never refresh these files from herdr's update endpoint.
-  Re-vendor the 19 files from the exact snapshot, take Claude from its stated
-  commit, and reapply the Grok correction when changing the pin.
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: all 22
+  manifests are byte-identical to herdr's `src/detect/manifests/` at the pin.
+  None carries a local cmux patch (`HERDR_PATCHES.toml` lists none). Never
+  refresh these files from herdr's update endpoint; re-vendor them with
+  `herdr-sync.py sync`, which reapplies documented patches or fails.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
   manifest engine (rule grammar, region extraction, gate evaluation,
-  validation limits), ported from `src/detect/manifest.rs`.
+  validation limits), ported from `src/detect/manifest.rs`; its semantics
+  were rechecked at the pin.
 - `bindings/examples/rust-agent-screen-detection/src/{detect.rs,scanner.rs}`:
   detection semantics (state model, edge-triggered transitions,
   foreground-process identification, quiescence sampling) derived from
@@ -36,19 +32,25 @@ Derived material and vendored material:
   fix (`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`) is adapted as a local
   output-revision fence for replacement agents. Core only supervises the
   process and folds its generic events.
-- `bindings/examples/rust-agent-screen-detection/src/process.rs`: bounded
-  foreground process-group discovery and wrapper handling derived from
-  herdr's platform and detector modules, with platform fallbacks, stricter
-  candidate filtering, attached runtime-mode parsing, positional-argument
-  boundaries, direct shell-script parsing, shell-word unescaping, runtime-specific
-  shell invocation-mode checks, Python boolean/exit/value option boundaries,
-  attached-versus-separate option handling, and bounded `/proc` streaming added
-  by manaflow. The Python distinctions are
-  a local correctness improvement over the inherited option list: `-S` is
-  boolean, documented help aliases (`-?`, `-VV`) terminate, and
-  help/version/hash options cannot expose following tokens as agent
-  executables. Unsupported attached long options fail closed before they can
-  consume a later runtime mode flag.
+- `bindings/examples/rust-agent-screen-detection/src/background_agent.rs`:
+  keeping a suspended or backgrounded agent's identity, adapted from herdr's
+  `src/pane/background_agent.rs` and platform process-liveness functions at
+  `950d012cf0cfd17737b4fff2f4982210b50b5794`.
+- `bindings/examples/rust-agent-screen-detection/src/process.rs` and
+  `src/process/launchers.rs`: bounded foreground process-group discovery and
+  wrapper handling derived from herdr's platform and detector modules,
+  including the Pi bundled-launcher correction, the Hermes Python installer
+  signature, Letta interactivity, Cline's `.cline` launcher, and the Kimi and
+  omp package launchers. Manaflow adds platform fallbacks, stricter candidate
+  filtering, attached runtime-mode parsing, positional-argument boundaries,
+  direct shell-script parsing, shell-word unescaping, runtime-specific shell
+  invocation-mode checks, Python boolean/exit/value option boundaries,
+  attached-versus-separate option handling, and bounded `/proc` streaming.
+  The Python distinctions are a local correctness improvement over the
+  inherited option list: `-S` is boolean, documented help aliases (`-?`,
+  `-VV`) terminate, and help/version/hash options cannot expose following
+  tokens as agent executables. Unsupported attached long options fail closed
+  before they can consume a later runtime mode flag.
 - `crates/cmux-tui-core/src/terminal_metadata.rs`: OSC string framing adapted
   from herdr's `src/pane/osc.rs`. Manaflow adds lead-specific UTF-8
   continuation validation and malformed-sequence recovery before C1 framing.
@@ -67,54 +69,18 @@ Derived material and vendored material:
   tree-order tie break are manaflow additions. The herdr idle-unseen seen bit
   is intentionally not copied because it is client-owned presentation state;
   the deliberate exclusion is listed in `spec/plugins.md`.
-- `bindings/examples/rust-agent-screen-detection/manifests/grok.toml`: the
-  local `2026.07.16.2.1` patch gives idle OSC progress precedence over a
-  generic custom title, keeps explicit braille-spinner activity stronger, and
-  excludes the blank braille code point from that activity rule.
-- `bindings/examples/rust-agent-screen-detection/manifests/claude.toml`: the
-  upstream `2026.08.31.1` file removes background-shell activity as a working
-  signal, so an idle prompt or a permission blocker stays authoritative.
 - The plugin's `manifests/SHA256SUMS` record is checked before bundled
   compilation to catch accidental drift. It is not a cryptographic release
   signature for remote updates.
 
-The capability audit was rerun against herdr's agent-surface revision
-`987b070fbfa187e85009b45cd7e208fc6175ff6a`. Comparing `src/detect` with the
-manifest snapshot found the exact Pi bundled CLI path correction from
-`b1ff4582e9688f52ffb943cfa8bee4871ae122e4` and the Claude background-shell
-manifest correction from `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
-The userland package ports and tests both. The `process.rs` adaptation covers
-both direct and `dist/bundle/cli.js` entrypoints and rejects lookalike scripts.
-The first-acquisition OSC retention fix in
-`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker
-with a local revision fence. The foreground group-leader CWD fix in
-`3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the generic
-`foreground_cwd` resource, so no herdr-specific CWD policy is copied.
-
-The shell-render refactor in `207be3c771d281baae6e5fa0fb74be9a056e97a2` and
-independent multi-client tab views in
-`6c0bb273d5d5405a00985621b17e36f8b4d64609` are application/client architecture,
-not detector behavior. The latest delayed-agent-prompt fix in
-`8633a398e653eee47b375c963996c78a8a14aa48` changes PTY input sequencing, and
-`5616196942cbe752cc0659b9bd0fb616b2a6ed5c` hardens malformed Windows process
-environments in portable-pty. The later generic terminal-read fix
-`45484aab84430ac2b18c7bbf44aba15f2b039677`, graphics ownership fix
-`e22cba35ef7b405758097a5f9436aae8fb4caaf0`, Windows input fix
-`2ae8b91ca5919c26df7ce779b0e9a5dd98b769ae`, and sidebar-focus fix
-`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0` are also outside detector
-behavior. These changes are not copied. If cmux needs atomic text-plus-Enter
-submission, that belongs in a separate generic terminal-input contract, not in
-a detector or an agent-specific core method. A standalone release must define
-and test SDK endpoint-generation compatibility before it promises binary
-upgrades across host versions. Review the Windows changes before publishing a
-Windows package.
-
-The herdr repository tip checked on 2026-09-02 is
-`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`. The commits after the
-agent-surface revision change client rendering, terminal reads, graphics,
-Windows input and worktree handling, or sidebar focus. They do not change
-`src/detect` or the manifests. The agent-surface revision is therefore the
-reproducible capability-audit pin.
+The list of upstream commits ported and not applicable at this pin, with the
+reason for each, is in
+`bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md`. Application,
+client, graphics, PTY input, hook-integration and Windows commits are outside
+detector behavior and are not copied. A standalone release must define and
+test SDK endpoint-generation compatibility before it promises binary upgrades
+across host versions. Review the Windows changes before publishing a Windows
+package.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.

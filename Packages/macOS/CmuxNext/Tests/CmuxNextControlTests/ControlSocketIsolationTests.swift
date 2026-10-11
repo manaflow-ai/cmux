@@ -7,7 +7,7 @@ import Testing
 /// architecture.md 5a: a slow or stuck client only affects itself.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct ControlSocketIsolationTests {
     func makeServer(outboxBytes: Int = 8 << 20) throws -> ControlSocketServer {
-        let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(), configuration: .loadTolerant)
         router.snapshots.publish { $0 = .sample() }
         let server = ControlSocketServer(
             configuration: .init(path: temporarySocketPath(), accessMode: .allowAll, maxOutboxBytesPerConnection: outboxBytes),

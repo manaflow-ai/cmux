@@ -35,16 +35,12 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let state = daemon.store.servesStateResources
-        let extended = !state && daemon.supports(DaemonCapabilities.screenMetadata)
+        let extended = daemon.supports(DaemonCapabilities.shared.screenMetadata)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {
                 let surface: SurfaceID
-                if state, !spec.isEmpty {
-                    surface = try await connection.newScreen(in: handle).surface
-                    try await applySpec(spec, toScreenOf: surface, daemon: daemon, connection: connection)
-                } else if extended {
+                if extended {
                     surface = try await connection.newScreen(in: handle, spec: spec, options: options).surface
                 } else {
                     surface = try await connection.newScreen(in: handle).surface
@@ -92,7 +88,7 @@ enum ScreenCommands {
     static func setColor(_ screen: ScreenModel, _ color: String?, daemon: DaemonService) {
         let handle = screen.handle, resource = stateID(screen, daemon), update = color.map(FieldUpdate.set) ?? .clear
         daemon.send("set-screen-metadata") {
-            if let resource { return try await $0.updateScreen(resource, color: update) }
+            if let resource { return try await $0.state.updateScreen(resource, color: update) }
             _ = try await $0.setScreenMetadata(handle, color: update)
         }
     }
@@ -100,7 +96,7 @@ enum ScreenCommands {
     static func setIcon(_ screen: ScreenModel, _ icon: String?, daemon: DaemonService) {
         let handle = screen.handle, resource = stateID(screen, daemon), update = icon.map(FieldUpdate.set) ?? .clear
         daemon.send("set-screen-metadata") {
-            if let resource { return try await $0.updateScreen(resource, icon: update) }
+            if let resource { return try await $0.state.updateScreen(resource, icon: update) }
             _ = try await $0.setScreenMetadata(handle, icon: update)
         }
     }
@@ -108,7 +104,7 @@ enum ScreenCommands {
     static func setPinned(_ screen: ScreenModel, _ pinned: Bool, daemon: DaemonService) {
         let handle = screen.handle, resource = stateID(screen, daemon)
         daemon.send("set-screen-pinned") {
-            if let resource { return try await $0.updateScreen(resource, pinned: pinned) }
+            if let resource { return try await $0.state.updateScreen(resource, pinned: pinned) }
             _ = try await $0.setScreenPinned(handle, pinned)
         }
     }
@@ -120,7 +116,7 @@ enum ScreenCommands {
     static func move(_ screen: ScreenModel, to index: Int, daemon: DaemonService) {
         let handle = screen.handle, resource = stateID(screen, daemon)
         daemon.send("move-screen") {
-            if let resource { return try await $0.moveScreen(resource, to: index) }
+            if let resource { return try await $0.state.moveScreen(resource, to: index) }
             _ = try await $0.moveScreen(handle, to: index)
         }
     }

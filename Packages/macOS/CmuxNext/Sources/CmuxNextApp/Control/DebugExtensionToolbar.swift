@@ -76,7 +76,7 @@ enum DebugExtensionToolbar {
         }
         guard let choose = params["choose"]?.stringValue else { return .object(["open": .bool(true), "items": .array(items)]) }
         let extensionID = params["extension"]?.stringValue
-        guard ExtensionMenuDriver.choose(choose, extension: extensionID, in: menu) else {
+        guard ExtensionMenuDriver().choose(choose, extension: extensionID, in: menu) else {
             return failure("no \(choose) item\(extensionID.map { " for \($0)" } ?? "")")
         }
         return .object(["open": .bool(true), "items": .array(items), "chose": .string(choose)])

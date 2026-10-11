@@ -7,6 +7,8 @@ final class NewTabButtonView: NSView {
     var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: true) } } }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
+    /// VoiceOver moved its focus onto (true) or off (false) the plus.
+    var onAccessibilityFocus: ((Bool) -> Void)?
 
     private let fillLayer = CALayer()
     private let glyphLayer = CAShapeLayer()
@@ -37,6 +39,11 @@ final class NewTabButtonView: NSView {
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        onAccessibilityFocus?(accessibilityFocused)
+    }
 
     override func layout() {
         super.layout()
@@ -74,9 +81,12 @@ final class NewTabButtonView: NSView {
     }
 
     private func updateColors(animated: Bool) {
-        Motion.transaction(animated ? .hover : nil) {
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                fillLayer.backgroundColor = isPressed ? Palette.selectionFill.cgColor : (isHovered ? Palette.hoverFill.cgColor : nil)
+        let token = animated ? ChromeHover.fade(showing: isHovered || isPressed, pressed: isPressed) : nil
+        // An instant change also ends a fill still easing in.
+        if (token.map(Motion.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
+        Motion.transaction(token) {
+            performWithTheme {
+                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }

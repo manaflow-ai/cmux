@@ -253,6 +253,15 @@ ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
 # every second, so it takes the root as it frees. Two switchers after each
 # other's root both give up after this wait, as before, and then compile.
 ROOT_SWITCH_WAIT_S = 360
+# When the first lookup already established that this consumer has no usable
+# producer (or that its producer did not publish), do not hold a second root
+# for six minutes hoping the other root becomes free. A non-blocking attempt
+# can still adopt an immediately available product; otherwise the job falls
+# through to its normal compile path.
+ROOT_SWITCH_FAST_MISS_REASONS = frozenset({
+    "producer_compile_unsuccessful",
+    "no_matching_contract_artifact",
+})
 # Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
 FIRST_ROOT = Path("/private/tmp/cmux-ci")
 DERIVED_NAME = "derived-data-compile-admission"
@@ -274,7 +283,7 @@ def at_root(value, root):
     return {**value, "build_location": str((root / DERIVED_NAME).resolve())}
 
 
-def switch_root(root):
+def switch_root(root, wait_seconds=ROOT_SWITCH_WAIT_S):
     """Move this job to `root` and give it an empty DerivedData there.
 
     A product's test binaries carry #filePath strings under the root that
@@ -284,8 +293,8 @@ def switch_root(root):
     """
     try:
         result = subprocess.run(
-            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(ROOT_SWITCH_WAIT_S)],
-            text=True, capture_output=True, timeout=ROOT_SWITCH_WAIT_S + 60)
+            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(wait_seconds)],
+            text=True, capture_output=True, timeout=wait_seconds + 60)
     except (OSError, subprocess.SubprocessError) as error:
         print(f"Could not move this job to {root} ({error}); compiling here.")
         return None
@@ -1188,7 +1197,17 @@ def main():
                     wanted.append((portable_contract(value), None))
                 reasons = []
                 for candidate, root in wanted:
-                    extra = {} if root is None else {"claim": lambda root=root: moved(switch_root(root))}
+                    fast_root_switch = bool(
+                        ROOT_SWITCH_FAST_MISS_REASONS.intersection(
+                            set(filter(None, str(report.get("miss_reasons", "")).split(",")))
+                        )
+                    )
+                    wait_seconds = 0 if fast_root_switch else ROOT_SWITCH_WAIT_S
+                    extra = {} if root is None else {
+                        "claim": lambda root=root, wait_seconds=wait_seconds: moved(
+                            switch_root(root, wait_seconds=wait_seconds)
+                        )
+                    }
                     hit = restore(
                         api,
                         candidate,

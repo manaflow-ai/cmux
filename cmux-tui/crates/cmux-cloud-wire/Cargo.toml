@@ -1,0 +1,15 @@
+[package]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Typed cmux.wire/1 client types generated from backend/catalog/cloud-operations.json (sans-I/O)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

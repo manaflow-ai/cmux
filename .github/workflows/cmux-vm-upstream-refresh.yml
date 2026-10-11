@@ -1,0 +1,77 @@
+# Refreshes the pinned upstream VM provider surface in workers/cmux-vm/upstream/
+# (decision CMUX-VM-API V2) from public sources only: the unauthenticated
+# OpenAPI document and the latest SDK/CLI npm package. No provider key is used.
+#
+# When anything changed it pushes a new content-addressed branch and opens a
+# pull request against main. The coverage test (test/node/upstream-coverage)
+# then fails on that PR until every new operation, SDK method or CLI command is
+# wrapped, planned or denied in upstream/coverage.json.
+#
+# A PR opened with GITHUB_TOKEN does not trigger other workflows; push an empty
+# commit or close and reopen it to run CI. Opening PRs needs the repository
+# setting "Allow GitHub Actions to create and approve pull requests".
+
+name: cmux VM upstream refresh
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-vm-upstream-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          # The token is passed to the one push below, never stored in .git/config.
+          persist-credentials: false
+      - name: Fetch the public surface
+        id: refresh
+        run: |
+          set -euo pipefail
+          result="$(bash scripts/refresh-upstream.sh)"
+          echo "$result"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+      - name: Open a pull request
+        if: steps.refresh.outputs.result == 'changed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(jq -r .openapi.sha256 upstream/PINNED.json | cut -c1-12)"
+          version="$(jq -r .sdk.version upstream/PINNED.json)"
+          branch="bot/cmux-vm-upstream-${sha}-sdk-${version}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch already exists; its pull request covers this change"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add upstream
+          git commit -m "cmux VM: refresh the pinned upstream surface (sdk ${version})"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth}" push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "cmux VM: refresh the pinned upstream surface (sdk ${version})" \
+            --body "The scheduled refresh found a change in the public upstream OpenAPI document or SDK declarations. Classify every new operation, SDK method and CLI command in \`workers/cmux-vm/upstream/coverage.json\` (wrapped, planned or denied) until the coverage test passes.
+
+          ## Changelog
+          none"

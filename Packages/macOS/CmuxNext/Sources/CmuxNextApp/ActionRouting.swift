@@ -46,12 +46,14 @@ enum ActionRouting {
         case .tab:
             return daemons.first { panes($0).contains { $0.tabs.contains { $0.id == target.id } } }
         case .tabGroup:
-            return daemons.first { panes($0).contains { $0.tabGroups.contains { $0.id.rawValue == target.id } } }
+            return GroupOwnership.daemon(holdingTabGroup: TabGroupID(rawValue: target.id), in: daemons)
         case .screen:
             return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
         case .screenGroup:
-            return daemons.first { $0.store.workspaces.contains { $0.screenGroups.contains { $0.id.rawValue == target.id } } }
-        case .column:
+            return GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: target.id), in: daemons)
+        case .column, .browserProfile, .bookmark, .sidebarItem, .sidebarSection:
+            // Browser profiles, bookmarks and the sidebar layout are personal
+            // state, not a machine daemon's.
             return nil
         case .profile:
             return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }

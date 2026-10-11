@@ -24,6 +24,16 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var lastProbe: UpdateProbeResult?
     public var lastProbeError: String?
     public var channelSwitchTarget: AppChannelSwitchTarget?
+    /// The test feed in use ("Use Test Update Feed"), or nil.
+    public var testFeedURL: String? = nil
+    /// The notice card's update status (``UpdaterService/card``), or nil.
+    public var card: UpdateCard? = nil
+    /// The card as shown: with a found update's version, date and changelog
+    /// lines (``UpdaterService/cardPresentation``), or nil.
+    public var cardPresentation: UpdateCardPresentation? = nil
+    /// The footer pill's label ("Update Ready" for a staged update), or nil
+    /// when it does not show.
+    public var badge: String? = nil
 }
 
 /// The Sparkle flow's phase as a stable name for scripts.

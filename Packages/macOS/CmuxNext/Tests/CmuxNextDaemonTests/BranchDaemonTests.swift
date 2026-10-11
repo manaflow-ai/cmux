@@ -2,17 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// End-to-end checks of the cmux-tui PR 15518 commands against the pinned
-/// branch binary (`scripts/cmux-next/pin-cmux-tui.sh fetch`) or
-/// `CMUX_NEXT_TUI_BIN`. Release clients lack these commands, so the suite is
-/// disabled for them.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+/// End-to-end checks of the cmux-tui PR 15518 commands against the hosted
+/// build of this checkout's cmux-tui tree (`scripts/cmux-next/pin-cmux-tui.sh
+/// fetch`) or `CMUX_NEXT_TUI_BIN`. Release clients lack these commands, so the
+/// suite is disabled for them.
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchDaemonTests {
+    /// The same-tree daemon serves every capability the app relies on
+    /// (scripts/cmux-next/check-daemon-capabilities.sh checks the bundle the
+    /// same way), and none the app still lists as unserved.
     @Test func advertisesEveryCmuxNextCapability() async throws {
         try await BranchDaemonHarness.with { h in
-            let missing = DaemonCapabilities.optional.filter { !h.identity.supports($0) }
+            let capabilities = DaemonCapabilities.shared
+            let missing = (capabilities.required + capabilities.optional).filter { !h.identity.supports($0) }
             #expect(missing.isEmpty, "missing: \(missing)")
+            let nowServed = capabilities.unservedByBundledDaemon.filter { h.identity.supports($0) }
+            #expect(nowServed.isEmpty, "served now, move to optional: \(nowServed)")
         }
     }
 
@@ -24,8 +30,8 @@ struct BranchDaemonTests {
             try await h.store.waitUntil("state resources") { h.store.servesStateResources }
             let a = try await h.connection.createWorkspace(name: "a")
             let b = try await h.connection.createWorkspace(name: "b")
-            let agents = try await h.connection.createWorkspaceGroup(name: "Agents", room: nil, color: "blue")
-            let infra = try await h.connection.createWorkspaceGroup(name: "Infra", room: nil, color: nil)
+            let agents = try await h.connection.state.createWorkspaceGroup(name: "Agents", room: nil, color: "blue")
+            let infra = try await h.connection.state.createWorkspaceGroup(name: "Infra", room: nil, color: nil)
             try await h.store.waitUntil("workspaces mirrored") {
                 h.store.workspace(key: a.key)?.resourceID != nil && h.store.workspace(key: b.key)?.resourceID != nil
             }
@@ -33,18 +39,18 @@ struct BranchDaemonTests {
             for key in [b.key, a.key] {
                 let resource = await h.store.personalStateID(session: session, key: key)
                 #expect(resource != nil)
-                try await h.connection.placePersonalWorkspace(session: session, key: key, resource: resource,
+                try await h.connection.state.placePersonalWorkspace(session: session, key: key, resource: resource,
                                                               group: .set(WorkspaceGroupID(rawValue: agents.id)), index: 0)
             }
-            try await h.connection.updateWorkspaceGroup(agents.id, collapsed: true)
-            try await h.connection.moveWorkspaceGroup(infra.id, to: 0)
+            try await h.connection.state.updateWorkspaceGroup(agents.id, collapsed: true)
+            try await h.connection.state.moveWorkspaceGroup(infra.id, to: 0)
             try await h.store.waitUntil("personal groups mirrored") {
                 let groups = h.store.personal.groups
                 let members = h.store.personal.workspaces.filter { $0.group?.rawValue == agents.id }.map(\.workspaceKey)
                 return groups.first { $0.id.rawValue == agents.id }?.collapsed == true
                     && Set(members) == [a.key, b.key]
             }
-            try await h.connection.deleteWorkspaceGroup(agents.id)
+            try await h.connection.state.deleteWorkspaceGroup(agents.id)
             try await h.store.waitUntil("group deleted") { h.store.personal.group(WorkspaceGroupID(rawValue: agents.id)) == nil }
         }
     }
@@ -210,10 +216,10 @@ struct BranchDaemonTests {
             "PATH": "/opt/cnit/bin:/usr/bin:/bin", "LC_CNIT": "probe-lc", "XDG_CNIT_DIR": "/cnit/xdg",
             "CMUX_CNIT": "probe-cmux", "CNIT_SECRET_TOKEN": "hunter2-login", "GITHUB_TOKEN": "hunter2-gh",
         ]
-        let daemonEnvironment = LoginEnvironment.daemonEnvironment(login: login, base: base, overrides: [:])
+        let daemonEnvironment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: [:])
         #expect(daemonEnvironment["CNIT_SECRET_TOKEN"] == nil)
         // Per-terminal env differs from the daemon's, so the shell proves `env` arrived.
-        var terminalEnvironment = TerminalEnvironment.terminal(login: login, base: base)
+        var terminalEnvironment = TerminalEnvironment.instance.terminal(login: login, base: base)
         terminalEnvironment["LC_CNIT_TERMINAL"] = "probe-terminal"
         let fixedTerminalEnvironment = terminalEnvironment
         try await BranchDaemonHarness.with(daemonEnvironment: daemonEnvironment, terminalEnvironment: { fixedTerminalEnvironment }) { h in

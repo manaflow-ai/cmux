@@ -60,6 +60,25 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         }
     }
 
+    /// A deleted personal workspace group (`ClosedWorkspaceGroupRecord`).
+    /// Its workspaces stayed open, so the item has no member; reopening it
+    /// forms the group again with its id, place and open members.
+    public struct Group: Sendable, Hashable, Decodable {
+        public var id: String
+        public var name: String
+        public var color: String?
+        /// The group's icon, one emoji or an SF Symbol name
+        /// (`workspace-group-icon-v1`); nil for none or an older daemon.
+        public var icon: String?
+
+        public init(id: String, name: String, color: String? = nil, icon: String? = nil) {
+            self.id = id
+            self.name = name
+            self.color = color
+            self.icon = icon
+        }
+    }
+
     /// `closed_…` state id.
     public var id: String
     public var kind: Kind
@@ -72,17 +91,29 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     /// Position the item held when it closed.
     public var index: Int
     public var closedAtMs: UInt64
+    /// The first member's screens (closed-history-v2 mirrors its first
+    /// member at the top level for v1 clients).
     public var screens: [Screen]
+    /// Every member's screens, one list per member (`ClosedMemberRecord`);
+    /// empty for a v1 item, whose `screens` are the whole item.
+    public var memberScreens: [[Screen]]
+    /// Set when the item is a deleted personal workspace group.
+    public var group: Group?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, index, screens
+        case id, kind, name, index, screens, members, group
         case workspaceID = "workspace_id"
         case paneID = "pane_id"
         case closedAtMs = "closed_at_ms"
     }
 
+    private struct Member: Decodable {
+        var screens: [Screen]?
+    }
+
     public init(id: String, kind: Kind, name: String? = nil, workspaceID: ResourceID? = nil, paneID: ResourceID? = nil,
-                index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = []) {
+                index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = [], memberScreens: [[Screen]] = [],
+                group: Group? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -91,6 +122,8 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         self.index = index
         self.closedAtMs = closedAtMs
         self.screens = screens
+        self.memberScreens = memberScreens
+        self.group = group
     }
 
     public init(from decoder: any Decoder) throws {
@@ -103,10 +136,13 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
         closedAtMs = try StateDecimal.decode(c, .closedAtMs) ?? 0
         screens = try c.decodeIfPresent([Screen].self, forKey: .screens) ?? []
+        memberScreens = try c.decodeIfPresent([Member].self, forKey: .members)?.map { $0.screens ?? [] } ?? []
+        group = try c.decodeIfPresent(Group.self, forKey: .group)
     }
 
-    /// Every tab the item would recreate, in order.
-    public var tabs: [Tab] { screens.flatMap(\.tabs) }
+    /// Every tab the item would recreate, in order: every member's (one
+    /// close gesture of several tabs is one item), else the item's own.
+    public var tabs: [Tab] { (memberScreens.isEmpty ? screens : memberScreens.flatMap { $0 }).flatMap(\.tabs) }
 }
 
 /// A workspace's status, progress, and newest log line

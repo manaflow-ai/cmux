@@ -20,11 +20,15 @@ public struct ShutdownDaemonRequest: DaemonRequest {
     /// Ends every terminal and waits for its host before the handoff
     /// (`terminal-reap-v1`). Test teardown uses it so no PTY outlives a run.
     public var endTerminals: Bool?
-    public init(pid: Int32, generation: DaemonGeneration, force: Bool? = nil, endTerminals: Bool? = nil) {
+    /// With `endTerminals`, placed terminals keep their tabs, dead, for the
+    /// next owner (`end-terminals-keep-layout-v1`).
+    public var keepLayout: Bool?
+    public init(pid: Int32, generation: DaemonGeneration, force: Bool? = nil, endTerminals: Bool? = nil, keepLayout: Bool? = nil) {
         self.pid = pid
         self.generation = generation
         self.force = force
         self.endTerminals = endTerminals
+        self.keepLayout = keepLayout
     }
 }
 

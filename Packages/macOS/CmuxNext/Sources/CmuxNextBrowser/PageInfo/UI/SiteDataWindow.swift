@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextDesign
 
-/// Chrome's "On-device site data" dialog: every site that stored cookies or
+/// The "On-device site data" dialog: every site that stored cookies or
 /// other data while the page was open, each with a delete button.
 final class SiteDataWindow: PageInfoWindow {
     private let send: (PageInfoCommand) -> Void
     private let list = NSStackView()
+    private var scrollFit: ScrollFitElasticity?
 
     init(site: PageInfoSite, send: @escaping (PageInfoCommand) -> Void) {
         self.send = send
@@ -20,10 +21,12 @@ final class SiteDataWindow: PageInfoWindow {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
+        SystemScrollers.follow(scroll)
         let document = FlippedDocumentView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(list)
         scroll.documentView = document
+        scrollFit = ScrollFitElasticity(scrollView: scroll)
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         let subtitle = PageInfoStyle.label(PageInfoStrings.siteDataSubtitle, font: PageInfoStyle.captionFont,
@@ -50,7 +53,7 @@ final class SiteDataWindow: PageInfoWindow {
             list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             list.bottomAnchor.constraint(equalTo: document.bottomAnchor),
         ])
-        contentView = root
+        installContent(root)
     }
 
     func show(_ data: SiteDataSummary) {

@@ -508,13 +508,24 @@ def job_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+# Job keys whose display name changed: the model may still hold the old key's lengths until a
+# refit sees enough runs under the new name.
+JOB_KEY_ALIASES = {"shell-regressions": "cli-product-tests"}
+
+
+def job_lengths(model: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """The model's job_seconds cell for KEY, falling back to the key it had before a rename."""
+    table = model.get("job_seconds") or {}
+    return table.get(key) or table.get(JOB_KEY_ALIASES.get(key, "")) or {}
+
+
 def remaining_seconds(entry: Mapping[str, Any] | None, model: Mapping[str, Any], now: dt.datetime) -> float | None:
     """How long a busy runner's current job still runs: its class's p50 less the time it has run (the
     p90 once it passed the p50), at least a minute. None when unknown: no entry, a job the model has no
     length for, or one past its p90 (it may hang)."""
     if not isinstance(entry, Mapping):
         return None
-    lengths = (model.get("job_seconds") or {}).get(job_key(str(entry.get("job") or ""))) or {}
+    lengths = job_lengths(model, job_key(str(entry.get("job") or "")))
     p50, p90 = lengths.get("p50"), lengths.get("p90")
     try:
         started = dt.datetime.fromisoformat(str(entry.get("started_at")).replace("Z", "+00:00"))

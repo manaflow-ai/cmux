@@ -25,8 +25,15 @@ extension LayoutStyle {
         max(stripGap + panePadding * 2, dividerHitThickness)
     }
 
-    /// Split dividers draw their line only while panes have no border.
-    public nonisolated var showsDividerLine: Bool { !showsPaneBorder }
+    /// Split dividers draw their line at rest only while panes have no
+    /// border and the separation allows one (not `cards` or `none`).
+    public nonisolated var showsDividerLine: Bool {
+        drawsLines && !showsPaneBorder && paneSeparation != .cards && paneSeparation != .none
+    }
+
+    /// Dividers and column edges show a line on hover and while dragged,
+    /// except under `layout.paneSeparation` none (the cursor is the cue).
+    public nonisolated var showsDividerFeedback: Bool { paneSeparation.drawsDividerFeedback }
 
     /// Whether panes differ from plain edge-to-edge rectangles.
     public nonisolated var hasPaneChrome: Bool {
@@ -46,11 +53,13 @@ public nonisolated enum PaneChromeGeometry {
 
     /// The rounded content area of a padded pane rect (`contentRect(forCell:)`)
     /// whose hosted view has a `headerHeight`-point header (tab strip,
-    /// browser toolbar) on top: the border, ring and rounding leave the
-    /// header out. Flipped coordinates (y grows down).
-    public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat) -> CGRect {
+    /// browser toolbar) on top and a `footerHeight`-point footer (a tab
+    /// strip at the bottom, R109) below: the border, ring and rounding leave
+    /// both out. Flipped coordinates (y grows down).
+    public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat, footerHeight: CGFloat = 0) -> CGRect {
         let top = min(max(0, headerHeight), padded.height)
-        return CGRect(x: padded.minX, y: padded.minY + top, width: padded.width, height: padded.height - top)
+        let bottom = min(max(0, footerHeight), padded.height - top)
+        return CGRect(x: padded.minX, y: padded.minY + top, width: padded.width, height: padded.height - top - bottom)
     }
 
     /// Corner radius that fits `rect` (at most half its shorter side).

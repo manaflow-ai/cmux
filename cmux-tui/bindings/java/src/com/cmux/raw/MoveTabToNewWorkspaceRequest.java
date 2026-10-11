@@ -14,12 +14,14 @@ import java.util.Objects;
 public final class MoveTabToNewWorkspaceRequest implements WireValue {
     private final Field<String> group;
     private final Field<UInt64> index;
+    private final Field<String> name;
     private final UInt64 surface;
     private final Field<String> transaction;
 
     private MoveTabToNewWorkspaceRequest(Builder builder) {
         this.group = builder.group;
         this.index = builder.index;
+        this.name = builder.name;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.transaction = builder.transaction;
@@ -29,6 +31,7 @@ public final class MoveTabToNewWorkspaceRequest implements WireValue {
 
     public Field<String> group() { return group; }
     public Field<UInt64> index() { return index; }
+    public Field<String> name() { return name; }
     public UInt64 surface() { return surface; }
     public Field<String> transaction() { return transaction; }
 
@@ -42,6 +45,10 @@ public final class MoveTabToNewWorkspaceRequest implements WireValue {
         Object rawIndex = Wire.optional(object, "index");
         if (!Wire.isMissing(rawIndex)) {
             builder.index(rawIndex == null ? null : Wire.uint64(rawIndex, "MoveTabToNewWorkspaceRequest.index"));
+        }
+        Object rawName = Wire.optional(object, "name");
+        if (!Wire.isMissing(rawName)) {
+            builder.name(rawName == null ? null : Wire.string(rawName, "MoveTabToNewWorkspaceRequest.name"));
         }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "MoveTabToNewWorkspaceRequest.surface"));
@@ -57,6 +64,7 @@ public final class MoveTabToNewWorkspaceRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "group", group);
         Wire.put(object, "index", index);
+        Wire.put(object, "name", name);
         Wire.put(object, "surface", surface);
         Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
@@ -65,11 +73,11 @@ public final class MoveTabToNewWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveTabToNewWorkspaceRequest that)) return false;
-        return Objects.equals(group, that.group) && Objects.equals(index, that.index) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(group, that.group) && Objects.equals(index, that.index) && Objects.equals(name, that.name) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(group, index, surface, transaction); }
+    public int hashCode() { return Objects.hash(group, index, name, surface, transaction); }
 
     @Override
     public String toString() { return "MoveTabToNewWorkspaceRequest" + toWire(); }
@@ -77,6 +85,7 @@ public final class MoveTabToNewWorkspaceRequest implements WireValue {
     public static final class Builder {
         private Field<String> group = Field.omitted();
         private Field<UInt64> index = Field.omitted();
+        private Field<String> name = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> transaction = Field.omitted();
@@ -87,6 +96,10 @@ public final class MoveTabToNewWorkspaceRequest implements WireValue {
         }
         public Builder index(UInt64 value) {
             this.index = Field.ofNullable(value);
+            return this;
+        }
+        public Builder name(String value) {
+            this.name = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

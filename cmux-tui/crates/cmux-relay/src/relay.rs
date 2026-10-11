@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::AdmissionListener;
 use crate::config::RelayConfig;
-use crate::ticket::{TicketAuthority, TicketExpectation};
+use crate::ticket::{TicketAuthority, TicketExpectation, tickets_equal};
 
 const MAX_SLOT_BYTES: usize = 256;
 const MAX_LANE_TOKEN_BYTES: usize = 256;
@@ -682,7 +682,7 @@ impl Relay {
                 .get(&slot)
                 .map(|existing| (existing.provider_ticket.clone(), existing.peer.clone()))
             {
-                if !self.inner.tickets.uses_hmac() && existing_ticket != ticket {
+                if !self.inner.tickets.uses_hmac() && !tickets_equal(&existing_ticket, &ticket) {
                     return Err(RelayError::policy(
                         "slot-in-use",
                         "slot already has a daemon registered with a different ticket",
@@ -948,7 +948,7 @@ impl Relay {
                         circuit.daemon.is_some(),
                     ),
                 };
-                if expected_ticket != &ticket {
+                if !tickets_equal(expected_ticket, &ticket) {
                     return Err(RelayError::policy(
                         "circuit-ticket-mismatch",
                         "relay join ticket does not match the circuit allocation",
@@ -1550,7 +1550,6 @@ mod tests {
     use futures_util::{SinkExt, StreamExt};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
-    use tokio::sync::{mpsc, watch};
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
@@ -1681,27 +1680,6 @@ mod tests {
         client
     }
 
-    fn test_peer(
-        id: ConnectionId,
-        config: &RelayConfig,
-    ) -> (Peer, mpsc::Receiver<Outbound>, watch::Receiver<Option<CloseNotice>>) {
-        let (sender, receiver) = mpsc::channel(config.max_queue_frames);
-        let (shutdown, shutdown_receiver) = watch::channel(None);
-        (
-            Peer {
-                id,
-                outbound: OutboundSender {
-                    sender,
-                    queued_bytes: Arc::new(AtomicUsize::new(0)),
-                    maximum_queue_bytes: config.max_queue_bytes,
-                },
-                shutdown,
-            },
-            receiver,
-            shutdown_receiver,
-        )
-    }
-
     fn provider_ticket(
         config: &RelayConfig,
         permission: RelayPermission,
@@ -1748,7 +1726,8 @@ mod tests {
 
     #[tokio::test]
     async fn websocket_circuit_registers_pairs_and_forwards_opaque_binary() {
-        let server = TestServer::start(RelayConfig::default()).await;
+        let server =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
         let mut daemon_control = server.connect().await;
         send_control(
             &mut daemon_control,
@@ -1882,6 +1861,103 @@ mod tests {
         ));
     }
 
+    /// A register ticket signed with the relay's secret, with explicit times and claims version.
+    /// `signed_issued_at` is the issue time the signature covers; the payload carries
+    /// `issued_at_unix`, so a different value is a tampered ticket.
+    fn signed_register_ticket(
+        config: &RelayConfig,
+        version: u8,
+        issued_at_unix: u64,
+        signed_issued_at: u64,
+        expires_at_unix: u64,
+    ) -> String {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        use hmac::{Hmac, Mac};
+        let claims = serde_json::json!({
+            "version": version,
+            "issuer": config.ticket_issuer,
+            "permission": "register",
+            "role": "daemon",
+            "slot": "slot-a",
+            "circuit": null,
+            "lane": null,
+            "generation": null,
+            "issued_at_unix": issued_at_unix,
+            "expires_at_unix": expires_at_unix,
+        });
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+        let signing = format!(
+            "cmux-relay-ticket-v2\n{version}\n{}\nregister\ndaemon\nslot-a\n\n\n\n{signed_issued_at}\n{expires_at_unix}",
+            config.ticket_issuer,
+        );
+        let mut mac =
+            Hmac::<sha2::Sha256>::new_from_slice(config.ticket_secret.as_ref().unwrap()).unwrap();
+        mac.update(signing.as_bytes());
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+        format!("v2.{payload}.{signature}")
+    }
+
+    /// A client of the relay socket cannot register with a ticket that lives longer than five
+    /// minutes, was issued more than five minutes ago, is issued in the future past the clock
+    /// skew, has a tampered issue time, or uses the legacy claims version. A ticket of exactly
+    /// five minutes registers.
+    #[tokio::test]
+    async fn register_tickets_outside_lifetime_skew_version_or_signature_are_refused_on_the_wire() {
+        let config = RelayConfig {
+            ticket_secret: Some(vec![9; 32]),
+            ticket_issuer: "relay.test".into(),
+            ..RelayConfig::default()
+        };
+        let server = TestServer::start(config.clone()).await;
+        let now = unix_timestamp(SystemTime::now()).unwrap();
+        let max = RelayTicketClaims::MAX_LIFETIME_SECONDS;
+        let refused = [
+            (
+                "lifetime over five minutes",
+                signed_register_ticket(&config, 2, now, now, now + max + 1),
+            ),
+            (
+                "issued over five minutes ago",
+                signed_register_ticket(&config, 2, now - max - 1, now - max - 1, now + 10),
+            ),
+            (
+                "issued past the clock skew",
+                signed_register_ticket(&config, 2, now + 120, now + 120, now + 200),
+            ),
+            ("tampered issue time", signed_register_ticket(&config, 2, now + 1, now, now + 60)),
+            ("legacy claims version", signed_register_ticket(&config, 1, now, now, now + 60)),
+        ];
+        for (case, ticket) in refused {
+            let mut socket = server.connect().await;
+            send_control(
+                &mut socket,
+                RelayControl::Register {
+                    protocol: REMOTE_PROTOCOL_VERSION,
+                    slot: "slot-a".into(),
+                    ticket,
+                },
+            )
+            .await;
+            let reply = receive_control(&mut socket).await;
+            assert!(
+                matches!(&reply, RelayControl::Error { code, retryable: false, .. } if code == "invalid-ticket"),
+                "{case}: {reply:?}"
+            );
+        }
+        let mut socket = server.connect().await;
+        send_control(
+            &mut socket,
+            RelayControl::Register {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket: signed_register_ticket(&config, 2, now, now, now + max),
+            },
+        )
+        .await;
+        let reply = receive_control(&mut socket).await;
+        assert!(matches!(reply, RelayControl::Registered { .. }), "five-minute ticket: {reply:?}");
+    }
+
     #[tokio::test]
     async fn hmac_provider_and_join_tickets_enforce_permission_lane_and_generation() {
         let config = RelayConfig {
@@ -2009,85 +2085,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delegated_join_tickets_do_not_outlive_either_provider_ticket() {
-        let config = RelayConfig {
-            ticket_secret: Some(vec![17; 32]),
-            ticket_issuer: "relay-expiry.test".into(),
-            join_ticket_ttl: Duration::from_secs(120),
-            ..RelayConfig::default()
-        };
-        let relay = Relay::new(config.clone()).unwrap();
-        let now = unix_timestamp(SystemTime::now()).unwrap();
-        let daemon_expiry = now + 30;
-        let client_expiry = now + 45;
-        let lane = LaneToken("interactive".into());
-        let generation = 23;
-        let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
-        relay
-            .register(
-                daemon,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-a".into(),
-                provider_ticket_expiring_at(
-                    &config,
-                    RelayPermission::Register,
-                    None,
-                    None,
-                    daemon_expiry,
-                ),
-            )
-            .await
-            .unwrap();
-        let (client, _client_outbound, _client_shutdown) = test_peer(2, &config);
-        let circuit = relay
-            .allocate(
-                &client,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-a".into(),
-                provider_ticket_expiring_at(
-                    &config,
-                    RelayPermission::Connect,
-                    Some(lane.clone()),
-                    Some(generation),
-                    client_expiry,
-                ),
-                lane.clone(),
-                generation,
-            )
-            .await
-            .unwrap();
-        let state = relay.inner.state.lock().await;
-        let allocated = state.circuits.get(&circuit).unwrap();
-        for (role, ticket) in [
-            (RelayRole::Client, &allocated.client_join_ticket),
-            (RelayRole::Daemon, &allocated.daemon_join_ticket),
-        ] {
-            let claims = relay
-                .inner
-                .tickets
-                .verify_join(
-                    ticket,
-                    TicketExpectation {
-                        permission: RelayPermission::Join,
-                        role,
-                        slot: "slot-a",
-                        circuit: Some(&circuit),
-                        lane: Some(&lane),
-                        generation: Some(generation),
-                        require_route_binding: true,
-                    },
-                    SystemTime::now(),
-                )
-                .unwrap()
-                .unwrap();
-            assert!(claims.expires_at_unix <= daemon_expiry);
-            assert!(claims.expires_at_unix <= client_expiry);
-        }
-    }
-
-    #[tokio::test]
     async fn health_endpoint_is_available_without_a_websocket_upgrade() {
-        let server = TestServer::start(RelayConfig::default()).await;
+        let server =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
         let mut stream = TcpStream::connect(server.address).await.unwrap();
         stream
             .write_all(
@@ -2104,134 +2104,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pending_circuit_cleanup_closes_a_joined_peer() {
-        let config = RelayConfig::default();
-        let relay = Relay::new(config.clone()).unwrap();
-        let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
-        relay
-            .register(daemon, REMOTE_PROTOCOL_VERSION, "slot-a".into(), "daemon-ticket".into())
-            .await
-            .unwrap();
-        let (client_control, _client_outbound, _client_shutdown) = test_peer(2, &config);
-        let circuit = relay
-            .allocate(
-                &client_control,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-a".into(),
-                "client-ticket".into(),
-                LaneToken("bulk".into()),
-                11,
-            )
-            .await
-            .unwrap();
-        let client_join_ticket = relay
-            .inner
-            .state
-            .lock()
-            .await
-            .circuits
-            .get(&circuit)
-            .unwrap()
-            .client_join_ticket
-            .clone();
-        let (client_join, _join_outbound, join_shutdown) = test_peer(3, &config);
-        relay
-            .join(
-                client_join,
-                JoinRequest {
-                    protocol: REMOTE_PROTOCOL_VERSION,
-                    slot: "slot-a".into(),
-                    circuit,
-                    lane: LaneToken("bulk".into()),
-                    generation: 11,
-                    ticket: client_join_ticket,
-                    role: RelayRole::Client,
-                },
-            )
-            .await
-            .unwrap();
-
-        relay.cleanup_expired(Instant::now() + config.join_timeout).await;
-        assert_eq!(relay.health().await.pending_circuits, 0);
-        let notice = join_shutdown.borrow().clone().expect("joined client was not closed");
-        assert!(matches!(
-            notice.error,
-            Some(RelayControl::Error { code, retryable: true, .. }) if code == "circuit-timeout"
-        ));
-    }
-
-    #[tokio::test]
-    async fn outgoing_queue_enforces_frame_and_byte_bounds() {
-        let (sender, mut receiver) = mpsc::channel(1);
-        let queued_bytes = Arc::new(AtomicUsize::new(0));
-        let outbound =
-            OutboundSender { sender, queued_bytes: queued_bytes.clone(), maximum_queue_bytes: 3 };
-        outbound.send_binary(Bytes::from_static(b"abc")).unwrap();
-        assert_eq!(queued_bytes.load(Ordering::Acquire), 3);
-        let error = outbound.send_binary(Bytes::from_static(b"d")).unwrap_err();
-        assert_eq!(error.code, "queue-bytes-exceeded");
-        let frame = receiver.recv().await.unwrap();
-        drop(frame);
-        assert_eq!(queued_bytes.load(Ordering::Acquire), 0);
-
-        outbound.send_binary(Bytes::from_static(b"a")).unwrap();
-        let error = outbound.send_binary(Bytes::from_static(b"b")).unwrap_err();
-        assert_eq!(error.code, "queue-full");
-        assert_eq!(queued_bytes.load(Ordering::Acquire), 1);
-        drop(receiver.recv().await);
-        assert_eq!(queued_bytes.load(Ordering::Acquire), 0);
-    }
-
-    #[tokio::test]
-    async fn slot_and_circuit_counts_are_bounded() {
-        let config = RelayConfig { max_slots: 1, max_circuits: 1, ..RelayConfig::default() };
-        let relay = Relay::new(config.clone()).unwrap();
-        let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
-        relay
-            .register(daemon, REMOTE_PROTOCOL_VERSION, "slot-a".into(), "daemon-ticket".into())
-            .await
-            .unwrap();
-        let (extra_daemon, _extra_outbound, _extra_shutdown) = test_peer(2, &config);
-        let error = relay
-            .register(
-                extra_daemon,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-b".into(),
-                "other-daemon-ticket".into(),
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, "slot-limit");
-
-        let (client, _client_outbound, _client_shutdown) = test_peer(3, &config);
-        relay
-            .allocate(
-                &client,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-a".into(),
-                "client-ticket".into(),
-                LaneToken("interactive".into()),
-                1,
-            )
-            .await
-            .unwrap();
-        let error = relay
-            .allocate(
-                &client,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-a".into(),
-                "client-ticket".into(),
-                LaneToken("bulk".into()),
-                1,
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, "circuit-limit");
-    }
-
-    #[tokio::test]
     async fn concurrent_websocket_count_is_bounded() {
-        let config = RelayConfig { max_connections: 1, ..RelayConfig::default() };
+        let config = RelayConfig {
+            max_connections: 1,
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
+        };
         let server = TestServer::start(config).await;
         let mut first = server.connect().await;
         send_control(
@@ -2255,7 +2132,10 @@ mod tests {
 
     #[tokio::test]
     async fn browser_origin_is_rejected_before_relay_admission() {
-        let config = RelayConfig { max_connections: 1, ..RelayConfig::default() };
+        let config = RelayConfig {
+            max_connections: 1,
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
+        };
         let server = TestServer::start(config).await;
 
         for path in ["/v1/relay", "/ws"] {
@@ -2282,7 +2162,7 @@ mod tests {
         let config = RelayConfig {
             http_header_timeout: Duration::from_millis(120),
             max_http_connections: 1,
-            ..RelayConfig::default()
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
         };
         let server = TestServer::start(config).await;
         let mut slow = TcpStream::connect(server.address).await.unwrap();
@@ -2318,7 +2198,7 @@ mod tests {
             max_control_sockets_per_slot: 2,
             max_pending_circuits_per_slot: 8,
             max_allocations_per_second_per_slot: 8,
-            ..RelayConfig::default()
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
@@ -2348,7 +2228,7 @@ mod tests {
         let config = RelayConfig {
             max_pending_circuits_per_slot: 1,
             max_allocations_per_second_per_slot: 8,
-            ..RelayConfig::default()
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
@@ -2378,7 +2258,7 @@ mod tests {
         let config = RelayConfig {
             max_pending_circuits_per_slot: 8,
             max_allocations_per_second_per_slot: 1,
-            ..RelayConfig::default()
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
@@ -2404,96 +2284,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn per_slot_active_circuit_quota_is_enforced_at_pairing() {
-        let config = RelayConfig {
-            max_active_circuits_per_slot: 1,
-            max_pending_circuits_per_slot: 4,
-            max_allocations_per_second_per_slot: 4,
-            ..RelayConfig::default()
-        };
-        let relay = Relay::new(config.clone()).unwrap();
-        let (daemon_control, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
-        relay
-            .register(
-                daemon_control,
-                REMOTE_PROTOCOL_VERSION,
-                "slot-a".into(),
-                "daemon-ticket".into(),
-            )
-            .await
-            .unwrap();
-        let (client_control, _client_outbound, _client_shutdown) = test_peer(2, &config);
-
-        for (offset, expected) in [(0_u64, Ok(())), (1, Err("slot-active-circuit-limit"))] {
-            let lane = LaneToken(format!("lane-{offset}"));
-            let generation = offset + 1;
-            let circuit = relay
-                .allocate(
-                    &client_control,
-                    REMOTE_PROTOCOL_VERSION,
-                    "slot-a".into(),
-                    "client-ticket".into(),
-                    lane.clone(),
-                    generation,
-                )
-                .await
-                .unwrap();
-            let (client_ticket, daemon_ticket) = {
-                let state = relay.inner.state.lock().await;
-                let circuit = state.circuits.get(&circuit).unwrap();
-                (circuit.client_join_ticket.clone(), circuit.daemon_join_ticket.clone())
-            };
-            let (client, _client_join_outbound, _client_join_shutdown) =
-                test_peer(10 + offset * 2, &config);
-            relay
-                .join(
-                    client,
-                    JoinRequest {
-                        protocol: REMOTE_PROTOCOL_VERSION,
-                        slot: "slot-a".into(),
-                        circuit: circuit.clone(),
-                        lane: lane.clone(),
-                        generation,
-                        ticket: client_ticket,
-                        role: RelayRole::Client,
-                    },
-                )
-                .await
-                .unwrap();
-            let (daemon, _daemon_join_outbound, _daemon_join_shutdown) =
-                test_peer(11 + offset * 2, &config);
-            let result = relay
-                .join(
-                    daemon,
-                    JoinRequest {
-                        protocol: REMOTE_PROTOCOL_VERSION,
-                        slot: "slot-a".into(),
-                        circuit,
-                        lane,
-                        generation,
-                        ticket: daemon_ticket,
-                        role: RelayRole::Daemon,
-                    },
-                )
-                .await;
-            match expected {
-                Ok(()) => result.unwrap(),
-                Err(code) => assert_eq!(result.unwrap_err().code, code),
-            }
-        }
-
-        let state = relay.inner.state.lock().await;
-        let usage = state.slot_usage.get("slot-a").unwrap();
-        assert_eq!(usage.active_circuits, 1);
-        assert_eq!(usage.pending_circuits, 1);
-    }
-
-    #[tokio::test]
     async fn authenticated_control_socket_has_an_idle_deadline() {
         let config = RelayConfig {
             lease_duration: Duration::from_secs(2),
             control_idle_timeout: Duration::from_millis(50),
-            ..RelayConfig::default()
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;

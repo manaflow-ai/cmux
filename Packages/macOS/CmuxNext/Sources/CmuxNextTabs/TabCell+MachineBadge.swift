@@ -21,7 +21,7 @@ extension TabCell {
         }()
         label.font = Typography.caption
         label.string = badge
-        label.foregroundColor = Palette.textTertiary.cgColor
+        themeScope.perform { label.foregroundColor = Palette.textTertiary.cgColor }
     }
 
     /// Places the machine badge at the end of the title area when the title

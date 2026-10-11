@@ -14,12 +14,14 @@ import java.util.Objects;
 public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteAttachEvent, ProtocolEvent, RenderAttachEvent {
     private final Field<SizeDetachActor> by;
     private final Field<DetachReason> reason;
+    private final Field<String> scope;
     private final UInt64 surface;
     private final Field<String> view;
 
     private DetachedEvent(Builder builder) {
         this.by = builder.by;
         this.reason = builder.reason;
+        this.scope = builder.scope;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.view = builder.view;
@@ -29,6 +31,7 @@ public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteA
 
     public Field<SizeDetachActor> by() { return by; }
     public Field<DetachReason> reason() { return reason; }
+    public Field<String> scope() { return scope; }
     public UInt64 surface() { return surface; }
     public Field<String> view() { return view; }
     @Override public String event() { return "detached"; }
@@ -45,6 +48,10 @@ public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteA
         if (!Wire.isMissing(rawReason)) {
             builder.reason(DetachReason.fromWire(rawReason));
         }
+        Object rawScope = Wire.optional(object, "scope");
+        if (!Wire.isMissing(rawScope)) {
+            builder.scope(Wire.string(rawScope, "DetachedEvent.scope"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "DetachedEvent.surface"));
         Object rawView = Wire.optional(object, "view");
@@ -60,6 +67,7 @@ public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteA
         object.put("event", "detached");
         Wire.put(object, "by", by);
         Wire.put(object, "reason", reason);
+        Wire.put(object, "scope", scope);
         Wire.put(object, "surface", surface);
         Wire.put(object, "view", view);
         return Collections.unmodifiableMap(object);
@@ -68,11 +76,11 @@ public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteA
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof DetachedEvent that)) return false;
-        return Objects.equals(by, that.by) && Objects.equals(reason, that.reason) && Objects.equals(surface, that.surface) && Objects.equals(view, that.view);
+        return Objects.equals(by, that.by) && Objects.equals(reason, that.reason) && Objects.equals(scope, that.scope) && Objects.equals(surface, that.surface) && Objects.equals(view, that.view);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(by, reason, surface, view); }
+    public int hashCode() { return Objects.hash(by, reason, scope, surface, view); }
 
     @Override
     public String toString() { return "DetachedEvent" + toWire(); }
@@ -80,6 +88,7 @@ public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteA
     public static final class Builder {
         private Field<SizeDetachActor> by = Field.omitted();
         private Field<DetachReason> reason = Field.omitted();
+        private Field<String> scope = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> view = Field.omitted();
@@ -90,6 +99,10 @@ public final class DetachedEvent implements WireValue, BrowserAttachEvent, ByteA
         }
         public Builder reason(DetachReason value) {
             this.reason = Field.of(value);
+            return this;
+        }
+        public Builder scope(String value) {
+            this.scope = Field.of(value);
             return this;
         }
         public Builder surface(UInt64 value) {

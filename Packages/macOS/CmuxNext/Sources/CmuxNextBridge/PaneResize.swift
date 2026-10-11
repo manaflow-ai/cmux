@@ -1,8 +1,8 @@
 public import CmuxNextLayout
 
 /// Keyboard pane resizing and column navigation over one screen's layout.
-/// Resizing moves the divider nearest the pane in the arrow's direction,
-/// like tmux `resize-pane -L/-R/-U/-D`; in columns mode a left or right
+/// Resizing moves the divider nearest the pane in the arrow's direction;
+/// in columns mode a left or right
 /// resize with no horizontal split in the column changes the column width.
 public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {
@@ -20,21 +20,31 @@ public nonisolated enum PaneResize {
         let tree: SplitNode?
         switch layout {
         case .splits(let root): tree = root
-        case .columns: tree = layout.column(containing: pane)?.root
+        case .columns: tree = layout.column(containing: pane)?.tree(containing: pane)
         }
         if let tree, let (split, ratio) = nearestSplit(containing: pane, axis: axis, in: tree) {
             let clamped = min(max(ratio + delta, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
             return clamped == ratio ? nil : .splitRatio(split, clamped)
         }
-        guard axis == .horizontal, let column = layout.column(containing: pane) else { return nil }
+        guard let column = layout.column(containing: pane) else { return nil }
         let range = ColumnWidthPreset.widthRange
+        // A top or bottom dock's extent is its height: up and down move its
+        // inner edge (down grows a top dock, up grows a bottom dock).
+        if let edge = column.dock?.edge, edge.isBand {
+            guard axis == .vertical else { return nil }
+            let grow = edge == .top ? delta : -delta
+            let extent = min(max(column.width + grow, range.lowerBound), range.upperBound)
+            return extent == column.width ? nil : .columnWidth(column.id, extent)
+        }
+        guard axis == .horizontal else { return nil }
         let width = min(max(column.width + delta, range.lowerBound), range.upperBound)
         return width == column.width ? nil : .columnWidth(column.id, width)
     }
 
     /// The column before (`forward == false`) or after the pane's column.
     public static func adjacentColumn(of pane: LayoutPaneID, forward: Bool, in layout: ScreenLayout) -> LayoutColumn? {
-        let columns = layout.columns
+        // Visual order: a docked column sits at its edge whatever its daemon index.
+        let columns = layout.visualColumns
         guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
         let next = index + (forward ? 1 : -1)
         return columns.indices.contains(next) ? columns[next] : nil

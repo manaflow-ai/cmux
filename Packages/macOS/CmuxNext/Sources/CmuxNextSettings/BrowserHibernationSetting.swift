@@ -1,11 +1,11 @@
 /// `browser.hibernation` and its companions in cmux.json: when hidden
 /// browser pages hibernate (their engine page is closed to free memory and
-/// recreated with its history when selected; Chrome's Memory Saver).
+/// recreated with its history when selected).
 ///
 /// ```jsonc
 /// "browser": {
 ///   "hibernation": "moderate",        // "off" | "moderate" | "aggressive" | minutes (number)
-///   "hibernationExclusions": ["mail.google.com", "*.figma.com"],
+///   "hibernationExclusions": ["mail.google.com", "*.example.com"],
 ///   "hibernatePinnedTabs": false
 /// }
 /// ```

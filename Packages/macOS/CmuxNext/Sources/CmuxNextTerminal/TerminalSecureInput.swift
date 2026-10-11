@@ -1,6 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 /// Secure keyboard entry requested by Ghostty (`GHOSTTY_ACTION_SECURE_INPUT`,
 /// for example a password prompt with `macos-auto-secure-input`).

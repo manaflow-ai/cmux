@@ -55,6 +55,12 @@ if [[ "$mode" == "focused" && ! "$test_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0
   exit 2
 fi
 
+# GitHub poll interval for the run watch (no agent polls faster than every 30 s).
+poll_seconds="${CMUX_TUI_HOSTED_POLL_SECONDS:-60}"
+if [[ ! "$poll_seconds" =~ ^[0-9]+$ ]] || (( poll_seconds < 30 )); then
+  echo "error: CMUX_TUI_HOSTED_POLL_SECONDS must be 30 or more" >&2
+  exit 2
+fi
 timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
@@ -136,8 +142,13 @@ gh workflow run "$WORKFLOW" \
 
 run_id=""
 # The dispatch command does not return a run ID. Poll only until the uniquely
-# titled run appears, and then let GitHub CLI watch the run state.
-for _ in $(seq 1 60); do
+# titled run appears, and then let GitHub CLI watch the run state. No agent polls
+# GitHub faster than every 30 s (2026-10-04: lanes running this script exhausted
+# the shared REST budget): the first look comes 5 s after the dispatch, and the
+# next ones 30 s apart (125 s in all). The run watch and its fallback poll
+# every CMUX_TUI_HOSTED_POLL_SECONDS (default 60, at least 30).
+sleep 5
+for attempt in 1 2 3 4 5; do
   run_query=""
   if run_query="$(
     gh run list \
@@ -156,11 +167,13 @@ for _ in $(seq 1 60); do
   if [[ -n "$run_id" ]]; then
     break
   fi
-  sleep 2
+  if (( attempt < 5 )); then
+    sleep 30
+  fi
 done
 
 if [[ -z "$run_id" ]]; then
-  echo "error: the dispatched workflow did not appear within 120 seconds" >&2
+  echo "error: the dispatched workflow did not appear within 125 seconds" >&2
   exit 1
 fi
 
@@ -238,7 +251,7 @@ exec 3<> "$watch_result_fifo"
       --repo "$REPO" \
       "$run_id" \
       --exit-status \
-      --interval 10 >&2 &
+      --interval "$poll_seconds" >&2 &
     gh_child_pid=$!
     wait "$gh_child_pid"
     gh_child_pid=""
@@ -266,7 +279,7 @@ exec 3<> "$watch_result_fifo"
         exit 0
       fi
     fi
-    sleep 10 &
+    sleep "$poll_seconds" &
     gh_child_pid=$!
     wait "$gh_child_pid" 2>/dev/null || true
     gh_child_pid=""

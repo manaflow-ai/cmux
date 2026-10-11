@@ -19,6 +19,10 @@ enum FocusResponderClassifier {
                     case .chrome: return isText(view) ? .textField : .content(pane: pane.paneKey)
                     }
                 }
+                // The terminal's find bar field: a text input over the terminal.
+                if case .terminal(let entry)? = pane.currentContent, isText(view), view.isDescendant(of: entry.session.view) {
+                    return .textField
+                }
                 return .content(pane: pane.paneKey)
             }
         }

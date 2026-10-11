@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "local/notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "description": "Palette fixture.",
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "contributes": {
+    "paletteScopes": [
+      {
+        "id": "notes",
+        "title": "Notes",
+        "source": {
+          "kind": "snapshot",
+          "export": "corpus"
+        },
+        "primary": "app:local/notes#nope"
+      }
+    ]
+  }
+}

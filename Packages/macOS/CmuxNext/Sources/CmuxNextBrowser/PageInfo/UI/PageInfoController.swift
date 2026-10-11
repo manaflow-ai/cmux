@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Owns one browser pane's page info bubble (Chrome's `PageInfoBubbleView`)
+/// Owns one browser pane's page info bubble (Chromium's `PageInfoBubbleView`)
 /// and the windows it opens (certificate viewer, site settings, on-device
 /// site data). Every user action is a `PageInfoCommand`; when
 /// `commandRouter` is set, commands with a registry action go through it
@@ -126,7 +126,8 @@ public final class PageInfoController {
             frame.origin.x = min(max(frame.minX, screen.minX), screen.maxX - frame.width)
             frame.origin.y = max(frame.minY, screen.minY)
         }
-        panel.appearance = window.effectiveAppearance
+        // The bubble takes the omnibar's theme scope (its room or workspace).
+        panel.adoptThemeScope(of: anchor)
         panel.setFrame(frame, display: true)
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
@@ -182,7 +183,7 @@ public final class PageInfoController {
 
     // MARK: Keyboard
 
-    /// Escape closes (Chrome); Up and Down move between rows like Tab.
+    /// Escape closes; Up and Down move between rows like Tab.
     private func handleKey(_ event: NSEvent) -> Bool {
         switch event.keyCode {
         case 53:

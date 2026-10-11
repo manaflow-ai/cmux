@@ -1,4 +1,6 @@
 import AppKit
+import os
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
@@ -37,7 +39,7 @@ extension AppActionContext {
     /// personal (the home session's); without personal state there are none.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
         guard usesPersonalGroups else {
-            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.profiles))
+            throw ActionFailure(message: services.machines.local.personalStateUnavailableReason)
         }
         return try personalGroup(invocation)
     }
@@ -51,7 +53,7 @@ extension AppActionContext {
             return active
         }
         guard let controller = services.windows.controllers.first(where: { $0.state.id == ref.id }) else {
-            throw ActionFailure.invalidTarget(RefusalStrings.noWindow(ref.id))
+            throw ActionFailure.notFound(RefusalStrings.noWindow(ref.id))
         }
         return controller
     }
@@ -68,12 +70,21 @@ extension AppActionContext {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
+    /// runs off the main thread (cx-050n).
     func open(_ url: URL) throws {
-        guard NSWorkspace.shared.open(url) else { throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString)) }
+        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
+            throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
+        }
+        NSWorkspace.shared.openInBackground(url) { opened in
+            if !opened { Logger(subsystem: "com.cmuxterm.app.next", category: "actions").error("open failed after its app was found") }
+        }
     }
 
-    /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`.
+    /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`
+    /// or the run may not change this client's view.
     func activateApp() {
+        guard ActionRunScope.viewChangeAllowed() else { return }
         WindowActivation.activateApp()
     }
 }

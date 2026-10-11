@@ -14,14 +14,9 @@ extension UpdateController {
     /// prompting the user again right after relaunch (issue #6366).
     public func attemptUpdate() {
         model.discardPendingChanges()
-        // A downloaded update that is held is already the latest attempt. Asking to install
-        // again from the menu means Install Now, unless it would stop something risky: the menu
-        // does not show what, so the popover asks first.
+        // A downloaded update waiting for busy agents is already the latest attempt; asking to
+        // install again from the menu means Install Now.
         if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
-            if driver.relaunchGate.askUser() {
-                log.append("attemptUpdate while relaunch is held by risky work: asking")
-                return
-            }
             log.append("attemptUpdate while relaunch is held: install now")
             installing.retryTerminatingApplication()
             return

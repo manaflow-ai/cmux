@@ -7,6 +7,33 @@ import Testing
 /// The busy watchdog (plans/cmux-next/idle-wakeups.md) records CPU use that
 /// nothing explains, and nothing else.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct BusyWatchdogTests {
+    /// The production read path must not grow reabstraction thunks in the
+    /// stored callback. Invoke on a cooperative thread like DemandTimer does.
+    @Test func helperSourceSurvivesFiftyThousandReads() async {
+        await Task.detached {
+            let watchdog = BusyWatchdog(log: HangLog(), ledger: WakeupLedger(), activity: ExpectedActivity())
+            watchdog.setHelperSource { [.init(pid: 42, label: "Chromium tab")] }
+            var source = watchdog.helperSource()
+            for _ in 0..<50_000 {
+                source = watchdog.helperSource()
+            }
+            let helpers = source()
+            #expect(helpers.count == 1)
+            #expect(helpers.first?.pid == 42)
+            #expect(helpers.first?.label == "Chromium tab")
+        }.value
+    }
+
+    @Test func helperSourceCanReplaceItselfOutsideTheLock() {
+        let watchdog = BusyWatchdog(log: HangLog(), ledger: WakeupLedger(), activity: ExpectedActivity())
+        watchdog.setHelperSource {
+            watchdog.setHelperSource { [.init(pid: 43, label: "Replacement")] }
+            return [.init(pid: 42, label: "Original")]
+        }
+        #expect(watchdog.helperSource()().first?.pid == 42)
+        #expect(watchdog.helperSource()().first?.pid == 43)
+    }
+
     final class Flag: Sendable {
         let value = Atomic(true)
     }

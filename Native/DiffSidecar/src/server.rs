@@ -16,8 +16,8 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path as AxumPath, Query, State};
 #[cfg(feature = "http-server")]
 use axum::http::header::{
-    CACHE_CONTROL, CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION,
-    ORIGIN, REFERRER_POLICY,
+    CACHE_CONTROL, CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, ORIGIN,
+    REFERRER_POLICY,
 };
 #[cfg(feature = "http-server")]
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
@@ -40,21 +40,52 @@ use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::PROTOCOL_VERSION;
-use crate::manifest::{
-    AllowedFile, Manifest, split_resource_path, valid_request_path, valid_token,
-};
+use crate::manifest::{AllowedFile, Manifest, split_resource_path, valid_token};
 use crate::protocol::{
-    BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
-    DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
+    BranchListResult, BranchPickerConfidence, BranchPickerGroup, BranchPickerRow, DiffCommand,
+    DiffRequest, DiffResourceRef, DiffResponse, DiffResult, DiffSource, OpenSessionRequest,
+    PAGE_PATCH_URL_PREFIX, SessionOpened, SessionRequest, handshake,
 };
+use crate::session_host_git;
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
 
 #[derive(Clone)]
 pub struct ServerConfig {
     pub root: PathBuf,
+    /// The bundled cmux CLI (cmux-tui). The sidecar reads branch facts from
+    /// the session host's git operations through it.
     pub cmux_executable: PathBuf,
     pub executable_path: PathBuf,
+    /// The URL scheme stdio replies use for patch resources.
+    pub resource_scheme: ResourceScheme,
+}
+
+/// How a stdio (`rpc`) reply names a patch resource. The HTTP server always
+/// serves its own `http://127.0.0.1` URLs.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ResourceScheme {
+    /// `cmux-diff-viewer://<token><path>`, the classic `WebKit` host.
+    #[default]
+    DiffViewer,
+    /// `cmux-page://cmux.diff/__patch/<token><path>`, the cmux-next page
+    /// transport (`DiffTransportKind::Page`).
+    Page,
+}
+
+impl ResourceScheme {
+    /// Parses the `--resource-scheme` value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown scheme name.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "diff-viewer" => Ok(Self::DiffViewer),
+            "page" => Ok(Self::Page),
+            other => Err(format!("unknown resource scheme: {other}")),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -95,7 +126,8 @@ const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 // The caller-supplied ID cannot be trusted until the complete envelope parses.
 const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
-const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
+/// Deadline for one `cmux git status` read of the session host.
+const SESSION_HOST_GIT_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
@@ -105,11 +137,15 @@ const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_UNSTAGED_UNTRACKED_PATHS: usize = 512;
 /// Upper bound on the `git ls-files` listing read to find those paths.
 const MAX_UNTRACKED_LISTING_BYTES: usize = 4 * 1024 * 1024;
+/// Upper bound on changed paths sent to `git check-attr` for generated-file
+/// detection; larger diffs skip the attribute lookup and only use the
+/// viewer's lockfile heuristic.
+const MAX_GENERATED_ATTRIBUTE_PATHS: usize = 8192;
 /// Upper bound on one untracked file's added-file patch. A larger file is left
 /// out of the unstaged session patch instead of consuming the whole budget.
 const MAX_UNTRACKED_FILE_PATCH_BYTES: u64 = 8 * 1024 * 1024;
-const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
-const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_mins(2);
+const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_hours(24);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
@@ -120,10 +156,6 @@ struct SessionOwner {
     session_id: String,
     capability_token: String,
 }
-// Branch regeneration runs Git commands with 60-second deadlines, then writes
-// the page, patch, assets, and manifest. Keep the outer safety deadline above
-// that complete contract while still releasing a stuck child eventually.
-const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[cfg(feature = "http-server")]
 #[derive(Serialize)]
@@ -316,7 +348,6 @@ fn router(state: AppState) -> Router {
         .route("/__cmux_diff_rpc", post(rpc))
         .route("/__cmux_diff_ws", get(websocket))
         .route("/__cmux_diff_viewer_refs", get(branch_refs))
-        .route("/__cmux_diff_viewer_branch", get(branch_change))
         .route(
             "/__cmux_diff_viewer_wait/{*resource}",
             get(wait_for_resource),
@@ -510,24 +541,31 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
             let Some(state) = state else {
                 return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
             };
-            match change_branch(
-                state,
-                &params.group_id,
-                &params.repo_root,
-                &params.base_ref,
-                &params.capability_token,
+            match tokio::time::timeout(
+                SESSION_OPEN_TIMEOUT,
+                change_branch(
+                    state,
+                    &params.group_id,
+                    &params.repo_root,
+                    &params.base_ref,
+                    &params.capability_token,
+                ),
             )
             .await
             {
-                Ok(url) => DiffResponse::success(
-                    request.id,
-                    DiffResult::Navigation(NavigationResult { url }),
-                ),
-                Err(()) => DiffResponse::failure(
-                    request.id,
-                    "branchChangeFailed",
-                    "Could not change diff base",
-                ),
+                Ok(Ok(value)) => {
+                    DiffResponse::success(request.id, DiffResult::SessionOpened(value))
+                }
+                Ok(Err(SessionOpenError::Empty)) => {
+                    DiffResponse::failure(request.id, "emptyDiff", "No changes to diff")
+                }
+                Err(_) | Ok(Err(SessionOpenError::Unauthorized | SessionOpenError::Failed)) => {
+                    DiffResponse::failure(
+                        request.id,
+                        "branchChangeFailed",
+                        "Could not change diff base",
+                    )
+                }
             }
         }
     }
@@ -575,6 +613,7 @@ async fn open_session(
                 revision: 1,
             },
             source: params.source,
+            generated_paths: Vec::new(),
         });
     }
     let _permit = state
@@ -619,6 +658,7 @@ async fn open_session(
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    let generated_paths = git_generated_paths(&source, &canonical_repo).await;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -654,6 +694,7 @@ async fn open_session(
             revision: 1,
         },
         source,
+        generated_paths,
     })
 }
 
@@ -716,35 +757,17 @@ async fn resolve_session_source(
     else {
         return Ok(source);
     };
-    let output = tokio::time::timeout(
-        SESSION_GIT_TIMEOUT,
-        Command::new(&state.config.cmux_executable)
-            .arg("__diff-viewer-refs")
-            .arg("--repo")
-            .arg(repo)
-            .arg("--suggested-only")
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .output(),
+    // The suggested base is the session host's base branch, the one its own
+    // `git.diff --scope branch` compares with.
+    let base_ref = session_host_git::repository_status(
+        &state.config.cmux_executable,
+        repo,
+        SESSION_HOST_GIT_TIMEOUT,
     )
     .await
-    .map_err(|_| SessionOpenError::Failed)?
-    .map_err(|_| SessionOpenError::Failed)?;
-    if !output.status.success() || output.stdout.len() > 4096 {
-        return Err(SessionOpenError::Failed);
-    }
-    let resolved: BranchListResult =
-        serde_json::from_slice(&output.stdout).map_err(|_| SessionOpenError::Failed)?;
-    let base_ref = resolved
-        .groups
-        .iter()
-        .find(|group| group.id == "suggested")
-        .and_then(|group| group.rows.first())
-        .or_else(|| resolved.groups.iter().find_map(|group| group.rows.first()))
-        .map(|row| row.r#ref.clone())
-        .filter(|value| !value.is_empty())
-        .ok_or(SessionOpenError::Failed)?;
+    .and_then(|status| status.base)
+    .filter(|value| !value.is_empty())
+    .ok_or(SessionOpenError::Failed)?;
     Ok(DiffSource::Branch {
         repo_root,
         base_ref: Some(base_ref),
@@ -908,6 +931,123 @@ async fn stream_git_stdout(
         return Err(SessionOpenError::Failed);
     }
     Ok(())
+}
+
+/// Changed paths whose `.gitattributes` mark them generated
+/// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
+/// oversized listing yields an empty list so a session never fails over it.
+async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
+    let Ok(mut paths) = git_changed_paths(source, repo).await else {
+        return Vec::new();
+    };
+    if matches!(source, DiffSource::Unstaged { .. })
+        && let Ok(untracked) = git_untracked_paths(repo).await
+    {
+        paths.extend(untracked);
+    }
+    if paths.is_empty() || paths.len() > MAX_GENERATED_ATTRIBUTE_PATHS {
+        return Vec::new();
+    }
+    let mut stdin_bytes = Vec::new();
+    for path in &paths {
+        stdin_bytes.extend_from_slice(path.as_bytes());
+        stdin_bytes.push(0);
+    }
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(["check-attr", "-z", "--stdin", "linguist-generated", "diff"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let Ok(mut child) = command.spawn() else {
+        return Vec::new();
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return Vec::new();
+    };
+    let write = async move {
+        let _ = stdin.write_all(&stdin_bytes).await;
+        drop(stdin);
+    };
+    let ((), output) = tokio::join!(write, child.wait_with_output());
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    // `-z` output is `path NUL attribute NUL value NUL` triplets.
+    let fields: Vec<&[u8]> = output.stdout.split(|byte| *byte == 0).collect();
+    let mut generated = Vec::new();
+    for &[path, attribute, value] in fields.as_chunks::<3>().0 {
+        let path = String::from_utf8_lossy(path).into_owned();
+        let marks_generated = match attribute {
+            b"linguist-generated" => value == b"set" || value == b"true",
+            b"diff" => value == b"unset",
+            _ => false,
+        };
+        if marks_generated && !generated.contains(&path) {
+            generated.push(path);
+        }
+    }
+    generated
+}
+
+/// Paths changed by the source, mirroring the range `run_git_patch` diffs.
+async fn git_changed_paths(
+    source: &DiffSource,
+    repo: &Path,
+) -> Result<Vec<String>, SessionOpenError> {
+    let mut arguments = vec!["diff".to_owned(), "--name-only".to_owned(), "-z".to_owned()];
+    match source {
+        DiffSource::Unstaged { .. } => {}
+        DiffSource::Staged { .. } => arguments.push("--cached".to_owned()),
+        DiffSource::Branch {
+            base_ref: Some(base_ref),
+            ..
+        } => {
+            let base_commit = git_single_line(
+                repo,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{base_ref}^{{commit}}"),
+                ],
+            )
+            .await?;
+            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
+            arguments.push(merge_base);
+        }
+        DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
+            return Err(SessionOpenError::Failed);
+        }
+    }
+    arguments.push("--".to_owned());
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(&arguments)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(SESSION_GIT_TIMEOUT, command.output())
+        .await
+        .map_err(|_| SessionOpenError::Failed)?
+        .map_err(|_| SessionOpenError::Failed)?;
+    if !output.status.success() || output.stdout.len() > MAX_UNTRACKED_LISTING_BYTES {
+        return Err(SessionOpenError::Failed);
+    }
+    Ok(output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| String::from_utf8_lossy(entry).into_owned())
+        .collect())
 }
 
 /// The added-file patch for one untracked `path`, or `None` when git fails on
@@ -1529,7 +1669,10 @@ async fn has_session_token(state: &AppState, token: &str) -> bool {
 
 fn resource_url(state: &AppState, token: &str, request_path: &str) -> String {
     if state.port == 0 {
-        format!("cmux-diff-viewer://{token}{request_path}")
+        match state.config.resource_scheme {
+            ResourceScheme::DiffViewer => format!("cmux-diff-viewer://{token}{request_path}"),
+            ResourceScheme::Page => format!("{PAGE_PATCH_URL_PREFIX}{token}{request_path}"),
+        }
     } else {
         format!("http://127.0.0.1:{}/{token}{request_path}", state.port)
     }
@@ -1564,6 +1707,9 @@ async fn branch_refs(
     }
 }
 
+/// The branch picker's rows. Until the session host lists branches
+/// (`git.branches`, plans in /tmp/pane-protocol/s2-git-crate.md), the picker
+/// offers the host's base branch and the base the viewer already uses.
 async fn load_branch_refs(
     state: &AppState,
     repo: &str,
@@ -1576,110 +1722,86 @@ async fn load_branch_refs(
     let Ok(_permit) = state.child_processes.try_acquire() else {
         return Err(());
     };
-    let mut command = Command::new(&state.config.cmux_executable);
-    command
-        .arg("__diff-viewer-refs")
-        .arg("--repo")
-        .arg(repo)
-        .arg("--token")
-        .arg(token)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    if let Some(base) = base {
-        command.arg("--base").arg(base);
-    }
-    match tokio::time::timeout(BRANCH_LIST_CHILD_TIMEOUT, command.output()).await {
-        Ok(Ok(output)) if output.status.success() => {
-            serde_json::from_slice(&output.stdout).map_err(|_| ())
-        }
-        _ => Err(()),
-    }
+    let canonical_repo = tokio::fs::canonicalize(repo).await.map_err(|_| ())?;
+    let status = session_host_git::repository_status(
+        &state.config.cmux_executable,
+        &canonical_repo,
+        SESSION_HOST_GIT_TIMEOUT,
+    )
+    .await
+    .ok_or(())?;
+    Ok(branch_list(status.base.as_deref(), base))
 }
 
-#[cfg(feature = "http-server")]
-async fn branch_change(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Query(query): Query<HashMap<String, String>>,
-) -> Response {
-    if !trusted_browser_request(&headers, state.port) {
-        return not_found(false);
+/// One "Suggested" group: the selected base first (marked current), then
+/// the session host's base branch.
+fn branch_list(host_base: Option<&str>, selected: Option<&str>) -> BranchListResult {
+    let selected = selected.map(str::trim).filter(|value| !value.is_empty());
+    let host_base = host_base.filter(|value| !value.is_empty());
+    let mut rows = Vec::new();
+    if let Some(selected) = selected
+        && Some(selected) != host_base
+    {
+        rows.push(BranchPickerRow {
+            r#ref: selected.to_owned(),
+            label: selected.to_owned(),
+            secondary: None,
+            reason: Some("manual".to_owned()),
+            confidence: Some(BranchPickerConfidence::High),
+            current: Some(true),
+            worktree_dir: None,
+        });
     }
-    let (Some(group), Some(repo), Some(base), Some(token)) = (
-        query.get("group"),
-        query.get("repo"),
-        query.get("base"),
-        query.get("token").filter(|value| valid_token(value)),
-    ) else {
-        return not_found(false);
+    if let Some(host_base) = host_base {
+        rows.push(BranchPickerRow {
+            r#ref: host_base.to_owned(),
+            label: host_base.to_owned(),
+            secondary: None,
+            reason: Some("default".to_owned()),
+            confidence: Some(BranchPickerConfidence::Low),
+            current: (selected == Some(host_base)).then_some(true),
+            worktree_dir: None,
+        });
+    }
+    let groups = if rows.is_empty() {
+        Vec::new()
+    } else {
+        vec![BranchPickerGroup {
+            id: "suggested".to_owned(),
+            label: "Suggested".to_owned(),
+            rows,
+        }]
     };
-    match change_branch(&state, group, repo, base, token).await {
-        Ok(location) => redirect_response(&location),
-        Err(()) => not_found(false),
-    }
+    BranchListResult { groups }
 }
 
+/// Changes a branch session's base: the token must own the group's branch
+/// session and the repository must be one it allows. The reply is a new
+/// branch session against `base`; the viewer swaps its patch, so no page is
+/// regenerated.
 async fn change_branch(
     state: &AppState,
     group: &str,
     repo: &str,
     base: &str,
     token: &str,
-) -> Result<String, ()> {
-    if !authorize_branch_change(state, token, group, repo).await {
-        return Err(());
+) -> Result<SessionOpened, SessionOpenError> {
+    let base = base.trim();
+    if base.is_empty() || !authorize_branch_change(state, token, group, repo).await {
+        return Err(SessionOpenError::Unauthorized);
     }
-    let Ok(_permit) = state.child_processes.try_acquire() else {
-        return Err(());
-    };
-    let mut command = Command::new(&state.config.cmux_executable);
-    command
-        .arg("__diff-viewer-branch")
-        .arg("--group")
-        .arg(group)
-        .arg("--repo")
-        .arg(repo)
-        .arg("--base")
-        .arg(base)
-        .arg("--token")
-        .arg(token)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let Ok(Ok(output)) = tokio::time::timeout(BRANCH_CHANGE_CHILD_TIMEOUT, command.output()).await
-    else {
-        return Err(());
-    };
-    if !output.status.success() {
-        return Err(());
-    }
-    let scheme_url = String::from_utf8_lossy(&output.stdout);
-    let scheme_url = scheme_url.trim();
-    let authority = format!("cmux-diff-viewer://{token}");
-    let Some(path) = scheme_url.strip_prefix(&authority) else {
-        return Err(());
-    };
-    if path.contains(['?', '#', '%']) || !valid_request_path(path) {
-        return Err(());
-    }
-    let resource_path = format!("{token}{path}");
-    if resolve_allowed_file(state, &resource_path).await.is_none() {
-        return Err(());
-    }
-    if state.port == 0 {
-        Ok(scheme_url.to_owned())
-    } else {
-        Ok(format!(
-            "http://127.0.0.1:{}/{token}{}#cmux-diff-viewer",
-            server_port(state),
-            path
-        ))
-    }
-}
-
-fn server_port(state: &AppState) -> u16 {
-    state.port
+    open_session(
+        state,
+        OpenSessionRequest {
+            source: DiffSource::Branch {
+                repo_root: repo.to_owned(),
+                base_ref: Some(base.to_owned()),
+            },
+            capability_token: token.to_owned(),
+            session_id: None,
+        },
+    )
+    .await
 }
 
 #[cfg(feature = "http-server")]
@@ -2000,14 +2122,6 @@ fn text_response(
 }
 
 #[cfg(feature = "http-server")]
-fn redirect_response(location: &str) -> Response {
-    let mut headers = base_headers();
-    set_header(&mut headers, LOCATION, location);
-    set_header(&mut headers, CONTENT_TYPE, "text/plain; charset=utf-8");
-    (StatusCode::FOUND, headers, Body::from("302 Found\n")).into_response()
-}
-
-#[cfg(feature = "http-server")]
 fn not_found(head: bool) -> Response {
     text_response(
         StatusCode::NOT_FOUND,
@@ -2085,10 +2199,11 @@ mod tests {
 
     use super::{
         AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
+        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, git_generated_paths, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
         reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
+    use super::{AppState, ResourceScheme, ServerConfig, app_state, branch_list, resource_url};
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -2108,6 +2223,11 @@ mod tests {
             handshake
                 .capabilities
                 .contains(&"transport.webkit".to_owned())
+        );
+        assert!(
+            handshake
+                .capabilities
+                .contains(&"transport.page".to_owned())
         );
         #[cfg(feature = "http-server")]
         assert!(
@@ -2372,6 +2492,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generated_paths_follow_gitattributes_and_lockfiles() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-generated-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join("dist")).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(
+            repo.join(".gitattributes"),
+            "dist/** linguist-generated=true\n*.min.js -diff\n",
+        )
+        .expect("write gitattributes");
+        std::fs::write(repo.join("story.txt"), "one\n").expect("write story");
+        std::fs::write(repo.join("dist/bundle.js"), "x\n").expect("write bundle");
+        std::fs::write(repo.join("app.min.js"), "y\n").expect("write min");
+        run_git(&["add", "."]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), "one\ntwo\n").expect("change story");
+        std::fs::write(repo.join("dist/bundle.js"), "xx\n").expect("change bundle");
+        std::fs::write(repo.join("app.min.js"), "yy\n").expect("change min");
+        // Untracked files are part of the unstaged source and get attributes too.
+        std::fs::write(repo.join("dist/untracked.js"), "z\n").expect("write untracked");
+        let source = DiffSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+
+        let mut generated = git_generated_paths(&source, &repo).await;
+        generated.sort();
+        assert_eq!(
+            generated,
+            vec![
+                "app.min.js".to_owned(),
+                "dist/bundle.js".to_owned(),
+                "dist/untracked.js".to_owned()
+            ]
+        );
+
+        // Staged and branch sources only consult their own changed paths.
+        run_git(&["add", "story.txt"]);
+        let staged = DiffSource::Staged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+        assert!(git_generated_paths(&staged, &repo).await.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn unstaged_patch_skips_untracked_files_it_cannot_include() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -2475,5 +2659,79 @@ mod tests {
         assert_eq!(result, Err(SessionOpenError::Failed));
         assert!(!patch_path.exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn stdio_state(resource_scheme: ResourceScheme) -> AppState {
+        let config = ServerConfig {
+            root: std::env::temp_dir(),
+            cmux_executable: "/nonexistent/cmux".into(),
+            executable_path: "/nonexistent/sidecar".into(),
+            resource_scheme,
+        };
+        #[cfg(feature = "http-server")]
+        let state = app_state(config, 0).expect("stdio state");
+        #[cfg(not(feature = "http-server"))]
+        let state = app_state(config, 0);
+        state
+    }
+
+    #[test]
+    fn stdio_patch_urls_follow_the_resource_scheme() {
+        let token = "0123456789abcdef";
+        assert_eq!(
+            resource_url(&stdio_state(ResourceScheme::DiffViewer), token, "/a.patch"),
+            "cmux-diff-viewer://0123456789abcdef/a.patch"
+        );
+        assert_eq!(
+            resource_url(&stdio_state(ResourceScheme::Page), token, "/a.patch"),
+            "cmux-page://cmux.diff/__patch/0123456789abcdef/a.patch"
+        );
+        assert_eq!(ResourceScheme::parse("page"), Ok(ResourceScheme::Page));
+        assert_eq!(
+            ResourceScheme::parse("diff-viewer"),
+            Ok(ResourceScheme::DiffViewer)
+        );
+        assert!(ResourceScheme::parse("http").is_err());
+    }
+
+    #[test]
+    fn branch_list_offers_the_selected_base_then_the_host_base() {
+        let rows = |result: &crate::protocol::BranchListResult| {
+            result.groups[0]
+                .rows
+                .iter()
+                .map(|row| (row.r#ref.clone(), row.current == Some(true)))
+                .collect::<Vec<_>>()
+        };
+        let both = branch_list(Some("origin/main"), Some("release"));
+        assert_eq!(both.groups.len(), 1);
+        assert_eq!(both.groups[0].id, "suggested");
+        assert_eq!(
+            rows(&both),
+            [
+                ("release".to_owned(), true),
+                ("origin/main".to_owned(), false)
+            ]
+        );
+        let same = branch_list(Some("origin/main"), Some("origin/main"));
+        assert_eq!(rows(&same), [("origin/main".to_owned(), true)]);
+        let host_only = branch_list(Some("main"), None);
+        assert_eq!(rows(&host_only), [("main".to_owned(), false)]);
+        assert!(branch_list(None, Some("  ")).groups.is_empty());
+    }
+
+    #[tokio::test]
+    async fn branch_sessions_fail_when_the_session_host_is_unreachable() {
+        let state = stdio_state(ResourceScheme::Page);
+        let resolved = super::resolve_session_source(
+            &state,
+            DiffSource::Branch {
+                repo_root: "/repo".to_owned(),
+                base_ref: None,
+            },
+            std::path::Path::new("/repo"),
+        )
+        .await;
+        assert!(matches!(resolved, Err(SessionOpenError::Failed)));
     }
 }

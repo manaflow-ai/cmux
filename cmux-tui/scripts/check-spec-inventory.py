@@ -222,10 +222,23 @@ def rust_match_arms(source: str, function: str, enum_name: str) -> dict[str, str
     return arms
 
 
+def command_handler_body(module: str, function: str) -> str:
+    """Body of a command handler that a dispatch arm delegates to
+    (`cmd_<family>::<function>(...)` in server/cmd_<family>.rs)."""
+    path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
+    if not path.exists():
+        fail(f"dispatch arm calls {module}::{function} but {path.name} is missing")
+    return rust_function_body(strip_rust_comments(path.read_text()), function)
+
+
 def guarded_command_profiles(source: str) -> dict[str, str]:
     arms = rust_match_arms(source, "handle_command_with_cancellation", "Command")
     profiles: dict[str, str] = {}
     for variant, arm in arms.items():
+        # Command families live in server/cmd_*.rs; a guard inside the
+        # handler an arm calls belongs to that arm.
+        for module, function in re.findall(r"\b(cmd_[a-z0-9_]+)::([a-z0-9_]+)\(", arm):
+            arm += command_handler_body(module, function)
         if (
             "authorize_provider_workspace_command" in arm
             or "with_provider_workspace_authority" in arm
@@ -558,6 +571,39 @@ def serialized_literal_event_names(source: str) -> set[str]:
     return names
 
 
+CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "server/activity.rs")
+
+
+# server/ modules (and their child directories) whose events are not in the
+# raw SDK catalog yet: they speak their own wire families (agent session
+# attach, loopback forwarding, scripts, terminal snapshot digests). The
+# inventory does not read them until the spec covers those events (cx-chun).
+SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
+    {"agent_session_attach", "loopback_forward", "scripts", "terminal_snapshot"}
+)
+
+
+def server_module_sources() -> list[str]:
+    """Production source of every Rust file under src/server/ (server.rs's
+    child modules), sorted by path. server.rs moves code into these files, so
+    they are read the same way as server.rs; test files, inline test modules
+    and SERVER_MODULES_OUTSIDE_RAW_SDK are left out."""
+    root = TUI / "crates/cmux-tui-core/src/server"
+    if not root.is_dir():
+        return []
+    sources = []
+    for path in sorted(root.rglob("*.rs")):
+        parts = path.relative_to(root).parts
+        if (
+            path.name.endswith("_tests.rs")
+            or "tests" in parts[:-1]
+            or parts[0].removesuffix(".rs") in SERVER_MODULES_OUTSIDE_RAW_SDK
+        ):
+            continue
+        sources.append(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
+    return sources
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
@@ -567,8 +613,43 @@ def event_names() -> set[str]:
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
+    for module_source in server_module_sources():
+        source = strip_rust_comments(module_source)
+        module_tokens = rust_tokens(source)
+        # A moved module still names server.rs's constants (super::...).
+        module_constants = {**constants, **rust_string_constants(module_tokens)}
+        names.update(json_macro_event_names(module_tokens, module_constants))
+        names.update(inserted_event_names(module_tokens, module_constants))
+        names.update(assigned_event_names(module_tokens, module_constants))
+        names.update(serialized_literal_event_names(source))
 
-    mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
+    # Frontend brokers build their targeted control events in their own
+    # server modules.
+    for module in CONTROL_EVENT_MODULES:
+        # Absent in minimal test trees; in the real tree a missing module
+        # drops its events, which the SDK drift check then reports.
+        path = TUI / "crates/cmux-tui-core/src" / module
+        if not path.exists():
+            continue
+        source = path.read_text()
+        source = strip_rust_comments(source.split("\n#[cfg(test)]\nmod tests", 1)[0])
+        module_tokens = rust_tokens(source)
+        module_constants = rust_string_constants(module_tokens)
+        names.update(json_macro_event_names(module_tokens, module_constants))
+
+    # The local conversation owner builds its subscribe-stream events itself.
+    conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
+    if conversations.exists():
+        names.update(function_event_names(conversations.read_text(), "wire_json"))
+    # So does the cloud conversations proxy (cloud-conversations-v1).
+    cloud = TUI / "crates/cmux-tui-cloud-conversations/src/stream.rs"
+    if cloud.exists():
+        names.update(function_event_names(cloud.read_text(), "wire_json"))
+
+    # TreeDeltaKind may live in mux.rs or in any module under src/mux/.
+    mux_root = TUI / "crates/cmux-tui-core/src"
+    mux_sources = [mux_root / "mux.rs", *sorted((mux_root / "mux").rglob("*.rs"))]
+    mux = strip_rust_comments("\n".join(path.read_text() for path in mux_sources if path.exists()))
     delta_impl = mux.split("impl TreeDeltaKind", 1)
     if len(delta_impl) != 2:
         fail("cannot find TreeDeltaKind implementation")
@@ -598,6 +679,8 @@ def first_function_event_names(source: str, *names: str) -> set[str]:
 
 def runtime_event_stream_hints() -> dict[str, set[str]]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    for module_source in server_module_sources():
+        server += "\n" + module_source
     hints: dict[str, set[str]] = {}
 
     def add(names: set[str], stream: str) -> None:
@@ -664,13 +747,22 @@ def event_streams() -> dict[str, set[str]]:
     return streams_by_event
 
 
+def config_source() -> str:
+    """config.rs and its child modules (config/*.rs, not tests): the Action catalog source."""
+    root = TUI / "crates/cmux-tui/src"
+    paths = [root / "config.rs", *sorted((root / "config").glob("*.rs"))]
+    return "\n".join(
+        path.read_text() for path in paths if path.name != "tests.rs" and path.is_file()
+    )
+
+
 def action_variants() -> set[str]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    source = strip_rust_comments(config_source())
     return rust_enum_variants(source, "Action")
 
 
 def action_metadata() -> dict[str, dict[str, object]]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    source = strip_rust_comments(config_source())
     body = rust_function_body(source, "metadata")
     metadata: dict[str, dict[str, object]] = {}
     for variant, key, classification, route, execution in re.findall(
@@ -750,9 +842,22 @@ def action_metadata() -> dict[str, dict[str, object]]:
     return metadata
 
 
+def app_rust_source() -> str:
+    """The TUI app module: app.rs plus its child modules under app/ (tests excluded)."""
+    root = TUI / "crates/cmux-tui/src"
+    parts = [(root / "app.rs").read_text()]
+    app_dir = root / "app"
+    if app_dir.is_dir():
+        for path in sorted(app_dir.rglob("*.rs")):
+            relative = path.relative_to(app_dir)
+            if relative.parts[0] in ("tests", "tests.rs"):
+                continue
+            parts.append(path.read_text())
+    return "\n".join(parts)
+
+
 def menu_action_variants() -> set[str]:
-    source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
-    return rust_enum_variants(source, "MenuAction")
+    return rust_enum_variants(app_rust_source(), "MenuAction")
 
 
 MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
@@ -904,7 +1009,7 @@ def menu_keyboard_actions(source: str) -> dict[str, str]:
 
 
 def menu_action_metadata() -> dict[str, dict[str, str]]:
-    app_source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
+    app_source = app_rust_source()
     variants = rust_enum_variants(strip_rust_comments(app_source), "MenuAction")
     action_metadata_by_variant = action_metadata()
     mapping = menu_keyboard_actions(app_source)

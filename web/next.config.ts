@@ -6,15 +6,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import {
+  isDocsZoneDeployment,
+  nightlyDocsOrigin as configuredNightlyDocsOrigin,
+  releaseDocsOrigin as configuredReleaseDocsOrigin,
+} from "./app/lib/docs-channel";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 const docsChannel = process.env.CMUX_DOCS_CHANNEL;
-const isDocsZone = docsChannel === "release" || docsChannel === "nightly";
-const releaseDocsOrigin =
-  process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
-const nightlyDocsOrigin =
-  process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
+const isDocsZone = isDocsZoneDeployment();
+const releaseDocsOrigin = configuredReleaseDocsOrigin();
+const nightlyDocsOrigin = configuredNightlyDocsOrigin();
 // The embedded browser reaches a dev server through its per-instance
 // Tailscale Serve hostname. Published development VMs also use generated
 // `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources

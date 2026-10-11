@@ -5,12 +5,19 @@ public import CmuxNextDaemon
 /// not move: cancel, no target, or a rejected commit. A committed drag
 /// carries a client transaction id that settles it (daemon response or
 /// transaction echo); a late or duplicate settle is ignored.
+///
+/// Every end also runs `release` exactly once: the drag's presentation (the
+/// strip hiding the dragged tab) ends whatever the outcome, so the strip
+/// shows the model's tabs again. A landed move into the tab's own strip
+/// keeps the tab there; the strip must not wait for it to leave (the
+/// dogfood "tab dropped on its own pane disappears" bug). Settle a landed
+/// move only once the store holds its result (`DaemonStore.whenApplied`).
 @MainActor
 public final class TabDragLifecycle {
     public enum Phase: Equatable, Sendable {
         case dragging
         case committing(ClientTransactionID)
-        /// The move landed; the model change removes the tab from the strip.
+        /// The move landed and the store holds its result.
         case settled
         /// The tab was restored to its origin.
         case restored
@@ -18,11 +25,14 @@ public final class TabDragLifecycle {
 
     public private(set) var phase: Phase = .dragging
     private let restore: () -> Void
+    private let release: () -> Void
     private let makeTransaction: () -> ClientTransactionID
 
-    public init(makeTransaction: @escaping () -> ClientTransactionID = { .generate() }, restore: @escaping () -> Void) {
+    public init(makeTransaction: @escaping () -> ClientTransactionID = { .generate() }, restore: @escaping () -> Void,
+                release: @escaping () -> Void = {}) {
         self.makeTransaction = makeTransaction
         self.restore = restore
+        self.release = release
     }
 
     public var isDragging: Bool { phase == .dragging }
@@ -44,6 +54,7 @@ public final class TabDragLifecycle {
         guard phase == .dragging else { return }
         phase = .restored
         restore()
+        release()
     }
 
     /// Starts a commit and returns its transaction id, or nil when the drag
@@ -65,5 +76,6 @@ public final class TabDragLifecycle {
             phase = .restored
             restore()
         }
+        release()
     }
 }

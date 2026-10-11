@@ -5,7 +5,7 @@ import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
 import { issueDashboardTicket } from "../src/dashboard-auth";
 import { objectName } from "../src/routing";
-import { V2DashboardController } from "../../../web/app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
+import { V2DashboardController } from "../../../web/dashboard-app/screens/mobile-devices/v2-dashboard-controller";
 
 let mf: Miniflare;
 let descriptor: any;

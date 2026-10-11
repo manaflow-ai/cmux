@@ -1,36 +1,58 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
-/// Small borderless icon button with a gray hover fill (no blue).
+/// Small borderless icon button with the shared chrome hover and pressed
+/// fills (`ChromeHover`, no blue).
 final class SidebarIconButton: NSButton {
-    private var hovering = false { didSet { needsDisplay = true } }
+    private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
+    /// A fixed glyph color for a button on a colored surface (the group
+    /// header's ink); nil uses the secondary text color, primary on hover.
+    var tintOverride: NSColor? { didSet { needsDisplay = true } }
 
-    private let symbol: String
-    private let weight: NSFont.Weight
-    private let label: String
-    /// Point size read at layout time so density changes apply live.
+    /// Replacing the icon or label redraws the button (a disclosure's chevron).
+    var icon: IconName { didSet { if icon != oldValue { renderedSize = 0; renderIcon() } } }
+    var label: String {
+        didSet {
+            guard label != oldValue else { return }
+            setAccessibilityLabel(label)
+            toolTip = label
+            renderedSize = 0
+            renderIcon()
+        }
+    }
+    /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
+    /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
+    /// the pack has no name for, such as the group editor's emoji button.
+    private var symbol: String?
 
-    init(symbol: String, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, weight: NSFont.Weight = .semibold, label: String) {
-        self.symbol = symbol
-        self.weight = weight
+    init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+        self.icon = icon
         self.label = label
         self.pointSize = pointSize
         super.init(frame: .zero)
-        renderSymbol()
+        renderIcon()
         imagePosition = .imageOnly
         isBordered = false
-        contentTintColor = Palette.textSecondary
         setAccessibilityLabel(label)
         toolTip = label
         wantsLayer = true
-        layer?.cornerCurve = .continuous
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
+        // Hover follows the pointer and the button's frame (cx-3wu5).
+        hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
+    }
+
+    convenience init(symbol: String, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+        self.init(icon: IconName(symbol), pointSize: pointSize, label: label)
+        self.symbol = symbol
+        renderedSize = 0
+        renderIcon()
     }
 
     @available(*, unavailable)
@@ -38,32 +60,63 @@ final class SidebarIconButton: NSButton {
 
     @objc private func pressed() { onPress?() }
 
-    private func renderSymbol() {
+    /// The button's right-click menu (cx-2lm4; the sidebar's New button shows
+    /// the list's empty-space menu); nil keeps AppKit's.
+    var menuProvider: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuProvider?() ?? super.menu(for: event)
+    }
+
+    private func renderIcon() {
         let size = pointSize()
         guard size != renderedSize else { return }
         renderedSize = size
-        let config = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?.withSymbolConfiguration(config)
+        let side = CGFloat.iconRowSize(forLabelPointSize: size)
+        let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
+        image.accessibilityDescription = label
+        self.image = image
     }
 
     override func layout() {
         super.layout()
-        renderSymbol()
+        renderIcon()
     }
 
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
-        layer?.backgroundColor = hovering ? resolvedCGColor(Palette.hoverFill) : nil
+        performWithTheme {
+            contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
+        }
+        hover.refresh(animated: false)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
+        change(&hover.state)
+        needsDisplay = true
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    /// NSButton tracks the click inside `super.mouseDown` and returns on release.
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
+        changeHover { $0.pressed = true }
+        super.mouseDown(with: event)
+        changeHover { $0.pressed = false }
+    }
+
+    /// A button hidden under the pointer (the header + while the sidebar
+    /// is not hovered) gets no exit event; the hover owner clears it, and it
+    /// reappears with the hover the pointer gives it then.
+    override func viewDidHide() {
+        super.viewDidHide()
+        changeHover { $0.pressed = false }
+        hover.pointer?.refresh()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover.pointer?.refresh()
+    }
 }

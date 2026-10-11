@@ -27,7 +27,6 @@ public nonisolated struct SidebarProfile: Hashable, Sendable, Identifiable {
 
     /// Whether `icon` is an emoji (drawn as text) rather than a symbol name.
     public var iconIsEmoji: Bool {
-        guard let icon, let first = icon.unicodeScalars.first else { return false }
-        return !first.isASCII
+        if case .emoji? = IconValue(wire: icon) { true } else { false }
     }
 }

@@ -50,6 +50,16 @@ public final class MockLayoutSource {
             mutateLayouts { $0.settingRatio(ratio, for: split) }
         case let .setColumnWidth(column, _, width, _, _):
             mutateLayouts { $0.settingWidth(width, for: column) }
+        case let .setColumnDock(column, _, dock, transaction):
+            mutateLayouts { $0.settingDock(dock, for: column) }
+            push()
+            model.settleTransaction(transaction)
+            return
+        case let .setRowHeights(column, heights, _):
+            mutateLayouts { $0.settingRowHeights(heights, for: column) }
+        case .newRow, .cancelGesture:
+            // The demo's mock daemon has no rows and no gesture transactions.
+            return
         case let .newColumn(after, width):
             let pane = PaneID(makeID("p"))
             insertColumn(LayoutColumn(id: ColumnID(makeID("c")), width: width, root: .leaf(pane)), afterColumnContaining: after)
@@ -70,6 +80,9 @@ public final class MockLayoutSource {
                 split(pane, axis: axis, newPane: new, newFirst: zone == .left || zone == .top)
             case let .newColumn(screen, after):
                 insertColumn(LayoutColumn(id: ColumnID(makeID("c")), root: .leaf(new)), inScreen: screen, after: after)
+            case let .newDock(screen, edge):
+                insertColumn(LayoutColumn(id: ColumnID(makeID("c")), width: 0.3, root: .leaf(new),
+                                          dock: DockColumn(edge: edge, mode: .docked)), inScreen: screen, after: nil)
             }
             push()
             model.focus(new)
@@ -88,7 +101,9 @@ public final class MockLayoutSource {
                 screens[index].layout = .columns(columns.compactMap { column in
                     guard column.root.contains(pane) else { return column }
                     guard let root = Self.removing(pane, from: column.root) else { return nil }
-                    return LayoutColumn(id: column.id, width: column.width, root: root)
+                    var column = column
+                    column.root = root
+                    return column
                 })
             }
         }
@@ -115,7 +130,11 @@ public final class MockLayoutSource {
         mutateLayouts { layout in
             switch layout {
             case let .splits(root): .splits(replace(root))
-            case let .columns(columns): .columns(columns.map { LayoutColumn(id: $0.id, width: $0.width, root: replace($0.root)) })
+            case let .columns(columns): .columns(columns.map { column in
+                var column = column
+                column.root = replace(column.root)
+                return column
+            })
             }
         }
     }
@@ -157,55 +176,5 @@ public final class MockLayoutSource {
             case (nil, nil): return nil
             }
         }
-    }
-}
-
-/// Colored placeholder panes for the demo.
-public final class MockPaneContentProvider: LayoutPaneContentProvider {
-    public private(set) var presence: [PaneID: PanePresence] = [:]
-
-    public init() {}
-
-    public func makeContentView(for pane: PaneID) -> NSView {
-        MockPaneView(pane: pane)
-    }
-
-    public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {
-        self.presence[pane] = presence
-    }
-}
-
-private final class MockPaneView: NSView {
-    private let hue: CGFloat
-    private let label: NSTextField
-
-    init(pane: PaneID) {
-        var hash: UInt64 = 1469598103934665603
-        for byte in pane.rawValue.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
-        hue = CGFloat(hash % 360) / 360
-        label = NSTextField(labelWithString: String(localized: "layout.demo.paneTitle", defaultValue: "Pane \(pane.rawValue)", bundle: .module))
-        super.init(frame: .zero)
-        wantsLayer = true
-        label.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        label.textColor = NSColor(white: 1, alpha: 0.85)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-        ])
-        updateLayer()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor(hue: hue, saturation: 0.35, brightness: 0.42, alpha: 1).cgColor
     }
 }

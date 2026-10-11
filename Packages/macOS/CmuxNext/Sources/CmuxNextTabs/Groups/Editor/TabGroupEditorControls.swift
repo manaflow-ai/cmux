@@ -55,8 +55,8 @@ final class TabGroupSwatchView: NSView {
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            fill.backgroundColor = color.swatch.cgColor
+        performWithTheme {
+            fill.backgroundColor = color.headerFill.cgColor
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
         }
         setAccessibilityValue(isChosen ? 1 : 0)
@@ -79,7 +79,7 @@ final class TabGroupSwatchView: NSView {
 final class TabGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     private let label = NSTextField(labelWithString: "")
-    private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
+    private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(title: String) {
         super.init(frame: .zero)
@@ -87,7 +87,6 @@ final class TabGroupEditorRow: NSView {
         layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.cornerCurve = .continuous
         label.font = Typography.body
-        label.textColor = Palette.textPrimary
         label.stringValue = title
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -102,6 +101,7 @@ final class TabGroupEditorRow: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        updateColors()
     }
 
     @available(*, unavailable)
@@ -122,9 +122,10 @@ final class TabGroupEditorRow: NSView {
         updateColors()
     }
 
-    private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+    private func updateColors(animated: Bool = false) {
+        performWithTheme {
+            if let layer { ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: animated) }
+            label.textColor = Palette.textPrimary
         }
     }
 

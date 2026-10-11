@@ -17,7 +17,7 @@ final class TabSymbolCache {
         let pixels = Int((size * scale).rounded())
         guard let context = CGContext(
             data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
         context.scaleBy(x: scale, y: scale)
         let graphics = NSGraphicsContext(cgContext: context, flipped: false)

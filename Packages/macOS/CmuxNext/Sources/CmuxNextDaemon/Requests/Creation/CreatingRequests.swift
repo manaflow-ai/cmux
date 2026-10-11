@@ -44,6 +44,12 @@ extension CreateTerminalRequest: DaemonCreatingRequest {
     }
 }
 
+extension NewFrontendBrowserTabRequest: DaemonCreatingRequest {
+    public func createdObjects(in response: Response) -> [DaemonCreatedObject] {
+        [DaemonCreatedObject(.tab, response.surface.description)]
+    }
+}
+
 extension CreateWorkspaceRequest: DaemonCreatingRequest {
     public func createdObjects(in response: WorkspaceMutationResult) -> [DaemonCreatedObject] {
         [DaemonCreatedObject(.workspace, response.key.rawValue)]

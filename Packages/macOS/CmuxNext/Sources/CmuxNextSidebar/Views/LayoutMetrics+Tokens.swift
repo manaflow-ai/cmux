@@ -12,6 +12,7 @@ extension SidebarLayoutMetrics {
             groupHeaderHeight: Metrics.sidebarRowHeight,
             rowHeight: Metrics.sidebarRowHeight,
             rowHeightWithSubtitle: Metrics.sidebarRowHeightWithSubtitle,
+            tabRowHeight: Metrics.sidebarRowHeight,
             rowSpacing: Metrics.space1,
             groupBottomPadding: Metrics.space3,
             emptySectionHeight: Metrics.sidebarRowHeight

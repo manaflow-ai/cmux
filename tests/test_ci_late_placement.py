@@ -385,7 +385,7 @@ class Workflow(unittest.TestCase):
                 # placement skips fork heads, so its output is {} there anyway.
                 fork_pr = (
                     "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
-                    " != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
+                    " != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
                     " || 'blacksmith-6vcpu-macos-15') || "
                 )
                 self.assertTrue(spec["runs-on"].startswith("${{ " + late)

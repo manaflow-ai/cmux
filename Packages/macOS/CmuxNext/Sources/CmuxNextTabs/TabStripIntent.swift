@@ -1,7 +1,7 @@
 public import CoreGraphics
 public import Foundation
 
-/// What caused a close. `mouse` and `middleClick` enter Chrome's closing mode,
+/// What caused a close. `mouse` and `middleClick` enter closing mode,
 /// which keeps tab widths frozen until the pointer leaves the strip.
 public enum TabCloseSource: Hashable, Sendable {
     case mouse
@@ -29,7 +29,9 @@ public enum TabStripIntent: Equatable, Sendable {
     /// Drag reorder inside one strip. `to` is the final index of the tab.
     case reorder(TabID, from: Int, to: Int)
     /// `after` is nil for the new-tab button and empty-space double-click (append).
-    case newTab(after: TabID?)
+    /// `opensWorkspace` is a one-shot Option-double-click override for terminal tabs.
+    /// `sameKind`: Option-click on the + (New <Kind> Tab, cmuxterm-hq#1829).
+    case newTab(after: TabID?, opensWorkspace: Bool = false, sameKind: Bool = false)
     case pin(TabID)
     case unpin(TabID)
     case rename(TabID)
@@ -39,8 +41,6 @@ public enum TabStripIntent: Equatable, Sendable {
     case duplicate(TabID)
     case moveToNewSplit(TabID, TabSplitDirection)
     case moveToNewColumn(TabID)
-    /// A trailing group button (`TabStripModel.trailingButtons`) was clicked.
-    case trailingButton(String)
     /// A tab was dragged out of the strip. The App's drag session takes over
     /// pointer tracking; the strip keeps the slot collapsed until the model
     /// drops the tab or the App calls `TabStripView.restoreDetachedTab`.
@@ -58,7 +58,7 @@ public enum TabStripIntent: Equatable, Sendable {
     /// `orderedTabs`, or nil to append it to the group.
     case addToGroup(TabID, TabGroupID, index: Int?)
     /// A tab left its group. `index` is its final index, or nil to place it
-    /// right after the group (Chrome's "Remove from group").
+    /// right after the group ("Remove from group").
     case removeFromGroup(TabID, index: Int?)
     /// A group chip was dragged out of the strip. Same contract as
     /// `dragBegan`: the App must end it with a model change or

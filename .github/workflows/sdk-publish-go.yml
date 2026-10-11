@@ -30,6 +30,12 @@ concurrency:
   group: sdk-publish-go-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
 jobs:
   version:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -127,6 +133,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-go:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     if: inputs.verify_tag != true
     needs: version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -139,7 +147,7 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -198,6 +206,9 @@ jobs:
           go test ./...
           go build ./...
           go vet ./...
+
+      - name: Check the Go module license
+        run: python3 cmux-tui/bindings/check_package_license.py go-module cmux-tui/bindings/go
 
   verify-versioned-go-module:
     if: inputs.verify_tag == true

@@ -9,7 +9,10 @@ public import Foundation
 ///    searches.
 /// 2. Explicit `http`, `https`, `file`, and `about:blank` load; with
 ///    `allowsChromiumSchemes` (Chromium tabs) also `chrome://` WebUI and
-///    `chrome-extension://` pages. Every other scheme (`javascript:`,
+///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
+///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
+///    is `chrome://extensions/`); every tab also takes the `chrome://` pages
+///    cmux shows itself (ChromiumPageRoute). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
@@ -93,7 +96,7 @@ public nonisolated struct BrowserURLResolver: Sendable {
         let port = afterColon.prefix { $0.isNumber }
         if !port.isEmpty, !afterColon.hasPrefix("//") {
             let rest = afterColon.dropFirst(port.count)
-            if rest.isEmpty || "/?#".contains(rest.first!) {
+            if rest.first.map({ "/?#".contains($0) }) ?? true {
                 return nil
             }
         }
@@ -112,14 +115,22 @@ public nonisolated struct BrowserURLResolver: Sendable {
             guard let url = URL(string: text), url.isFileURL, url.path().hasPrefix("/") else { return nil }
             return url
         case "about":
-            return text.lowercased() == "about:blank" ? URL(string: "about:blank") : nil
+            if text.lowercased() == "about:blank" { return URL(string: "about:blank") }
+            return chromiumPage(text, scheme: scheme)
         case "chrome", "chrome-extension":
-            guard allowsChromiumSchemes, let components = URLComponents(string: text),
-                  let host = components.host, !host.isEmpty else { return nil }
-            return components.url
+            return chromiumPage(text, scheme: scheme)
         default:
             return nil
         }
+    }
+
+    /// A Chromium internal page in canonical form. A WebKit tab takes only
+    /// the pages cmux shows itself (`chrome://history`, `chrome://bookmarks`,
+    /// `chrome://settings`: ChromiumPageRoute); the host routes them.
+    private func chromiumPage(_ text: String, scheme: String) -> URL? {
+        guard let page = ChromiumInternalURL(text, scheme: scheme)?.url else { return nil }
+        if allowsChromiumSchemes { return page }
+        return ChromiumPageRoute(page)?.isCmuxOwned == true ? page : nil
     }
 
     // MARK: Scheme-less

@@ -123,3 +123,12 @@ func sampleCatalog(contextMask: UInt32 = 0) -> ControlCatalog {
         debugActionsAvailable: true
     )
 }
+
+extension ControlRouter.Configuration {
+    /// For router tests that do not test a deadline. The full package run
+    /// shares the main actor with thousands of tests, so a queued
+    /// `action.run` can wait seconds before it starts; the production 2 s
+    /// deadline would then answer `timeout` and the test would check the
+    /// wrong thing. Deadline tests set their own short deadlines.
+    static let loadTolerant = ControlRouter.Configuration(requestDeadline: .seconds(30))
+}

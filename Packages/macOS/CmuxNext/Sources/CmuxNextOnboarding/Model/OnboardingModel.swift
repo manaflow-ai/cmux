@@ -2,85 +2,86 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// The onboarding flow: five skippable steps and their state. Every step's
-/// work is async and cancellable; nothing here blocks the main thread.
+/// The tool window: one screen for one tool, Import from Browser or
+/// Computer Use setup (Lawrence 2026-10-09: no onboarding window, no
+/// sequence). Work is async and cancellable; nothing here blocks the main
+/// thread.
 @MainActor
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case welcome, importData, defaultBrowser, defaultTerminal, tour
+        case importData, computerUse
     }
 
-    public private(set) var step: Step
-    /// Direction of the last move, for the slide animation.
-    public private(set) var movedForward = true
-    public let theme: ThemeStepModel
+    /// The tool this window shows; it never changes.
+    public let step: Step
+    /// The screens of this window: only `step`.
+    public var steps: [Step] { [step] }
     public let importer: ImportStepModel
-    public let defaults: DefaultAppsStepModel
-    public let tour: TourStepModel
+    public let computerUse: ComputerUseStepModel
     @ObservationIgnored public let services: any OnboardingServices
-    /// Set once the flow ended, so a second close does not report twice.
+    /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    public init(services: any OnboardingServices, start: Step = .welcome) {
+    public init(services: any OnboardingServices, step: Step) {
         self.services = services
-        step = start
-        theme = ThemeStepModel(services: services)
+        self.step = step
         importer = ImportStepModel(services: services)
-        defaults = DefaultAppsStepModel(services: services)
-        tour = TourStepModel(services: services)
+        computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
     }
 
-    public var index: Int { Step.allCases.firstIndex(of: step) ?? 0 }
-    public var isFirst: Bool { step == Step.allCases.first }
-    public var isLast: Bool { step == Step.allCases.last }
+    /// The primary button: Find Browsers on the import step before a person
+    /// asked for them, Import while it has a checked choice it has not run,
+    /// else Done.
+    public var primaryTitle: String {
+        if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
+        if step == .importData, importer.canStart { return OnboardingStrings.importButton }
+        return OnboardingStrings.done
+    }
 
-    /// Continue: commits the step's choices, then moves on (or finishes).
+    /// The primary button. On the import step with a choice to run it
+    /// starts the import and stays, so the rows show it; otherwise it ends
+    /// the window (a running import keeps going in the background).
     public func next() {
-        if step == .welcome { theme.commit() }
-        guard !isLast else { return finish(completed: true) }
-        go(to: Step.allCases[index + 1])
-    }
-
-    public func back() {
-        guard !isFirst else { return }
-        go(to: Step.allCases[index - 1])
-    }
-
-    /// Skip this step: move on without committing it.
-    public func skipStep() {
-        if step == .welcome { theme.revert() }
-        guard !isLast else { return finish(completed: true) }
-        go(to: Step.allCases[index + 1])
-    }
-
-    public func go(to target: Step) {
-        guard target != step else { return }
-        movedForward = (Step.allCases.firstIndex(of: target) ?? 0) > index
-        step = target
-        stepDidAppear()
-    }
-
-    /// Starts the step's lazy work (theme files, browser detection, handler state).
-    public func stepDidAppear() {
         switch step {
-        case .welcome: theme.load()
-        case .importData: importer.detect()
-        case .defaultBrowser, .defaultTerminal: defaults.refresh()
-        case .tour: break
+        case .importData where importer.justStarted:
+            return
+        case .importData where importer.phase == .idle:
+            importer.detect()
+            return
+        case .importData where importer.canStart:
+            importer.start()
+            return
+        default:
+            finish(completed: true)
         }
     }
 
-    /// Ends the flow: `completed` false means skipped (Escape, Skip All, close button).
+    /// Skip (Escape): ends the window; a running import finishes.
+    public func skipStep() {
+        finish(completed: false)
+    }
+
+    /// Starts the step's lazy work. Browser detection reads other apps'
+    /// data: only Find Browsers starts it.
+    public func stepDidAppear() {
+        if step == .computerUse { computerUse.start() }
+    }
+
+    /// The window closed without Skip or Done (the close button, quit):
+    /// work stops.
+    public func leave() {
+        guard !ended else { return }
+        ended = true
+        computerUse.stop()
+    }
+
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
-        importer.cancel()
-        // Closing before Continue on the welcome step undoes the live theme.
-        if !completed, !theme.isCommitted { theme.revert() }
-        services.onboardingDidEnd(completed: completed)
+        computerUse.stop()
         onEnd?(completed)
     }
 }

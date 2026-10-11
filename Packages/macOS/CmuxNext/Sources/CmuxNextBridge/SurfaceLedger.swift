@@ -12,7 +12,7 @@
 /// suspending or evicting the surface its destination now shows.
 ///
 /// A key renders while its owner is visible. A key whose owner is in the
-/// keep-alive band (an off-screen niri column within one viewport width,
+/// keep-alive band (an off-screen strip column within one viewport width,
 /// architecture.md 4) is paused but pinned: never evicted, so scrolling back
 /// shows it at once. Other keys that stop rendering enter the
 /// ``SurfaceRetention`` LRU; an evicted key is destroyed, and if a pane still

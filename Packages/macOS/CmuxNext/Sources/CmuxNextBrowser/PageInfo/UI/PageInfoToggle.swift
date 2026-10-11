@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Chrome's permission toggle, in theme grays: the track is the foreground
-/// when on (Chrome: its blue accent) and a faint fill when off.
+/// The permission toggle, in theme grays: the track is the foreground
+/// when on (no accent color) and a faint fill when off.
 final class PageInfoToggle: NSView {
     var onChange: ((Bool) -> Void)?
 
@@ -59,7 +59,7 @@ final class PageInfoToggle: NSView {
         let diameter = size.height - inset * 2
         knob.frame = CGRect(x: isOn ? size.width - inset - diameter : inset, y: inset, width: diameter, height: diameter)
         knob.cornerRadius = diameter / 2
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             track.backgroundColor = (isOn ? PageInfoStyle.text : PageInfoStyle.pressed).cgColor
             knob.backgroundColor = (isOn ? PageInfoStyle.background : PageInfoStyle.secondaryText).cgColor
         }

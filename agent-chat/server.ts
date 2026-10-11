@@ -16,17 +16,20 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { discoverHarnesses } from "./harnesses";
 import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
-import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { OpenCodes } from "./open-codes";
+import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
+import { closeSync, readFileSync, readSync, statSync, watch, type FSWatcher } from "node:fs";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename as pathBasename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { basename as pathBasename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 function argValue(name: string): string | undefined {
   const eq = Bun.argv.find((arg) => arg.startsWith(`${name}=`));
@@ -36,43 +39,83 @@ function argValue(name: string): string | undefined {
 }
 
 const PORT = Number(argValue("--port") ?? process.env.CMUX_AGENT_CHAT_PORT ?? process.env.CMUX_AGENT_UI_PORT ?? 7739);
-const AUTH_TOKEN = argValue("--token") ?? process.env.CMUX_AGENT_CHAT_TOKEN ?? "";
-if (AUTH_TOKEN.includes("/")) throw new Error("CMUX_AGENT_CHAT_TOKEN must be a single path segment");
-const AUTH_PREFIX = AUTH_TOKEN ? `/${encodeURIComponent(AUTH_TOKEN)}` : "";
+// Every route but /healthz lives under /<token>/ (D5: no unauthenticated
+// localhost HTTP). A launcher hands its token over an inherited descriptor
+// (--token-fd N); without one the server makes a per-launch token and writes
+// it to an owner-only file (CMUX_AGENT_CHAT_TOKEN_FILE, default
+// ~/.cmux/agent-chat/token-<port>) that `cmux-chat` reads. A token in argv or
+// the environment, which other local processes can read, is refused.
+function givenToken(): string {
+  if (Bun.argv.some((a) => a === "--token" || a.startsWith("--token="))) {
+    throw new Error("--token is refused (argv is visible to other processes); pass the token with --token-fd");
+  }
+  if (process.env.CMUX_AGENT_CHAT_TOKEN !== undefined) {
+    throw new Error("CMUX_AGENT_CHAT_TOKEN is refused (the environment is visible to other processes); pass the token with --token-fd");
+  }
+  const raw = argValue("--token-fd");
+  if (raw === undefined) return "";
+  if (!/^[0-9]+$/.test(raw ?? "") || Number(raw) < 3) throw new Error(`--token-fd needs a descriptor number of 3 or more, got ${JSON.stringify(raw)}`);
+  const fd = Number(raw);
+  // One line of at most 512 bytes: a launcher that keeps its end of the pipe
+  // open does not stall the start once the newline is written.
+  const buf = Buffer.alloc(512);
+  let len = 0;
+  while (len < buf.length && !buf.subarray(0, len).includes(10)) {
+    const n = readSync(fd, buf, len, buf.length - len, null);
+    if (n === 0) break;
+    len += n;
+  }
+  closeSync(fd);
+  const token = buf.subarray(0, len).toString("utf8").split("\n")[0].trim();
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) throw new Error("--token-fd: the token must be 32-256 characters of [A-Za-z0-9_-]");
+  return token;
+}
+const GIVEN_TOKEN = givenToken();
+const AUTH_TOKEN = GIVEN_TOKEN || randomBytes(32).toString("base64url");
+const AUTH_PREFIX = `/${encodeURIComponent(AUTH_TOKEN)}`;
 const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE ?? "";
 
 // The sidecar binds loopback only, but browsers can still reach loopback from
-// arbitrary web origins (CSRF against the WS control plane) and DNS rebinding
-// can defeat a bind-address check alone. Require a loopback Host header and
-// for browser-originated requests, a same-origin Origin header. Requests
-// without an Origin header (CLI curl, Bun's WebSocket client) are trusted.
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+// arbitrary web origins (CSRF) and DNS rebinding defeats a bind-address check
+// alone. Every request needs a Host that names this server (a loopback name
+// with its own port), and a browser request (one with an Origin) must come
+// from this server's own origin. Requests without an Origin (curl, Bun's
+// WebSocket client, navigations) pass the Origin rule.
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
-function hasTrustedHost(req: Request): boolean {
-  const host = req.headers.get("host") ?? "";
+function namesThisServer(authority: string, port: number): boolean {
   try {
-    return LOOPBACK_HOSTS.has(new URL(`http://${host}`).hostname);
+    const url = new URL(`http://${authority}`);
+    return LOOPBACK_HOSTS.has(url.hostname) && url.port === String(port) && url.host === authority.toLowerCase();
   } catch {
     return false;
   }
 }
 
-function hasTrustedOrigin(req: Request): boolean {
+function hasTrustedHost(req: Request, port: number): boolean {
+  return namesThisServer(req.headers.get("host") ?? "", port);
+}
+
+function hasTrustedOrigin(req: Request, port: number): boolean {
   const origin = req.headers.get("origin");
   if (origin === null) return true;
-  try {
-    const u = new URL(origin);
-    return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname) && u.host === (req.headers.get("host") ?? "");
-  } catch {
-    return false;
-  }
+  if (!origin.startsWith("http://")) return false;
+  return namesThisServer(origin.slice("http://".length).replace(/\/$/, ""), port);
+}
+
+/// Constant-time equality of two path segments (the length is not secret).
+function sameSegment(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function stripAuthPrefixWithToken(url: URL, token: string): URL | null {
-  const prefix = token ? `/${encodeURIComponent(token)}` : "";
-  if (!prefix) return url;
   if (url.pathname === "/healthz") return url;
-  if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) return null;
+  const prefix = `/${encodeURIComponent(token)}`;
+  const end = url.pathname.indexOf("/", 1);
+  const segment = end === -1 ? url.pathname : url.pathname.slice(0, end);
+  if (!token || !sameSegment(segment, prefix)) return null;
   const next = new URL(url);
   next.pathname = url.pathname.slice(prefix.length) || "/";
   return next;
@@ -82,10 +125,26 @@ function stripAuthPrefix(url: URL): URL | null {
   return stripAuthPrefixWithToken(url, AUTH_TOKEN);
 }
 
+/// The per-launch token file for `cmux-chat`: 0600 in a 0700 folder, replaced
+/// atomically, only when the server made its own token.
+async function writeTokenFile(port: number) {
+  if (GIVEN_TOKEN) return;
+  const path = process.env.CMUX_AGENT_CHAT_TOKEN_FILE || join(homedir(), ".cmux", "agent-chat", `token-${port}`);
+  const dir = dirname(path);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
+  // A tmp file left by a crashed server with the same pid would make `wx` fail.
+  await rm(tmp, { force: true });
+  await writeFile(tmp, AUTH_TOKEN + "\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
+  await rename(tmp, path);
+}
+
 export function stripAuthPrefixForTest(path: string, token: string): string | null {
   const stripped = stripAuthPrefixWithToken(new URL(`http://127.0.0.1${path}`), token);
   return stripped?.pathname ?? null;
 }
+
+const openCodes = new OpenCodes();
 
 function prefixedPath(path: string): string {
   return `${AUTH_PREFIX}${path}`;
@@ -115,13 +174,16 @@ export async function writeStateFileForTest(path: string, port: number) {
 initializeAgentPath(process.env, process.platform);
 const ROOT = import.meta.dir;
 const DEFAULT_CWD = `${ROOT}/scratch`;
-const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
 const FILE_DIFF_ALLOWLIST_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
 const GIT_TIMEOUT_MS = 10_000;
+/// Reading one config value is fast, and this runs on the path that starts a
+/// session, so an unresponsive directory gives up quickly and the session
+/// starts without links rather than waiting on it.
+const REPOSITORY_SLUG_TIMEOUT_MS = 2_000;
 const DONE_FILES_TIMEOUT_MS = 2_000;
 const TURN_BASELINE_TIMEOUT_MS = 3_000;
 const MAX_TURN_BASELINES = 4;
@@ -188,6 +250,11 @@ interface Session extends SessionCtx {
     disposeTimer?: ReturnType<typeof setTimeout>;
     /** What the agent is waiting on in the terminal (permission, question), if anything. */
     attention?: string | null;
+    /** cmux agent messages waiting for the agent, and when they were last read. */
+    queuedMessages?: QueuedAgentMessage[];
+    queuedCheckedAt?: number;
+    queuedInflight?: boolean;
+    queuedReadFailed?: boolean;
   };
 }
 interface WsData {
@@ -199,7 +266,9 @@ const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
-const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+const startRequests = new Map<string, { promise: Promise<Session>; settledAt?: number; stopped?: boolean; session?: Session }>();
+const startRequestSessions = new Map<string, { session: Session; stopped?: boolean }>();
+const sessionActionRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
@@ -238,7 +307,13 @@ function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Prom
 function pruneStartRequests() {
   const now = Date.now();
   for (const [key, entry] of startRequests) {
-    if (now - entry.createdAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+    if (entry.settledAt !== undefined && now - entry.settledAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+  }
+}
+function pruneSessionActionRequests() {
+  const now = Date.now();
+  for (const [key, entry] of sessionActionRequests) {
+    if (now - entry.createdAt > START_REQUEST_TTL_MS) sessionActionRequests.delete(key);
   }
 }
 const keyConfig = await readKeyConfig();
@@ -256,8 +331,17 @@ function sessionSummary(s: Session) {
     parentConversationId: s.parentConversationId,
     startRequestId: s.startRequestId,
     capabilities: s.transcript ? s.adapter.capabilities : capabilitiesFor(s.provider),
-    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null } : {}),
+    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null, queuedMessages: s.transcript.queuedMessages ?? [] } : {}),
   };
+}
+
+export function stripQueuedMessages(summary: Record<string, unknown>): Record<string, unknown> {
+  const { queuedMessages: _queuedMessages, ...withoutQueuedMessages } = summary;
+  return withoutQueuedMessages;
+}
+
+function sessionListSummary(s: Session) {
+  return stripQueuedMessages(sessionSummary(s));
 }
 
 function capabilitiesFor(provider: string): ProviderCapabilities {
@@ -310,14 +394,14 @@ function providerInfo(p: ProviderDef) {
     // every provider reads as uninstalled under launchd's minimal PATH.
     installed: Boolean(Bun.which(p.cmd?.[0] ?? p.id, { PATH: process.env.PATH })),
     installCommand: p.installCommand,
-    ...(providerIconInfo.get(p.id) ?? {}),
   };
 }
 
 function broadcastSessions() {
   const payload = JSON.stringify({
     kind: "sessions",
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+    // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary),
   });
   for (const ws of allSockets) ws.send(payload);
 }
@@ -394,6 +478,9 @@ function createSession(
         return;
       }
       emitSessionEvent(sess, evt);
+    },
+    resetHistory() {
+      resetSessionHistory(sess);
     },
     setStatus(status: SessionStatus) {
       const pendingDone = sess.internal.pendingDoneEmit as Promise<void> | undefined;
@@ -478,6 +565,12 @@ function broadcastSessionHistory(sess: Session) {
     events: sess.events,
   });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+export function resetSessionHistory(sess: Session) {
+  sess.events.length = 0;
+  delete sess.internal.eventGenerations;
+  broadcastSessionHistory(sess);
 }
 
 function activeAttributionGenerations(sess: Session): number[] {
@@ -584,8 +677,14 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 
 function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
   if (sess.transcript) {
-    // Typed into the terminal's agent; the transcript records the prompt.
-    void sess.adapter.send(sess, prompt);
+    // Typed into the terminal's agent; the transcript records the prompt, so
+    // there is no turn generation to unwind and no "done" to emit. The send
+    // can still reject (a replaced agent process, a failed spawn), and that
+    // has to reach the user rather than becoming an unhandled rejection.
+    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+    });
     return;
   }
   emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
@@ -649,12 +748,10 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
     // The agent's transcript moved (for example a resolved fallback path):
     // re-point the same session so open pages stay subscribed.
     existing.adapter.dispose(existing);
-    existing.events.length = 0;
-    delete existing.internal.eventGenerations;
     existing.transcript.path = source.path;
     existing.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
     startTranscriptTail(existing, source);
-    broadcastSessionHistory(existing);
+    resetSessionHistory(existing);
     return existing;
   }
   const sess = createSession(source.agent, source.cwd ?? DEFAULT_CWD, false, transcriptTitle(source), {}, {}, {
@@ -675,17 +772,66 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
     const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
     for (const ws of sess.sockets) ws.send(payload);
   }, { onTick: () => refreshTranscriptAttention(sess, source) });
+  // Seed attention before the first history replay. Hook state is independent
+  // of the JSONL transcript, so a reload while a terminal is waiting can have
+  // no file tick to trigger the callback.
+  refreshTranscriptAttention(sess, source);
 }
 
 // Permission prompts, questions, and pickers live in the terminal and are not
 // in the transcript until answered; the hook store says when the agent waits.
 function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
-  if (!sess.transcript || !sess.sockets.size) return;
+  if (!sess.transcript) return;
+  if (sess.sockets.size) refreshQueuedMessages(sess);
   const attention = transcriptAttention(source.agent, source.sessionId);
   if ((sess.transcript.attention ?? null) === attention) return;
   sess.transcript.attention = attention;
+  if (!sess.sockets.size) return;
   const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+// Queued cmux agent messages live in the app, not the transcript. Each read
+// spawns the CLI, so it runs at most every couple of seconds while a page is
+// open; delivered messages then appear in the transcript itself.
+const QUEUED_MESSAGES_REFRESH_MS = 2_000;
+// After a failed read (an app without the method, or a busy app), wait longer.
+const QUEUED_MESSAGES_RETRY_MS = 30_000;
+
+function refreshQueuedMessages(sess: Session) {
+  const transcript = sess.transcript;
+  if (!transcript || transcript.queuedInflight) return;
+  const now = Date.now();
+  const interval = transcript.queuedReadFailed ? QUEUED_MESSAGES_RETRY_MS : QUEUED_MESSAGES_REFRESH_MS;
+  if (transcript.queuedCheckedAt && now - transcript.queuedCheckedAt < interval) return;
+  transcript.queuedCheckedAt = now;
+  transcript.queuedInflight = true;
+  void queuedTranscriptMessages(sess)
+    .then((messages) => {
+      transcript.queuedReadFailed = messages === undefined;
+      if (messages === undefined) return;
+      if (JSON.stringify(transcript.queuedMessages ?? []) === JSON.stringify(messages)) return;
+      transcript.queuedMessages = messages;
+      const payload = JSON.stringify({ kind: "session-queued-messages", sessionId: sess.id, messages });
+      for (const ws of sess.sockets) ws.send(payload);
+    })
+    .catch(() => {
+      transcript.queuedReadFailed = true;
+    })
+    .finally(() => {
+      transcript.queuedInflight = false;
+    });
+}
+
+function refreshExistingTranscriptSession(sess: Session): Session {
+  if (!sess.transcript) return sess;
+  const target = sess.internal.transcriptTarget as { agentSessionId?: string } | undefined;
+  if (!target?.agentSessionId) return sess;
+  const source = resolveSessionTranscript(target.agentSessionId);
+  if (!source) return sess;
+  const refreshed = ensureTranscriptSession(source);
+  refreshTranscriptAttention(refreshed, source);
+  return refreshed;
 }
 
 function resolveTranscriptSessionById(id: string): Session | undefined {
@@ -770,14 +916,69 @@ async function handoffSession(source: Session): Promise<Session> {
   return forkSession(source, "user_handoff");
 }
 
-async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
+async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string; repositorySlug?: string }> {
   try {
     const s = await stat(cwd);
-    if (s.isDirectory()) return { ok: true };
+    if (s.isDirectory()) {
+      const repositorySlug = await gitHubRepositorySlug(cwd);
+      return repositorySlug ? { ok: true, repositorySlug } : { ok: true };
+    }
   } catch {
     // Fall through to the stable user-facing message.
   }
   return { ok: false, message: `working directory does not exist: ${cwd}` };
+}
+
+/// The `owner/name` GitHub repository a directory's `origin` remote names.
+///
+/// The transcript uses this to resolve bare references such as `#847`. A
+/// directory outside a repository, or one whose `origin` is not on github.com,
+/// has no slug, and those references then stay text rather than guessing.
+/// How long a slug is trusted before `git` is asked again.
+///
+/// A directory that has a remote keeps it, so the answer is reused for a long
+/// while. A directory that has none is a different case: an agent that runs
+/// `git init` and `git remote add` in the session directory would otherwise
+/// never get links until the server restarts, so a miss is only held briefly.
+const REPOSITORY_SLUG_TTL_MS = 10 * 60_000;
+const REPOSITORY_SLUG_MISS_TTL_MS = 30_000;
+/// `check-cwd` takes any directory the client names, so the map is bounded and
+/// the oldest entry is dropped rather than letting it grow for the process
+/// lifetime.
+const REPOSITORY_SLUG_CACHE_MAX = 256;
+const repositorySlugCache = new Map<string, { slug: string | null; expiresAt: number }>();
+/// Concurrent `check-cwd` messages for the same directory share one `git` run.
+const repositorySlugInFlight = new Map<string, Promise<string | null>>();
+
+async function gitHubRepositorySlug(cwd: string): Promise<string | null> {
+  const cached = repositorySlugCache.get(cwd);
+  if (cached && cached.expiresAt > Date.now()) return cached.slug;
+  const inFlight = repositorySlugInFlight.get(cwd);
+  if (inFlight) return inFlight;
+  const pending = readRepositorySlug(cwd).finally(() => repositorySlugInFlight.delete(cwd));
+  repositorySlugInFlight.set(cwd, pending);
+  return pending;
+}
+
+async function readRepositorySlug(cwd: string): Promise<string | null> {
+  let slug: string | null = null;
+  try {
+    const remote = await gitOutput(cwd, ["config", "--get", "remote.origin.url"], 4_000, REPOSITORY_SLUG_TIMEOUT_MS);
+    slug = gitHubSlugFromRemoteURL(remote);
+  } catch {
+    // Not a repository, no origin, or git was too slow. All mean no slug.
+  }
+  repositorySlugCache.delete(cwd);
+  repositorySlugCache.set(cwd, {
+    slug,
+    expiresAt: Date.now() + (slug ? REPOSITORY_SLUG_TTL_MS : REPOSITORY_SLUG_MISS_TTL_MS),
+  });
+  while (repositorySlugCache.size > REPOSITORY_SLUG_CACHE_MAX) {
+    const oldest = repositorySlugCache.keys().next();
+    if (oldest.done) break;
+    repositorySlugCache.delete(oldest.value);
+  }
+  return slug;
 }
 
 async function assertCwd(cwd: string) {
@@ -1400,7 +1601,7 @@ export function resolveFileDiffPath(cwd: string, path: string): string {
   return rel.replaceAll("\\", "/");
 }
 
-function fileDiffAllowlist(sess: Session): Set<string> {
+function fileDiffAllowlist(sess: Pick<Session, "internal">): Set<string> {
   let allowed = sess.internal.fileDiffAllowlist as Set<string> | undefined;
   if (!allowed) {
     allowed = new Set();
@@ -1435,7 +1636,7 @@ function rebuildFileDiffAllowlist(sess: Session) {
   }
 }
 
-function assertFileDiffAllowed(sess: Session, safePath: string) {
+function assertFileDiffAllowed(sess: Pick<Session, "internal">, safePath: string) {
   if (!fileDiffAllowlist(sess).has(safePath)) throw new Error("path was not reported by this session");
 }
 
@@ -1499,39 +1700,6 @@ async function walkFiles(root: string): Promise<string[]> {
   await visit(root, 0);
   return out;
 }
-
-function iconFile(provider: string, dark: boolean): string | null {
-  const file = provider === "claude" ? "Claude.imageset/Claude@2x.png"
-    : provider === "codex" ? `Codex.imageset/${dark ? "Codex-dark@2x.png" : "Codex@2x.png"}`
-      : provider === "opencode" ? "OpenCode.imageset/OpenCode@2x.png"
-        : provider === "pi" ? "Pi.imageset/Pi.svg"
-          : null;
-  if (!file) return null;
-  const resolved = resolve(ICON_ROOT, file);
-  const rel = relative(ICON_ROOT, resolved);
-  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
-  return existsSync(resolved) ? resolved : null;
-}
-
-function iconResponse(url: URL): Response {
-  const provider = url.pathname.slice("/icons/".length);
-  if (!/^[a-z0-9_-]+$/i.test(provider)) return new Response("not found", { status: 404 });
-  const file = iconFile(provider, url.searchParams.get("dark") === "1");
-  if (!file) return new Response("not found", { status: 404 });
-  const type = extname(file) === ".svg" ? "image/svg+xml" : "image/png";
-  return new Response(Bun.file(file), {
-    headers: {
-      "content-type": type,
-      "cache-control": "public, max-age=31536000, immutable",
-    },
-  });
-}
-
-const providerIconInfo = new Map(PROVIDERS.map((p) => {
-  const iconUrl = iconFile(p.id, false) ? prefixedPath(`/icons/${p.id}`) : undefined;
-  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `${prefixedPath(`/icons/${p.id}`)}?dark=1` : undefined;
-  return [p.id, { ...(iconUrl ? { iconUrl } : {}), ...(iconDarkUrl ? { iconDarkUrl } : {}) }];
-}));
 
 const ANSI_NAMES = [
   "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
@@ -1963,18 +2131,27 @@ function startServer() {
     port: PORT,
     hostname: "127.0.0.1",
     async fetch(req, srv) {
+    // Host and Origin first: a malformed Host can make req.url unparsable.
+    if (!hasTrustedHost(req, srv.port) || !hasTrustedOrigin(req, srv.port)) {
+      return new Response("forbidden", { status: 403 });
+    }
     const originalUrl = new URL(req.url);
-    if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
     if (originalUrl.pathname === "/healthz") return new Response("ok");
+    // A one-time open code (`open-codes.ts`): spent by this request whatever
+    // its result, and redirects only to a page route under the token.
+    const openCode = /^\/o\/([A-Za-z0-9_-]{1,128})$/.exec(originalUrl.pathname);
+    if (openCode && req.method === "GET" && !originalUrl.search) {
+      const target = openCodes.redeem(openCode[1]);
+      if (!target) return new Response("not found", { status: 404 });
+      return new Response(null, { status: 302, headers: { location: prefixedPath(target), "cache-control": "no-store" } });
+    }
     const url = stripAuthPrefix(originalUrl);
     if (!url) return new Response("not found", { status: 404 });
     if (url.pathname === "/ws") {
-      if (!hasTrustedOrigin(req)) return new Response("forbidden", { status: 403 });
       return srv.upgrade(req, { data: { subscribed: null } })
         ? undefined
         : new Response("upgrade failed", { status: 400 });
     }
-    if (url.pathname.startsWith("/icons/")) return iconResponse(url);
     if (url.pathname === "/app.js" || url.pathname === "/gallery.js" || /^\/chunk-[\w-]+\.js$/.test(url.pathname)) {
       try {
         const asset = (await buildBundles()).get(url.pathname);
@@ -1991,7 +2168,6 @@ function startServer() {
       return assetResponse(req, await cssAsset());
     }
     if (url.pathname === "/api/theme" && req.method === "POST") {
-      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       try {
         const theme = validateCmuxThemePayload(await req.json());
         // cmux's payload has no accent field, so a push must not clobber the
@@ -2014,8 +2190,14 @@ function startServer() {
     }
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
+    // A one-time code for `cmux open`, whose argv other processes can read.
+    if (url.pathname === "/api/open-code" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const code = typeof body?.path === "string" ? openCodes.issue(body.path) : null;
+      if (!code) return Response.json({ error: "path is not a page of this server" }, { status: 400 });
+      return Response.json({ url: `http://127.0.0.1:${srv.port}/o/${code}` }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/api/sessions" && req.method === "POST") {
-      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       const body = await req.json().catch(() => ({}));
       const provider = String(body.provider ?? "claude");
       const prompt = String(body.prompt ?? "").trim();
@@ -2043,7 +2225,7 @@ function startServer() {
       return new Response(null, { status: 302, headers: { location: `${prefixedPath(`/s/${sess.id}`)}${url.search}` } });
     }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
-      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
+      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary));
     }
     return new Response(renderPage(url), { headers: { "content-type": "text/html; charset=utf-8" } });
     },
@@ -2064,7 +2246,11 @@ function startServer() {
       }));
       ws.send(JSON.stringify({
         kind: "sessions",
-        sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+        // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
+      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
+      return summary;
+    }),
       }));
       },
       close(ws) {
@@ -2084,7 +2270,7 @@ function startServer() {
         return;
       }
       try {
-        handleMessage(ws, msg);
+        handleSessionMessage(ws, msg);
       } catch (err) {
         sendWsError(ws, String(msg.op ?? ""), err);
       }
@@ -2112,7 +2298,10 @@ function startServer() {
     agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
   }, 60_000);
   startThemeWatcher();
-  writeStateFile(server.port).catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
+  // The token file comes first: a launcher that sees the state file may read it.
+  writeTokenFile(server.port)
+    .then(() => writeStateFile(server.port))
+    .catch((err) => console.error(`failed to write agent-chat token or state file: ${String(err)}`));
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }
@@ -2146,17 +2335,66 @@ function safeErrorMessage(op: string, err: unknown, context: { provider?: string
 }
 
 function sendWsErrorDetails(
-  ws: Bun.ServerWebSocket<WsData>,
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
   op: string,
   err: unknown,
-  details: { provider?: string; requestId?: string; sessionId?: string; path?: string } = {},
+  details: { provider?: string; requestId?: string; sessionId?: string; path?: string; cwd?: string } = {},
 ) {
   console.error(`[agent-chat] ${op || "request"} failed`, err);
   const { provider, ...publicDetails } = details;
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
 }
 
-function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
+/** Handles diff validation and replies for the WebSocket route. */
+export function sendFileDiffResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "data" | "send">,
+  msg: { sessionId?: unknown; path?: unknown; requestId?: unknown },
+  sess?: Pick<Session, "id" | "cwd" | "internal">,
+) {
+  const path = String(msg.path ?? "");
+  const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+  if (!path) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (!sess) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (ws.data.subscribed !== sess.id) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path, requestId });
+    return;
+  }
+  let safePath: string;
+  try {
+    safePath = resolveFileDiffPath(sess.cwd, path);
+    assertFileDiffAllowed(sess, safePath);
+  } catch (err) {
+    sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId });
+    return;
+  }
+  return Promise.resolve(fileDiff(sess.cwd, safePath))
+    .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff, requestId })))
+    .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId }));
+}
+
+/** Replies on the same command-discovery path used by the WebSocket route. */
+export async function sendCommandCatalogResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
+  msg: { provider?: unknown; cwd?: unknown; requestId?: unknown },
+) {
+  const provider = String(msg.provider ?? "");
+  const cwd = String(msg.cwd || DEFAULT_CWD);
+  const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+  try {
+    const groups = await cachedCommands(provider, cwd);
+    ws.send(JSON.stringify({ kind: "commands-list", provider, cwd, requestId, groups }));
+  } catch (err) {
+    sendWsErrorDetails(ws, "list-commands", err, { provider, cwd, requestId });
+  }
+}
+
+export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
   switch (msg.op) {
     case "start": {
       const prompt = String(msg.prompt ?? "").trim();
@@ -2171,25 +2409,31 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
       pruneStartRequests();
       const existing = requestId ? startRequests.get(requestId) : undefined;
+      let request = existing;
       const startPromise = existing?.promise ?? Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
+        if (request?.stopped) throw new Error("agent start cancelled");
         const sess = createSession(provider, cwd, autoApprove, title, options, {
           conversationId,
           parentSessionId,
           startRequestId: requestId,
         });
+        if (request) request.session = sess;
+        if (requestId) startRequestSessions.set(requestId, { session: sess });
         refreshSession(sess);
         sendPrompt(sess, prompt, requestId ?? crypto.randomUUID());
         return sess;
       });
       if (requestId && !existing) {
-        startRequests.set(requestId, { createdAt: Date.now(), promise: startPromise });
+        request = { promise: startPromise };
+        startRequests.set(requestId, request);
         startPromise.finally(() => {
+          request!.settledAt = Date.now();
           setTimeout(() => {
             if (startRequests.get(requestId)?.promise === startPromise) startRequests.delete(requestId);
           }, START_REQUEST_TTL_MS);
         }).catch(() => {});
       }
-      startPromise.then((sess) => {
+      return startPromise.then((sess) => {
         subscribe(ws, sess);
         const routing = [...sess.events].reverse().find((evt) => evt.kind === "routing");
         ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId, routing }));
@@ -2202,9 +2446,9 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
           }));
         }
       }).catch((err) => {
-        sendWsErrorDetails(ws, "start", err, { provider, requestId });
+        if (request?.stopped) ws.send(JSON.stringify({ kind: "start-stopped", requestId }));
+        else sendWsErrorDetails(ws, "start", err, { provider, requestId });
       });
-      break;
     }
     case "check-cwd": {
       const cwd = String(msg.cwd || DEFAULT_CWD);
@@ -2232,7 +2476,10 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "subscribe": {
       const sessionId = String(msg.sessionId);
-      const sess = sessions.get(sessionId) ?? resolveTranscriptSessionById(sessionId);
+      const existing = sessions.get(sessionId);
+      const sess = existing
+        ? refreshExistingTranscriptSession(existing)
+        : resolveTranscriptSessionById(sessionId);
       if (!sess) {
         ws.send(JSON.stringify({ kind: "no-session", sessionId: msg.sessionId }));
         return;
@@ -2256,6 +2503,22 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "stop": {
+      if (typeof msg.requestId === "string" && !msg.sessionId) {
+        const request = startRequests.get(msg.requestId);
+        const sessionRecord = startRequestSessions.get(msg.requestId);
+        if (request && !request.stopped) {
+          // Creation and the first send run synchronously together. If they
+          // won the race, route Stop to the created session's adapter.
+          if (request.session) request.session.adapter.stop(request.session);
+          request.stopped = true;
+          if (sessionRecord) sessionRecord.stopped = true;
+        } else if (sessionRecord && !sessionRecord.stopped) {
+          sessionRecord.session.adapter.stop(sessionRecord.session);
+          sessionRecord.stopped = true;
+        }
+        ws.send(JSON.stringify({ kind: "start-stopped", requestId: msg.requestId }));
+        break;
+      }
       const sess = sessions.get(String(msg.sessionId));
       sess?.adapter.stop(sess);
       break;
@@ -2277,8 +2540,21 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "fork", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(forkSession(sess))
-        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `fork:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(forkSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork), ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
@@ -2291,8 +2567,21 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(handoffSession(sess))
-        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `handoff:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(handoffSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id, ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
           sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
@@ -2312,16 +2601,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "list-commands": {
-      const provider = String(msg.provider ?? "");
-      const adapter = adapters.get(provider);
-      if (!adapter) {
-        sendWsError(ws, "list-commands", `unknown provider: ${provider}`);
-        return;
-      }
-      const cwd = String(msg.cwd || DEFAULT_CWD);
-      Promise.resolve(cachedCommands(provider, cwd))
-        .then((groups) => ws.send(JSON.stringify({ kind: "commands-list", provider, groups })))
-        .catch((err) => sendWsError(ws, "list-commands", err));
+      void sendCommandCatalogResponse(ws, msg);
       break;
     }
     case "list-files": {
@@ -2332,31 +2612,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "get-file-diff": {
-      const sess = sessions.get(String(msg.sessionId));
-      const path = String(msg.path ?? "");
-      if (!path) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (!sess) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (ws.data.subscribed !== sess.id) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path });
-        return;
-      }
-      let safePath: string;
-      try {
-        safePath = resolveFileDiffPath(sess.cwd, path);
-        assertFileDiffAllowed(sess, safePath);
-      } catch (err) {
-        sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path });
-        return;
-      }
-      Promise.resolve(fileDiff(sess.cwd, safePath))
-        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff })))
-        .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
+      sendFileDiffResponse(ws, msg, sessions.get(String(msg.sessionId)));
       break;
     }
     case "delete": {
@@ -2364,6 +2620,9 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       if (!sess) return;
       sess.adapter.dispose(sess);
       sessions.delete(sess.id);
+      if (sess.startRequestId && startRequestSessions.get(sess.startRequestId)?.session === sess) {
+        startRequestSessions.delete(sess.startRequestId);
+      }
       broadcastSessions();
       break;
     }

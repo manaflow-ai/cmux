@@ -39,10 +39,10 @@ enum PaletteLayout {
 
 /// Label helpers so every text view uses Design typography.
 enum PaletteText {
-    static func label(_ font: NSFont, color: NSColor = Palette.textPrimary) -> NSTextField {
-        let field = NSTextField(labelWithString: "")
+    static func label(_ font: NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {
+        let field = PaletteLabel(labelWithString: "")
         field.font = font
-        field.textColor = color
+        field.tone = tone
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.cell?.truncatesLastVisibleLine = true
@@ -66,7 +66,7 @@ enum PaletteText {
         let size: CGFloat
     }
 
-    static func symbol(_ name: String, size: CGFloat, color: NSColor = Palette.textSecondary) -> NSImage? {
+    static func symbol(_ name: String, size: CGFloat) -> NSImage? {
         let key = SymbolKey(name: name, size: size)
         if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)

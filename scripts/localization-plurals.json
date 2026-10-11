@@ -54,6 +54,12 @@
       3
     ]
   },
+  "cloudInvite.seatsOpen": {
+    "source": "%1$d of %2$d seats open on this plan.",
+    "arguments": [
+      2
+    ]
+  },
   "cloudTree.closeWorkspace.message.other": {
     "source": "Its %d terminals are killed with it.",
     "arguments": [
@@ -62,6 +68,12 @@
   },
   "cloudTree.deleteWorkspace.message.other": {
     "source": "Its %d terminals are killed with it. To keep them, use “Close Workspace” instead — they move to the Terminals pool.",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.device.workspaceCount.other": {
+    "source": "%lld workspaces",
     "arguments": [
       1
     ]
@@ -78,14 +90,32 @@
       1
     ]
   },
+  "cloudTree.terminal.badge.hiddenTabs.help.other": {
+    "source": "%d more tabs in this pane, listed beneath this row. The pane shows this tab.",
+    "arguments": [
+      1
+    ]
+  },
   "cloudTree.terminal.views.other": {
     "source": "%d tabs on the machine show this terminal",
     "arguments": [
       1
     ]
   },
+  "cloudTree.workspace.hiddenTabs.other": {
+    "source": "%d more tabs",
+    "arguments": [
+      1
+    ]
+  },
   "cloudTree.workspace.terminalCount.other": {
     "source": "%d terminals",
+    "arguments": [
+      1
+    ]
+  },
+  "debug.splitButtonLayout.plusClicks": {
+    "source": "Plus clicks: %d",
     "arguments": [
       1
     ]
@@ -418,6 +448,30 @@
       2
     ]
   },
+  "settings.team.link.uses": {
+    "source": "%d uses",
+    "arguments": [
+      1
+    ]
+  },
+  "settings.team.link.usesOf": {
+    "source": "%1$d of %2$d uses",
+    "arguments": [
+      2
+    ]
+  },
+  "settings.team.memberCount": {
+    "source": "%1$@ · %2$d members",
+    "arguments": [
+      2
+    ]
+  },
+  "settings.team.seatSummary": {
+    "source": "%1$@ · %2$d of %3$d seats used",
+    "arguments": [
+      3
+    ]
+  },
   "sidebar.agentActivity.tooltip.many": {
     "source": "Loading (%lld active tasks)",
     "arguments": [
@@ -496,8 +550,26 @@
       1
     ]
   },
+  "terminalSharing.chip.hiddenColumns": {
+    "source": "%ld cols hidden",
+    "arguments": [
+      1
+    ]
+  },
   "textbox.diffComments.many": {
     "source": "%d comments",
+    "arguments": [
+      1
+    ]
+  },
+  "update.readyWaiting.agents": {
+    "source": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch.",
+    "arguments": [
+      1
+    ]
+  },
+  "update.readyWaiting.commands": {
+    "source": "Relaunching will stop %lld running commands. Choose Install Now when you're ready.",
     "arguments": [
       1
     ]
@@ -508,44 +580,8 @@
       1
     ]
   },
-  "cloudTree.terminal.badge.hiddenTabs.help.other": {
-    "source": "%d more tabs in this pane, listed beneath this row. The pane shows this tab.",
-    "arguments": [
-      1
-    ]
-  },
-  "cloudTree.workspace.hiddenTabs.other": {
-    "source": "%d more tabs",
-    "arguments": [
-      1
-    ]
-  },
-  "debug.splitButtonLayout.plusClicks": {
-    "source": "Plus clicks: %d",
-    "arguments": [
-      1
-    ]
-  },
-  "cloudTree.device.workspaceCount.other": {
-    "source": "%lld workspaces",
-    "arguments": [
-      1
-    ]
-  },
-  "update.relaunch.resumesMidTask": {
-    "source": "%lld agents will be resumed mid-task.",
-    "arguments": [
-      1
-    ]
-  },
-  "update.relaunch.runningCommands": {
-    "source": "%lld running commands",
-    "arguments": [
-      1
-    ]
-  },
-  "terminalSharing.chip.hiddenColumns": {
-    "source": "%ld cols hidden",
+  "agentWake.status.multiple": {
+    "source": "%ld agents didn't resume",
     "arguments": [
       1
     ]

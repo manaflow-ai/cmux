@@ -277,7 +277,9 @@ opt-in.
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category
 workspace --category notification --category sidebar` and reduce
-events from the returned `seq`. The snapshot returns `selected_workspace_id`
+events from the returned `seq`. `cmux events` exits when the socket closes, so
+the sidebar must restart it with `--after <last processed seq>` to keep
+receiving updates. The snapshot returns `selected_workspace_id`
 and an ordered `workspaces` array containing workspace ids/refs, title,
 description, pinned state, root/project paths, branch summary, remote status,
 latest submitted prompt preview/time, listening ports, pull request URLs,
@@ -359,6 +361,9 @@ Feed and agent hooks:
 | `feed.item.completed` | `feed.push` returned a hook decision, timeout, or no-op result. |
 | `feed.item.resolved` | A Feed reply command resolved a permission, question, or plan item. |
 | `agent.hook.<HookEventName>` | Agent hook event received through Feed. Examples include Claude Code and Codex permission requests when their hooks are installed. |
+| `agent.message.queued` | `cmux agent message` stored a message for an agent. Payload: `id`, `thread_id`, `sender_name`, `sender_surface_id`, `body_length`. |
+| `agent.message.delivered` | An agent hook handed a message to its agent (`delivered_via`). |
+| `agent.message.read` | The recipient finished the turn it was delivered in, or someone marked it read. |
 
 App, browser, and config:
 

@@ -13,7 +13,11 @@ import AppKit
 /// container never sets the web view's frame after adding it; a container
 /// resize reaches it once through autoresizing, and WebKit re-places both.
 final class WebKitPageContainer: NSView {
+    /// The web view; WebKit owns its frame (an attached inspector shrinks it).
+    private(set) weak var page: NSView?
+
     init(page: NSView) {
+        self.page = page
         super.init(frame: .zero)
         page.frame = bounds
         page.autoresizingMask = [.width, .height]
@@ -25,4 +29,18 @@ final class WebKitPageContainer: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var isFlipped: Bool { false }
+
+    /// WebKit added or removed a view beside the page (the attached Web
+    /// Inspector shows and hides this way).
+    var onSubviewsChange: (() -> Void)?
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        onSubviewsChange?()
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        super.willRemoveSubview(subview)
+        onSubviewsChange?()
+    }
 }

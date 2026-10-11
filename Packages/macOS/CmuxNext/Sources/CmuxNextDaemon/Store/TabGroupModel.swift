@@ -1,7 +1,7 @@
 import Foundation
 public import Observation
 
-/// One Chrome-style tab group in a pane strip.
+/// One tab group in a pane strip.
 @Observable @MainActor
 public final class TabGroupModel: Identifiable {
     public let id: TabGroupID

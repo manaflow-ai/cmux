@@ -6,6 +6,8 @@ struct Harness {
     let updater: FakeUpdater
     let clock: TestDeadlineClock
     let controller: UpdateController
+    let defaults: UserDefaults
+    let suiteName: String
     var model: UpdateStateModel { controller.model }
 
     init() {
@@ -16,6 +18,8 @@ struct Harness {
         let clock = TestDeadlineClock()
         self.updater = updater
         self.clock = clock
+        self.defaults = defaults
+        self.suiteName = suiteName
         self.controller = UpdateController(
             log: NoopUpdateLog(),
             clock: clock,

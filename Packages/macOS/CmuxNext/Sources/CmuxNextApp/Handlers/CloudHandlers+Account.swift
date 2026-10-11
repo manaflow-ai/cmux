@@ -7,30 +7,58 @@ import CmuxNextDaemon
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
-        bind("newCloudMachine", registry, reason: reason) { _ in
-            run("new cloud machine", context) {
-                let session = try await cloud.createMachine(name: nil)
-                // The sidebar shows the machine while it provisions; its
-                // workspace opens once the daemon is reachable.
-                show(try await waitForWorkspace(on: session, context), context)
-            }
+        bind("newCloudMachine", registry, reason: reason) { invocation in
+            // The new machine's progress shows in the window at once; its
+            // first workspace opens there when its daemon is ready.
+            creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
-            let session = try? machine(invocation, context)
+            let target = try? machine(invocation, context)
+            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            guard let session = target, session.daemon.connection != nil else {
+                // A new machine, or one still on its way: show its progress
+                // now. An ended app link connects again on this gesture.
+                if let target, target.appLink != nil { target.connect(origin: connectOrigin(for: invocation)) }
+                creationFlow(context, startedByPerson: invocation.origin == .user).start(in: window, existing: target)
+                return
+            }
             run("new cloud workspace", context) {
-                let target = if let session { session } else { try await cloud.createMachine(name: nil) }
-                if target.daemon.connection == nil {
-                    show(try await waitForWorkspace(on: target, context), context)
-                } else if let id = await context.services.windows.createWorkspace(on: target.daemon) {
-                    show(id, context)
-                }
+                if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
             }
         }
     }
 
+    /// The New Cloud Workspace flow over this app's services (cx-lu8f).
+    /// `startedByPerson`: true only for an action invoked with origin user;
+    /// any other create (a Retry or Dismiss button of the progress view,
+    /// which carries no gesture origin) asks the person first.
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false) -> CloudCreationFlow {
+        let cloud = context.services.cloud
+        let windows = context.services.windows
+        return CloudCreationFlow(
+            creations: cloud.creations,
+            create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson) },
+            open: { session in try await firstWorkspace(on: session, context) },
+            show: { id, creation in
+                let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
+                cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
+                // The window that still shows the creation shows its
+                // workspace; one that moved on gets it filed quietly.
+                guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
+                    windows.reveal(workspaceID: id)
+                    return
+                }
+                if state.cloudCreation == creation.id {
+                    windows.show(workspaceID: id, in: state)
+                } else {
+                    windows.claim(workspaceID: id, in: state, select: false)
+                }
+            }
+        )
+    }
+
     static func bindAccount(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         bind("palette.auth.signIn", registry, reason: reason) { _ in
             guard !cloud.isSignedIn else { throw ActionFailure(message: CloudStrings.alreadySignedIn) }
             run("sign in", context) { _ = await cloud.auth.signIn() }
@@ -55,30 +83,9 @@ extension CloudHandlers {
         }
     }
 
-    /// Waits (bounded) for a new machine's daemon, then returns its first
-    /// workspace. Provisioning plus the first link usually takes 10-60 s.
-    static func waitForWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
-        let store = session.daemon.store
-        // concurrency-allow: Observations iteration ends on cancellation, so the group never waits past the deadline
-        let loaded = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitLoaded(store) }
-            // wakeup-allow: one-shot sign-in deadline (240 s) racing the browser callback
-            group.addTask { (try? await Task.sleep(for: .seconds(240))) == nil }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
-        guard loaded else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return try await firstWorkspace(on: session, context)
-    }
-
-    private static func waitLoaded(_ store: DaemonStore) async -> Bool {
-        for await loaded in Observations({ store.isLoaded }) where loaded { return true }
-        return false
-    }
-
     /// Account, backend, tunnel, and per-machine link state. No secrets.
     static func diagnostics(_ context: AppActionContext) async -> String {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         var lines = [
             "backend: \(cloud.configuration.apiBaseURL.absoluteString) (\(cloud.configuration.backend))",
             "signed in: \(cloud.isSignedIn)" + (cloud.auth.user?.primaryEmail.map { " as \($0)" } ?? ""),
@@ -87,8 +94,8 @@ extension CloudHandlers {
             "last error: \(cloud.lastError ?? "none")",
         ]
         for session in context.services.machines.cloud {
-            let pid = await session.link.pid.map(String.init) ?? "none"
-            lines.append("\(session.machineID) \(session.machine.title): \(session.machine.status.rawValue), "
+            let pid = await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server")
+            lines.append("\(session.machineID) \(session.machine.title): \(session.effectiveStatus.rawValue), stage \(session.stage.name), "
                 + "daemon \(session.daemon.store.connectionState), link pid \(pid), workspaces \(session.daemon.store.workspaces.count)")
             if let compat = context.services.machines.compatibility(of: session.daemon) {
                 lines.append("  cmux-tui \(compat.versionLabel): \(compat.level.rawValue)"

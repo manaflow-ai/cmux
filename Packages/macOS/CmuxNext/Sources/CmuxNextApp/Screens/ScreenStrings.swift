@@ -11,7 +11,6 @@ nonisolated enum ScreenStrings {
         String(format: text("screens.untitled", "Screen %lld"), number)
     }
 
-    static var iconPromptTitle: String { text("screens.icon.prompt", "Screen Icon") }
     static var groupNamePromptTitle: String { text("screens.group.rename.prompt", "Rename Screen Group") }
     static var barAccessibility: String { text("screens.bar.accessibility", "Screens") }
     /// A screen group with no name, in pickers.
@@ -25,6 +24,5 @@ nonisolated enum ScreenStrings {
     static var noOtherScreens: String { text("screens.refusal.noOthers", "there are no other screens to close") }
     static var noClosedScreen: String { text("screens.refusal.noClosed", "no recently closed screen") }
     static var iconArgumentRequired: String { text("screens.refusal.iconRequired", "an icon argument (SF Symbol name or emoji) is required") }
-    static func noSavedScreenGroup(_ id: String) -> String { String(format: text("screens.refusal.noSaved", "no saved screen group %@"), id) }
     static var sameWorkspace: String { text("screens.refusal.sameWorkspace", "the screen is already in that workspace") }
 }
