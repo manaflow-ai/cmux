@@ -20,9 +20,31 @@ pub const FORK_OPERATIONS: [&str; 1] = [method::ACP_SESSION_FORK];
 
 const CONFLICT: i64 = -32000;
 
+/// `acp.session.fork` as the `session/fork` it becomes. Any other method
+/// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
+pub(super) async fn as_session_fork<'m>(
+    hub: &Hub,
+    m: &'m str,
+    params: &mut Value,
+) -> Result<&'m str, RpcError> {
+    if m == method::ACP_SESSION_FORK {
+        *params = to_session_fork(hub, params).await?;
+        return Ok(method::SESSION_FORK);
+    }
+    if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        meta.remove("throughSeq");
+    }
+    Ok(m)
+}
+
+/// The earlier turn a `session/fork` from `acp.session.fork` forks through.
+pub(super) fn through(params: &Value) -> Option<u64> {
+    params.pointer("/_meta/acpmux/throughSeq").and_then(Value::as_u64)
+}
+
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
-pub(super) async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let key = session_key(params)?;
     let through = params
         .get("throughSeq")
