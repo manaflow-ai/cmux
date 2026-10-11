@@ -69,5 +69,42 @@ const subscribe = (listener: () => void) => {
 };
 const snapshot = () => current;
 
+/// The quick action list now.
+export const quickActions = (): readonly QuickAction[] => current;
+
 /// The live quick action list.
 export const useQuickActions = (): readonly QuickAction[] => useSyncExternalStore(subscribe, snapshot, snapshot);
+
+/// Every quick action, in the default order (the right-click menu lists them all).
+export const QUICK_ACTION_IDS: readonly QuickActionId[] = ids;
+
+/// `list` with `id` shown or hidden. A shown one takes its default place among the ones shown,
+/// in its default mode.
+export function withShown(list: readonly QuickAction[], id: QuickActionId, shown: boolean): readonly QuickAction[] {
+  if (!shown) return list.filter((action) => action.id !== id);
+  if (list.some((action) => action.id === id)) return list;
+  const rank = ids.indexOf(id);
+  const at = list.findIndex((action) => ids.indexOf(action.id) > rank);
+  const next = [...list];
+  next.splice(at < 0 ? next.length : at, 0, { id, mode: "toggle" });
+  return next;
+}
+
+/// `list` with `id` moved one place left (`-1`) or right (`1`); unchanged at either end.
+export function withMoved(list: readonly QuickAction[], id: QuickActionId, by: -1 | 1): readonly QuickAction[] {
+  const from = list.findIndex((action) => action.id === id);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= list.length) return list;
+  const next = [...list];
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
+
+/// `list` with `id` toggling its panel or opening another on each click.
+export function withMode(
+  list: readonly QuickAction[],
+  id: QuickActionId,
+  mode: QuickActionMode,
+): readonly QuickAction[] {
+  return list.map((action) => (action.id === id ? { id, mode } : action));
+}
