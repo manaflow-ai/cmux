@@ -28,15 +28,22 @@ import Testing
         try Data(#"{ "shortcuts": { "bindings": { "nextSurface": "cmd+ctrl+n" } } }"#.utf8).write(to: url)
 
         // The stable channel never recorded one; the person used nightly.
-        let stable = try #require(UserDefaults(suiteName: "cn-classic-stable-\(UUID().uuidString)"))
-        let nightly = try #require(UserDefaults(suiteName: "cn-classic-nightly-\(UUID().uuidString)"))
-        let next = try #require(UserDefaults(suiteName: "cn-next-\(UUID().uuidString)"))
-        nightly.set(try Self.stored("b", command: true, option: true), forKey: "shortcut.toggleSidebar")
-        nightly.set(try Self.stored("h", command: true, shift: true), forKey: "shortcut.showWindowHints")
+        let names = ["stable", "nightly", "next"].map { "cn-classic-shortcuts-\($0)-\(UUID().uuidString)" }
+        defer { names.forEach(UserDefaults().removePersistentDomain(forName:)) }
+        let stable = try #require(UserDefaults(suiteName: names[0]))
+        let nightly = try #require(UserDefaults(suiteName: names[1]))
+        let next = try #require(UserDefaults(suiteName: names[2]))
+        nightly.set(try Self.stored("b", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
+        nightly.set(try Self.stored("h", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
         nightly.set(try Self.stored("b", control: true, chordKey: "p"), forKey: "shortcut.commandPalette")
         nightly.set(try Self.stored(""), forKey: "shortcut.closeTab")
         nightly.set(try Self.stored("k", command: true, option: true), forKey: "shortcut.nextSurface")
         nightly.set(try Self.stored("media.playpause"), forKey: "shortcut.focusLeft")
+        // Next routes only Command and Control keys; Option-L would never fire.
+        nightly.set(try Self.stored("l", option: true), forKey: "shortcut.focusRight")
+        // Classic's stored Cmd-J is next's leader; Cmd-, is next's Settings.
+        nightly.set(try Self.stored("j", command: true), forKey: "shortcut.newWindow")
+        nightly.set(try Self.stored(",", command: true), forKey: "shortcut.toggleFullScreen")
 
         let defaults = ActionRegistry.standard()
         let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
@@ -46,15 +53,18 @@ import Testing
         try await settings.importClassicShortcuts(from: [stable, nightly], marker: next)
         let registry = settings.applier.registry
 
-        #expect(registry.effectiveShortcut(for: "toggleSidebar") == Shortcut("b", modifiers: [.command, .option]))
+        #expect(registry.effectiveShortcut(for: "toggleSidebar") == Shortcut("b", modifiers: [.command, .option, .control]))
         // Classic's Show Window Hints is next's hints.show.
-        #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("h", modifiers: [.command, .shift]))
+        #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("h", modifiers: [.command, .option, .control]))
         #expect(registry.chordOverrides["commandPalette"] == ShortcutChord(Shortcut("b", modifiers: [.control]),
                                                                           Shortcut("p", modifiers: [])))
         #expect(registry.effectiveShortcut(for: "closeTab") == nil)
         // cmux.json already binds it; a key next can't bind stays behind.
         #expect(registry.effectiveShortcut(for: "nextSurface") == Shortcut("n", modifiers: [.command, .control]))
         #expect(registry.effectiveShortcut(for: "focusLeft") == defaults.effectiveShortcut(for: "focusLeft"))
+        for id: ActionID in ["focusRight", "newWindow", "toggleFullScreen"] {
+            #expect(registry.effectiveShortcut(for: id) == defaults.effectiveShortcut(for: id), "\(id)")
+        }
 
         // Reset in next, then the next launch: the classic shortcut does not come back.
         try await settings.resetShortcut(for: "toggleSidebar")
