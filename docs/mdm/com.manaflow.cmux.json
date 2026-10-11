@@ -754,6 +754,17 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "diff.colors" : {
+      "default" : "theme",
+      "description" : "diff.colors",
+      "enum" : [
+        "theme",
+        "muted",
+        "standard"
+      ],
+      "title" : "Diff Colors",
+      "type" : "string"
+    },
     "diff.diffIndicators" : {
       "default" : "bars",
       "description" : "diff.diffIndicators",

@@ -149,6 +149,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `status.inferCommandBusyAfter` | real | `3` | 0 to 600 | Show After |
 | `diff.layout` | string | `"unified"` | `split`, `unified` | Layout |
 | `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
+| `diff.colors` | string | `"theme"` | `theme`, `muted`, `standard` | Diff Colors |
 | `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
 | `diff.wordDiffs` | boolean | `false` |  | Highlight Word Changes |
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |

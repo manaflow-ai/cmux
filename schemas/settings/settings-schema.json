@@ -114,6 +114,7 @@
             "rows" : [
               "diff.layout",
               "diff.diffIndicators",
+              "diff.colors",
               "diff.wordWrap",
               "diff.wordDiffs",
               "diff.lineNumbers",
@@ -9627,6 +9628,75 @@
     },
     {
       "accepts" : [
+        "theme",
+        "muted",
+        "standard"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffColorsTheme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffColorsMuted",
+            "text" : "Muted"
+          },
+          "value" : "muted"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.standard",
+            "text" : "Standard"
+          },
+          "value" : "standard"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "theme",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.colors",
+      "keywords" : [
+        "diff",
+        "color",
+        "green",
+        "red",
+        "added",
+        "removed"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "colors"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.colors",
+        "text" : "Diff Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -18588,7 +18658,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "54d0aa0e25a33ab21ec1f0653bd17a0f4fea7a361cc6cb1807ed3efa1dc7b325",
+  "schema_hash" : "7389715f1aaee9f2635a39a0858b7daa1dd5e2a70328e8376965214bab93bd53",
   "sections" : [
     {
       "id" : "general",

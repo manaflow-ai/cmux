@@ -1987,6 +1987,22 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>theme</string>
+			<key>pfm_name</key>
+			<string>diff.colors</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>theme</string>
+				<string>muted</string>
+				<string>standard</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Diff Colors</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_name</key>
 			<string>diff.wordWrap</string>
