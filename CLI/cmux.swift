@@ -34050,9 +34050,12 @@ struct CMUXCLI {
                 )
                 return false
             }
-        } else if launchCommand == nil || ompLaunchCaptureIsUnavailable(launchCommand) {
-            // No capture cannot prove the existing binding stale. Keep it in
-            // place while refusing to synthesize a PATH-dependent command.
+        } else if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp",
+                  launchCommand == nil || ompLaunchCaptureIsUnavailable(launchCommand) {
+            // An OMP hook with no capture cannot prove the existing binding
+            // stale. Keep it in place while refusing to synthesize a
+            // PATH-dependent command. Other agents retain their historical
+            // default-verb fallback when their capture is unavailable.
             return false
         } else if let launchCommand,
                   !agentHookSessionHasDurableResumeEvidence(
