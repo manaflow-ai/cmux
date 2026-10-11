@@ -1,0 +1,112 @@
+name: cmux-next skew matrix
+run-name: cmux-next skew matrix ${{ inputs.commit }} vs ${{ inputs.old_commit || 'first parent' }}
+
+# Version skew step 5 (plans/cmux-next/version-skew.md): CLI N against daemon
+# N-1 and N+1 for every capability-gated command. It builds cmux-tui twice
+# (the commit, and the old commit or the commit's first parent), then runs
+# scripts/cmux-next/skew-matrix.py. Dispatch only for now: two cmux-tui builds
+# per push are too much for the cmux-next checks job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Exact pushed 40-character commit SHA (CLI and daemon N)"
+        required: true
+        type: string
+      old_commit:
+        description: "Exact 40-character commit SHA of N-1 (default: the commit's first parent)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: cmux-next-skew-matrix-${{ inputs.commit }}-${{ inputs.old_commit }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CMUX_GHOSTTY_SRC: ""
+
+jobs:
+  skew-matrix:
+    name: skew matrix (linux)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    steps:
+      - name: Validate inputs
+        env:
+          COMMIT: ${{ inputs.commit }}
+          OLD_COMMIT: ${{ inputs.old_commit }}
+        run: |
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a 40-character SHA"; exit 1; }
+          [[ -z "$OLD_COMMIT" || "$OLD_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::old_commit must be a 40-character SHA"; exit 1; }
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          fetch-depth: 2
+
+      - name: Check out the old commit
+        env:
+          COMMIT: ${{ inputs.commit }}
+          OLD_COMMIT: ${{ inputs.old_commit }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$COMMIT"
+          old="${OLD_COMMIT:-$(git rev-parse HEAD^1)}"
+          git fetch --depth 1 origin "$old"
+          git worktree add --detach "$RUNNER_TEMP/old" "$old"
+          echo "OLD=$old" >> "$GITHUB_ENV"
+          git submodule update --init --depth 1 ghostty-next
+          git -C "$RUNNER_TEMP/old" submodule update --init --depth 1 ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            cmux-tui -> target
+            cmux-tui -> target-old
+          shared-key: cmux-tui-linux
+
+      - name: Build cmux-tui N
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --bin cmux-tui
+
+      - name: Build cmux-tui N-1
+        run: |
+          cd "$RUNNER_TEMP/old/cmux-tui"
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target-old" cargo build -p cmux-tui --bin cmux-tui
+
+      - name: Skew matrix
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cp cmux-tui/target/debug/cmux-tui "$RUNNER_TEMP/bin/cmux-tui-new"
+          cp cmux-tui/target-old/debug/cmux-tui "$RUNNER_TEMP/bin/cmux-tui-old"
+          status=0
+          python3 -I scripts/cmux-next/skew-matrix.py \
+            --old "$RUNNER_TEMP/bin/cmux-tui-old" --new "$RUNNER_TEMP/bin/cmux-tui-new" \
+            > "$RUNNER_TEMP/skew-matrix.txt" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/skew-matrix.txt"
+          {
+            echo "N $COMMIT, N-1 $OLD"
+            echo '```'
+            cat "$RUNNER_TEMP/skew-matrix.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

@@ -39,7 +39,7 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         ]
         currentDirectory = "/Users/demo/fun/cmux"
         toggles = [
-            (id: "sidebar.minimal", title: "Minimal Sidebar", isOn: false, keywords: ["compact"]),
+            (id: "sidebar.minimal", title: "Minimal Mode", isOn: false, keywords: ["compact"]),
             (id: "notifications.sound", title: "Notification Sounds", isOn: true, keywords: ["audio"]),
             (id: "screens.enabled", title: "Screens", isOn: false, keywords: ["spaces"]),
             (id: "tabs.previews", title: "Tab Hover Previews", isOn: true, keywords: ["thumbnail"]),

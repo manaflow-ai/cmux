@@ -110,6 +110,8 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/skew-matrix*
+      - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/ci/cargo-test-selected.sh
@@ -229,6 +231,8 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/skew-matrix*
+      - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/ci/cargo-test-selected.sh
@@ -881,6 +885,8 @@ jobs:
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           node --test scripts/lib/reload-shim.test.mjs
+          # Version skew: the capability-text lint.
+          bash scripts/cmux-next/tests/capability-text.test.sh
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
@@ -1001,6 +1007,12 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
+      # A capability error is a version skew: it names the matching CLI or one
+      # exact command, never "update the app" (plans/cmux-next/version-skew.md).
+      - name: Capability texts never say update the app
+        id: capability-text
+        continue-on-error: true
+        run: bash scripts/cmux-next/tests/capability-text.test.sh
       # The style ratchets' warnings, for the ratchet-debt job.
       - name: Upload the ratchet debt
         if: always()
@@ -1031,6 +1043,7 @@ jobs:
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
             ${{ steps.package-conventions.outcome }}|Package conventions lint
+            ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.companion-workflows.outcome }}|Companion workflows

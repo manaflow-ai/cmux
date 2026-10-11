@@ -268,6 +268,23 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "http: URL KEY" posts a one-message chat request to URL with KEY as the
+    # bearer (a model call) and replies "HTTP <status> <body>".
+    if text.startswith("http:"):
+        import urllib.request, urllib.error
+        url, key = text[5:].split()
+        body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "hi"}]}).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={"authorization": f"Bearer {key}", "content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                reply = f"HTTP {resp.status} {resp.read().decode()[:300]}"
+        except urllib.error.HTTPError as e:
+            reply = f"HTTP {e.code} {e.read().decode()[:300]}"
+        except Exception as e:
+            reply = f"HTTP error {e}"
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "mcp" replies with the mcpServers of the last session/new, load or fork.
     if text == "mcp":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
