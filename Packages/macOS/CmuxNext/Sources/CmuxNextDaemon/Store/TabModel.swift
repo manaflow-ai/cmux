@@ -185,6 +185,9 @@ public final class TabModel: Identifiable {
     }
 
     func setAgent(_ value: AgentStatus?) {
+        if let value, Self.startsPromptedTurn(from: agent, to: value) {
+            lastPromptAtMs = value.updatedAtMs > 0 ? value.updatedAtMs : UInt64(Date().timeIntervalSince1970 * 1000)
+        }
         if agent != value { agent = value }
     }
 
