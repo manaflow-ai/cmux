@@ -148,6 +148,13 @@ extension RemoteTmuxController {
             let select = manager.selectedTab?.id == request.activeTabId
             let attached = try newSessionEnvironment.attach(self, host, name, manager, select)
             guard attached else {
+                // `false` also means a concurrent attach admitted this exact
+                // session first. That is a successful mirror race, not an
+                // orphan, so leave the existing mirror and complete the action.
+                if sessionMirror(host: host, sessionName: name) != nil {
+                    onCreated?()
+                    return
+                }
                 // A non-throwing miss means no mirror was admitted for the session
                 // this request just created. Treat it like an attach failure so the
                 // session cannot remain on the host with no cmux workspace showing it.
