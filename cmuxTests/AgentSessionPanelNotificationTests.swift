@@ -78,6 +78,46 @@ extension AgentNotificationRegressionTests {
         #expect(posted.first?.body == "Provider exited 3")
     }
 
+    @Test("An agent session reports a Claude turn while the agent keeps running")
+    func agentSessionReportsTurnWhileAgentRuns() async throws {
+        let agent = try FakeClaudeExecutable(script: """
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> "$0.received"
+          printf '%s\\n' '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Done."}}'
+          printf '%s\\n' '{"type":"message_stop"}'
+        done
+        """)
+        defer { agent.restore() }
+        let store = AgentSessionProcessStore()
+        defer { store.closeAll() }
+        var events: [String] = []
+        store.eventSink = { event in
+            let fields = ["type", "stream", "text", "status"].compactMap { key in event[key].map { value in "\(value)" } }
+            events.append(fields.joined(separator: " "))
+        }
+        let executable = agent.project.appendingPathComponent("claude", isDirectory: false)
+        let started = try await store.start(
+            plan: AgentSessionLaunchPlan(
+                provider: .claude,
+                executableURL: executable,
+                arguments: [],
+                environment: ProcessInfo.processInfo.environment
+            ),
+            workingDirectory: agent.project.path
+        )
+        try await store.writeLine(sessionId: started.sessionId, text: "Say done")
+
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !events.contains(where: { $0.hasPrefix("provider.turnComplete") }), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let received = (try? String(contentsOf: executable.appendingPathExtension("received"), encoding: .utf8)) ?? "<nothing>"
+        #expect(
+            events.contains(where: { $0.hasPrefix("provider.turnComplete") }),
+            "events: \(events); agent received: \(received)"
+        )
+    }
+
     /// A Claude Code agent panel in the fixture's workspace and its bound
     /// bridge, the way the panel's view binds it.
     private func agentPanel(
