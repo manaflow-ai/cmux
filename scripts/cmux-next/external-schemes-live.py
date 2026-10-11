@@ -132,9 +132,11 @@ def asked():
     return [p for p in prompts() if "openExternalApp" in p.get("kind", "")]
 
 
-def run_engine(engine, url):
+def run_engine(engine):
     global TAB
     print(f"== {engine}", flush=True)
+    # Its own origin: "Always allow" holds for the site in both engines.
+    url = serve()
     action = "openBrowser.chromium" if engine == "chromium" else "openBrowser.webkit"
     opened = rpc("action.run", {"action": action, "args": {"url": url}, "focus": True})
     TAB = (opened.get("created") or [None])[0]
@@ -232,9 +234,8 @@ try:
     if not quiet_wait(lambda: focused_pane(window), 15):
         rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     wait_for(lambda: focused_pane(window), "a focused pane", 60)
-    url = serve()
     for engine in opts.engines.split(","):
-        run_engine(engine, url)
+        run_engine(engine)
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
