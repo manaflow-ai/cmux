@@ -172,7 +172,8 @@ final class PromptBarView: NSView {
             messageLabel.stringValue = Strings.externalAppPrompt(origin: prompt.origin, app: app)
             alwaysCheck.title = Strings.externalAppAlwaysAllow
             alwaysCheck.state = .off
-            alwaysCheck.isHidden = false
+            // A page with no origin offers no "Always allow" (BrowserExternalApps).
+            alwaysCheck.isHidden = prompt.origin.isEmpty
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.externalAppOpen, prominent: true, response: nil)
         }

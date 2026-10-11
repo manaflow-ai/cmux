@@ -38,6 +38,7 @@ MAIL = "mailto:someone@example.com"
 SETTINGS = "x-apple.systempreferences:com.apple.preference.security"
 NOBODY = "cmux-no-handler-test:x"
 PAGE = f"""<!doctype html><title>external schemes</title>
+<script>window.clicks = 0; addEventListener("click", () => window.clicks++, true);</script>
 <a id="mail" href="{MAIL}">mail</a> <a id="settings" href="{SETTINGS}">settings</a> <a id="nobody" href="{NOBODY}">nobody</a>
 """
 failures = []
@@ -100,7 +101,10 @@ def page(script):
 
 
 def opens():
-    return rpc("debug.browser.external_opens").get("urls") or []
+    reply = rpc("debug.browser.external_opens")
+    if "error" in reply:
+        check(False, f"debug.browser.external_opens answers ({reply})")
+    return reply.get("urls") or []
 
 
 def prompts(respond=None):
@@ -111,15 +115,23 @@ def prompts(respond=None):
 
 
 def run(engine, script, gesture=True):
-    """Runs `script` in the page, with a user gesture unless `gesture` is False."""
+    """Runs `script` in the page, with a user gesture unless `gesture` is False; whether it ran."""
     if engine == "chromium":
-        rpc("debug.cef.devtools", {"method": "Runtime.evaluate", "params": {"expression": script, "userGesture": gesture}})
+        reply = rpc("debug.cef.devtools", {"method": "Runtime.evaluate", "params": {"expression": script, "userGesture": gesture}})
+        ok = "error" not in reply and "exceptionDetails" not in json.dumps(reply)
     else:
-        page(script)
+        ok = page(script) is not None
+    if not ok:
+        print("note: the script did not run:", script, flush=True)
+    return ok
 
 
 def click(engine, link):
-    run(engine, f"document.getElementById({json.dumps(link)}).click(); true")
+    """Clicks `link` with a user gesture; checks the page saw the click (it is still there)."""
+    before = page("window.clicks")
+    ran = run(engine, f"document.getElementById({json.dumps(link)}).click(); true")
+    seen = quiet_wait(lambda: isinstance(before, int) and (page("window.clicks") or 0) > before, 5)
+    check(ran and bool(seen), f"{engine}: the page takes the click on #{link} (and is still there)")
 
 
 def settled_opens(count_before, seconds=3):
@@ -129,7 +141,10 @@ def settled_opens(count_before, seconds=3):
 
 
 def asked():
-    return [p for p in prompts() if "openExternalApp" in p.get("kind", "")]
+    reply = rpc("debug.browser.prompts", {"tab": TAB} if TAB else {})
+    if "error" in reply:
+        check(False, f"debug.browser.prompts answers ({reply})")
+    return [p for p in reply.get("prompts") or [] if "openExternalApp" in p.get("kind", "")]
 
 
 def run_engine(engine):
@@ -147,7 +162,7 @@ def run_engine(engine):
 
     # 4. A script, not a click (first: a click before it would leave Chromium's user activation on).
     before = len(opens())
-    run(engine, f"location.href = {json.dumps(MAIL)}; true", gesture=False)
+    check(run(engine, f"location.href = {json.dumps(MAIL)}; true", gesture=False), f"{engine}: the script runs")
     got = settled_opens(before)
     check(got == [] and not asked(), f"{engine}: a script's mailto: navigation opens nothing ({got})")
     # 1. mailto: opens at once.
@@ -185,6 +200,7 @@ def run_engine(engine):
     click(engine, "nobody")
     got = settled_opens(before)
     check(got == [] and not asked(), f"{engine}: a scheme no app opens does nothing and asks nothing ({got}, {prompts()})")
+    check(page("!!document.getElementById('mail')") is True, f"{engine}: the page is still there (no error page over it)")
 
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None

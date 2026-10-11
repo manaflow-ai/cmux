@@ -6,7 +6,8 @@ import CmuxNextCompat
 /// click in the main frame, in both engines (cx-d0d.22). A well-known scheme
 /// opens in its app at once; any other asks first in the tab's prompt bar,
 /// inline over the page, never a dialog: Open, Cancel, and "Always allow"
-/// for the site, remembered (user defaults). A scheme no app opens does
+/// for the site, remembered (user defaults; never for a page with no
+/// origin, which would share one choice). A scheme no app opens does
 /// nothing. In DEBUG builds launched with
 /// `CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1` opens are recorded instead, so a
 /// live test never starts Mail (`debug.browser.external_opens`).
@@ -60,10 +61,12 @@ public final class BrowserExternalApps {
     }
 
     private func alwaysAllowed(_ scheme: String, for site: String) -> Bool {
-        (defaults.dictionary(forKey: Self.defaultsKey)?[site] as? [String])?.contains(scheme) == true
+        guard !site.isEmpty else { return false }
+        return (defaults.dictionary(forKey: Self.defaultsKey)?[site] as? [String])?.contains(scheme) == true
     }
 
     private func allowAlways(_ scheme: String, for site: String) {
+        guard !site.isEmpty else { return }
         var stored = defaults.dictionary(forKey: Self.defaultsKey) ?? [:]
         let schemes = stored[site] as? [String] ?? []
         guard !schemes.contains(scheme) else { return }
