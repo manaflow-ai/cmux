@@ -11,8 +11,8 @@ import React, {
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
-  dragHasFiles,
   filesFrom,
+  installFileDropLifecycle,
   readAttachments,
   thumbnail,
   type AttachmentError,
@@ -283,20 +283,6 @@ export function Composer({
     setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
   };
   useEffect(() => {
-    const over = (event: DragEvent) => {
-      if (!dragHasFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      setDropping(true);
-    };
-    const leave = (event: DragEvent) => {
-      if (!event.relatedTarget) setDropping(false);
-    };
-    const drop = (event: DragEvent) => {
-      if (!dragHasFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      setDropping(false);
-      void attach.current(filesFrom(event.dataTransfer));
-    };
     const paste = (event: ClipboardEvent) => {
       const target = event.target as Node;
       // A file pasted in shell mode is kept for the next prompt; the mode stays.
@@ -306,14 +292,10 @@ export function Composer({
       event.preventDefault();
       void attach.current(files);
     };
-    document.addEventListener("dragover", over);
-    document.addEventListener("dragleave", leave);
-    document.addEventListener("drop", drop);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files), setDropping);
     document.addEventListener("paste", paste);
     return () => {
-      document.removeEventListener("dragover", over);
-      document.removeEventListener("dragleave", leave);
-      document.removeEventListener("drop", drop);
+      removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
   }, []);
