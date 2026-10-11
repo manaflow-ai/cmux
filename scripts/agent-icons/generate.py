@@ -430,6 +430,9 @@ export function agentBrandSpec(agent: string | undefined): AgentBrandSpec | unde
 
 def rust(lookup):
     def lit(value):
+        # json.dumps escapes non-ASCII as \uXXXX, which Rust does not read: ids stay ASCII.
+        if not value.isascii():
+            raise SourceError(f"id {value!r} is not ASCII")
         return json.dumps(value)
 
     lines = [f"// {HEADER}", "",

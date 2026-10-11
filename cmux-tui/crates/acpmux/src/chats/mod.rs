@@ -430,7 +430,7 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
     let key = chat.entry.key();
-    value["brand"] = json!(brand_for(key.harness.id()));
+    value["brand"] = json!(brand::harness_brand(key.harness));
     value["key"] = Value::String(key_text(&key));
     value
 }

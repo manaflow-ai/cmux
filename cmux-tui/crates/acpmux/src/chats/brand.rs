@@ -6,6 +6,21 @@
 
 mod table;
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+use cmux_chat_index::AdapterKind;
+
+/// The brand of a harness's chats, resolved once per harness (not once per chat).
+pub fn harness_brand(harness: AdapterKind) -> Option<&'static str> {
+    static BRANDS: OnceLock<HashMap<AdapterKind, Option<&'static str>>> = OnceLock::new();
+    BRANDS
+        .get_or_init(|| AdapterKind::ALL.iter().map(|kind| (*kind, brand_for(kind.id()))).collect())
+        .get(&harness)
+        .copied()
+        .flatten()
+}
+
 /// The brand id for an agent, harness, alias, binary path or provider id, or
 /// None when it has no mark. Matching ignores case and surrounding space,
 /// then tries, in order: the whole id; the part after the last `:`; the last

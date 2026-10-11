@@ -117,8 +117,12 @@ final class ProjectsImport {
         let complete = (feed?.isReady ?? false) && (feed?.isEnabled ?? false)
         let alreadySent = sent
         let client = ProjectStateClient(connection: connection)
+        // task-owner: awaited at once by `sending` below. Only this task holds the snapshot, so it
+        // is released when the batches are ready, not after the sends: a held snapshot would make
+        // the next main-actor store change copy all 5000 chats.
+        let grouping = Task { await Self.batches(of: store, sent: alreadySent, complete: complete) }
         sending = Task { [weak self] in
-            let batches = await Self.batches(of: store, sent: alreadySent, complete: complete)
+            let batches = await grouping.value
             var delivered: [String: Int] = [:]
             var synced = !fresh
             guard fresh || !batches.isEmpty else {
