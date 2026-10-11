@@ -86,7 +86,8 @@ class SidebarRowView: NSView {
     }
 
     /// The next fill change came from hover, so it fades
-    /// (`MotionFade.hover`); reloads and theme changes apply at once.
+    /// (`ChromeHover.fade`: eases in, clears at once); reloads and theme
+    /// changes apply at once.
     var fadesNextFill = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed

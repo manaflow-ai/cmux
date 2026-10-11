@@ -8,7 +8,7 @@ final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
     private var iconName = IconName.placeholder
     private var iconLabel = ""
-    private var isHovering = false { didSet { updateFill() } }
+    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
     private var tracking: NSTrackingArea?
 
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
@@ -128,7 +128,7 @@ final class ChromeIconButton: NSButton {
         updateFill()
     }
 
-    private func updateFill() {
+    private func updateFill(animated: Bool = false) {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
@@ -139,7 +139,8 @@ final class ChromeIconButton: NSButton {
             } else {
                 .clear
             }
-            layer?.backgroundColor = color.cgColor
+            // Hover eases in and clears at once; a press shows at once (ChromeHover.fade).
+            if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
             contentTintColor = isToolbar ? Palette.textPrimary : Palette.textSecondary
         }
     }
@@ -150,7 +151,7 @@ final class ChromeIconButton: NSButton {
 class ChromeTextButton: NSButton {
     private let density = DensityBinding()
     private let prominent: Bool
-    private var isHovering = false { didSet { updateFill() } }
+    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
     private var tracking: NSTrackingArea?
     private var titleText = ""
 
@@ -226,13 +227,13 @@ class ChromeTextButton: NSButton {
         }
     }
 
-    private func updateFill() {
+    private func updateFill(animated: Bool = false) {
         performWithTheme {
             var color = prominent ? Palette.selectionFill : Palette.hoverFill
             if isHighlighted || isHovering {
                 color = prominent ? Palette.focusRing.withAlphaComponent(0.35) : Palette.selectionFill
             }
-            layer?.backgroundColor = color.cgColor
+            if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
         applyTitle()
     }
