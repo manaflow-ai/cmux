@@ -189,6 +189,8 @@ jobs:
     permissions:
       actions: read
       contents: read
+      # The tree-claim authority identifies this run by its OIDC token.
+      id-token: write
     outputs:
       darwin_builder: ${{ steps.darwin-builder.outputs.builder }}
       key: ${{ steps.inspect.outputs.key }}
@@ -352,8 +354,25 @@ jobs:
           # group, so builders are not serialized by a key group (it stranded
           # keys); later same-key runs wait for this owner and take over only
           # if it ends without a complete publication.
+          #
+          # The cmux-ci controller decides atomically (cx-73f2,
+          # scripts/ci/cmux-tui-tree-claim.sh): the first run to claim the key
+          # owns it. The run-list election below is only the fallback when the
+          # authority cannot be asked; it reads an eventually consistent list
+          # and let three runs of tree bfbd3600debc each win on 2026-10-11.
           owner_run_id="$RUN_ID"
-          if [[ "$tree_ready" != true && "$EVENT_NAME" == push &&
+          claimed=false
+          if [[ "$tree_ready" != true && "$EVENT_NAME" == push && "$REF" != refs/heads/main ]]; then
+            if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$key")"; then
+              claimed=true
+              claim_owner="${claim#owner=}"; claim_owner="${claim_owner%% *}"
+              [[ "$claim_owner" =~ ^[0-9]+$ ]] && owner_run_id="$claim_owner"
+              echo "Tree claim for $key: $claim"
+            else
+              echo "::warning::the tree-claim authority could not be asked; electing the owner from the run list"
+            fi
+          fi
+          if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" == refs/heads/feat-cmux-next ]]; then
             runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -386,7 +405,7 @@ jobs:
           # owns it; main keeps its own build for latest/. Active means not
           # completed: a run whose jobs already run can still read queued or
           # pending (two runs pushed together each saw the other that way).
-          if [[ "$tree_ready" != true && "$EVENT_NAME" == push &&
+          if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" != refs/heads/main ]]; then
             same_sha_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -432,7 +451,18 @@ jobs:
     permissions:
       actions: read
       contents: read
+      id-token: write
     steps:
+      # Only the claim script, from this run's trusted commit (the base branch
+      # for pull_request_target), for a takeover through the tree-claim authority.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.tree-preflight.outputs.owner_run_id != ''
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout: scripts/ci/cmux-tui-tree-claim.sh
+          sparse-checkout-cone-mode: false
       - name: Wait for the owning tree publisher
         id: wait
         env:
@@ -500,6 +530,20 @@ jobs:
                   echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
                   takeover=false
                   break
+                fi
+                # Take over only by winning the key's claim: two waiters that
+                # see the owner end together cannot both build. Another winner
+                # becomes the owner to wait for; no authority keeps the old rule.
+                if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
+                  if [[ "$claim" == *"granted=true" ]]; then
+                    echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; this run won the claim and takes over."
+                    break
+                  fi
+                  next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
+                  echo "Owner run $OWNER_RUN_ID ended; run $next_owner won the claim for tree $KEY; waiting for it."
+                  OWNER_RUN_ID="$next_owner"
+                  sleep 60
+                  continue
                 fi
                 echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
                 break
