@@ -4,7 +4,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `debug.cef.devtools_layout` (DEBUG builds): the focused (or `tab`) Chromium tab's
+// `debug.cef.devtools_layout` (DEBUG builds): the focused (or `tab`, a layout tab id) Chromium tab's
 // docked DevTools (`CEFDevToolsDebug`): open, dock, sizes, divider grab area.
 enum DebugCEFDevToolsLayout {
     static func register(on router: ControlRouter?, services: AppServices) {
@@ -24,7 +24,7 @@ extension DebugCEFDevToolsLayout {
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let entry: BrowserEntry?
         if let id = params["tab"]?.stringValue {
-            entry = services.cache.browsers.values.first { $0.tab.id.rawValue == id }
+            entry = services.cache.existingBrowser(id)
         } else if case .browser(let focused)? = ActionScope(services: services, invocation: ActionInvocation()).pane?.currentContent {
             entry = focused
         } else {

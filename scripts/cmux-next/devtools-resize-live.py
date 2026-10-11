@@ -4,16 +4,16 @@ with the tab (cx-d0d.45, R118).
 
   scripts/cmux-next/devtools-resize-live.py --tag <tag> [--out DIR] [--app PATH]
 
-Launches the tagged app (active: real input goes to the frontmost app; automation socket,
-empty config), opens a Chromium tab on a local page and its DevTools (docked), clicks in
-DevTools (its window takes key) and drags the divider with a real mouse: cua-driver's
-drag, which goes through the window server, where the Chromium page and DevTools windows
-must leave the divider to cmux. Without cua-driver the drag is
-synthesized in the app (`debug.mouse`), which shows the resize but not the routing, and
-says so. Checks:
+Launches the tagged app, opens a Chromium tab on a local page and its DevTools (docked)
+and drags the divider. By default the app is active and the drag is a real mouse:
+cua-driver's, through the window server, where the Chromium page and DevTools windows
+must leave the divider to cmux (after a click in DevTools, as when using it). With
+--background the app is never activated, so its window is not key (a drag on a window
+behind another app's), and the drag is delivered in the app (`debug.mouse`). Checks:
 
-  1. the drag moves the divider: DevTools grows by about the drag;
-  2. closing and reopening DevTools keeps the new size.
+  1. the drag resizes DevTools by about the drag;
+  2. a second tab's DevTools takes its own size and the first tab keeps its own;
+  3. closing and reopening DevTools keeps the tab's size.
 
 GUI host only (a capture mini). The app is quit and the tag's daemons stopped at the
 end. Exits 1 when a check fails.
@@ -27,6 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="devtools-resize-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+parser.add_argument("--background", action="store_true", help="never activate the app; drag in the app")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -115,29 +116,27 @@ def png_width(b64):
     return struct.unpack(">I", data[16:20])[0] if data[:8] == b"\x89PNG\r\n\x1a\n" else None
 
 
-def target(now):
-    """The divider's grab center and where the drag ends, in window points from the top left."""
+def target(now, grow):
+    """The divider's grab center and where the drag ends (DevTools `grow` points larger), in
+    window points from the top left."""
     x, y, w, h = now["grab"]
     start = (x + w / 2, y + h / 2)
-    end = {"bottom": (start[0], start[1] - DRAG), "right": (start[0] - DRAG, start[1]),
-           "left": (start[0] + DRAG, start[1])}[now["dock"]]
+    end = {"bottom": (start[0], start[1] - grow), "right": (start[0] - grow, start[1]),
+           "left": (start[0] + grow, start[1])}[now["dock"]]
     return start, end
 
 
-def real_drag(now):
-    """cua-driver's drag (window-local screenshot pixels); False when it cannot be sent."""
-    if not os.path.exists(CUA):
-        return False
+def real_drag(now, grow):
+    """cua-driver's drag (window-local screenshot pixels)."""
     found = [w for w in (cua("list_windows", {"pid": app.pid}).get("windows") or []) if w.get("title") == "cmux"]
     if not found:
-        print("note: cua-driver lists no cmux window", flush=True)
-        return False
+        return print("cua-driver lists no cmux window", flush=True)
     window_id = found[0]["window_id"]
     state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_accessibility_tree": False})
     width = png_width(state.get("screenshot_png_b64") or "")
     scale = (width / now["window_frame"][2]) if width else 1.0
     titlebar = now["window_frame"][3] - now["content_height"]
-    (sx, sy), (ex, ey) = target(now)
+    (sx, sy), (ex, ey) = target(now, grow)
     params = {"pid": app.pid, "window_id": window_id, "from_x": round(sx * scale), "from_y": round((sy + titlebar) * scale),
               "to_x": round(ex * scale), "to_y": round((ey + titlebar) * scale), "delivery_mode": "foreground"}
     # A click in DevTools first, as when using it: its window takes key from cmux's.
@@ -148,11 +147,10 @@ def real_drag(now):
     time.sleep(1)
     print("after a click in DevTools: cmux window key", layout().get("window_key"), flush=True)
     print("cua drag", params, json.dumps(cua("drag", params))[:300], flush=True)
-    return True
 
 
-def synthesized_drag(now, window):
-    (sx, sy), (ex, ey) = target(now)
+def synthesized_drag(now, grow, window):
+    (sx, sy), (ex, ey) = target(now, grow)
     for action, extra in (("down", {"x": sx, "y": sy}), ("drag", {"x": sx, "y": sy, "to_x": ex, "to_y": ey, "press": False, "release": False}),
                           ("up", {"x": ex, "y": ey})):
         print("synthesized", action, rpc("debug.mouse", {"window": window, "action": action, **extra}), flush=True)
@@ -190,7 +188,7 @@ app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
+    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **({"CMUX_NEXT_NO_ACTIVATE": "1"} if opts.background else {})},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 print(f"app pid {app.pid}, out {opts.out}", flush=True)
 try:
@@ -202,40 +200,60 @@ try:
         rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     wait_for(lambda: focused_pane(window), "a focused pane", 60)
     url = serve()
-    print("open", rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True}), flush=True)
-    wait_for(lambda: (rpc("browser.page.eval", {"script": "document.title"}) or {}).get("value") == "devtools resize",
-             "the page loads", 60)
-    print("devtools", rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"}), flush=True)
-    before = wait_for(docked, "DevTools opens docked", 30)
-    if before:
-        time.sleep(2)
-        before = layout()
-        print("before", json.dumps(before), flush=True)
+    if not opts.background and not os.path.exists(CUA):
+        sys.exit(f"no {CUA}: run on a capture mini, or pass --background")
 
-        # 1. A drag on the divider.
-        real = real_drag(before)
-        moved = quiet_wait(lambda: (lambda now: now if now.get("grab") and abs(extent(now) - extent(before)) >= DRAG / 2 else None)(layout()), 5)
-        if real:
-            print("after real drag", json.dumps(layout()), flush=True)
-            check(bool(moved) and abs(extent(moved) - extent(before) - DRAG) <= 24,
-                  f"a real drag on the divider resizes DevTools by about {DRAG} pt "
-                  f"({extent(before)} -> {extent(moved) if moved else extent(layout())})")
-        if not moved:
-            synthesized_drag(before, window)
-            moved = quiet_wait(lambda: (lambda now: now if abs(extent(now) - extent(before)) >= DRAG / 2 else None)(layout()), 5)
-            print("after synthesized drag", json.dumps(layout()), flush=True)
-            check(bool(moved), f"a drag delivered in the app resizes DevTools ({extent(before)} -> {extent(layout())})"
-                  + ("" if real else " (no real mouse: cua-driver missing)"))
-        if moved:
-            # 2. The size stays with the tab.
-            size = extent(moved)
-            rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
-            wait_for(lambda: not layout().get("open"), "DevTools closes", 20)
-            rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
-            reopened = wait_for(docked, "DevTools reopens docked", 30)
-            if reopened:
-                time.sleep(1)
-                check(abs(extent(layout()) - size) <= 2, f"reopened DevTools keeps its size ({size} -> {extent(layout())})")
+    def open_tab():
+        """A new Chromium tab with DevTools docked; its id and layout, or None."""
+        reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True})
+        tab = (reply.get("created") or [None])[0]
+        wait_for(lambda: (rpc("browser.page.eval", {"script": "document.title", "tab": tab}) or {}).get("value") == "devtools resize",
+                 "the page loads", 60)
+        rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
+        if not wait_for(docked, "DevTools opens docked", 30):
+            return None, None
+        time.sleep(2)
+        return tab, layout()
+
+
+    def drag(before, grow, what):
+        """Drags the shown tab's divider; the layout after, or None when DevTools did not resize."""
+        if opts.background:
+            check(before.get("window_key") is False, "the window is not key")
+            synthesized_drag(before, grow, window)
+        else:
+            real_drag(before, grow)
+        after = quiet_wait(lambda: (lambda now: now if now.get("grab") and abs(extent(now) - extent(before)) >= abs(grow) / 2 else None)(layout()), 5)
+        size = extent(after or layout())
+        check(abs(size - extent(before) - grow) <= 24, f"{what} resizes DevTools by about {grow} pt ({extent(before)} -> {size})")
+        return after
+
+
+    def fraction(now):
+        return now["right_fraction" if now.get("dock") in ("left", "right") else "bottom_fraction"]
+
+
+    # 1. A drag on the divider.
+    first, before = open_tab()
+    moved = before and drag(before, DRAG, "a drag on the divider" if opts.background else "a real drag on the divider")
+    if moved:
+        # 2. Sizes per tab.
+        second, other = open_tab()
+        if other:
+            check(abs(extent(other) - extent(moved)) <= 2, f"a new tab's DevTools starts at the last size ({extent(other)})")
+            resized = drag(other, -DRAG, "a drag in the second tab")
+            kept = (rpc("debug.cef.devtools_layout", {"tab": first}) or {})
+            check(resized and abs(fraction(kept) - fraction(moved)) < 0.005,
+                  f"the first tab keeps its own size ({fraction(moved):.3f} -> {fraction(kept):.3f})")
+            rpc("action.run", {"action": "closeTab", "origin": "script"})
+            wait_for(lambda: (layout().get("grab") and layout()), "the first tab shows again", 20)
+        # 3. The size stays with the tab when DevTools reopens.
+        rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
+        wait_for(lambda: not layout().get("open"), "DevTools closes", 20)
+        rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
+        if wait_for(docked, "DevTools reopens docked", 30):
+            time.sleep(1)
+            check(abs(extent(layout()) - extent(moved)) <= 2, f"reopened DevTools keeps its size ({extent(moved)} -> {extent(layout())})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
