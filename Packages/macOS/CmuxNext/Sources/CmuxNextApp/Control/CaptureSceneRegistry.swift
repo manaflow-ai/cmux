@@ -91,19 +91,17 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])
         }
 
+        // Home is native: it settles on its own conditions, and neither the
+        // agent pane's readiness nor its web view is part of its picture.
+        let isHome = definition.name == Self.homeChiefScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard case .object(let readinessReport) = readiness,
-              (readinessReport["body_text_length"]?.intValue ?? 0) > 0,
-              (readinessReport["transcript_rows"]?.intValue ?? 0) > 0,
-              readinessReport["composer_visible"]?.boolValue == true else {
+        guard isHome || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
             ])
         }
 
-        // Home is native: it settles on its own conditions, and no agent web view shows.
-        let isHome = definition.name == Self.homeChiefScene
         let sceneAction = await applySceneAction(definition.name)
         let actionReadiness = isHome ? await showHomeChief(windowID: targetWindowID) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
@@ -170,6 +168,13 @@ final class CaptureSceneRegistry {
         default:
             return .object(["scene": .string(name)])
         }
+    }
+
+    /// The agent pane drew the worked turn and shows its composer.
+    private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
+        guard case .object(let report) = readiness else { return false }
+        return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
+            && report["composer_visible"]?.boolValue == true
     }
 
     private func waitForSceneAnimation() async -> JSONValue {
