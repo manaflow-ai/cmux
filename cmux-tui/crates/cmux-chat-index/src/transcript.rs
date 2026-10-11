@@ -145,7 +145,8 @@ pub fn read_turns(
                 let hidden = metadata
                     .and_then(|m| serde_json::from_str::<Value>(&m).ok())
                     .is_some_and(|m| m.get("userVisible") == Some(&Value::Bool(false)));
-                let Some(content) = content.and_then(|c| serde_json::from_str(&c).ok()) else {
+                let Some(content) = content.and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                else {
                     continue;
                 };
                 if !hidden {
