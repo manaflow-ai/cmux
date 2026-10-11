@@ -140,7 +140,7 @@ extension BrowserPanel {
             if cloudLoopbackScriptConfigurationKey != scriptConfigurationKey {
                 let script = WKUserScript(
                     source: RemoteLoopbackRuntimeBridge.scriptSource(
-                        aliasHost: "127.0.0.1", aliasPort: port,
+                        aliasHost: "127.0.0.1", preservesSubdomains: false, aliasPort: port,
                         remoteHost: model.target.host, remotePort: model.target.port,
                         generation: scriptGeneration
                     ),

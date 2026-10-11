@@ -218,13 +218,15 @@ struct CloudBrowserProxyIntegrationTests {
         [
           window.__cmuxRewriteRemoteLoopbackURL('http://127.0.0.1:\(Int(clientService.port) + 1)/other'),
           window.__cmuxRewriteRemoteLoopbackURL('http://localhost:\(clientService.port)/mixed-localhost'),
-          window.__cmuxRewriteRemoteLoopbackURL('http://[::1]:\(clientService.port)/mixed-ipv6')
+          window.__cmuxRewriteRemoteLoopbackURL('http://[::1]:\(clientService.port)/mixed-ipv6'),
+          window.__cmuxRewriteRemoteLoopbackURL('http://api.localhost:\(clientService.port)/subdomain')
         ]
         """) as? [String]
         #expect(unrelatedLoopbackURLs == [
             "http://127.0.0.1:\(Int(clientService.port) + 1)/other",
             "http://127.0.0.1:\(remoteService.port)/mixed-localhost",
-            "http://127.0.0.1:\(remoteService.port)/mixed-ipv6"
+            "http://127.0.0.1:\(remoteService.port)/mixed-ipv6",
+            "http://127.0.0.1:\(remoteService.port)/subdomain"
         ], "Only the owned service port may rewrite localhost aliases to the SSH listener")
         let blockedImageResults = try await panel.webView.callAsyncJavaScript("""
         return await Promise.all([
