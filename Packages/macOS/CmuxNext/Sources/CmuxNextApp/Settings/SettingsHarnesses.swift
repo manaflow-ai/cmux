@@ -16,6 +16,8 @@ import Observation
 /// sign-out the daemon has evidence for, and its update command. Update and Update all type that
 /// command into a terminal tab the same way; an update that needs sudo is never typed (the page
 /// shows the command). Refresh asks the daemon to check again, so a finished update shows.
+/// Update Automatically asks acpmux to run a harness's update itself after a check finds it
+/// outdated (`_acpmux/harness/health {autoUpdate}`; never one that needs sudo).
 @MainActor
 @Observable
 final class SettingsHarnesses {
@@ -57,6 +59,11 @@ final class SettingsHarnesses {
                     "outdated": .bool(health?["outdated"]?.boolValue ?? false),
                     "auth": .string(health?["auth"]?.stringValue ?? "unknown"),
                     "update": update ?? .null,
+                    "autoUpdate": .bool(health?["autoUpdate"]?.boolValue ?? false),
+                    "lastAutoUpdate": health?["lastAutoUpdate"].flatMap { last -> JSONValue? in
+                        guard let ok = last["ok"]?.boolValue else { return nil }
+                        return ["ok": .bool(ok), "detail": .string(last["detail"]?.stringValue ?? "")]
+                    } ?? .null,
                 ]
             }),
         ]
@@ -109,6 +116,14 @@ final class SettingsHarnesses {
                 throw PageError.invalidParams("id must be a listed harness")
             }
             try type(health[id].flatMap(AgentCLIUpdates.line))
+        case "autoUpdate":
+            // acpmux keeps the choice and runs the update after a check finds it outdated.
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }), let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("autoUpdate needs a listed harness id and on")
+            }
+            guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+            let answer = try await environment.harness(.health, params: ["autoUpdate": ["id": id, "on": on] as [String: any Sendable]])
+            if let read = AgentCLIUpdates.rows(answer) { health = read }
         case "updateAll":
             guard let line = AgentCLIUpdates.allLine(rows.compactMap { health[$0.id] }) else {
                 throw PageError.invalidParams("no harness can be updated here")

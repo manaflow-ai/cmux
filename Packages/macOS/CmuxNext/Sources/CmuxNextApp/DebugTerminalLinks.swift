@@ -33,13 +33,22 @@ enum TerminalLinkRecorder {
 }
 
 extension DebugTerminalLinks {
-    /// `{open?, tab?, clear?}`: `tab` (a layout tab id) is the terminal `open` clicks in, else the focused one.
+    /// `{open?, hover?, tab?, clear?}`: `tab` (a layout tab id) is the terminal `open` clicks in,
+    /// else the focused one. `hover: [column, row]` moves the pointer over that viewport cell
+    /// with Cmd held; `hovered` is the link Ghostty reports under the pointer (`link-previews`).
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         var result: [String: JSONValue] = [:]
         if let text = params["open"]?.stringValue {
             guard let entry = terminal(params, services: services) else { return .object(["error": .string("no terminal")]) }
             result["handled"] = .bool(entry.session.activateLink(text))
             result["tab"] = services.cache.tabKey(for: entry.session).map(JSONValue.string) ?? .null
+        }
+        if let cell = params["hover"]?.arrayValue, cell.count == 2, let column = cell[0].intValue, let row = cell[1].intValue {
+            guard let entry = terminal(params, services: services) else { return .object(["error": .string("no terminal")]) }
+            entry.session.hoverLinkForTesting(column: column, row: row)
+        }
+        if let entry = terminal(params, services: services) {
+            result["hovered"] = entry.session.model.hoveredLink.map(JSONValue.string) ?? .null
         }
         result["opened"] = .array(TerminalLinkRecorder.opened.map(JSONValue.string))
         if params["clear"]?.boolValue == true { TerminalLinkRecorder.opened.removeAll() }

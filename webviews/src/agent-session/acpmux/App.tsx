@@ -128,6 +128,7 @@ import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
@@ -1548,6 +1549,47 @@ function AcpmuxPane() {
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
+  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
+  // another machine or in the cloud gets none (its CLI is not this Mac's).
+  const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  const healthHarness = snapshot.summary?.harness;
+  const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
+  // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
+  const healthStale = useRef(false);
+  const [healthRecheck, setHealthRecheck] = useState(0);
+  const healthRechecked = useRef(0);
+  useEffect(() => {
+    const recheck = () => {
+      if (!healthStale.current || document.visibilityState === "hidden") return;
+      healthStale.current = false;
+      setHealthRecheck((count) => count + 1);
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, []);
+  useEffect(() => {
+    if (!connected || !healthHarness || !healthLocal) {
+      setHarnessHealth(undefined);
+      return;
+    }
+    let live = true;
+    // Only the fetch a recheck started asks acpmux to check again.
+    const refresh = healthRecheck !== healthRechecked.current;
+    healthRechecked.current = healthRecheck;
+    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", {
+      id: healthHarness,
+      ...(refresh ? { refresh: true } : {}),
+    })
+      .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [connected, healthHarness, healthLocal, healthRecheck]);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -3241,6 +3283,18 @@ function AcpmuxPane() {
       )}
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      )}
+      {!harnessCard && (
+        <HarnessHealthNotice
+          health={harnessHealth}
+          harness={healthHarness}
+          name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
+          {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
+          open={(params) => {
+            healthStale.current = true;
+            void callNative("tab.open", params).catch(() => undefined);
+          }}
+        />
       )}
       {folderNeeded && !snapshot.sessionId && (
         <MissingFolder
