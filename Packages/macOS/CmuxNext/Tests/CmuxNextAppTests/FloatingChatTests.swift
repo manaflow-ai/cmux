@@ -260,7 +260,7 @@ struct FloatingChatTests {
         #expect(rig.window.held == [true])
         // The page reads the panel's state when it loads: it opens as the floating chat.
         let state = await chat.model.respond(to: Self.request("quick.floatingState", [:]))
-        #expect(state["holding"] as? Bool == true)
+        #expect((state["value"] as? [String: Any])?["holding"] as? Bool == true)
 
         // And back: the floating chat's Move to Tab opens the same session as a tab.
         _ = await chat.model.respond(to: Self.request("quick.openInWindow", ["sessionId": "session-9"]))
