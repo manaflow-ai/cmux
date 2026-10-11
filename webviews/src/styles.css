@@ -54,7 +54,7 @@
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+  --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
   /* The page background is the shared backdrop (R48): the host's
@@ -1368,11 +1368,11 @@ body[data-loading="true"] #status::before {
 }
 .comment-button-primary {
   background: var(--cmux-diff-accent);
-  color: light-dark(#fff, #08233f);
+  color: var(--cmux-on-accent, light-dark(#fff, #08233f));
 }
 .comment-button-primary:hover:not(:disabled) {
-  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-fg));
-  color: light-dark(#fff, #08233f);
+  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-bg));
+  color: var(--cmux-on-accent, light-dark(#fff, #08233f));
 }
 .comment-card-header {
   display: flex;
