@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxSettings
 import CmuxTerminalCore
 import CmuxTestSupport
 import CmuxWorkspaces
@@ -89,7 +90,11 @@ struct TerminalLinkOpenCoordinator {
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            if let line = reference.line, !isExplicitLocalFileURL {
+            // A Markdown file opens in the Markdown viewer even when printed
+            // with a line (`notes.md:12`); the viewer has no line to go to.
+            let opensInMarkdownViewer = FileRouteSettingsStore(defaults: defaults)
+                .shouldRouteMarkdown(path: reference.path)
+            if let line = reference.line, !isExplicitLocalFileURL, !opensInMarkdownViewer {
                 log(
                     "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
                     (reference.column.map { ":\($0)" } ?? "")
@@ -108,7 +113,7 @@ struct TerminalLinkOpenCoordinator {
                 return true
             }
 
-            if reference.line == nil,
+            if reference.line == nil || opensInMarkdownViewer,
                CommandClickFileOpenRouter.shouldRouteInCmux(
                    path: reference.path,
                    defaults: defaults
