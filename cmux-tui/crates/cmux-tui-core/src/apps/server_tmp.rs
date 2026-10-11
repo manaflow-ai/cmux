@@ -10,7 +10,7 @@
 //!
 //! - macOS: `<per-user temp dir>/cmux-apps/<12 hex>`. The per-user temp dir
 //!   comes from `confstr(_CS_DARWIN_USER_TEMP_DIR)` only (never `$TMPDIR`)
-//!   and must have the system's fixed shape `/var/folders/<2>/<28>/T/` (49
+//!   and must have the system's fixed shape `/var/folders/<2>/<30>/T/` (49
 //!   bytes), so the folder is 49 + 10 + 12 = 71 bytes. Anything else refuses.
 //! - Other unix: the old path when it fits; else `$XDG_RUNTIME_DIR/cmux-apps/
 //!   <12 hex>` when that runtime dir is the user's own 0700 folder; else a
@@ -34,15 +34,16 @@ use sha2::{Digest, Sha256};
 pub(super) const MAX_SOCKET_DIR: usize = 104 - 1 - 27;
 
 /// The fixed shape of the macOS per-user temp dir: `/var/folders/` (13), a
-/// 2-character bucket, `/`, a 28-character id, `/T/`.
+/// 2-character bucket, `/`, a 30-character id, `/T/` (measured on macOS 26 and 27: every
+/// `/var/folders/*/*` id is 30 characters; cx-wmd8x shipped 28, which refused every Mac).
 #[cfg(target_os = "macos")]
-const DARWIN_TEMP_LEN: usize = 13 + 2 + 1 + 28 + 3;
+const DARWIN_TEMP_LEN: usize = 13 + 2 + 1 + 30 + 3;
 /// `cmux-apps/` and 12 hex.
 #[cfg(target_os = "macos")]
 const SHORT_LEAF_LEN: usize = "cmux-apps/".len() + 12;
 #[cfg(target_os = "macos")]
 const _: () = assert!(
-    DARWIN_TEMP_LEN + SHORT_LEAF_LEN <= MAX_SOCKET_DIR,
+    DARWIN_TEMP_LEN == 49 && DARWIN_TEMP_LEN + SHORT_LEAF_LEN <= MAX_SOCKET_DIR,
     "the macOS app socket folder must fit the link socket"
 );
 
@@ -87,7 +88,7 @@ fn darwin_user_temp() -> Result<PathBuf, String> {
         && parts[1] == "var"
         && parts[2] == "folders"
         && parts[3].len() == 2
-        && parts[4].len() == 28
+        && parts[4].len() == 30
         && parts[5] == "T"
         && parts[6].is_empty()
         && parts[3].chars().chain(parts[4].chars()).all(id_char);
