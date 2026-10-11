@@ -45,10 +45,10 @@ export function localized(text: LocalizedText | undefined, language: string): st
   return text.en ?? Object.values(text)[0] ?? "";
 }
 
-/** A media source the page's CSP admits: data:, blob: or same origin (relative). Remote URLs are dropped. */
+/** A media source the page's CSP admits (img-src 'self' data:): data: or same origin (relative). Remote URLs are dropped. */
 export function admissibleSource(src: string | undefined): string | undefined {
   if (!src) return undefined;
-  if (/^(data|blob):/i.test(src)) return src;
+  if (/^data:/i.test(src)) return src;
   if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//")) return undefined;
   return src;
 }
@@ -90,7 +90,7 @@ function summaryCategory(group: string): WhatsNewCategory {
   return "improved";
 }
 
-/** The lead change: the first with media among New, else the first New, else the first item. */
+/** The lead change: the first New with media, else any item with media, else the first New, else the first item. */
 function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
   return items.find((i) => i.category === "new" && i.media) ?? items.find((i) => i.media) ?? items.find((i) => i.category === "new") ?? items[0];
 }
@@ -121,7 +121,7 @@ export function formatReleaseDate(date: string, language: string, now: Date = ne
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) return date;
   const value = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  const sameYear = value.getUTCFullYear() === now.getFullYear();
+  const sameYear = value.getUTCFullYear() === now.getUTCFullYear();
   try {
     return new Intl.DateTimeFormat(language, {
       month: "short",

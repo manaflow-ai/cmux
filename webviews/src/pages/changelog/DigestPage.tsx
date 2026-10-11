@@ -28,7 +28,7 @@ export function DigestPage({ store, strings, s }: { store: ChangelogStore; strin
 function DigestRelease({ entry, s, store, ctx }: { entry: IndexEntry; s: ChangelogSnapshot; store: ChangelogStore; ctx: PartsContext }) {
   const notes = s.loaded[entry.build];
   const near = (el: HTMLElement | null) => {
-    if (!el || notes) return;
+    if (!el || notes || s.unavailable[entry.build]) return;
     if (typeof IntersectionObserver === "undefined") return void store.ensure(entry.build);
     const observer = new IntersectionObserver(
       (records) => {

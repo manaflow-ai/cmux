@@ -146,7 +146,8 @@ export class ChangelogStore {
   /** Loads one build's notes once (the journal asks as a release scrolls near); undefined when unavailable. */
   async ensure(build: string): Promise<ReleaseNotes | undefined> {
     const cached = this.cache.get(build);
-    if (cached || !this.client) return cached;
+    // An unavailable build is not asked again on every render (the page re-renders on each load).
+    if (cached || !this.client || this.snapshot.unavailable[build]) return cached;
     const pending = this.pending.get(build);
     if (pending) return pending;
     const load = this.client

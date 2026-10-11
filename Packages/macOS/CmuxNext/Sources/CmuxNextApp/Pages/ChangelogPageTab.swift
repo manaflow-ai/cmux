@@ -51,8 +51,8 @@ final class ChangelogPageTab: InternalPageProvider {
         provider.pendingRoute = route
         let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
         provider.pendingRoute = nil
-        // An open tab moves to the new span.
-        if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        // An open tab moves to the new span (a design change alone applies the next time the page opens).
+        if let route, to?.isEmpty == false, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
         return view != nil
     }
 

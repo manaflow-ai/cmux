@@ -64,7 +64,7 @@ function ReleaseSection({
 }) {
   const notes = s.loaded[entry.build];
   const near = (el: HTMLElement | null) => {
-    if (!el || notes) return;
+    if (!el || notes || s.unavailable[entry.build]) return;
     if (typeof IntersectionObserver === "undefined") {
       void store.ensure(entry.build);
       return;
@@ -110,7 +110,9 @@ function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
   if (key !== "j" && key !== "k") return;
   const doc = event.currentTarget.ownerDocument;
   const releases = [...event.currentTarget.querySelectorAll<HTMLElement>(".clj-release")];
-  const top = (r: HTMLElement) => r.getBoundingClientRect().top;
+  // A release scrolled into view rests at the scroll padding, not at 0.
+  const padding = Number.parseFloat(doc.defaultView?.getComputedStyle(doc.documentElement).scrollPaddingTop ?? "") || 0;
+  const top = (r: HTMLElement) => r.getBoundingClientRect().top - padding;
   const target = key === "j" ? releases.find((r) => top(r) > 8) : [...releases].reverse().find((r) => top(r) < -8);
   if (!target) return;
   event.preventDefault();

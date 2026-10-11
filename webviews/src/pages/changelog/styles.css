@@ -35,7 +35,7 @@ html[data-cmux-page="changelog"] body {
   max-width: 62ch;
   color: var(--page-text-2);
   font-size: var(--text-body);
-  line-height: 20px;
+  line-height: var(--text-title--line-height);
   text-wrap: pretty;
 }
 .cl-media {
@@ -117,7 +117,7 @@ html[data-cmux-page="changelog"] body {
 .cl-changes summary:hover { color: var(--page-text); }
 .cl-count { font-variant-numeric: tabular-nums; }
 .cl-changes ul { margin: 6px 0 0; padding: 0 0 0 14px; }
-.cl-changes li { font-size: var(--text-detail); line-height: 20px; }
+.cl-changes li { font-size: var(--text-detail); line-height: var(--text-body--line-height); }
 
 .cl-updated { margin: 0 0 16px; font-size: var(--text-heading); line-height: var(--text-heading--line-height); font-weight: 600; }
 .cl-muted { color: var(--page-text-3); }
