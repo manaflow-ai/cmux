@@ -248,7 +248,10 @@ struct CloudBrowserProxyIntegrationTests {
           'http://[64:ff9b::127.0.0.1]:\(clientService.port)/echo?from=nat64-loopback',
           'http://[64:ff9b::7f00:1]:\(clientService.port)/echo?from=nat64-hex-loopback',
           'http://0x7f000001:\(clientService.port)/echo?from=hex-loopback',
-          'http://0177.0.0.1:\(clientService.port)/echo?from=octal-loopback'
+          'http://0177.0.0.1:\(clientService.port)/echo?from=octal-loopback',
+          'http://2130706433:\(clientService.port)/echo?from=decimal-loopback',
+          'http://cmux-loopback.localtest.me:\(clientService.port)/echo?from=alias-loopback',
+          'http://api.cmux-loopback.localtest.me:\(clientService.port)/echo?from=alias-subdomain'
         ].map(url => new Promise(resolve => {
           const image = new Image();
           image.onload = () => resolve('loaded');
@@ -257,7 +260,7 @@ struct CloudBrowserProxyIntegrationTests {
           document.body.append(image);
         })))
         """, arguments: [:], in: nil, contentWorld: .page) as? [String]
-        #expect(blockedImageResults == Array(repeating: "blocked", count: 19))
+        #expect(blockedImageResults == Array(repeating: "blocked", count: 22))
         #expect(clientService.requests.isEmpty,
                 "Unrewritten parser-style localhost resources must be blocked instead of reaching a local service")
         let rootURL = try #require(URL(string: "http://127.0.0.1:\(clientService.port)"))
