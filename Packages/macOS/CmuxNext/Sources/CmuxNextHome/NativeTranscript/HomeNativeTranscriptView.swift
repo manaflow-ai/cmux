@@ -175,13 +175,17 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func layout() {
         super.layout()
-        // Showing the tab again re-attaches the same views: nothing to do
-        // unless the size changed (no layout, bitmap or backdrop rebuild).
-        guard transcript.frame != bounds else { layoutNotice(); return }
-        transcript.frame = bounds
-        transcript.layoutSubtreeIfNeeded()
+        // Showing the tab again re-attaches the same views: the transcript is
+        // laid out only when the size changed (no bitmap or backdrop rebuild).
+        if transcript.frame != bounds {
+            transcript.frame = bounds
+            transcript.layoutSubtreeIfNeeded()
+        }
+        // Every pass: the field can grow (a multi-line draft) without a size
+        // change, and the first-run panel fits its agent rows above it.
         let top = transcript.headerHeight
-        firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
     }
 
