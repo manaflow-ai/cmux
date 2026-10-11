@@ -564,7 +564,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex max-h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           style={menuStyle}
@@ -674,6 +674,8 @@ export function ModelPicker(props: ModelPickerProps) {
               <PickerComboboxInput
                 ref={search}
                 type="search"
+                // The picker opens with focus here; its row shows the focus, not a ring inside it.
+                data-focus-ring="none"
                 className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
                 aria-label={searchText}
                 aria-autocomplete="list"
