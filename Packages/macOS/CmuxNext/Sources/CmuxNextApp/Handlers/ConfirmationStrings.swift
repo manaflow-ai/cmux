@@ -55,18 +55,6 @@ enum ConfirmationStrings {
         String(localized: "confirm.closeGroupWorkspaces.title", defaultValue: "Close every workspace in “\(name)”?", table: "Handlers", bundle: .module)
     }
 
-    static func groupBody(_ count: Int) -> String {
-        String(localized: "confirm.group.body", defaultValue: "\(count) workspaces and their terminals are closed.", table: "Handlers", bundle: .module)
-    }
-
-    static func closeTabGroupTitle(_ name: String) -> String {
-        String(localized: "confirm.closeTabGroup.title", defaultValue: "Close the tab group “\(name)”?", table: "Handlers", bundle: .module)
-    }
-
-    static func tabGroupBody(_ count: Int) -> String {
-        String(localized: "confirm.tabGroup.body", defaultValue: "\(count) tabs are closed.", table: "Handlers", bundle: .module)
-    }
-
     static var unnamedGroup: String {
         String(localized: "confirm.group.unnamed", defaultValue: "Untitled", table: "Handlers", bundle: .module)
     }

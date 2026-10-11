@@ -193,6 +193,23 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
       },
     },
+    "add-channel": {
+      note: "Channels always shows, with Add channel; the popover asks for a name and members.",
+      props: { select: "c-chief" },
+      checks: {
+        longFrameFailMs: {
+          value: 66,
+          reason:
+            "Cold first open of the shared Popover (Floating UI positioning): one ~54 ms frame on the CPU-only VM.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail-add"));
+        await ctx.click({ selector: ".hc-rail-add" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-add-channel input"));
+        await ctx.type("launch", { selector: ".hc-add-channel input" });
+      },
+    },
     draft: {
       note: "The Chief's reply grows in its row while it is written (conversation-draft events).",
       props: { select: "c-chief", draft: "growing" },

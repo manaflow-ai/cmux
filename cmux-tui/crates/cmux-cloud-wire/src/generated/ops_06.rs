@@ -563,7 +563,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message.
+    /// Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.
     MessageSendOp {
         name: "message.send",
         class: Mutation,
@@ -584,6 +584,8 @@ pub struct MessageSendParams {
     pub parts: Vec<HomePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<HomePartRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<MessageId>,
 }
 
 wire_errors! {
@@ -600,6 +602,7 @@ wire_errors! {
         IdempotencyConflict2 = "idempotency_conflict",
         InvalidClientMsgId = "invalid_client_msg_id",
         InvalidParts = "invalid_parts",
+        InvalidThreadRoot = "invalid_thread_root",
         KindForbids = "kind_forbids",
         NotParticipant = "not_participant",
         OwnerUnreachable = "owner.unreachable",

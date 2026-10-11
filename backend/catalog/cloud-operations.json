@@ -3065,6 +3065,13 @@
             "name": "HomePartRef"
           }
         },
+        "thread_root": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "MessageId"
+          }
+        },
         "created_at": {
           "required": true,
           "type": {
@@ -21951,6 +21958,9 @@
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
               },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -22733,6 +22743,9 @@
               },
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
+              },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
               },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
@@ -23950,6 +23963,9 @@
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
               },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -24810,6 +24826,9 @@
               },
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
+              },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
               },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
@@ -42340,6 +42359,13 @@
               "name": "HomePartRef"
             }
           },
+          "thread_root": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "MessageId"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -42373,6 +42399,7 @@
         "idempotency_conflict",
         "invalid_client_msg_id",
         "invalid_parts",
+        "invalid_thread_root",
         "kind_forbids",
         "not_participant",
         "owner.unreachable",
@@ -42402,7 +42429,7 @@
         "expose": "default",
         "group": "home"
       },
-      "docs": "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message.",
+      "docs": "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -42423,6 +42450,9 @@
           },
           "reply_to": {
             "$ref": "#/$defs/HomePartRef"
+          },
+          "thread_root": {
+            "$ref": "#/$defs/MessageId"
           }
         },
         "required": [
