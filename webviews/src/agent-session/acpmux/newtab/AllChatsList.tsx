@@ -55,6 +55,8 @@ type State = {
   ready: boolean;
   /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
   failed: boolean;
+  /// The query `rows` answer; a failed read for another query drops them rather than show them under it.
+  rowsQuery: string;
   design: AllChatsDesign;
 };
 
@@ -65,6 +67,7 @@ const initial: State = {
   loaded: false,
   ready: false,
   failed: false,
+  rowsQuery: "",
   design: "age",
 };
 
@@ -109,7 +112,14 @@ function useChatPages(load: LoadChatsPage) {
         setState((s) => {
           // A failed page keeps the cursor, so the loader row asks again when it comes back into view.
           if (!page)
-            return { ...s, loading: false, loaded: true, ...(cursor ? { nextCursor: cursor } : { failed: true }) };
+            return {
+              ...s,
+              loading: false,
+              loaded: true,
+              ...(cursor
+                ? { nextCursor: cursor }
+                : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
+            };
           const fresh = rowsOf(page);
           const known = new Set(s.rows.map((row) => row.key));
           const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
@@ -121,6 +131,7 @@ function useChatPages(load: LoadChatsPage) {
             loaded: true,
             ready: page.ready !== false,
             failed: false,
+            rowsQuery: query,
             design: design(page.design) ?? s.design,
           };
         });
@@ -390,7 +401,12 @@ export function AllChatsList({
         state.failed ? (
           <output className="nt-chats-empty nt-chats-failed">
             {nt("chatsLoadFailed")}
-            <button type="button" className="nt-chats-retry" onClick={() => fetchPage(state.query, undefined)}>
+            <button
+              type="button"
+              className="nt-chats-retry"
+              disabled={state.loading}
+              onClick={() => fetchPage(state.query, undefined)}
+            >
               {t("picker.tryAgain")}
             </button>
           </output>

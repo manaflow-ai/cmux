@@ -14,13 +14,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تحميل محادثاتك."
+            "value": "تعذّر تحميل الدردشات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće učitati vaše razgovore."
+            "value": "Nije moguće učitati vaše chatove."
           }
         },
         "da": {
@@ -86,7 +86,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível carregar suas conversas."
+            "value": "Não foi possível carregar seus chats."
           }
         },
         "ru": {
@@ -122,13 +122,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法加载你的聊天。"
+            "value": "无法加载你的对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法載入你的聊天。"
+            "value": "無法載入你的對話。"
           }
         }
       }

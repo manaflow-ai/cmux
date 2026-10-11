@@ -66,3 +66,28 @@ test("a first page that fails says so, and Try again reads it again", async () =
   expect(calls).toBe(before + 1);
   expect(host.textContent).not.toContain("Couldn't load your chats.");
 });
+
+test("a search that fails says so instead of leaving the unfiltered list under the query", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const load = async (params: { query?: string }) => {
+    if (params.query) throw new Error("daemon unavailable");
+    return {
+      chats: [{ key: "a", harness: "claude", title: "Fix the build", cwd: "/tmp/cmux", updatedAt: 1 }],
+      ready: true,
+    };
+  };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+  await act(async () => {});
+  const input = host.querySelector<HTMLInputElement>(".nt-all-search input")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+  await act(async () => {
+    setValue.call(input, "build");
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {});
+  expect(host.textContent).toContain("Couldn't load your chats.");
+  expect(host.textContent).not.toContain("Fix the build");
+});

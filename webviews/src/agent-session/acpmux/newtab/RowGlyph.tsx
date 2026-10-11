@@ -1,8 +1,13 @@
 // The New Tab rows' glyph when there is no favicon (POLISH, cx-9br4q): one icon from the cmux pack
 // at 14 px in the rows' dim text, the same in the field's suggestions, Open Tabs and Recently Closed.
 import { Icon } from "../icons/Icon";
+import type { TabKind } from "../NewTabPage";
+import type { ClosedItem } from "./recentlyClosed";
+import type { ScreenRow } from "./screenModel";
 
-const NAMES: Record<string, string> = {
+type GlyphKind = ScreenRow["type"] | TabKind | ClosedItem["kind"];
+
+const NAMES: Record<GlyphKind, string> = {
   // A suggestion row's type.
   tab: "omnibar.switchtab",
   history: "history",
@@ -16,10 +21,10 @@ const NAMES: Record<string, string> = {
   workspace: "workspace",
 };
 
-export function RowGlyph({ kind }: { kind: string }) {
+export function RowGlyph({ kind }: { kind: GlyphKind }) {
   return (
     <span className="nt-row-glyph nt-row-icon" data-kind={kind}>
-      <Icon name={NAMES[kind] ?? "tab.new"} size={14} />
+      <Icon name={NAMES[kind]} size={14} />
     </span>
   );
 }
