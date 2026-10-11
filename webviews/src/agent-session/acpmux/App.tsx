@@ -3394,6 +3394,7 @@ function AcpmuxPane() {
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
                       onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
