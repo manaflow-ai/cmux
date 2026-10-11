@@ -789,6 +789,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
 
+      - name: Validate release DMG LZMA encoding
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_release_dmg_lzma.sh
+
       - name: Validate Homebrew cask macOS dependency syntax
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
