@@ -287,4 +287,30 @@ struct FloatingChatTests {
         #expect(controller.chat == nil)
         #expect(!rig.window.isVisible)
     }
+
+    /// Start Agent's key (or Start Agent from Any App's, from another app) summons the floating chat to
+    /// type in: a folded chat opens back out with the keys, and the key again puts it away.
+    @Test func summoningAFoldedFloatingChatOpensItWithTheKeys() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-13"))
+        _ = await chat.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        rig.window.loseKeys()
+        #expect(rig.window.isVisible)
+
+        controller.toggle()
+        #expect(rig.window.isKeyWindow)
+        #expect(!rig.window.collapsed, "the summoned chat stayed folded")
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: true, collapsed: false))
+
+        controller.toggle()
+        #expect(!rig.window.isVisible)
+        // Hidden folded, it comes back open too.
+        _ = await chat.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        controller.toggle()
+        #expect(rig.window.isVisible)
+        #expect(!rig.window.collapsed)
+    }
 }
+
