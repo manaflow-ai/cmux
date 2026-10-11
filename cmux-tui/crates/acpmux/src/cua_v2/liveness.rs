@@ -35,7 +35,20 @@ impl Owner {
 pub enum Stale {
     OwnerGone(i32),
     OwnerReplaced(i32),
-    SocketDead(String),
+    /// The socket refused. `owner_alive`: the recorded helper still runs, so
+    /// the refusal may pass (a full backlog) and the file is kept.
+    SocketDead {
+        error: String,
+        owner_alive: bool,
+    },
+}
+
+#[cfg(unix)]
+impl Stale {
+    /// Whether the file is proven to name no running helper, so it may go.
+    pub fn removable(&self) -> bool {
+        !matches!(self, Stale::SocketDead { owner_alive: true, .. })
+    }
 }
 
 /// `Ok` when the owner (if recorded) runs and `socket` accepts a connection.
@@ -57,7 +70,9 @@ pub fn check(owner: Option<Owner>, socket: &Path) -> Result<(), Stale> {
     // A connect only: the helper drops a peer that sends no secret.
     match std::os::unix::net::UnixStream::connect(socket) {
         Ok(_) => Ok(()),
-        Err(error) => Err(Stale::SocketDead(error.to_string())),
+        Err(error) => {
+            Err(Stale::SocketDead { error: error.to_string(), owner_alive: owner.is_some() })
+        }
     }
 }
 

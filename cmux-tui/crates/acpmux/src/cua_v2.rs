@@ -65,7 +65,8 @@ pub fn dir_from_env() -> Option<PathBuf> {
 
 /// The folder, when the helper v2 runs now: its `endpoint.json` exists, the
 /// helper it names is alive and its socket accepts a connection. A file a
-/// host crash left behind is removed, and sessions get the legacy server.
+/// host crash left behind (its helper gone) is removed, and sessions get the
+/// legacy server; a live helper's file stays when its socket refuses once.
 /// A file the bridge would refuse (not private, not JSON) keeps the folder,
 /// so the agent's tool call reports why.
 pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
@@ -74,8 +75,10 @@ pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     if let Ok((endpoint, text)) = read_endpoint_text(&dir)
         && let Err(stale) = liveness::check(endpoint.owner, &endpoint.socket)
     {
-        tracing::warn!(?stale, dir = %dir.display(), "stale Computer Use helper v2 endpoint removed");
-        liveness::remove_if_unchanged(&dir.join(ENDPOINT_FILE), &text);
+        tracing::warn!(?stale, dir = %dir.display(), "Computer Use helper v2 endpoint not usable");
+        if stale.removable() {
+            liveness::remove_if_unchanged(&dir.join(ENDPOINT_FILE), &text);
+        }
         return None;
     }
     Some(dir)
