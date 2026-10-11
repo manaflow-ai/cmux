@@ -30,19 +30,14 @@ enum TerminalHandlers {
         entry.session.surfaceView.accessibilitySelectedText().flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// Whether Copy has something to copy in the focused terminal. With
-    /// nothing selected Cmd-C is not Copy: the key reaches the terminal,
-    /// whose Ghostty `performable:` copy keybind passes it to the program
-    /// (a TUI copies its own selection), as in Ghostty and the shipping cmux.
-    static func focusedTerminalHasSelection(_ ctx: AppActionContext) -> Bool {
-        guard case .terminal(let entry) = AppActions.scope(ctx.services).pane?.currentContent else { return true }
-        return selection(of: entry) != nil
-    }
-
     private static func bindClipboard(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("terminalCopy", isEnabled: { focusedTerminalHasSelection(ctx) }, invoke: { invocation in
+        registry.bind("terminalCopy", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
-            guard selection(of: entry) != nil else { return ctx.refuse(RefusalStrings.nothingSelected) }
+            // Cmd-C with nothing selected goes to the program (`TerminalSurfaceView.copy`, as in
+            // Ghostty and the shipping cmux); a menu, palette or CLI Copy with nothing selected refuses.
+            guard entry.session.surfaceView.hasSelection || registry.isDispatchingKeyDown() else {
+                return ctx.refuse(RefusalStrings.nothingSelected)
+            }
             entry.session.surfaceView.copy(nil)
         })
         registry.bind("terminalPaste", invoke: { invocation in

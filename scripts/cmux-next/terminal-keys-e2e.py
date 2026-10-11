@@ -178,7 +178,7 @@ def shortcut_checks():
     # Cmd-Return: the checklist default yields to the terminal and Ghostty's toggle_fullscreen is
     # unbound, so the key reaches the program (as in the shipping cmux).
     report, text = resolve("cmd+enter")
-    row("terminal Cmd-Return binding", "no binding runs here", text, report.get("outcome") != "run")
+    row("terminal Cmd-Return binding", "outcome none", text, report.get("outcome") == "none")
     reply = key("return", ["cmd"])
     row("terminal Cmd-Return", "the program gets it (no action, no Ghostty binding)", owner(reply),
         not reply.get("action") and "Ghostty binding no" in str(reply.get("trace")))
@@ -195,8 +195,8 @@ def shortcut_checks():
     # with a selection it is Copy.
     # Cmd-K above left this terminal with nothing selected.
     reply = key("c", ["cmd"])
-    row("terminal Cmd-C, nothing selected", "the program gets it (no action, Ghostty binding)", owner(reply),
-        not reply.get("action") and "Ghostty binding yes" in str(reply.get("trace")))
+    row("terminal Cmd-C, nothing selected", "terminalCopy runs and passes Cmd-C to the program (no refusal)", owner(reply),
+        reply.get("action") == "terminalCopy" and not reply.get("refused_action"))
     reply = key("a", ["cmd"])
     print("Cmd-A:", owner(reply), flush=True)
     reply = key("c", ["cmd"])
@@ -208,9 +208,11 @@ def shortcut_checks():
         ("home", ["cmd"], "Cmd-Home"), ("end", ["cmd"], "Cmd-End"), ("pageup", ["cmd"], "Cmd-PageUp"),
         ("pagedown", ["cmd"], "Cmd-PageDown"), ("left", ["cmd"], "Cmd-Left"), ("right", ["cmd"], "Cmd-Right"),
         ("delete", ["cmd"], "Cmd-Backspace"), ("right", ["option"], "Option-Right"), ("left", ["shift"], "Shift-Left"),
-        ("tab", ["control"], "Ctrl-Tab"), ("/", ["control"], "Ctrl-/"), ("return", ["control"], "Ctrl-Return"),
-        ("z", ["cmd"], "Cmd-Z"), ("[", ["cmd"], "Cmd-["), ("e", ["cmd"], "Cmd-E"), ("g", ["cmd"], "Cmd-G"),
+        ("/", ["control"], "Ctrl-/"), ("return", ["control"], "Ctrl-Return"),
+        ("[", ["cmd"], "Cmd-["), ("e", ["cmd"], "Cmd-E"), ("g", ["cmd"], "Cmd-G"),
         ("g", ["cmd", "option"], "Cmd-Option-G"), ("f", ["cmd"], "Cmd-F"), ("escape", [], "Escape"),
+        # Last: Ctrl-Tab moves to the next tab and Cmd-Z may reopen a closed item.
+        ("tab", ["control"], "Ctrl-Tab"), ("z", ["cmd"], "Cmd-Z"),
     ]:
         print(f"OWNER | terminal {label} | {owner(key(name, mods))}", flush=True)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "keys-shortcuts.png")})
@@ -223,7 +225,8 @@ def cleanup():
     print("cleanup", flush=True)
     if os.environ.get("KEYS_E2E_KEEP"):
         return
-    # Scripts may not confirm quitEndSessions (user-only since cx-zk9t): the DEBUG fixture ends the sessions.
+    # Scripts may not confirm quitEndSessions (user-only since cx-zk9t): try the DEBUG fixture first
+    # (lane rule); a build without it answers quitting != "end-sessions" and the action runs.
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
         rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -307,7 +310,9 @@ def main():
                               ("g", ["cmd", "shift"], "Cmd-Shift-G"), ("left", ["option"], "Option-Left")]:
         reply = key(name, mods)
         owner = f"handled_by={reply.get('handled_by')} action={reply.get('action')} trace={str(reply.get('trace'))[-160:]}"
-        row(f"terminal {label}", "the terminal (Ghostty) gets it", owner, not reply.get("action"))
+        # Cmd-=/-/0 run terminal.*FontSize, which run Ghostty's own font size actions on this terminal.
+        ok = not reply.get("action") or str(reply.get("action")).startswith("terminal.") and "FontSize" in str(reply.get("action"))
+        row(f"terminal {label}", "the terminal (Ghostty, or terminal.*FontSize) gets it", owner, ok)
     shortcut_checks()
     print("newAgentChat:", rpc("action.run", {"action": "palette.newAgentChat"}), flush=True)
     time.sleep(2)  # test harness: a new chat may open in a new workspace (L3)

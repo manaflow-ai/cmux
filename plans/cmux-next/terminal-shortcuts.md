@@ -25,7 +25,7 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 
 | Action | Shipping cmux | Ghostty default | cmux-next | State |
 | --- | --- | --- | --- | --- |
-| Copy | Cmd-C (Edit > Copy, the user's Ghostty copy action; no selection on the alternate screen: Cmd-C goes to the program) | Cmd-C `performable:copy_to_clipboard` | Cmd-C `terminalCopy`. Before: with nothing selected it refused and ate the key | FIXED: with nothing selected Copy is disabled, so Cmd-C reaches the terminal and Ghostty's performable copy passes it to the program (TUIs copy their own selection) |
+| Copy | Cmd-C (Edit > Copy, the user's Ghostty copy action; nothing selected on the alternate screen: Cmd-C goes to the program) | Cmd-C `performable:copy_to_clipboard` (nothing selected: the program gets Cmd-C) | Cmd-C `terminalCopy`. Before: with nothing selected it refused and ate the key, and a disabled Edit > Copy also ate it | FIXED: with nothing selected Cmd-C goes to the program through Ghostty on any screen, as in Ghostty (legacy encoding sends nothing for a Command key, so only Kitty-protocol TUIs see it) |
 | Paste | Cmd-V | Cmd-V `performable:paste_from_clipboard` | Cmd-V `terminalPaste` | match |
 | Paste selection | Cmd-Shift-V (Ghostty) | Cmd-Shift-V `paste_from_selection` | Ghostty | match |
 | Select all | Cmd-A (Ghostty) | Cmd-A `select_all` | Edit > Select All -> Ghostty `select_all` | match |
@@ -117,17 +117,22 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 1. `GhosttyRuntime.cmuxDefaultKeybindLines` unbinds `super+enter`, `super+alt+w` and
    `super+alt+shift+w` before the user's files load, as the shipping cmux does
    (`GhosttyApp+KeybindOverrides.swift`). A user's own `keybind` line for one of those keys
-   still wins. The keys are no longer Ghostty fallback entries in the binding table either.
+   still wins. Of the three, only Cmd-Opt-Shift-W (`close_all_windows`) was a Ghostty
+   fallback entry of the binding table, so Close All Windows has no default shortcut now,
+   as in the shipping cmux.
 2. `toggleChecklistItemComplete` (Cmd-Return) is in `KeyBindingDefaults.yieldsToTerminal`.
-3. `terminalCopy` is disabled while the focused terminal has no selection
-   (`TerminalHandlers.focusedTerminalHasSelection`), so Cmd-C goes to the terminal and
-   Ghostty's `performable:` copy keybind passes it to the program. Limit: a CLI `terminal copy`
-   that targets another tab is refused while the focused terminal has no selection.
+3. Copy with nothing selected (`TerminalSurfaceView.copy`) sends Cmd-C to Ghostty, whose
+   `performable:` copy keybind passes it to the program; Edit > Copy stays enabled in a
+   terminal so a disabled item no longer swallows the key (the shipping cmux keeps it enabled
+   for the same reason). `terminalCopy` from a key does this; from a menu, the palette or the
+   CLI it still refuses "nothing selected".
 
 Proof: `scripts/cmux-next/terminal-keys-e2e.py` on a tagged app on cmux-lawrence-2
 (`debug.key` through the key router, the window, the menu and the terminal view). It checks
 the fixed keys (Cmd-Return, Cmd-Opt-W, Cmd-Opt-Shift-W, Cmd-C with and without a selection)
-and prints an OWNER line for every other terminal key above.
+and prints an OWNER line for every other terminal key above. Run 1 (M1 Max, tag b442m1, at
+01e144c8e4c7) confirmed Cmd-Return and both Cmd-Opt-W keys reach the program and found the
+disabled Edit > Copy swallowing Cmd-C; fix 3 is the result.
 
 ## Decisions (earlier cmux-next choices that differ from the shipping cmux; not changed here)
 
