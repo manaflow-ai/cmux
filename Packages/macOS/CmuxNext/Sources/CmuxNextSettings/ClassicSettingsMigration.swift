@@ -32,12 +32,9 @@ enum ClassicSettingRename {
         Entry(classic: ["paneBorderColor"], next: ["layout", "paneBorderColor"], transform: identity),
         Entry(classic: ["activePaneBorderColor"], next: ["focusRing", "color"], transform: identity),
         Entry(classic: ["notifications", "paneFlashColor"], next: ["notifications", "attention", "color"], transform: identity),
-        Entry(classic: ["notifications", "unreadPaneRing"], next: ["notifications", "attention", "style"],
-              transform: map(["false": .string("none")])),
-        // Classic magnified in percent (50-200); next scales the app's chrome by a factor.
-        Entry(classic: ["app", "globalFontMagnification"], next: ["app", "uiScale"], transform: { value in
-            value.doubleValue.map { .number(min(max($0 / 100, 0.85), 1.5)) }
-        }),
+        // Classic's ring off kept the flash; next's style "none" would drop both.
+        Entry(classic: ["notifications", "unreadPaneRing"], next: ["notifications", "attention", "persist"],
+              transform: map(["false": .bool(false)])),
         Entry(classic: ["app", "newWorkspacePlacement"], next: ["workspaces", "newPlacement"],
               transform: map(["top": .string("top"), "afterCurrent": .string("afterCurrent"), "end": .string("bottom")])),
         Entry(classic: ["app", "equalizeSplitsOnCreate"], next: ["layout", "splitSizing"],
@@ -48,8 +45,10 @@ enum ClassicSettingRename {
               transform: map(["true": .string("everything"), "false": .string("workspaces")])),
         Entry(classic: ["diffViewer", "defaultLayout"], next: ["diff", "layout"], transform: identity),
         Entry(classic: ["browser", "showSearchSuggestions"], next: ["browser", "omnibar", "remoteSuggestions"], transform: identity),
-        // Engines next doesn't offer stay unmapped (the descriptor refuses them).
-        Entry(classic: ["browser", "defaultSearchEngine"], next: ["browser", "searchEngine"], transform: identity),
+        // Engines next doesn't offer stay unmapped (the descriptor refuses them), and so does
+        // "custom": without its template next would search with Google.
+        Entry(classic: ["browser", "defaultSearchEngine"], next: ["browser", "searchEngine"],
+              transform: { $0 == .string("custom") ? nil : $0 }),
         Entry(classic: ["browser", "discardHiddenWebViews"], next: ["browser", "hibernation"],
               transform: map(["false": .string("off")])),
         Entry(classic: ["notifications", "suppressWhenAppFocused"], next: ["notifications", "desktop"],
@@ -58,7 +57,9 @@ enum ClassicSettingRename {
         Entry(classic: ["sidebar", "showLog"], next: ["sidebar", "workspaceRow", "log"], transform: identity),
         Entry(classic: ["sidebar", "showProgress"], next: ["sidebar", "workspaceRow", "progress"], transform: identity),
         Entry(classic: ["sidebar", "showPullRequests"], next: ["sidebar", "workspaceRow", "pullRequest"], transform: identity),
+        // "Show Branch + Directory" is two rows in next.
         Entry(classic: ["sidebar", "showBranchDirectory"], next: ["sidebar", "workspaceRow", "directory"], transform: identity),
+        Entry(classic: ["sidebar", "showBranchDirectory"], next: ["sidebar", "workspaceRow", "branch"], transform: identity),
         Entry(classic: ["sidebar", "showAgentActivity"], next: ["sidebar", "workspaceRow", "working"], transform: identity),
     ]
 }
