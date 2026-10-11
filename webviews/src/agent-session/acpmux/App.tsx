@@ -128,6 +128,7 @@ import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
@@ -1544,6 +1545,22 @@ function AcpmuxPane() {
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
+  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
+  // another machine or in the cloud gets none (its CLI is not this Mac's).
+  const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  const healthHarness = snapshot.summary?.harness;
+  const healthLocal = snapshot.summary?.hostKind !== "cloud";
+  useEffect(() => {
+    setHarnessHealth(undefined);
+    if (!connected || !healthHarness || !healthLocal) return;
+    let live = true;
+    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", { id: healthHarness })
+      .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [connected, healthHarness, healthLocal]);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -3235,6 +3252,14 @@ function AcpmuxPane() {
       )}
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      )}
+      {!harnessCard && (
+        <HarnessHealthNotice
+          health={harnessHealth}
+          name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
+          {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
+          open={(params) => void callNative("tab.open", params).catch(() => undefined)}
+        />
       )}
       {folderNeeded && !snapshot.sessionId && (
         <MissingFolder

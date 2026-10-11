@@ -82,7 +82,8 @@ test("a signed-out agent CLI says so, and Log In runs its login in a terminal ta
   const container = installDom();
   const opened = await render(container, signedOut);
   expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
-  expect(notice(container)?.getAttribute("role")).toBe("status");
+  // An <output>: announced as a status, never an alert.
+  expect(notice(container)?.tagName).toBe("OUTPUT");
   await press(container, "login");
   expect(opened).toEqual([{ kind: "terminal", text: "codex login", cwd: "/work", run: true }]);
   // Not Now hides it for this chat.
