@@ -150,7 +150,7 @@ nonisolated extension ActionSurfaceCatalog {
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
-            "revealWorkspaceInFinder", "workspaceGroup.revealInFinder", "workspaceGroup.editConfig", "manageLayouts",
+            "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
             "palette.openWorkspacePullRequests", "palette.findWork", "toggleSplitZoom", "canvasOverview",
             "palette.toggleFullWidthTab", "tab.showResources", "workspace.showResources",
             "toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement",

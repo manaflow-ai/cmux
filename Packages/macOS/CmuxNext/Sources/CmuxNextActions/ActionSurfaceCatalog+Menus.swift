@@ -57,7 +57,6 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.ungroup": [p(.workspaceGroup, .close, 500, folder: .close)],
         "workspaceGroup.delete": [p(.workspaceGroup, .close, 502, folder: .close)],
         "workspaceGroup.editConfig": [p(.workspaceGroup, .inspect, 400, folder: .tools)],
-        "workspaceGroup.revealInFinder": [p(.workspaceGroup, .inspect, 402, folder: .tools)],
         "saveLayoutTemplate": [p(.workspaceRow, .organize, 210, folder: .group)],
         "palette.layout.open": [p(.workspaceRow, .create, 102, folder: .new)],
         "palette.openWorkspacePullRequests": [p(.workspaceRow, .inspect, 409, folder: .tools)],
