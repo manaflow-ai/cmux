@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -85,6 +85,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `status` | subscribe | session | protocol 5 internal status line |
 | `empty` | subscribe | session | protocol 5 |
 | `agent-changed` | subscribe | `surface` | protocol 11; `agent` is optional since protocol 12 |
+| `agent-presence-changed` | subscribe | `surface` | protocol 12 additive extension; capability `agent-presence-v1` |
 | `vt-state` | byte attach | `surface` | protocol 5 |
 | `resized` | byte attach | `surface` | protocol 6 |
 | `output` | byte attach | `surface` | protocol 5 |
@@ -1485,6 +1486,47 @@ Example:
 
 The earlier draft name `agent-state-changed` is not emitted. Clients must
 subscribe to `agent-changed`.
+
+### agent-presence-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-presence-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `agent-presence-v1` |
+
+Payload:
+
+```text
+object{
+  event:"agent-presence-changed",
+  surface:Id,
+  activity:"thinking"|"editing"|"reading"|"running"|"browsing"|"computer_use"|"waiting"|null,
+  agent:string|null,
+  session:string|null,
+  tool:string|null,
+  path:string|null,
+  line:uint64|null,
+  updated_at_ms:uint64|null
+}
+```
+
+Meaning: What the agent in a surface's terminal is touching right now,
+reduced from its committed hook events. A pre-tool event sets `activity`,
+`tool`, and the `path` and `line` the tool input names (the only part of the
+tool input the journal keeps). A post-tool event keeps the target with
+`activity:"thinking"`. An approval, question or plan review sets
+`"waiting"`. Turn end, session start or end, and terminal close clear it:
+`activity` and every other field are `null`. Presence is live-only. It is
+not persisted, replayed journal commits do not emit it, and there is no
+snapshot, so a client that reconnects waits for the next event. A client
+should fade a presence that has not updated for a while.
+
+Example:
+
+```json
+{"event":"agent-presence-changed","surface":1,"activity":"editing","agent":"claude","session":"abc","tool":"Edit","path":"/repo/src/app.rs","line":null,"updated_at_ms":1710000000000}
+```
 
 ## Proposed Events
 
