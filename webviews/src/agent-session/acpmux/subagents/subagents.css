@@ -179,7 +179,7 @@ button.cv-subagent > :last-child {
   border-radius: 6px;
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   font-family: var(--cv-font);
-  font-size: 12px;
+  font-size: var(--text-detail);
   color: var(--cv-text-muted);
   cursor: pointer;
   user-select: none;
