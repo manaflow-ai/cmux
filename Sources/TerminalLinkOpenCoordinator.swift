@@ -140,9 +140,10 @@ struct TerminalLinkOpenCoordinator {
             return false
         }
 
-        // A local path that named no file above (cwd, git root) opens
-        // nothing: no editor launched on a missing file.
-        if target.url.isFileURL, canResolveLocalFilePath,
+        // A plain local path that named no file above (cwd, git root) opens
+        // nothing: no editor launched on a missing file. An explicit
+        // `file://` URL keeps its URL-handler route (`file:///a.swift:42`).
+        if target.url.isFileURL, !isExplicitLocalFileURL, canResolveLocalFilePath,
            !FileManager.default.fileExists(atPath: target.url.path) {
             log("link.openURL no such file path=\(target.url.path)")
             return false
