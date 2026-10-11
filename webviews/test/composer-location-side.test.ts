@@ -39,13 +39,27 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
   test("the folder popover stays on the side it opened on while a filter shrinks it", async () => {
     const page = await browser!.newPage({ viewport: { width: 620, height: 560 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(
-      `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer-context-side&variant=filter-keeps-side`,
-    );
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    // A cold dev server re-optimizes its deps on the first page and can leave that page without
+    // its modules (it never reports ready): load it again once the optimizer has settled.
+    const url = `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer-context-side&variant=filter-keeps-side`;
+    for (let attempt = 1; ; attempt++) {
+      await page.goto(url);
+      const ready = await page
+        .waitForFunction(
+          () => {
+            const ready = document.documentElement.dataset.galleryReady;
+            return ready === "1" || ready === "error";
+          },
+          undefined,
+          { timeout: 30_000 },
+        )
+        .then(() => true)
+        .catch((error: unknown) => {
+          if (attempt >= 3) throw error;
+          return false;
+        });
+      if (ready) break;
+    }
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,

@@ -52,6 +52,13 @@ export default componentEntry<Props>({
   load: async () => Placed,
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 560,
+  checks: {
+    longFrameFailMs: {
+      value: 200,
+      reason:
+        "This entry tests the popover's side, not its timing; its first open on a cold CI page loads the menu's code (122 ms seen). agent-pane.composer-context keeps the 33 ms bar.",
+    },
+  },
   variants: {
     "filter-keeps-side": {
       note: "Too little room above for the full folder list: the popover opens below its chip and stays there while a filter shrinks the list.",
