@@ -141,7 +141,8 @@ first-terminal Cmd-K rows fail in both runs because that terminal is not first r
 (child bead of cx-442); the Cmd-K rows in the focused split pass.
 
 4. Cmd-[ / Cmd-] (chief decision 2026-10-11): `KeyBindingDefaults.focusHistoryAliases` bind
-   them to `focusHistoryBack` / `focusHistoryForward` with `when: surfaceKind != page`. They
+   them to `focusHistoryBack` / `focusHistoryForward` with `when: surfaceKind != page && !codeEditorFocused`
+   (the code editor keeps outdent / indent). They
    sit first in the default layer, so the browser's and the Markdown viewer's own Back /
    Forward on the same keys (later, more specific) win in those surfaces, a user Ghostty
    `super+[` keybind (Ghostty layer) wins everywhere, and a cmux.json override of the action
