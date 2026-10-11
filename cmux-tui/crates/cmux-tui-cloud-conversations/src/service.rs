@@ -107,6 +107,9 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// API origins beyond the built-in cmux Cloud ones that a lease from a
+    /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
+    pub api_origins: Vec<String>,
 }
 
 impl Default for ServiceOptions {
@@ -118,6 +121,13 @@ impl Default for ServiceOptions {
             poll: Duration::from_secs(1),
             max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
+            api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .collect(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -257,6 +267,12 @@ impl CloudConversations {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             check_lease_holder(&lease, by_app)?;
+            if !by_app {
+                super::session::check_known_origin(
+                    &params.api_base_url,
+                    &self.inner.options.api_origins,
+                )?;
+            }
             let session = CloudSession::new(params, lease.generation + 1)?;
             lease.generation = session.generation;
             lease.expiring_sent = false;
@@ -577,6 +593,15 @@ impl CloudConversations {
             }
         }
         self.inner.notify();
+    }
+
+    /// Whether a connection (`is_app`: the verified cmux app) receives cloud
+    /// events. While the app holds the lease, its events are the human's:
+    /// only the app gets them. Without an app lease (a headless brain's own
+    /// daemon, which reads events on a second connection) every trusted
+    /// local stream does, as before.
+    pub fn delivers_to(&self, is_app: bool) -> bool {
+        is_app || !self.app_holds_lease()
     }
 
     /// Whether `target` still has an upstream driver (tests and diagnostics).

@@ -201,7 +201,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
         nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill.blended(withFraction: 0.5, of: Palette.textSecondary) ?? Palette.selectionFill]
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
         }
     }
 

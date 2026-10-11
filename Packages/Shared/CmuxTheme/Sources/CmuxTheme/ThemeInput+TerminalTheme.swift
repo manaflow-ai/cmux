@@ -28,6 +28,7 @@ extension ThemeInput {
                 ? Self.color(terminalTheme.selectionBackground) : nil,
             selectionForeground: terminalTheme.selectionForegroundSemantic == nil
                 ? Self.color(terminalTheme.selectionForeground) : nil,
+            cursor: terminalTheme.cursorColorSemantic == nil ? Self.color(terminalTheme.cursor) : nil,
             backgroundOpacity: backgroundOpacity,
             backgroundBlur: backgroundBlur
         )
