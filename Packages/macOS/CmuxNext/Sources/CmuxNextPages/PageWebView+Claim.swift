@@ -73,6 +73,12 @@ extension PageWebView {
     /// Hands the claim to the current document (``retarget(descriptor:routes:route:documentAttributes:surface:dynamicResources:)``
     /// already bound the routes) and reloads it only when it does not acknowledge.
     func claimDocument(documentAttributes: [String: String]) {
+        // Its parked frame was the window's whole content: shown at once in a narrower pane, it
+        // drew its wide layout, then blank tiles while it laid out again. The pane keeps what it
+        // showed until the page drew at the pane's size (PanePaintHold).
+        paintedUptime = nil
+        repaintsAtNextLayout = true
+        needsLayout = true
         _ = claimState.end()
         let state = claimState
         let generation = state.generation
@@ -101,6 +107,8 @@ extension PageWebView {
     /// Records a claim that loaded its document.
     func noteLoadedClaim() {
         _ = claimState.end()
+        // The loaded document reports its own first paint, not the one it replaces.
+        repaintsAtNextLayout = false
         claimState.outcome = PageClaimOutcome(path: .loaded, milliseconds: 0)
     }
 
@@ -111,9 +119,12 @@ extension PageWebView {
         state.outcome = PageClaimOutcome(path: path,
                                          milliseconds: Double(seconds) * 1_000 + Double(attoseconds) / 1e15)
         guard path != .acknowledged else {
+            if repaintsAtNextLayout { needsLayout = true }
             resumeLoadWaiters()
             return
         }
+        // The reloaded document reports its own first paint.
+        repaintsAtNextLayout = false
         loaded = false
         reloadDocument()
     }

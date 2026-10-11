@@ -293,6 +293,13 @@ impl CloudConversations {
         Ok(json!({"state": "signed_out"}))
     }
 
+    /// Whether the verified cmux app set the current lease
+    /// (`cloud-lease-app-only-v1`): then only the app may use it.
+    pub fn app_holds_lease(&self) -> bool {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        lease.app_held && lease.session.is_some()
+    }
+
     /// `cloud-session-status`. Never returns the token.
     pub fn session_status(&self) -> Value {
         let now = (self.inner.options.now_ms)();
@@ -570,6 +577,15 @@ impl CloudConversations {
             }
         }
         self.inner.notify();
+    }
+
+    /// Whether a connection (`is_app`: the verified cmux app) receives cloud
+    /// events. While the app holds the lease, its events are the human's:
+    /// only the app gets them. Without an app lease (a headless brain's own
+    /// daemon, which reads events on a second connection) every trusted
+    /// local stream does, as before.
+    pub fn delivers_to(&self, is_app: bool) -> bool {
+        is_app || !self.app_holds_lease()
     }
 
     /// Whether `target` still has an upstream driver (tests and diagnostics).

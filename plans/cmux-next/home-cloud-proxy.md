@@ -60,9 +60,10 @@ Part 2 (`cloud-lease-app-only-v1`, cx-59n8.7, proposed in cmux#13742): a lease t
 app connection set (the `frontend` actor of `client-hello`, the same check as the feed handoff)
 belongs to the app; another connection's `cloud-session-set`/`-clear` is refused with
 `cloud_conversation_rejected` / `forbidden` while it exists. `cloud-conversation-op` with
-`origin:"user"` is refused on every connection that is not the verified app. Still open: an
-unbound same-uid process may read through the app's lease and send ops with another origin
-(`cli`, `script`) that the cloud records as the human.
+`origin:"user"` is refused on every connection that is not the verified app. Part 3
+(cx-59n8.10, cmux#13742 comment 6111570920): while the app's lease exists, every lease-using
+`cloud-*` command (reads, ops with any origin, subscribes, `cloud-mux-ack`) from another
+connection is refused the same way; `cloud-session-status` and the unsubscribes stay open.
 
 Types (shapes are home-core's, identical to home.md section 2 where they overlap):
 
