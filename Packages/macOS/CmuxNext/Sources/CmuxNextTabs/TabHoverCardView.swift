@@ -90,8 +90,8 @@ final class TabHoverCardView: NSView {
             let subtitle = [profile, item.machineBadgeHelp, item.themeBadge.map { Strings.axTheme($0.name) }, item.subtitle]
                 .compactMap(\.self).joined(separator: " · ")
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
+            // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
             setResourcesVisible(true)
-            setThumbnailVisible(true)
         case .group(let group, let titles):
             let shown = titles.prefix(Self.maxGroupLines)
             var lines = Array(shown)
@@ -127,6 +127,8 @@ final class TabHoverCardView: NSView {
         setResourcesVisible(!unavailable)
         if !unavailable { resources.show(report) }
     }
+
+    var showsThumbnail: Bool { !thumbnail.isHidden }
 
     func setThumbnailVisible(_ visible: Bool) {
         thumbnail.isHidden = !visible

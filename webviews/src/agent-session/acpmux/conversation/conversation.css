@@ -265,6 +265,7 @@
   top: 0.35em;
   --cmux-markdown-checkbox-secondary: var(--agent-muted);
   --cmux-markdown-checkbox-accent: var(--agent-accent);
+  --cmux-markdown-checkbox-ink: var(--agent-on-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
 }
 /* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */

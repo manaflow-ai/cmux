@@ -75,6 +75,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return true
     }
 
+    /// The Cmd-hover underline goes only to links that open (cx-do47.1): a URL, a web host,
+    /// or a path that names a file or folder (``TerminalLinkResolver``, the click's own rule).
+    func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
+        let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
+        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start) != nil }
+    }
+
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
     /// palette lists them; a plain Cmd-click uses the workspace's profile) and the clicked tab.
     /// Read now: the click is the current event only during the delegate call.

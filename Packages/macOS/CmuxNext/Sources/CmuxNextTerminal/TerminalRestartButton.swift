@@ -3,7 +3,8 @@ import CmuxNextDesign
 
 /// "Restart Shell Here" above the status banner while the terminal's shell
 /// has ended (`tab.restart`). Shown only when the App gave an action (a
-/// daemon with `tab-restart-v1`). Subtle gray, no accent, like the banner.
+/// daemon with `tab-restart-v1`). The theme's secondary text, no accent, like
+/// the banner.
 final class TerminalRestartButton: NSButton {
     var onRestart: (@MainActor () -> Void)? {
         didSet { refresh() }
@@ -19,7 +20,6 @@ final class TerminalRestartButton: NSButton {
         imagePosition = .imageLeading
         bezelStyle = .rounded
         font = .systemFont(ofSize: 12, weight: .medium)
-        contentTintColor = NSColor(white: 0.85, alpha: 1)
         setAccessibilityLabel(title)
         target = self
         action = #selector(clicked)
@@ -29,6 +29,20 @@ final class TerminalRestartButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeTint()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeTint()
+    }
+
+    private func applyThemeTint() {
+        contentTintColor = performWithTheme { Palette.textSecondary }
     }
 
     /// Follows the link status: visible only while the shell has ended.

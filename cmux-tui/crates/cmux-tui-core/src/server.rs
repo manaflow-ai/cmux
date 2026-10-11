@@ -1610,6 +1610,7 @@ enum Command {
     ConversationCreate(conversations::CreateParams),
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
+    ConversationThread(conversations::ThreadParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1626,6 +1627,7 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
+    CloudConversationThread(cloud_conversations::ThreadParams),
     CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
@@ -3484,6 +3486,7 @@ fn handle_command_with_cancellation(
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationThread(params) => conversations::thread(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -3500,6 +3503,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationHistory(params) => {
             cloud_conversations::history(mux, client, params)
+        }
+        Command::CloudConversationThread(params) => {
+            cloud_conversations::thread(mux, client, params)
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),

@@ -128,7 +128,12 @@ fn hub_for(root: &Path, user: &Path, home: &Path) -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    hub.health.attach(Settings { sources: None, cache: None, home: home.into() });
+    hub.health.attach(Settings {
+        sources: None,
+        cache: None,
+        home: home.into(),
+        ..Settings::default()
+    });
     hub
 }
 
@@ -218,6 +223,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         }),
         cache: Some(cache.clone()),
         home: home.clone(),
+        ..Settings::default()
     });
     // The model probe found codex signed out.
     hub.probe_errors
@@ -445,5 +451,153 @@ async fn health_reads_node_formulas_wrappers_and_signin_evidence() {
     assert_eq!(row(&reply, "fresh")["auth"], "signedIn", "{reply}");
     assert_eq!(row(&reply, "other")["auth"], "unknown", "{reply}");
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Waits for harness `id`'s row to pass `done` (an auto-update runs in the background).
+async fn wait_row(app: &mut Client, id: &str, done: impl Fn(&Value) -> bool) -> Value {
+    for _ in 0..300 {
+        let all = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+        if done(row(&all, id)) {
+            return row(&all, id).clone();
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("{id} never got there");
+}
+
+/// Auto-update (off by default, per harness): turning it on, or a check that finds an opted-in
+/// harness outdated, runs its own updater (never one that needs sudo), then checks again. A failed
+/// update is not retried for the same version until auto-update is turned on again. The choice is
+/// kept in acpmux's home; a remote WebSocket connection cannot change it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again() {
+    let root = scratch("auto");
+    let home = root.join("home");
+    let user = root.join("config").join("harnesses");
+
+    // Claude's native installer: `claude update` installs 2.0.9, or fails while `fail` exists.
+    // Each run is logged to `runs`.
+    let claude_file = home.join(".local/share/claude/versions/current");
+    let claude = home.join(".local/bin/claude");
+    let runs = root.join("claude-update-runs");
+    let fail = root.join("claude-update-fails");
+    std::fs::create_dir_all(claude_file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &claude_file,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; if [ -e '{2}' ]; then echo 'network is down'; exit 1; fi; printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
+            claude_file.display(),
+            runs.display(),
+            fail.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&claude_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+    symlink(&claude_file, &claude).unwrap();
+    profile(
+        &user,
+        "claude",
+        &format!("protocol = \"claude-stdio\"\ncommand = \"{}\"\n", claude.display()),
+    );
+    // npm, a prefix this user cannot write: its update needs sudo and never runs on its own.
+    let npm_ro = root.join("npm-ro");
+    let opencode = npm_ro.join("bin/opencode");
+    program(&npm_ro.join("lib/node_modules/opencode-ai/bin/opencode"), &opencode, "0.15.0");
+    std::fs::set_permissions(
+        npm_ro.join("lib/node_modules"),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+    profile(&user, "opencode", &format!("command = \"{}\"\n", opencode.display()));
+    // npm, outdated, auto-update off.
+    let npm = root.join("npm");
+    let codex = npm.join("bin/codex-acp");
+    program(
+        &npm.join("lib/node_modules/@zed-industries/codex-acp/bin/codex-acp.js"),
+        &codex,
+        "codex-acp 0.3.1",
+    );
+    profile(&user, "codex", &format!("command = \"{}\"\n", codex.display()));
+
+    let (port, _asked) = latest_server(vec![
+        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.0.9"})),
+        ("/npm/opencode-ai/latest", json!({"version": "0.16.0"})),
+        ("/npm/@zed-industries%2Fcodex-acp/latest", json!({"version": "0.4.0"})),
+    ]);
+    let hub = hub_for(&root, &user, &home);
+    let chosen = root.join("acpmux/harness-auto-update.json");
+    hub.health.attach(Settings {
+        sources: Some(Sources {
+            npm: format!("http://127.0.0.1:{port}/npm"),
+            brew: format!("http://127.0.0.1:{port}/brew"),
+        }),
+        cache: None,
+        home: home.clone(),
+        auto_update: Some(chosen.clone()),
+    });
+    let mut app = Client::open(&hub, Origin::LocalApp);
+    let first = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+    assert_eq!(row(&first, "claude")["autoUpdate"], false, "off by default: {first}");
+
+    std::fs::write(&fail, "").unwrap();
+    let on = app
+        .call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "claude", "on": true}}))
+        .await
+        .expect("auto-update on");
+    assert_eq!(row(&on, "claude")["autoUpdate"], true, "{on}");
+    // Turning it on runs the updater now, not at the next periodic check. This run fails.
+    let r = wait_row(&mut app, "claude", |r| r["lastAutoUpdate"]["ok"] == false).await;
+    assert_eq!(r["lastAutoUpdate"]["detail"], "network is down", "{r}");
+    // Same installed and newest version: the periodic step does not run it again.
+    assert_eq!(hub.auto_update_harnesses().await, Vec::<String>::new());
+    // SAFETY: geteuid has no preconditions. Root writes any folder, so the sudo case is not one.
+    let rooted = unsafe { libc::geteuid() } == 0;
+    if !rooted {
+        app.call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "opencode", "on": true}}))
+            .await
+            .expect("auto-update on");
+    }
+    let mut web = Client::open(&hub, Origin::Web);
+    web.call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "codex", "on": true}}))
+        .await
+        .expect_err("web origin");
+    let saved = std::fs::read_to_string(&chosen).expect("choice saved");
+    assert!(saved.contains("claude") && !saved.contains("codex"), "{saved}");
+
+    // Turning it on again tries again; only claude runs its updater, then everything is checked again.
+    std::fs::remove_file(&fail).unwrap();
+    app.call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "claude", "on": true}}))
+        .await
+        .expect("auto-update on again");
+    let r = wait_row(&mut app, "claude", |r| r["version"] == "2.0.9").await;
+    assert_eq!(r["outdated"], false, "{r}");
+    assert_eq!(r["lastAutoUpdate"]["ok"], true, "{r}");
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 2, "one run per try");
+    let after = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+    let r = row(&after, "opencode");
+    assert_eq!(
+        (r["version"].as_str(), r["outdated"].as_bool()),
+        (Some("0.15.0"), Some(true)),
+        "{r}"
+    );
+    assert!(r["lastAutoUpdate"].is_null(), "a sudo update never runs: {r}");
+    let r = row(&after, "codex");
+    assert_eq!(
+        (r["version"].as_str(), r["autoUpdate"].as_bool()),
+        (Some("0.3.1"), Some(false)),
+        "{r}"
+    );
+
+    // Off again, and kept off.
+    let off = app
+        .call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "claude", "on": false}}))
+        .await
+        .expect("auto-update off");
+    assert_eq!(row(&off, "claude")["autoUpdate"], false, "{off}");
+    assert!(!std::fs::read_to_string(&chosen).unwrap().contains("claude"));
+
+    let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);
 }

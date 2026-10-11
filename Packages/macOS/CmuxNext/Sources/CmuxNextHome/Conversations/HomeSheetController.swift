@@ -11,9 +11,9 @@ public class HomeSheetController: NSViewController {
     /// The sheet finished with a conversation to show (nil: nothing to show).
     public var onFinish: (ConversationID?) -> Void = { _ in }
 
-    let titleLabel = NSTextField(labelWithString: "")
+    let titleLabel = ThemedLabel(labelWithString: "")
     let stack = NSStackView()
-    let statusLabel = NSTextField(wrappingLabelWithString: "")
+    let statusLabel = ThemedLabel(wrappingLabelWithString: "")
     let cancelButton = NSButton(title: HomeConversationStrings.cancel, target: nil, action: nil)
     let primaryButton = ThemedDefaultButton(title: "", target: nil, action: nil)
     let buttons = NSStackView()
@@ -43,7 +43,7 @@ public class HomeSheetController: NSViewController {
         addContent(to: stack)
         statusLabel.isHidden = true
         statusLabel.font = Typography.caption
-        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.ink = .secondary
         statusLabel.setAccessibilityIdentifier("cmux.home.sheet.status")
         stack.addArrangedSubview(statusLabel)
         cancelButton.target = self

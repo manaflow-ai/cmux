@@ -14,6 +14,8 @@ export type FileActions = {
   toggleCollapsed: (path: string) => void;
   toggleViewed: (path: string) => void;
   openFile: (path: string, where: OpenTarget) => void;
+  /// Stage (or, in Staged, unstage) a file; absent where the view can't change the index.
+  stage?: { unstage: boolean; run: (path: string) => void };
 };
 
 export function FileHeader({
@@ -95,6 +97,12 @@ export function FileHeader({
         collapsed={view.collapsed}
         onToggleCollapsed={() => on.toggleCollapsed(file.path)}
         onOpenInTab={file.deleted ? undefined : () => on.openFile(file.path, "tab")}
+        stage={
+          on.stage && {
+            label: t(on.stage.unstage ? "changes.unstageFile" : "changes.stageFile"),
+            run: () => on.stage?.run(file.path),
+          }
+        }
       />
     </div>
   );
