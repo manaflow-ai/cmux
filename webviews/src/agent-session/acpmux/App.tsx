@@ -110,6 +110,7 @@ import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
+import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -498,24 +499,6 @@ type DrawnHeight = { sessionId?: string; version: number; width: number; height:
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
-
-/// The text a transcript row contributes to a keyboard copy. Rendered Markdown is intentionally
-/// not scraped from the DOM: doing that would make copy depend on virtualization and would lose
-/// the source text while a reply is streaming.
-function transcriptCopyText(row: AcpmuxRow): string {
-  const parts: string[] = [];
-  if (row.text?.trim()) parts.push(row.text.trim());
-  if (row.shell) {
-    if (row.shell.command.trim()) parts.push(`$ ${row.shell.command.trim()}`);
-    if (row.shell.output.trim()) parts.push(row.shell.output.trim());
-    if (row.shell.error?.trim()) parts.push(row.shell.error.trim());
-  }
-  for (const item of row.items ?? []) {
-    if (item.text.trim()) parts.push(item.text.trim());
-    if (item.tool?.output?.trim()) parts.push(item.tool.output.trim());
-  }
-  return parts.join("\n").trim();
-}
 
 /// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
 /// floating action for prompts and tool rows where no adjacent copy control exists.
@@ -976,12 +959,7 @@ export function VirtualTranscript({
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      const text = rowIds
-        .map((id) => rows.find((row) => row.id === id))
-        .filter((row): row is AcpmuxRow => row !== undefined)
-        .map((row) => transcriptCopyText(row))
-        .filter(Boolean)
-        .join("\n\n");
+      const text = transcriptRangeText(rows, rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],
