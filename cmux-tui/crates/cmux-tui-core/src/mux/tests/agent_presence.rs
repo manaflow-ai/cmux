@@ -199,8 +199,8 @@ fn replayed_commits_do_not_publish_presence() {
     let events = mux.subscribe();
     // The same idempotency key replays the earlier commit.
     mux.append_journal_ingress(&ingress, "test", "same-key").unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_millis(300);
-    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match events.recv_timeout(remaining) {
             Ok(MuxEvent::AgentPresenceChanged { .. }) => {
                 panic!("a replayed commit published presence")

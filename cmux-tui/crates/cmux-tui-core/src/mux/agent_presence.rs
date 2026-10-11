@@ -230,12 +230,8 @@ impl Mux {
         };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
         let mut table = self.agent_presence.lock().unwrap();
-        let presence = match next_presence(
-            table.get(&terminal_id),
-            ingress,
-            &terminal_id,
-            super::time::now_ms(),
-        ) {
+        let presence = match next_presence(table.get(&terminal_id), ingress, &terminal_id, now_ms())
+        {
             PresenceStep::Unchanged => return,
             PresenceStep::Set(presence) => {
                 if table.get(&terminal_id) == Some(&presence) {
