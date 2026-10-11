@@ -54,9 +54,36 @@ struct PaneArrival: Equatable {
         let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
         let added = after.keys.filter { before[$0] == nil }
         guard added.count == 1, before.keys.allSatisfy({ after[$0] != nil }), let pane = added.first, let target = after[pane],
-              var arrival = of(target: target, previous: before, next: after) else { return [:] }
+              var arrival = of(target: target, previous: before, next: after) ?? docking(pane, target: target, from: old, to: new)
+        else { return [:] }
         if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
         return [pane: arrival]
+    }
+
+    /// A pane opening a new docked column where no one pane gave up the
+    /// space (the strip reflows its columns around it): it grows in from the
+    /// screen edge the column docks to, and the strip springs aside with it.
+    /// Overlay columns float on glass that does not grow, so they land in place.
+    static func docking(_ pane: PaneID, target: CGRect, from old: ScreenGeometry, to new: ScreenGeometry) -> PaneArrival? {
+        guard let entry = new.dockFrame(containing: pane), entry.dock.mode != .overlay,
+              !old.dock.contains(where: { $0.column == entry.column }) else { return nil }
+        if target.maxX <= new.clipMinX + 1 {
+            return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: 0, height: target.height),
+                               edgeOffset: CGVector(dx: -target.width, dy: 0))
+        }
+        if target.minX >= new.clipMaxX - 1 {
+            return PaneArrival(seed: CGRect(x: target.maxX, y: target.minY, width: 0, height: target.height),
+                               edgeOffset: CGVector(dx: target.width, dy: 0))
+        }
+        if target.maxY <= new.clipMinY + 1 {
+            return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: target.width, height: 0),
+                               edgeOffset: CGVector(dx: 0, dy: -target.height))
+        }
+        if target.minY >= new.clipMaxY - 1 {
+            return PaneArrival(seed: CGRect(x: target.minX, y: target.maxY, width: target.width, height: 0),
+                               edgeOffset: CGVector(dx: 0, dy: target.height))
+        }
+        return nil
     }
 
     private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {
