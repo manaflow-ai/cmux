@@ -25,6 +25,9 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
     /// Start with Sparkle's scheduled background check instead of waiting
     /// for a check the harness asks for.
     public let backgroundCheck: Bool
+    /// The throwaway key that signs the harness's release notes (raw
+    /// Ed25519, base64), or nil: notes are then read as in any DEV build.
+    public let contentKey: String?
 
     public init?(info: [String: Any], bundleIdentifier: String?) {
         guard UpdateTrack.isDevelopmentBundle(bundleIdentifier),
@@ -34,6 +37,7 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
         feedURL = feed
         marksPath = marks
         backgroundCheck = entry["background"] as? Bool ?? false
+        contentKey = entry["contentKey"] as? String
     }
 
     /// The running app's harness, or nil (every build that is not a
