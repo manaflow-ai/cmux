@@ -215,10 +215,6 @@ public final class AgentPaneModel {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
-                    // A seeded prompt goes out by itself: it carries the gesture of the person's
-                    // action that seeded it (New Agent Chat with a prompt, a first task), handed
-                    // out once with the seed, so its start and first prompt are not refused (cx-k21v).
-                    if let prompt = seed.prompt, !prompt.isEmpty { transport.gestures.record() }
                     handshake.harness = seed.harness
                     handshake.adopt = seed.adopt
                 }
