@@ -621,19 +621,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "surfaceKind != page && !codeEditorFocused"
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "focusHistoryForward",
@@ -668,19 +656,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "surfaceKind != page && !codeEditorFocused"
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "list.next",
