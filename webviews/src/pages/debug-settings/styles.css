@@ -90,12 +90,8 @@
   background: var(--page-text);
 }
 
-.ds-row-label .ds-dot {
+.ds-dot:not([data-visible="true"]) {
   visibility: hidden;
-}
-
-.ds-row-label .ds-dot[data-visible="true"] {
-  visibility: visible;
 }
 
 /* An <output> is inline by default; the notice is its own line under the actions. */
