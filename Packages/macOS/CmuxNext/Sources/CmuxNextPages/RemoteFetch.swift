@@ -55,13 +55,30 @@ public nonisolated enum RemoteFetchFailure: Error, Equatable, Sendable {
 /// (``RemoteAddress/isPublic``); the connection goes to exactly a checked address
 /// (``RemoteFetchTransport`` never resolves again, so a DNS rebinding between the check and the
 /// connect cannot move the target), with the URL's host as the TLS server name and `Host`
-/// header. At most ``maximumRedirects`` redirects, each checked the same way; at most
-/// ``maximumBytes`` of body; the whole fetch, redirects included, within ``timeout``.
+/// header. HTTP/1.1 with a browser's headers; chunked replies and gzip, deflate or br bodies are
+/// decoded. At most ``maximumRedirects`` redirects, each checked the same way; any 2xx answer is
+/// the body; at most ``maximumBytes`` of body on the wire and decoded; the whole fetch, redirects
+/// included, within ``timeout``.
 public nonisolated struct GuardedRemoteFetch: Sendable {
     public static let maximumRedirects = 3
     /// At most this many checked addresses of one host are tried when a connection fails before
     /// any byte is sent.
     static let maximumAddresses = 4
+
+    /// A browser's `User-Agent`: image hosts and CDNs refuse or degrade unknown clients.
+    public static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+    /// The `Accept` of a browser's image request.
+    public static let imageAccept = "image/webp,image/avif,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5"
+    /// The `Accept` of a browser's video or audio request.
+    public static let mediaAccept = "video/*,audio/*;q=0.9,*/*;q=0.5"
+    /// The person's first preferred languages, as the system's URL loading sends them.
+    static var acceptLanguage: String {
+        let languages = Locale.preferredLanguages.prefix(3)
+        guard !languages.isEmpty else { return "en" }
+        return languages.enumerated().map { index, tag in
+            index == 0 ? tag : "\(tag);q=\(String(format: "%.1f", 1.0 - Double(index) * 0.1))"
+        }.joined(separator: ", ")
+    }
 
     public var maximumBytes: Int
     public var timeout: Duration
@@ -103,7 +120,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         return host
     }
 
-    /// The body of a 200 answer for `url`, following checked redirects.
+    /// The body of a 2xx answer for `url`, following checked redirects.
     public func fetch(_ url: URL) async -> Result<RemoteFetchResponse, RemoteFetchFailure> {
         let race = DeadlineRace()
         let clock = clock
@@ -151,7 +168,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                 url = next
                 continue
             }
-            guard response.status == 200 else { return .failure(.failed) }
+            guard (200..<300).contains(response.status) else { return .failure(.failed) }
             guard response.body.count <= maximumBytes else { return .failure(.tooLarge) }
             return .success(response)
         }
@@ -184,7 +201,8 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         let hostName = literalV6 ? "[\(host)]" : host
         let hostHeader = url.port.map { "\(hostName):\($0)" } ?? hostName
         return RemoteFetchRequest(address: address, host: host, port: url.port ?? 443, target: target, headers: [
-            "Host": hostHeader, "Accept": accept, "Accept-Encoding": "identity", "Connection": "close", "User-Agent": "cmux",
+            "Host": hostHeader, "Accept": accept, "Accept-Encoding": RemoteFetchContentDecoding.accepted,
+            "Accept-Language": Self.acceptLanguage, "Connection": "close", "User-Agent": Self.userAgent,
         ])
     }
 }
