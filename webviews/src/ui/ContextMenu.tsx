@@ -34,8 +34,9 @@ export interface ContextMenuProps {
  * A right-click over selected text keeps the host's native menu (Copy), unless `selection="menu"`.
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
- * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing returns focus
- * to the invoking control when it has one.
+ * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing attempts to
+ * restore the invoking control when it remains connected at the close turn; navigation actions
+ * own any later focus changes.
  */
 export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
