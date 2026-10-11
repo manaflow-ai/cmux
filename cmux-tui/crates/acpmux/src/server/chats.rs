@@ -19,6 +19,11 @@
 //! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
+//! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
+//!   harness's store: `{key, harness, title, cwd, turns: [{prompt, answer,
+//!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
+//!   file too large or unreadable, answers invalid params with `data.reason`
+//!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
@@ -242,30 +247,36 @@ async fn settled_page(
     Ok(page)
 }
 
-/// The index lock may be held by a scan: never wait for it on the executor.
 /// A chat's turns: Claude Code and Codex through adopt's reader (`adopt_replay.rs`, the turns an
-/// adopted chat replays), every other harness through `cmux_chat_index::transcript`.
+/// adopted chat replays), every other harness through `cmux_chat_index::transcript`. Both come
+/// out with the same caps, and a file that cannot be read is an error, never "no turns".
 fn transcript_turns(
     entry: &cmux_chat_index::ChatEntry,
 ) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
     use cmux_chat_index::AdapterKind;
+    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
     let family = match entry.harness {
         AdapterKind::ClaudeCode => "claude",
         AdapterKind::Codex => "codex",
         kind => return cmux_chat_index::transcript::read_turns(kind, &entry.source_path),
     };
+    // adopt's reader answers an unreadable file with no turns.
+    std::fs::File::open(&entry.source_path)
+        .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
     Ok(turns
         .into_iter()
-        .map(|t| cmux_chat_index::transcript::Turn {
-            prompt: t.prompt,
-            answer: t.answer,
+        .map(|t| Turn {
+            prompt: capped(t.prompt),
+            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
+            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
+            answer: capped(t.answer),
             prompt_at: t.prompt_at,
-            answer_at: t.answer_at,
         })
         .collect())
 }
 
+/// The index lock may be held by a scan: never wait for it on the executor.
 async fn blocking(
     f: impl FnOnce() -> Result<Value, RpcError> + Send + 'static,
 ) -> Result<Value, RpcError> {

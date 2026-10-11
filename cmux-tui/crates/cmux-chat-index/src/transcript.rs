@@ -8,7 +8,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::entry::AdapterKind;
-use crate::lines::{contains, fold_lines, read_whole_json};
+use crate::lines::{WHOLE_FILE_MAX, contains, fold_lines, read_whole_json};
 use crate::time::parse_rfc3339_ms;
 
 /// One past exchange: the person's prompt and the assistant's answer text.
@@ -60,11 +60,6 @@ impl std::fmt::Display for TranscriptError {
     }
 }
 
-/// Whether `kind` has a transcript reader.
-pub fn supported(kind: AdapterKind) -> bool {
-    matches!(kind, AdapterKind::Droid | AdapterKind::Continue | AdapterKind::Amp)
-}
-
 /// The turns of the `kind` chat stored at `path` (its `ChatEntry::source_path`).
 pub fn read_turns(kind: AdapterKind, path: &Path) -> Result<Vec<Turn>, TranscriptError> {
     let unreadable = |e: std::io::Error| TranscriptError::Unreadable(e.to_string());
@@ -84,16 +79,14 @@ pub fn read_turns(kind: AdapterKind, path: &Path) -> Result<Vec<Turn>, Transcrip
         }
         // One JSON file: `history[].message{role, content}`.
         AdapterKind::Continue => {
-            let session =
-                read_whole_json(path).map_err(unreadable)?.ok_or(TranscriptError::TooLarge)?;
+            let session = whole_json(path)?;
             for item in session.get("history").and_then(Value::as_array).into_iter().flatten() {
                 turns.add(item.get("message").unwrap_or(&Value::Null), None);
             }
         }
         // One JSON thread: `messages[]{role, content}`.
         AdapterKind::Amp => {
-            let thread =
-                read_whole_json(path).map_err(unreadable)?.ok_or(TranscriptError::TooLarge)?;
+            let thread = whole_json(path)?;
             for message in thread.get("messages").and_then(Value::as_array).into_iter().flatten() {
                 turns.add(message, None);
             }
@@ -101,6 +94,18 @@ pub fn read_turns(kind: AdapterKind, path: &Path) -> Result<Vec<Turn>, Transcrip
         _ => return Err(TranscriptError::Unsupported),
     }
     Ok(turns.done())
+}
+
+/// A whole-file JSON store: too large past `WHOLE_FILE_MAX`, unreadable when it is not JSON
+/// (cut short mid-write, say).
+fn whole_json(path: &Path) -> Result<Value, TranscriptError> {
+    let unreadable = |e: std::io::Error| TranscriptError::Unreadable(e.to_string());
+    if std::fs::metadata(path).map_err(unreadable)?.len() > WHOLE_FILE_MAX {
+        return Err(TranscriptError::TooLarge);
+    }
+    read_whole_json(path)
+        .map_err(unreadable)?
+        .ok_or_else(|| TranscriptError::Unreadable("not JSON".into()))
 }
 
 #[derive(Default)]
@@ -113,9 +118,10 @@ impl Turns {
         let content = message.get("content").unwrap_or(&Value::Null);
         match message.get("role").and_then(Value::as_str) {
             Some("user") => {
-                // Context a harness injects comes as `<tags>`, not as the person's words.
+                // Context a harness injects comes as a whole `<tag>…</tag>` block, not as the
+                // person's words (which may still start with markup).
                 let prompt = message_text(content, &["text", "input_text"])
-                    .filter(|prompt| !prompt.starts_with('<'));
+                    .filter(|prompt| !(prompt.starts_with('<') && prompt.ends_with('>')));
                 if let Some(prompt) = prompt {
                     self.0.push(Turn { prompt: capped(prompt), prompt_at: at, ..Turn::default() });
                     // Only the newest turns are kept.
@@ -173,7 +179,7 @@ fn message_text(content: &Value, kinds: &[&str]) -> Option<String> {
 }
 
 /// `text` cut to `MAX_TEXT` characters.
-fn capped(text: String) -> String {
+pub fn capped(text: String) -> String {
     match text.char_indices().nth(MAX_TEXT) {
         Some((at, _)) => {
             let mut cut = text[..at].to_owned();
