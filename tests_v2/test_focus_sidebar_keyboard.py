@@ -66,9 +66,15 @@ def main() -> int:
     c.activate_app()
     time.sleep(0.3)
 
-    created = [c.new_workspace() for _ in range(3)]
+    for _ in range(3):
+        c.new_workspace()
+        time.sleep(0.3)
     order = [wsid for _i, wsid, _t, _s in c.list_workspaces()]
-    ws1, ws2, ws3 = sorted(created, key=order.index)
+    if len(order) < 3:
+        raise cmuxError(f"expected three workspaces, got {order}")
+    created = order[-3:]
+    ws1, ws2, ws3 = created
+    print("workspaces", order)
     c.select_workspace(ws2)
     time.sleep(1.0)
     _settle(lambda: _focused_terminal(c))
