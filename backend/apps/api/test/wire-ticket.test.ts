@@ -140,4 +140,22 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     const a = await person("legacy")
     expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, bearer.${a.token}`))).toBe(a.user)
   })
+
+  it("a ticket is spent by the first request that carries it, on any path", async () => {
+    const a = await person("entry")
+    const m = await mint(a.token)
+    const elsewhere = await worker.fetch("https://api.test/v1/health", { headers: { "Sec-WebSocket-Protocol": `cmux.wire.v1, ticket.${m.body.ticket}` } })
+    await elsewhere.arrayBuffer()
+    await expectRefused(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${m.body.ticket}`))
+  })
+
+  it("one person mints at most 60 tickets a minute", async () => {
+    const a = await person("limit")
+    const statuses: Array<number> = []
+    for (let i = 0; i < 61; i++) statuses.push((await mint(a.token)).status)
+    expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true)
+    expect(statuses[60]).toBe(429)
+    // Another person is not limited by the first.
+    expect((await mint((await person("limit-other")).token)).status).toBe(200)
+  })
 })

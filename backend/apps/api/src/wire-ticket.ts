@@ -11,8 +11,9 @@ import { isMachineInstallKind } from "./machine-installs.ts"
  *
  * 1. `Authorization: Bearer <token>`: native clients (URLSession, tungstenite) set it on the upgrade.
  * 2. Subprotocol `ticket.<ticket>`: browsers, which cannot set headers. POST /v1/wire/ticket with
- *    the Authorization header mints the ticket: 32 random bytes, single use, 30 s. It is spent
- *    before any other check, so a ticket in a log is always spent.
+ *    the Authorization header mints the ticket: 32 random bytes, single use, 30 s, 60 per minute
+ *    per user. The router entry spends it on any path, before any other check, so a ticket in a
+ *    log is always spent.
  * 3. Subprotocol `bearer.<token>`: the legacy path, kept until every client is updated. Each use
  *    logs `wire.legacy_bearer` (no value), so the remaining clients can be counted.
  */
@@ -89,6 +90,9 @@ export const handleWireTicket = async (request: Request, env: Env): Promise<Resp
   const principal = await authenticate(env, bearerOf(request))
   if (!principal?.user || !principal.team) return unauthenticated("bearer token required")
   if (isMachineInstallKind(principal.install_kind)) return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
+  const limit = env.WIRE_TICKET_LIMIT
+  if (limit && !(await limit.limit({ key: principal.user })).success)
+    return Response.json({ error: { code: "auth.rate_limited", message: "too many wire tickets; retry in a minute" } }, { status: 429, headers: { "retry-after": "60" } })
   const now = Date.now()
   const expires_at = Math.min(now + WIRE_TICKET_TTL_MS, principal.expires_at ?? Number.POSITIVE_INFINITY)
   if (expires_at <= now) return unauthenticated("token expired")
@@ -100,23 +104,34 @@ export const handleWireTicket = async (request: Request, env: Env): Promise<Resp
 
 export type WireCredential = { readonly ok: true; readonly principal: Principal | undefined; readonly protocols: ReadonlyArray<string> } | { readonly ok: false; readonly response: Response }
 
+/** A ticket spent at the router entry: the principal it carried, or null for an unknown, spent or expired ticket. */
+export type SpentTicket = { readonly principal: Principal | null }
+
+const subprotocols = (request: Request) => (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+
+/**
+ * Spends a `ticket.` subprotocol at the router entry, whatever the path, so a ticket that reaches
+ * any route (an unrouted one too) is spent by that request. Undefined when the request has none.
+ */
+export const spendTicketAtEntry = async (request: Request, env: Env): Promise<SpentTicket | undefined> => {
+  const ticket = subprotocols(request).find((p) => p.startsWith(TICKET_PREFIX))?.slice(TICKET_PREFIX.length)
+  if (ticket === undefined) return undefined
+  if (!TICKET_SHAPE.test(ticket)) return { principal: null }
+  const { stub, key } = await shardOf(env, ticket)
+  const principal = await stub.spend(key, Date.now())
+  // The ticket outlives no token: a principal past its expiry opens nothing.
+  if (!principal || (principal.expires_at !== undefined && principal.expires_at <= Date.now())) return { principal: null }
+  return { principal }
+}
+
 /**
  * Resolves the upgrade's principal and returns the subprotocols without any credential, so the
- * request forwarded to the owner object carries none. A ticket is spent here, before any gate.
+ * request forwarded to the owner object carries none. `spent` is the router entry's ticket result.
  */
-export const wireCredential = async (request: Request, env: Env, scope: string): Promise<WireCredential> => {
-  const all = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+export const wireCredential = async (request: Request, env: Env, scope: string, spent: SpentTicket | undefined): Promise<WireCredential> => {
+  const all = subprotocols(request)
   const protocols = all.filter((p) => !p.startsWith(TICKET_PREFIX) && !p.startsWith(LEGACY_PREFIX))
-  const ticket = all.find((p) => p.startsWith(TICKET_PREFIX))?.slice(TICKET_PREFIX.length)
-  if (ticket !== undefined) {
-    if (!TICKET_SHAPE.test(ticket)) return { ok: false, response: unauthenticated("unknown or spent ticket") }
-    const { stub, key } = await shardOf(env, ticket)
-    const principal = await stub.spend(key, Date.now())
-    if (!principal) return { ok: false, response: unauthenticated("unknown or spent ticket") }
-    // The ticket outlives no token: a principal past its expiry opens nothing.
-    if (principal.expires_at !== undefined && principal.expires_at <= Date.now()) return { ok: false, response: unauthenticated("token expired") }
-    return { ok: true, principal, protocols }
-  }
+  if (spent !== undefined) return spent.principal ? { ok: true, principal: spent.principal, protocols } : { ok: false, response: unauthenticated("unknown or spent ticket") }
   const header = bearerOf(request)
   if (header !== undefined) return { ok: true, principal: await authenticate(env, header), protocols }
   const legacy = all.find((p) => p.startsWith(LEGACY_PREFIX))?.slice(LEGACY_PREFIX.length)

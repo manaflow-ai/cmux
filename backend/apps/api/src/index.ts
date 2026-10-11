@@ -8,7 +8,7 @@ import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
 import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
-import { forwardHeaders, handleWireTicket, wireCredential, wireUnauthenticated } from "./wire-ticket.ts"
+import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket } from "./wire-ticket.ts"
 
 /** The owner each wire scope reaches (principalForOwner). */
 const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
@@ -61,8 +61,8 @@ const gateUnreachable = (e: unknown) => {
  * (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
  * authenticates and passes the principal to the owner DO; frames never carry identity.
  */
-const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const credential = await wireCredential(request, env, scope)
+const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
+  const credential = await wireCredential(request, env, scope, spent)
   if (!credential.ok) return credential.response
   const { principal: authenticatedToken, protocols } = credential
   if (!authenticatedToken?.user || !authenticatedToken.team) return wireUnauthenticated()
@@ -151,19 +151,21 @@ const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
+    // A wire ticket is spent by the first request that carries it, on any path (wire-ticket.ts).
+    const spent = await spendTicketAtEntry(request, env)
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
-    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
+    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
-    if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, "conv", conv[1]!)
+    if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "conv", conv[1]!)
     // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
     const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
-    if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, "mux", mux[1]!)
+    if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)

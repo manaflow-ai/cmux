@@ -91,9 +91,15 @@ export const createCloudClient = (options: CloudClientOptions) => {
       const team = await options.team?.()
       const token = await options.token()
       const res = await doFetch(`${base}/v1/wire/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
-      const minted = res.ok ? ((await res.json()) as { ticket?: unknown }).ticket : undefined
-      if (!res.ok && res.status !== 404) throw new CloudHttpError(res.status, await res.json().catch(() => undefined))
-      const credential = typeof minted === "string" ? `ticket.${minted}` : `bearer.${token}`
+      let credential: string
+      if (res.status === 404) credential = `bearer.${token}`
+      else {
+        const body: unknown = await res.json().catch(() => undefined)
+        const ticket = res.ok ? (body as { ticket?: unknown } | undefined)?.ticket : undefined
+        // Only a 404 (an old Worker) gets the legacy subprotocol; any other answer without a ticket throws.
+        if (typeof ticket !== "string") throw new CloudHttpError(res.status, body)
+        credential = `ticket.${ticket}`
+      }
       return new WebSocket(`${base.replace(/^http/, "ws")}/v1/wire/${scope}`, ["cmux.wire.v1", credential, ...(team ? [`team.${team}`] : [])])
     },
     meta: cloudOpMeta
