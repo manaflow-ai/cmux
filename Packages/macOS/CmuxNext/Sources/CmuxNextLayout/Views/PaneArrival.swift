@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 
 /// Where a pane added by a split starts (cx-f6i7): a zero-width (or
@@ -43,13 +44,26 @@ struct PaneArrival: Equatable {
         return nil
     }
 
-    /// The arrivals of a split: exactly one new pane, nothing removed, and
-    /// an existing pane gave up its space. Empty otherwise.
-    static func split(_ previous: [PaneID: CGRect], _ next: [PaneID: CGRect]) -> [PaneID: PaneArrival] {
-        let added = next.keys.filter { previous[$0] == nil }
-        guard added.count == 1, previous.keys.allSatisfy({ next[$0] != nil }), let pane = added.first, let target = next[pane],
-              let arrival = of(target: target, previous: previous, next: next) else { return [:] }
+    /// The arrivals of a split or a new dock column: exactly one new pane,
+    /// nothing removed, and an existing pane gave up its space. Empty
+    /// otherwise. Compared where the panes show (strip panes shift with the
+    /// scroll `offset` and the strip's origin, which a dock moves); the seed
+    /// is in the new pane's own coordinates.
+    static func split(_ previous: [PaneID: CGRect], from old: ScreenGeometry, to new: ScreenGeometry,
+                      offset: CGFloat) -> [PaneID: PaneArrival] {
+        let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
+        let added = after.keys.filter { before[$0] == nil }
+        guard added.count == 1, before.keys.allSatisfy({ after[$0] != nil }), let pane = added.first, let target = after[pane],
+              var arrival = of(target: target, previous: before, next: after) else { return [:] }
+        if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
         return [pane: arrival]
+    }
+
+    private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {
+        let shift = geometry.viewShift(offset: offset)
+        return Dictionary(uniqueKeysWithValues: rects.map { pane, rect in
+            (pane, geometry.scrolls(pane: pane) ? rect.offsetBy(dx: shift, dy: 0) : rect)
+        })
     }
 
     /// Where an arriving pane's host sits while its frame springs from the
@@ -58,5 +72,62 @@ struct PaneArrival: Equatable {
     static func presentation(shown: CGRect, target: CGRect) -> CGRect {
         target.offsetBy(dx: (shown.minX - target.minX) + (shown.maxX - target.maxX),
                         dy: (shown.minY - target.minY) + (shown.maxY - target.maxY))
+    }
+
+    /// The range strip panes show in beside docked columns (nil without
+    /// any), moved with docks still growing in from their edge (`docks`, the
+    /// arriving frames), so the strip is never cut short of a dock that has
+    /// not reached its place.
+    static func stripClip(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> CGRect? {
+        guard !geometry.dock.isEmpty else { return nil }
+        var minX = geometry.clipMinX, maxX = geometry.clipMaxX, minY = geometry.clipMinY, maxY = geometry.clipMaxY
+        for dock in docks {
+            let shown = dock.rect, target = dock.targetRect
+            if target.maxX <= geometry.clipMinX + 1 { minX += shown.maxX - target.maxX }
+            if target.minX >= geometry.clipMaxX - 1 { maxX += shown.minX - target.minX }
+            if target.maxY <= geometry.clipMinY + 1 { minY += shown.maxY - target.maxY }
+            if target.minY >= geometry.clipMaxY - 1 { maxY += shown.minY - target.minY }
+        }
+        return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    /// The dock columns a structural change added, when it grows a pane in;
+    /// only their panes move the strip's clip and covers (a split inside a
+    /// dock that was there does not).
+    static func newDocks(_ arrivals: [PaneID: PaneArrival], from old: ScreenGeometry, to new: ScreenGeometry) -> Set<ColumnID> {
+        arrivals.isEmpty ? [] : Set(new.dock.map(\.column)).subtracting(old.dock.map(\.column))
+    }
+
+    /// The frames of the docked panes of `arriving` inside one of the new dock columns `docks`.
+    static func growing(_ arriving: Set<PaneID>, frames: [PaneID: AnimatedFrame], in geometry: ScreenGeometry,
+                        docks: Set<ColumnID>) -> [AnimatedFrame] {
+        let fresh = geometry.dock.filter { docks.contains($0.column) }
+        guard !fresh.isEmpty else { return [] }
+        return arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { frames[$0] }
+            .filter { frame in fresh.contains { $0.frame.intersects(frame.targetRect) } }
+    }
+
+    /// What each docked column hides of the strip, its inner edge moved with
+    /// a dock still growing in (`docks`, the arriving frames), so strip rings
+    /// are not cut at the edge the dock has yet to reach.
+    static func covers(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> [CGRect] {
+        geometry.dock.map { entry in
+            var cover = entry.cover
+            for dock in docks where dock.targetRect.intersects(entry.cover) {
+                let shown = dock.rect, target = dock.targetRect
+                if target.maxX <= geometry.clipMinX + 1 {
+                    cover.size.width = max(0, cover.width + shown.maxX - target.maxX)
+                } else if target.minX >= geometry.clipMaxX - 1 {
+                    let moved = min(shown.minX - target.minX, cover.width)
+                    cover = CGRect(x: cover.minX + moved, y: cover.minY, width: cover.width - moved, height: cover.height)
+                } else if target.maxY <= geometry.clipMinY + 1 {
+                    cover.size.height = max(0, cover.height + shown.maxY - target.maxY)
+                } else if target.minY >= geometry.clipMaxY - 1 {
+                    let moved = min(shown.minY - target.minY, cover.height)
+                    cover = CGRect(x: cover.minX, y: cover.minY + moved, width: cover.width, height: cover.height - moved)
+                }
+            }
+            return cover
+        }
     }
 }
