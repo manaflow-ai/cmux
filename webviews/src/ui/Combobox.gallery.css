@@ -1,0 +1,38 @@
+.combobox-gallery {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  min-height: 260px;
+  padding: 36px 24px;
+  color: var(--cmux-text, CanvasText);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.combobox-gallery-input {
+  width: min(280px, calc(100vw - 72px));
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  color: inherit;
+  font: inherit;
+}
+
+.combobox-gallery-input:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 55%, transparent);
+  outline-offset: 2px;
+}
+
+.combobox-gallery-list {
+  min-width: 240px;
+}
+
+.combobox-gallery-item {
+  white-space: nowrap;
+}
+
+.combobox-gallery-receipt {
+  color: color-mix(in srgb, currentColor 66%, transparent);
+  font-size: 12px;
+}
