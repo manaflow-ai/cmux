@@ -15824,8 +15824,8 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -15875,8 +15875,8 @@
           "*.example.com"
         ]
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -15929,8 +15929,8 @@
           "2B7F0C3A-workspace"
         ]
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -18774,7 +18774,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f716850e81180227a66fbda527c2a525217643a9ff9382af8ed192a28e5537c5",
+  "schema_hash" : "6baff1efb4cfb9c41111f9488b3740f75b1d19952f3dea4fb3d24c9ce50b6c77",
   "sections" : [
     {
       "id" : "general",
