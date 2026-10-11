@@ -139,4 +139,29 @@ struct FloatingChatTests {
         #expect(controller.chat == nil)
         #expect(rig.window.held.isEmpty)
     }
+
+    @Test func theFloatingChatComesBackWhereItWasLeftOnEachScreen() throws {
+        let suite = "floating-chat-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        let composer = CGRect(x: 416, y: 488, width: 680, height: 220)
+
+        // First time on a screen: the default column, its top where the composer's was.
+        let first = FloatingChatFrames.placement(saved: FloatingChatFrames(defaults: defaults).frame(onDisplay: "1"), near: composer, in: laptop)
+        #expect(first == CGRect(x: 536, y: 88, width: 440, height: 620))
+
+        // Moved and resized there, then shown again (a new launch reads the same defaults).
+        FloatingChatFrames(defaults: defaults).save(CGRect(x: 1100, y: 40, width: 380, height: 860), onDisplay: "1")
+        let again = FloatingChatFrames(defaults: defaults)
+        #expect(FloatingChatFrames.placement(saved: again.frame(onDisplay: "1"), near: composer, in: laptop)
+            == CGRect(x: 1100, y: 40, width: 380, height: 860))
+        // Another screen keeps its own.
+        #expect(again.frame(onDisplay: "2") == nil)
+
+        // A smaller screen under the same display id: the frame is kept on it.
+        let small = CGRect(x: 0, y: 0, width: 1280, height: 720)
+        #expect(FloatingChatFrames.placement(saved: again.frame(onDisplay: "1"), near: composer, in: small)
+            == CGRect(x: 900, y: 0, width: 380, height: 720))
+    }
 }
