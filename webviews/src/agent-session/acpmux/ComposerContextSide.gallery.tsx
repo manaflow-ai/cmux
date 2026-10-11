@@ -25,8 +25,19 @@ function Placed({ top, ...props }: Props) {
   );
 }
 
-const popupSide = (document: Document) =>
-  document.querySelector(".acpmux-location-menu[data-side]")?.getAttribute("data-side") ?? undefined;
+/// The open folder popover's side and where it is against its chip and the viewport.
+const placement = (document: Document) => {
+  const popup = document.querySelector(".acpmux-location-menu[data-side]");
+  const chip = document.querySelector('button[aria-label="Folder"]');
+  const box = popup?.getBoundingClientRect();
+  const anchor = chip?.getBoundingClientRect();
+  return {
+    side: popup?.getAttribute("data-side") ?? undefined,
+    below: !!box && !!anchor && box.top >= anchor.bottom,
+    inView: !!box && box.top >= 0 && box.bottom <= innerHeight,
+    text: `side ${popup?.getAttribute("data-side")}, popup ${Math.round(box?.top ?? NaN)}-${Math.round(box?.bottom ?? NaN)}, chip ${Math.round(anchor?.top ?? NaN)}-${Math.round(anchor?.bottom ?? NaN)}, viewport ${innerHeight}, scroll ${Math.round(scrollY)}`,
+  };
+};
 
 const nextFrames = () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
 
@@ -34,13 +45,15 @@ const filterKeepsSide: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-location-menu [role="option"]').length >= 6);
   await nextFrames();
-  const opened = popupSide(ctx.document);
-  if (opened !== "bottom") throw new Error(`the full folder list should open below its chip, opened ${opened}`);
+  const opened = placement(ctx.document);
+  if (opened.side !== "bottom" || !opened.below || !opened.inView)
+    throw new Error(`the full folder list should open below its chip, in view: ${opened.text}`);
   await ctx.type("relay");
   await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-location-menu [role="option"]').length === 1);
   await nextFrames();
-  const filtered = popupSide(ctx.document);
-  if (filtered !== opened) throw new Error(`the folder popover moved from ${opened} to ${filtered} while filtering`);
+  const filtered = placement(ctx.document);
+  if (filtered.side !== opened.side || !filtered.below)
+    throw new Error(`the folder popover moved while filtering: opened ${opened.text}; filtered ${filtered.text}`);
 };
 
 export default componentEntry<Props>({
