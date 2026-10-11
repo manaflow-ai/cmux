@@ -3,8 +3,16 @@ import Foundation
 extension Strings {
     /// One tooltip line: `Claude Code · Editing app.rs:42`.
     static func presenceLine(_ presence: SidebarPresence) -> String {
-        let doing = presence.target.map { "\(presenceActivity(presence.activity)) \($0)" } ?? presenceActivity(presence.activity)
-        return "\(presence.name) · \(doing)"
+        let activity = presenceActivity(presence.activity)
+        let doing = presence.target.map { target in
+            String(localized: "sidebar.presence.activityTarget", defaultValue: "\(activity) \(target)", bundle: .module)
+        } ?? activity
+        return String(localized: "sidebar.presence.line", defaultValue: "\(presence.name) · \(doing)", bundle: .module)
+    }
+
+    /// The dots' overflow count: `+2`.
+    static func presenceOverflow(_ count: Int) -> String {
+        String(localized: "sidebar.presence.overflow", defaultValue: "+\(count)", bundle: .module)
     }
 
     static func presenceActivity(_ activity: SidebarPresence.Activity) -> String {

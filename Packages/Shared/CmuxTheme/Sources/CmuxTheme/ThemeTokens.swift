@@ -7,8 +7,10 @@ import Foundation
 /// foreground at a low alpha, so they read as a slightly lighter (dark
 /// themes) or darker (light themes) version of the same surface. Text is
 /// the foreground, muted toward the background only as far as WCAG contrast
-/// allows. No accent hue: blue appears only if the theme's own colors are
-/// blue, and the status colors come from the theme's ANSI palette.
+/// allows. No accent hue by default: blue appears only if the theme's own
+/// colors are blue, and the status colors come from the theme's ANSI palette.
+/// With a ``ThemeAccent`` (`appearance.accent`), selection, the focus ring and
+/// `highlight` take the app theme's accent, the theme's own hue.
 public struct ThemeTokens: Hashable, Sendable {
     /// Dark when the background is darker than the foreground.
     public var isDark: Bool
@@ -127,12 +129,17 @@ public struct ThemeTokens: Hashable, Sendable {
         let bg = input.background
         let isDark = bg.relativeLuminance < input.foreground.relativeLuminance
         let fg = input.foreground
+        let app = AppTheme.derive(from: input)
+        // The app accent when the setting names one; nil keeps the neutral fills.
+        let accent = input.accent == .neutral ? nil : app[.accent]
 
         let hover = fg.withAlpha(isDark ? 0.06 : 0.05)
-        let selection = fg.withAlpha(isDark ? 0.10 : 0.08)
+        // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
+        let selection = accent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.10 : 0.08)
         let pressed = fg.withAlpha(isDark ? 0.14 : 0.11)
         // Text must hold its contrast on the strongest fill it can sit on.
-        let worstSurface = pressed.composited(over: bg)
+        let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
+            .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!
         let primary = readable(fg, over: worstSurface, minimum: minimumTextContrast)
         let secondary = muted(primary, toward: bg, upTo: 0.38, over: worstSurface, minimum: minimumTextContrast)
         let tertiary = muted(primary, toward: bg, upTo: 0.55, over: worstSurface, minimum: minimumMarkContrast)
@@ -141,7 +148,7 @@ public struct ThemeTokens: Hashable, Sendable {
         func status(_ index: Int) -> ThemeRGB { readable(palette[index], over: bg, minimum: minimumMarkContrast) }
 
         let surface = bg.withAlpha(input.backgroundOpacity)
-        let highlight = status(4)
+        let highlight = accent ?? status(4)
         func best(_ candidates: [ThemeRGB]) -> ThemeRGB {
             candidates.max { $0.contrast(with: highlight) < $1.contrast(with: highlight) }!
         }
@@ -172,7 +179,7 @@ public struct ThemeTokens: Hashable, Sendable {
             badgeFill: fg.withAlpha(isDark ? 0.14 : 0.10),
             separator: fg.withAlpha(isDark ? 0.08 : 0.07),
             paneBorder: fg.withAlpha(isDark ? 0.07 : 0.09),
-            focusRing: fg.withAlpha(0.40),
+            focusRing: accent ?? fg.withAlpha(0.40),
             glassTint: bg.withAlpha(isDark ? 0.40 : 0.30),
             shadow: bg.mixed(toward: .black, 0.85),
             textSelection: input.selectionBackground ?? bg.mixed(toward: fg, 0.22),
@@ -185,7 +192,7 @@ public struct ThemeTokens: Hashable, Sendable {
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
             backgroundBlur: input.backgroundBlur,
-            app: AppTheme.derive(from: input)
+            app: app
         )
     }
 

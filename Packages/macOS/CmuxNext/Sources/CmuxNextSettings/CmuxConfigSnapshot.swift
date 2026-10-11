@@ -148,6 +148,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.appTheme`: the theme cmux's own chrome and pages take their tokens from, apart
     /// from the terminal theme. Nil follows the terminal theme (`followTerminal`, the default).
     public var chromeTheme: String?
+    /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
+    public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -317,6 +319,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
         snapshot.chromeTheme = chromeTheme
         if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
+        let (accent, accentDiagnostic) = AccentSetting().parse(root)
+        snapshot.accent = accent
+        if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }
         let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }

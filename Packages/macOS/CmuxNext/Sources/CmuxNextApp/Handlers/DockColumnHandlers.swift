@@ -80,8 +80,13 @@ enum DockColumnHandlers {
                 respawn = TabMoves.respawn(for: tab, in: controller.pane, services: ctx.services)
                 guard respawn != nil else { throw ActionFailure.invalidTarget(RefusalStrings.openSecondTabToDock) }
             }
+            // The anchor only places the new column on the screen. A pane's
+            // only tab cannot leave through its own pane (the daemon refuses
+            // that as a split), so another pane of the column anchors it.
+            let anchor = respawn != nil || controller.pane.tabs.count > 1 ? controller.pane
+                : column.root.panes.lazy.filter { $0 != pane }.compactMap { content.panes[$0]?.pane }.first ?? controller.pane
             let reveal = TabHandlers.revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
-            TabMoves.toNewDockColumn(tab, anchor: controller.pane, edge: dock.edge, mode: dock.mode, width: width,
+            TabMoves.toNewDockColumn(tab, anchor: anchor, edge: dock.edge, mode: dock.mode, width: width,
                                        respawn: respawn, services: ctx.services, completion: reveal)
         }
     }

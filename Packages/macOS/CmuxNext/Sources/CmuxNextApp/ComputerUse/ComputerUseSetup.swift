@@ -90,7 +90,7 @@ final class ComputerUseSetup {
          configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?,
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
-         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),

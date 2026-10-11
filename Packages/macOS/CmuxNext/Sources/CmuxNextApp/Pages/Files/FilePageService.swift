@@ -5,6 +5,7 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxNextCompat
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
 /// ``FilePageProvider`` and page view per tab, one shared look per page (its settings section,
@@ -220,9 +221,9 @@ final class FilePageService: InternalPageProvider {
     fileprivate func openExternal(_ url: URL, from key: String) {
         switch url.scheme?.lowercased() {
         case "http", "https":
-            if let pane = pane(of: key) { pane.newBrowserTab(url: url) } else { NSWorkspace.shared.open(url) }
+            if let pane = pane(of: key) { pane.newBrowserTab(url: url) } else { NSWorkspace.shared.openInBackground(url) }
         default:
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.openInBackground(url)
         }
     }
 
