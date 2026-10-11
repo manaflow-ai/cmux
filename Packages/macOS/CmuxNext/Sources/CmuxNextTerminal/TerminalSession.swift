@@ -30,7 +30,9 @@ public final class TerminalSession {
     public let view: TerminalHostView
     /// The find bar over this terminal and the search it drives.
     public let find = TerminalFindController()
-    public weak var delegate: (any TerminalSessionDelegate)?
+    public weak var delegate: (any TerminalSessionDelegate)? {
+        didSet { linkCheck = delegate?.terminalSessionLinkCheck(self) }
+    }
 
     /// The live surface. Replaced when a later VT replay arrives; a GHOSTSNP
     /// snapshot restores in place.
@@ -116,6 +118,7 @@ public final class TerminalSession {
 
         view = TerminalHostView()
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
@@ -164,6 +167,13 @@ public final class TerminalSession {
     /// Makes the surface first responder.
     public func focus() {
         surfaceView.window?.makeFirstResponder(surfaceView)
+    }
+
+    /// Whether a text Ghostty detected as a link under a Cmd-hover is one (cx-do47.1): a path
+    /// that names no file is plain text, with no underline and no open. Gets the text and the
+    /// folder the shell last reported; runs off the main thread. Nil: every detected link is one.
+    public private(set) var linkCheck: TerminalLinkCheck? {
+        didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
     }
 
     #if DEBUG
@@ -285,6 +295,7 @@ public final class TerminalSession {
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
+        fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         view.install(fresh)
         applyTheme(to: fresh, clearing: false)
         // Nothing was parsed into the fresh surface yet: no drain needed.

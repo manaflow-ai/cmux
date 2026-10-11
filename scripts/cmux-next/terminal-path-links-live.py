@@ -16,7 +16,9 @@ matched text does (its `open_url` action). Checks:
   4. a folder opens in Finder;
   5. a path that exists nowhere opens nothing;
   6. `localhost:3000/docs` is a web link (http://localhost:3000/docs), not a scheme.
-  7. Cmd-hover (cx-do47.1) over a printed path that names a file reports a link under the
+  7. `notes/todo.md:2` (a Markdown file with a line) opens the Markdown page, not the
+     code editor;
+  8. Cmd-hover (cx-do47.1) over a printed path that names a file reports a link under the
      pointer; over one that names nothing it reports none (Ghostty's link filter).
 
 GUI host only (a capture mini). The app quits and the tag's daemons stop at the end.
@@ -117,6 +119,8 @@ with open(os.path.join(REPO, "build-fleet", "ORG-BACKUP.md"), "w") as f:
     f.write("# Org backup\n\norg backup marker\n")
 with open(os.path.join(REPO, "notes", "plan.md"), "w") as f:
     f.write("# Plan\n\nplan marker\n")
+with open(os.path.join(REPO, "notes", "todo.md"), "w") as f:
+    f.write("# Todo\n\ntodo marker\n")
 with open(os.path.join(REPO, "src", "app.ts"), "w") as f:
     f.write("const a = 1;\nconst b = 2;\nconst c = 3;\n")
 
@@ -200,6 +204,12 @@ try:
         state = rpc("debug.page", {"page": "cmux.editor", "action": "state"})
         print(f"editor pages: {json.dumps(listed)[:600]}\neditor state: {json.dumps(state)[:1500]}", flush=True)
 
+    # 7. A Markdown file with a line opens the Markdown page, not the code editor.
+    opened = click("notes/todo.md:2")
+    check(not web(opened), f"notes/todo.md:2 opens no other app ({opened})")
+    check(bool(quiet_wait(lambda: "todo marker" in page_texts("cmux.markdown"), 15)), "notes/todo.md:2 opens the Markdown page")
+    check("todo marker" not in page_texts("cmux.editor"), "notes/todo.md:2 opens no code editor page")
+
     # 4. A folder opens in Finder.
     opened = click("build-fleet/")
     folder = os.path.join(REPO, "build-fleet")
@@ -216,7 +226,7 @@ try:
     opened = click("localhost:3000/docs")
     check(opened == ["browser:http://localhost:3000/docs"], f"localhost:3000/docs opens the browser at http://localhost:3000/docs ({opened})")
 
-    # 7. Cmd-hover (cx-do47.1): a path that names a file is a link; one that names nothing is
+    # 8. Cmd-hover (cx-do47.1): a path that names a file is a link; one that names nothing is
     # plain text, with no underline and no link under the pointer.
     rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
     rpc("action.run", {"action": "terminal.sendText", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script",
