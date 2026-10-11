@@ -33,8 +33,10 @@ struct SSHBrowserPageLoopbackNavigationTests {
         let local = Self.makePanel(isSSHWorkspace: false)
         defer { local.close() }
         local.panel.webView.loadHTMLString(page, baseURL: Self.loginPageURL)
-        #expect(await Self.wait { macService.requests.contains { $0.target.hasPrefix("/callback") } },
-                "A local workspace pane loads this Mac's loopback callback")
+        let localReachedCallback = await Self.wait {
+            macService.requests.contains { $0.target.hasPrefix("/callback") }
+        }
+        #expect(localReachedCallback, "A local workspace pane loads this Mac's loopback callback")
         let localRequests = macService.requests.count
 
         let ssh = Self.makePanel(isSSHWorkspace: true)
@@ -62,8 +64,10 @@ struct SSHBrowserPageLoopbackNavigationTests {
         let local = Self.makePanel(isSSHWorkspace: false)
         defer { local.close() }
         local.panel.webView.loadHTMLString(page, baseURL: Self.framingPageURL)
-        #expect(await Self.wait { macService.requests.contains { $0.target == "/frame-callback" } },
-                "A local workspace pane loads this Mac's loopback frame")
+        let localReachedFrame = await Self.wait {
+            macService.requests.contains { $0.target == "/frame-callback" }
+        }
+        #expect(localReachedFrame, "A local workspace pane loads this Mac's loopback frame")
         let localRequests = macService.requests.count
 
         let ssh = Self.makePanel(isSSHWorkspace: true)
