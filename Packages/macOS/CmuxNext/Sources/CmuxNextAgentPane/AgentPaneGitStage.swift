@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The Changes view's Stage and Unstage (cx-tcwj, Codex desktop's staging): `git.stage` and
 /// `git.unstage` with `{cwd, paths}`. The App runs `git add` or `git restore --staged` in `cwd` on
@@ -118,18 +118,18 @@ nonisolated enum AgentPaneGitProcess {
 
 extension AgentPaneGitStage {
     /// `git.stage` or `git.unstage` arrived without a real click or key press in the pane.
-    static var needsGestureMessage: String {
+    nonisolated static var needsGestureMessage: String {
         String(localized: "agentPane.error.gitStageGesture", defaultValue: "Staging needs a click or key press in the pane.",
                bundle: .module)
     }
 
     /// `git.stage` or `git.unstage` whose params break its contract.
-    static var invalidMessage: String {
+    nonisolated static var invalidMessage: String {
         String(localized: "agentPane.error.gitStageInvalid", defaultValue: "The app refused the staging request.", bundle: .module)
     }
 
     /// The repository is outside the pane's folders.
-    static var outsideMessage: String {
+    nonisolated static var outsideMessage: String {
         String(localized: "agentPane.error.gitStageOutside", defaultValue: "That folder is outside this chat's folders.",
                bundle: .module)
     }
