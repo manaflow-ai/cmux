@@ -43,7 +43,7 @@ export type LoadChatsPage = (params: {
 }) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
-const ROW_HEIGHT = 34;
+const ROW_HEIGHT = 30;
 
 type State = {
   query: string;
@@ -53,10 +53,20 @@ type State = {
   loaded: boolean;
   /// The daemon's index has finished its first scan (`ready`); before that an empty page is not "No chats".
   ready: boolean;
+  /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
+  failed: boolean;
   design: AllChatsDesign;
 };
 
-const initial: State = { query: "", rows: [], loading: false, loaded: false, ready: false, design: "age" };
+const initial: State = {
+  query: "",
+  rows: [],
+  loading: false,
+  loaded: false,
+  ready: false,
+  failed: false,
+  design: "age",
+};
 
 function design(value: unknown): AllChatsDesign | undefined {
   return value === "quiet" || value === "age" || value === "project" ? value : undefined;
@@ -98,7 +108,8 @@ function useChatPages(load: LoadChatsPage) {
         if (inFlight.current === marker) inFlight.current = undefined;
         setState((s) => {
           // A failed page keeps the cursor, so the loader row asks again when it comes back into view.
-          if (!page) return { ...s, loading: false, loaded: true, ...(cursor ? { nextCursor: cursor } : {}) };
+          if (!page)
+            return { ...s, loading: false, loaded: true, ...(cursor ? { nextCursor: cursor } : { failed: true }) };
           const fresh = rowsOf(page);
           const known = new Set(s.rows.map((row) => row.key));
           const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
@@ -109,6 +120,7 @@ function useChatPages(load: LoadChatsPage) {
             loading: false,
             loaded: true,
             ready: page.ready !== false,
+            failed: false,
             design: design(page.design) ?? s.design,
           };
         });
@@ -375,7 +387,16 @@ export function AllChatsList({
         </ul>
       )}
       {state.loaded && rows.length === 0 ? (
-        state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+        state.failed ? (
+          <output className="nt-chats-empty nt-chats-failed">
+            {nt("chatsLoadFailed")}
+            <button type="button" className="nt-chats-retry" onClick={() => fetchPage(state.query, undefined)}>
+              {t("picker.tryAgain")}
+            </button>
+          </output>
+        ) : (
+          state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+        )
       ) : (
         <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>

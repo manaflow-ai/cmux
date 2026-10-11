@@ -85,6 +85,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
+    "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -92,6 +93,12 @@ export default agentPaneEntry({
       note: "No chats yet.",
       ready: newTab(),
       snapshot: noChat(),
+    },
+    "chats-unavailable": {
+      note: "The chat index did not answer: All chats says it could not load and offers Try again.",
+      ready: newTab(),
+      snapshot: noChat(),
+      native: {},
     },
     "many-chats": {
       note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",

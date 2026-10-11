@@ -46,7 +46,10 @@ test("a first page that fails says so, and Try again reads it again", async () =
   const load = async () => {
     calls += 1;
     if (!answer) throw new Error("daemon unavailable");
-    return { chats: [{ key: "a", harness: "claude", title: "Fix the build", cwd: "/tmp/cmux", updatedAt: 1 }], ready: true };
+    return {
+      chats: [{ key: "a", harness: "claude", title: "Fix the build", cwd: "/tmp/cmux", updatedAt: 1 }],
+      ready: true,
+    };
   };
 
   root = createRoot(host);
