@@ -393,6 +393,7 @@ impl Hub {
                 let turn = session.turn();
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap() = turn;
+                self.set_status(session, SessionStatus::Running);
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
@@ -615,6 +616,7 @@ impl Hub {
             "turn_error",
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
+        self.pause_queue(session, turn_id);
         let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);

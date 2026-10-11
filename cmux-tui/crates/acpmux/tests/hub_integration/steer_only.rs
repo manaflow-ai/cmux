@@ -244,9 +244,10 @@ async fn queue_ops_a_failed_turn_pauses_the_queue_until_resumed() {
     loop {
         let attached =
             c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-        if attached["session"]["turn"].is_null() || tokio::time::Instant::now() > deadline {
+        if attached["session"]["turn"].is_null() {
             break;
         }
+        assert!(tokio::time::Instant::now() < deadline, "the failed turn never ended: {attached}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     // Settled: the failed turn ended, and nothing behind it started.

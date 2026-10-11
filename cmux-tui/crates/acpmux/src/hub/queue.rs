@@ -321,6 +321,8 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return false;
             };
+            // Only the last prompt sent now: one sent before it is a queued prompt again.
+            queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
             (q.held, q.sent_now) = (false, true);
             queue.insert(0, q);
