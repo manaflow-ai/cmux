@@ -106,6 +106,18 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
+    /// A new chat's seed on another machine (its folder and harness start it there, its draft and
+    /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
+    var remoteSeeds: [String: AgentPaneSeedSource] = [:]
+    /// New chats on another machine whose store tab is still being created: they start once it is.
+    var remoteCreations: [String: AgentTabPending] = [:]
+    /// Starts in flight on another machine, so a reconnecting page waits for the same one.
+    var remoteStarts: [String: Task<AgentTabRemoteStart.Started, any Error>] = [:]
+    /// The folder a new chat on another machine starts in when its seed names none: a folder of
+    /// its workspace on that machine (AppServices).
+    var remoteFolder: (@MainActor (String) -> String?)?
+    /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
+    var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
@@ -240,8 +252,15 @@ final class AgentTabStore {
         let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
-        guard let paneHost = kind == .local ? (localSessionHost ?? host) : kind == .chief ? chiefPaneHost : remoteHost(key) else { return nil }
-        let seed = local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil
+        // A new chat on another machine starts there from its seed (``startRemoteChat``): the
+        // folder and harness start it, the draft and prompt reach its page.
+        let seed = local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
+            ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil
+        if !local, let seed { remoteSeeds[key] = seed }
+        guard let paneHost = kind == .local ? (localSessionHost ?? host) : kind == .chief ? chiefPaneHost : remoteHost(key) else {
+            if !local, let seed { seeds[key] = seed }
+            return nil
+        }
         // A tab this run did not open and that has no chat yet is a New Tab page the store
         // restored after a relaunch: it opens as the page again, not as an empty chat. A seeded
         // tab is a chat this run opened (New Agent Chat's workspace, listed by the tree before

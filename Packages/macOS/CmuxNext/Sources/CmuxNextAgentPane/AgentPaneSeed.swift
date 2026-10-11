@@ -58,6 +58,17 @@ public final class AgentPaneSeedSource {
         surface = seed.surface
     }
 
+    /// The seed without taking its draft or prompt: where a chat on another machine starts
+    /// (its folder and harness) before the page's handshake takes the rest.
+    public func peek() async -> AgentPaneSeed? {
+        if let read {
+            self.read = nil
+            value = await agentPaneFirst(within: limit, read)
+            surface = value?.surface
+        }
+        return value
+    }
+
     /// The seed, read once. The draft and prompt are handed out only once,
     /// so a page that reloads before the first prompt does not get them twice.
     public func take() async -> AgentPaneSeed? {

@@ -304,6 +304,14 @@ extension NewTabPage {
             services.agentTabs.view(for: key)?.focusLocation()
             return
         }
+        // A pane of another machine: its chats run there (cx-k21v). This Mac's New Tab page runs in
+        // this Mac's acpmux, so a chat typed there would start here; a chat on that machine opens
+        // in the selected tab's folder instead.
+        if !pane.daemon.isLocal, services.agentTabs.canHost(on: pane.daemon) {
+            let seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: pane.selectedTab?.cwd))
+            services.agentTabs.openTab(in: pane, seed: seed, then: then)
+            return
+        }
         guard openingPanes.insert(openingKey).inserted else { return }
         // Keys typed before the page's field is ready wait for it (NewTabInputBuffer).
         let inputToken = services.keyRouter.newTabInputCoordinator.begin(for: pane)

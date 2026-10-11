@@ -141,6 +141,16 @@ final class SSHService {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         let destination: SSHDestination
         do { destination = try SSHDestination(parsing: text) } catch { throw ActionFailure(message: RemoteStrings.invalidDestination(text, error)) }
+        // SSH… with only a destination names the machine, not a new entry: a machine already in
+        // the list for the same host, user and port is reused, never added twice (cx-k21v).
+        if nonEmpty(name) == nil, nonEmpty(binary) == nil, nonEmpty(stateDir) == nil, let saved = existing(destination) {
+            saved.autoConnect = true
+            rememberHost(saved)
+            saved.offersInstall = offerInstall
+            reconnect(saved)
+            logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
+            return saved
+        }
         let sessionName: String
         do { sessionName = try RemoteSessionName.validate(name) } catch { throw ActionFailure(message: RemoteStrings.invalidSession(name ?? "")) }
         let host: SSHHost
@@ -173,6 +183,18 @@ final class SSHService {
         }
         logger.info("connect \(host.destination.description, privacy: .public) session \(host.session, privacy: .public)")
         return session
+    }
+
+    /// The machine in the list for `destination`'s host, user and port. A part the user left out
+    /// (no user, no port) matches any; host names compare without case. The default session wins.
+    private func existing(_ destination: SSHDestination) -> SSHMachineSession? {
+        let matches = machines.ssh.filter { session in
+            let saved = session.host.destination
+            return saved.host.caseInsensitiveCompare(destination.host) == .orderedSame
+                && (destination.user == nil || saved.user == destination.user)
+                && (destination.port == nil || saved.port == destination.port)
+        }
+        return matches.first { $0.host.session == RemoteSessionName.defaultName } ?? matches.first
     }
 
     private func nonEmpty(_ text: String?) -> String? {

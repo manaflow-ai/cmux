@@ -230,7 +230,8 @@ public final class AgentPaneModel {
                 }
                 if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
-                handshake.machineName = await Self.localMachineName?.value
+                // A chat on another machine names that machine (its host set it), never this Mac.
+                if handshake.machineName == nil { handshake.machineName = await Self.localMachineName?.value }
                 // A pane attaches only to the exact session its tab recorded: a session the
                 // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
                 // available", never another chat (P1 2026-10-09).
