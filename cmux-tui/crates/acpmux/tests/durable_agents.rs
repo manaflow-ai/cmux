@@ -778,8 +778,10 @@ async fn an_adopted_prompt_gets_a_new_decision_nonce_that_a_relayed_allow_can_us
 /// Queues two prompts behind a gated turn, stops the daemon with `stop`,
 /// starts it again and checks the queue came back in order, waits for the
 /// turn ahead, then runs: a client that resends a queued prompt id gets its
-/// real outcome, not `interrupted`.
-async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon)) {
+/// real outcome, not `interrupted`. `held`: the agent outlives the daemon, so
+/// its turn holds the queue after the restart; a lost agent's queue may start
+/// before the attach.
+async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held: bool) {
     // As `gated_turn`, without a host record (none with agent hosts off).
     let session = new_session(daemon).await;
     let gate = daemon.home.join(format!("gate-{session}"));
@@ -806,6 +808,12 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon)) {
 
     stop(daemon);
     drop(client);
+    // Nothing queued left the queue before the daemon stopped.
+    let left = daemon.events(&session).into_iter().filter(|e| {
+        matches!(e["kind"].as_str(), Some("dequeued" | "user_message"))
+            && e["msg"]["promptId"].as_str().is_some_and(|id| id.starts_with("q-"))
+    });
+    assert_eq!(left.count(), 0, "a queued prompt left the queue as the daemon stopped");
     daemon.start();
 
     let mut rpc = daemon.rpc().await;
@@ -816,8 +824,12 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon)) {
         .iter()
         .filter_map(|q| q["promptId"].as_str())
         .collect();
-    assert_eq!(queue, ["q-1", "q-2"], "the queue did not survive the restart: {attached:#}");
-    assert_eq!(attached["session"]["queued"], 2, "{attached:#}");
+    if held {
+        assert_eq!(queue, ["q-1", "q-2"], "the queue did not survive the restart: {attached:#}");
+        assert_eq!(attached["session"]["queued"], 2, "{attached:#}");
+    } else {
+        assert!(["q-1", "q-2"].ends_with(&queue), "the queue came back out of order: {attached:#}");
+    }
 
     let mut resend = daemon.rpc().await;
     let resent = resend
@@ -863,13 +875,13 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon)) {
 #[tokio::test]
 async fn queued_prompts_survive_a_daemon_crash() {
     let mut daemon = Daemon::new("qcrash", "approve-all");
-    queue_survives_restart(&mut daemon, Daemon::sigkill).await;
+    queue_survives_restart(&mut daemon, Daemon::sigkill, true).await;
 }
 
 #[tokio::test]
 async fn queued_prompts_survive_an_update_restart() {
     let mut daemon = Daemon::new("qterm", "approve-all");
-    queue_survives_restart(&mut daemon, Daemon::sigterm).await;
+    queue_survives_restart(&mut daemon, Daemon::sigterm, true).await;
 }
 
 /// A reboot ends the agent with the daemon: the turn in flight is lost, but
@@ -877,7 +889,7 @@ async fn queued_prompts_survive_an_update_restart() {
 #[tokio::test]
 async fn queued_prompts_survive_when_the_agent_does_not() {
     let mut daemon = Daemon::with_env("qlost", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
-    queue_survives_restart(&mut daemon, Daemon::sigkill).await;
+    queue_survives_restart(&mut daemon, Daemon::sigkill, false).await;
 }
 
 /// A stop that ends the agent with the daemon (SIGTERM with agent hosts off, as Quit Everything
@@ -886,5 +898,5 @@ async fn queued_prompts_survive_when_the_agent_does_not() {
 #[tokio::test]
 async fn queued_prompts_survive_a_quit_that_ends_the_agent() {
     let mut daemon = Daemon::with_env("qquit", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
-    queue_survives_restart(&mut daemon, Daemon::sigterm).await;
+    queue_survives_restart(&mut daemon, Daemon::sigterm, false).await;
 }
