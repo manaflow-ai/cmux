@@ -509,6 +509,10 @@ path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_dead_code_stripping.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_computer_use_helper_icon_depth.py"
 lane = "linux-guard"
 
