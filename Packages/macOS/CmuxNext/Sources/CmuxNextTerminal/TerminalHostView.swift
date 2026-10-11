@@ -122,8 +122,12 @@ public final class TerminalHostView: NSView {
         banner.show(shownStatus, hostLoss: loss, cause: cause)
     }
 
-    isolated deinit {
-        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        }
     }
 
     @available(*, unavailable)

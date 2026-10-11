@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e6659373670b304a54bc836c41332d90d2466b376974b392eb1a3c781a3042d7. */
+/* cmux-tui mux protocol 12, IR a8d165659e8607a7f94576bdeb04eca2a456618099082713cba92919e304f2f1. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,6 +16,8 @@ export type ActivitySnapshot = {
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
 };
+
+export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
 export type AgentRecord = {
   "session": (string) | null;
@@ -1000,6 +1002,7 @@ export type SetTerminalIdlePolicyResult = {
 export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
 };
 
 export type ShutdownDaemonResult = {
@@ -1289,6 +1292,7 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
 };
@@ -1357,6 +1361,10 @@ export type Tree = {
 };
 
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
+export type ViewportPaneWidthResult = {
+  "width": number;
+};
 
 export type VtStateResult = {
   "cols": number;

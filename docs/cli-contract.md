@@ -36,7 +36,7 @@ Global options, accepted before the scope:
 | --- | --- |
 | `--socket <path>` | Connect to an exact local session socket. |
 | `--session <name>` | Route through a named local session. |
-| `--all-sessions` | Run a list (`… list`) on every local session; each record gains `session`. |
+| `--all-sessions` | Run a list (`… list`) on every local session; each record gains `session`. A person only: an agent caller gets `origin.forbidden`. |
 | `--machine <value>` | Constrain machine-scoped requests. |
 | `--app-socket <path>` | Connect to an exact app control socket (app scopes only). |
 | `--json` | Print one JSON result object. |
@@ -74,6 +74,13 @@ never reaches another session. `--all-sessions` is accepted only by list
 reads and reaches the local sessions this user runs (the runtime directory's
 `<name>.sock` files and the bundling app's session); sessions the app reaches
 over SSH or on Cloud machines have no CLI transport yet.
+`--all-sessions` is refused for an agent caller (`ACPMUX_SESSION_ID`,
+`CMUX_CHIEF_OWNER_SOCKET` or `CMUX_AGENT_PRINCIPAL` set: an acpmux session, a
+Chief turn, an acpmux event hook): it exits 1 with `origin.forbidden`
+(`details.reason` `agent_caller`, `details.marker` the variable) and reads no
+session. This keeps a person's other apps on a shared host out of an agent's
+answers. It is not a sandbox: the OS boundary is still the user, and naming a
+session explicitly (`--socket`, `--session`, `<session>:<id>`) still works.
 
 ## Output and exit codes
 

@@ -16,6 +16,16 @@ enum DebugOmnibar {
         // `press_row`: press that suggestion row (its click path) before the report.
         var pressed: JSONValue = .null
         if let row = params["press_row"]?.intValue { pressed = .bool(bar.debugPressRow(row)) }
+        // `dismiss_notice`: whether the notice takes clicks, then close it
+        // and ask again at once, inside its fade (cx-whr7).
+        var dismissal: JSONValue = .null
+        if params["dismiss_notice"]?.boolValue == true, let chrome = entry(params, services: services)?.chrome {
+            let before = chrome.noticeTakesMouse
+            chrome.hideNotice()
+            let fading = chrome.noticeTakesMouse
+            dismissal = .object(["takes_mouse_before": before.map(JSONValue.bool) ?? .null,
+                                 "takes_mouse_during_fade": fading.map(JSONValue.bool) ?? .null])
+        }
         let snapshot = bar.debugSnapshot
         func range(_ value: NSRange?) -> JSONValue {
             guard let value else { return .null }
@@ -38,6 +48,7 @@ enum DebugOmnibar {
             "notice": entry(params, services: services)?.chrome.noticeText.map(JSONValue.string) ?? .null,
             // Where it draws: `overlay_host` is above Chromium page windows (cx-whr7).
             "notice_placement": entry(params, services: services)?.chrome.noticePlacement.map(JSONValue.string) ?? .null,
+            "notice_dismissal": dismissal,
             "notice_layout": entry(params, services: services)?.chrome.noticeLayout.map { .array($0.map(JSONValue.string)) } ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
             "pressed_row": pressed,

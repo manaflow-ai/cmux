@@ -67,8 +67,11 @@ enum DebugUpdater {
         let items = (0..<changes).map { index in
             ReleaseNotes.ChangeItem(title: titles[index % titles.count], author: authors[index % authors.count], pr: 18_000 - index)
         }
-        return ReleaseNotes(version: 1, build: "0", shortVersion: version, date: "", highlights: [],
-                            changes: items.map(\.title), items: items)
+        let summary = [ReleaseNotes.SummaryLine(group: "new", title: "Update cards show the changelog and build date"),
+                       ReleaseNotes.SummaryLine(group: "fixed", title: "A check while an update waits shows Restart to Update"),
+                       ReleaseNotes.SummaryLine(group: "changed", title: "Short update titles keep the version in the detail")]
+        return ReleaseNotes(version: 1, build: "0", shortVersion: version, date: "2026-10-10", highlights: [],
+                            changes: items.map(\.title), items: items, summary: summary)
     }
 
     static func terminate() {

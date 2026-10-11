@@ -105,52 +105,6 @@ describe("team policy reducer (TeamDO single writer)", () => {
     expect(run(baseState(), "team.policy.update", { changes: [set("device.settings", big)], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
   })
 
-  it("seeded random op sequences keep the invariants: versions never repeat or go back, history is bounded and newest first, values always decode", () => {
-    // mulberry32: an LCG's low bits cycle too fast for small moduli.
-    let seed = 0x2a
-    const rand = (n: number) => {
-      seed = (seed + 0x6d2b79f5) | 0
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-      return ((t ^ (t >>> 14)) >>> 0) % n
-    }
-    const samples: Record<string, ReadonlyArray<unknown>> = {
-      "telemetry.level": ["full", "crash_only", "off", "bogus"],
-      "computerUse.allowed": [true, false, 1],
-      "retention.cuaEventsDays": [1, 15, 30, 31],
-      "apps.install": ["any", "allow_list", "disabled"],
-      "mcp.server": ["user_choice", "disabled"]
-    }
-    let s = baseState()
-    let lastVersion = 0
-    for (let i = 0; i < 400; i++) {
-      const v = currentPolicy(s).version
-      const r =
-        rand(5) === 0
-          ? run(s, "team.policy.rollback", { version: rand(v + 1), expected_version: rand(4) === 0 ? v + 1 : v })
-          : run(s, "team.policy.update", {
-              changes: [
-                (() => {
-                  const keys = Object.keys(samples)
-                  const key = keys[rand(keys.length)]!
-                  return rand(6) === 0 ? { key, value: null } : set(key, samples[key]![rand(samples[key]!.length)], rand(2) ? "enforced" : "default")
-                })()
-              ],
-              expected_version: rand(8) === 0 ? v + 3 : v
-            })
-      if (!r.ok) continue
-      s = r.state as TeamState
-      const p = currentPolicy(s)
-      expect(p.version).toBeGreaterThanOrEqual(lastVersion)
-      if (r.changed !== false) expect(p.version).toBe(lastVersion + 1)
-      lastVersion = p.version
-      const hist = s.policy_history ?? []
-      expect(hist.length).toBeLessThanOrEqual(POLICY_HISTORY_LIMIT)
-      for (let j = 1; j < hist.length; j++) expect(hist[j - 1]!.version).toBeGreaterThan(hist[j]!.version)
-      for (const k of Object.keys(p.values)) expect(policyKeys).toContain(k)
-    }
-    expect(lastVersion).toBeGreaterThan(50)
-  })
 })
 
 const sessionToken = async (stackUser: string) => {

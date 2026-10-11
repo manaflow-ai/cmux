@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 struct AgentActivityEventList: View {
@@ -36,7 +37,7 @@ struct AgentActivityEventRow: View {
                 .foregroundStyle(colors.tertiary)
                 .lineLimit(1).fixedSize()
                 .frame(width: 76, alignment: .leading)
-            Image(systemName: AgentActivityFormat.symbol(event))
+            Icon(AgentActivityFormat.icon(event), size: 13)
                 .foregroundStyle(event.ok ? colors.secondary : colors.danger)
                 .frame(width: 14)
             Text(event.tool ?? event.kind.rawValue).font(.system(size: 11, weight: .medium, design: .monospaced))

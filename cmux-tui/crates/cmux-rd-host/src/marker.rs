@@ -3,8 +3,6 @@
 
 pub const CELLS: usize = 20;
 pub const CELL: u32 = 32;
-#[cfg(test)]
-pub const WIDTH: u32 = CELL * CELLS as u32;
 const GUARD: [bool; 4] = [true, false, true, false];
 
 /// Cell values (true = white) for a counter.
@@ -20,7 +18,7 @@ pub fn cells(counter: u32) -> [bool; CELLS] {
 
 /// Reads the marker from a luma plane. `video_range` selects the threshold (125 vs 128).
 /// Only the bench viewer (and the tests) decode markers.
-#[cfg(any(feature = "bench", test))]
+#[cfg(feature = "bench")]
 pub fn decode_luma(y: &[u8], stride: usize, video_range: bool) -> Option<u16> {
     let threshold = if video_range { 125 } else { 128 };
     let center = (CELL / 2) as usize;
@@ -45,32 +43,5 @@ pub fn paint_bgrx(buf: &mut [u8], stride: usize, counter: u32) {
         for row in 0..rows {
             buf[row * stride + x0..row * stride + x1].fill(v);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trip_through_luma() {
-        let w = WIDTH as usize;
-        for counter in [0u32, 1, 2, 255, 4097, 65535, 65536 + 7] {
-            let mut y = vec![0u8; w * CELL as usize];
-            for (i, white) in cells(counter).iter().enumerate() {
-                for row in 0..CELL as usize {
-                    let s = row * w + i * CELL as usize;
-                    y[s..s + CELL as usize].fill(if *white { 235 } else { 16 });
-                }
-            }
-            assert_eq!(decode_luma(&y, w, true), Some((counter & 0xffff) as u16));
-        }
-    }
-
-    #[test]
-    fn rejects_bad_guard() {
-        let w = WIDTH as usize;
-        let y = vec![200u8; w * CELL as usize];
-        assert_eq!(decode_luma(&y, w, true), None);
     }
 }

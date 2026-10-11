@@ -14,7 +14,7 @@ import {
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
-import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { homePath, listed, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 
@@ -85,18 +85,24 @@ export type NewTabHost = {
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
   omnibar?: OmnibarContext;
+  /// The workspace's tabs a split's page offers to move into its pane (cx-jfo7).
+  openTabs?: OmnibarContext["tabs"];
   defaultKind?: DefaultKind;
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
+  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu); off until styled.
+  templateSwitcher?: boolean;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
   focusesField?: boolean;
+  /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
+  history?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -114,6 +120,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const cwd =
     typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
   const omnibar = omnibarContext(object.omnibar);
+  const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
   const tools = Array.isArray(object.tools)
     ? object.tools.flatMap((tool) => {
@@ -139,6 +146,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
+    ...(openTabs?.length ? { openTabs } : {}),
     ...(Array.isArray(object.projects)
       ? {
           projects: object.projects
@@ -151,10 +159,12 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
+    ...(object.templateSwitcher === true ? { templateSwitcher: true } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
+    ...(object.history === true ? { history: true } : {}),
   };
 }
 
@@ -184,7 +194,7 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
   const entries = sessions
     .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    .filter((entry) => !entry.archived);
+    .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
 }
@@ -233,8 +243,8 @@ type Props = {
   onShowAll(): void;
   onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
-  onImport?(): void;
-  onBrowseProject?(): void;
+  /// Choose Folder…: the host's folder panel; resolves to the picked folder.
+  onBrowseProject?(): Promise<string | undefined>;
   /// Opens the host's Integrate a harness flow (`palette.addHarness`).
   onAddHarness?(): void;
   now?: number;
@@ -260,7 +270,6 @@ export function NewTabPage({
   onOpenSession,
   onShowAll,
   onEditShortcut,
-  onImport,
   onBrowseProject,
   onAddHarness,
   inputToken,
@@ -451,7 +460,13 @@ export function NewTabPage({
                 currentLabel={selectedProject}
                 icon={<FolderIcon />}
                 onPick={setProjectCwd}
-                onBrowse={onBrowseProject}
+                onBrowse={
+                  onBrowseProject &&
+                  (() =>
+                    void onBrowseProject().then((picked) => {
+                      if (picked) setProjectCwd(picked);
+                    }))
+                }
               />
             )}
             {kind === "terminal" && (
@@ -538,11 +553,6 @@ export function NewTabPage({
           {t(NEW_TAB_LABELS.allSessions)}
           <ChevronRight />
         </button>
-        {onImport && (
-          <button type="button" className="acpmux-newtab-all" onClick={onImport}>
-            {t("newtab.importAndSync")}
-          </button>
-        )}
         {onAddHarness && (
           <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
             {t("newtab.addHarness")}
@@ -605,7 +615,7 @@ function rowDetail(row: OmnibarRow): string | undefined {
 function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
   switch (row.type) {
     case "tab":
-      return <KindIcon kind={row.kind} />;
+      return row.icon ? <Favicon src={row.icon} /> : <KindIcon kind={row.kind} />;
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
@@ -616,12 +626,17 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "run":
       return <KindIcon kind="terminal" />;
     case "history":
-      return <ClockIcon />;
+      return row.icon ? <Favicon src={row.icon} /> : <ClockIcon />;
     case "open":
       return <KindIcon kind="browser" />;
     case "ask":
       return <AgentMark harness={agent} />;
   }
+}
+
+/// A page's favicon (cx-d0d.8), drawn as is at the row icons' size.
+function Favicon({ src }: { src: string }) {
+  return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
 /// The agent's brand mark (design/agent-icons), so a session's row says which agent it

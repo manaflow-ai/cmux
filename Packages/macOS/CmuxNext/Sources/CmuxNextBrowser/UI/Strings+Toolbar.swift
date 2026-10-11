@@ -2,6 +2,18 @@ import Foundation
 
 // The trailing toolbar buttons (BrowserToolbarButtonsView).
 nonisolated extension Strings {
+    static func toolbarZoom(_ percent: Int) -> String {
+        String(localized: "browser.toolbar.zoom", defaultValue: "Zoom \(percent)%: Reset to Actual Size", bundle: .module)
+    }
+    static var toolbarMedia: String {
+        String(localized: "browser.toolbar.media", defaultValue: "Media Controls", bundle: .module)
+    }
+    static var toolbarDownloads: String {
+        String(localized: "browser.toolbar.downloads", defaultValue: "Downloads", bundle: .module)
+    }
+    static var toolbarFavorites: String {
+        String(localized: "browser.toolbar.favorites", defaultValue: "Bookmarks", bundle: .module)
+    }
     static var toolbarDesignMode: String {
         String(localized: "browser.toolbar.designMode", defaultValue: "Design Mode", bundle: .module)
     }

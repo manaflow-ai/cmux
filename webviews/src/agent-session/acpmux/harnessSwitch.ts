@@ -102,6 +102,8 @@ export type SwitchView = {
   };
   /// A model picked in a live session, drawn until the session reports a model change.
   model?: { sessionId: string; from?: string; model: string };
+  /// A config option picked in a live session, drawn until the session reports the value.
+  config?: { sessionId: string; configId: string; from?: string; value: string };
 };
 
 type Queued = QueuedSwitchPrompt & {
@@ -165,6 +167,7 @@ const errorText = errorMessage;
 export class HarnessSwitch {
   private intent?: Intent;
   private modelPick?: SwitchView["model"];
+  private configPick?: SwitchView["config"];
   private port?: SwitchPort;
   private generation = 0;
   private current: SwitchView = {};
@@ -183,6 +186,18 @@ export class HarnessSwitch {
     return () => this.listeners.delete(listener);
   };
   readonly view = (): SwitchView => this.current;
+
+  /// Drops a live config pick once the host echoes the selected value. Keeping this in the
+  /// switch store prevents a late or reconnect snapshot from being masked by an old optimistic
+  /// value.
+  reconcile(snapshot: AcpmuxSnapshot): void {
+    const pick = this.configPick;
+    if (!pick || snapshot.sessionId !== pick.sessionId) return;
+    const option = snapshot.summary?.configOptions?.find((item) => item.id === pick.configId);
+    if (option?.currentValue !== pick.value) return;
+    this.configPick = undefined;
+    this.changed();
+  }
 
   /// What the pane does with prompts handed back, opened sessions and refused picks.
   setHandlers(handlers: SwitchHandlers): void {
@@ -235,6 +250,7 @@ export class HarnessSwitch {
     };
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
+    this.configPick = undefined;
     this.intent = intent;
     if (shown && shownSession && !previous) {
       this.left = shownSession.empty ? { sessionId: shownSession.sessionId, harness: shownSession.harness } : undefined;
@@ -298,6 +314,7 @@ export class HarnessSwitch {
     if (!port || !live) return Promise.resolve();
     const pick = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
+    this.configPick = undefined;
     this.changed();
     return port.setModel(model).catch((error) => {
       if (this.modelPick !== pick) return;
@@ -315,8 +332,22 @@ export class HarnessSwitch {
     this.changed();
     return true;
   }
-  pickConfig(configId: string, value: string): boolean {
-    if (!this.intent) return false;
+  pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string }): boolean {
+    if (!this.intent) {
+      const port = this.port;
+      if (!port || !live) return false;
+      const pick = { sessionId: live.sessionId, configId, from: live.current, value };
+      this.configPick = pick;
+      this.modelPick = undefined;
+      this.changed();
+      void port.setConfig(configId, value).catch((error) => {
+        if (this.configPick !== pick) return;
+        this.configPick = undefined;
+        this.changed();
+        this.handlers.notice?.(t("switch.modelFailed", { model: value, reason: errorText(error) || "?" }));
+      });
+      return true;
+    }
     this.intent.config = { ...this.intent.config, options: { ...this.intent.config.options, [configId]: value } };
     this.intent.tickets.set(
       `config:${configId}`,
@@ -379,6 +410,7 @@ export class HarnessSwitch {
       this.retire(intent, true);
     }
     this.modelPick = undefined;
+    this.configPick = undefined;
     this.left = undefined;
     this.changed();
   }
@@ -568,6 +600,7 @@ export class HarnessSwitch {
         },
       }),
       ...(this.modelPick && { model: this.modelPick }),
+      ...(this.configPick && { config: this.configPick }),
     };
     for (const listener of this.listeners) listener();
   }
@@ -598,8 +631,21 @@ export function applySwitch(
   if (!intent) {
     const pick = view.model;
     const summary = raw.summary;
-    if (!pick || !summary || summary.sessionId !== pick.sessionId || summary.model !== pick.from) return raw;
-    return { ...raw, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
+    if (pick && summary && summary.sessionId === pick.sessionId && summary.model === pick.from)
+      return { ...raw, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
+    const config = view.config;
+    if (!config || !summary || summary.sessionId !== config.sessionId) return raw;
+    const option = summary.configOptions?.find((item) => item.id === config.configId);
+    if (!option || option.currentValue === config.value) return raw;
+    return {
+      ...raw,
+      summary: {
+        ...summary,
+        configOptions: summary.configOptions?.map((item) =>
+          item.id === config.configId ? { ...item, currentValue: config.value } : item,
+        ),
+      },
+    };
   }
   const name = agentName(intent.harness, catalog.find((entry) => entry.id === intent.harness)?.name);
   const attached = intent.shown && intent.sessionId !== undefined && raw.sessionId === intent.sessionId;

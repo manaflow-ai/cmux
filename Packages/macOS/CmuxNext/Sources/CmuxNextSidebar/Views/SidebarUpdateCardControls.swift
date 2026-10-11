@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextIcons
 import AppKit
 import QuartzCore
 
@@ -226,8 +227,7 @@ final class SidebarUpdateCheckbox: NSView {
         box.cornerRadius = Metrics.space1
         CATransaction.commit()
         let inset = side * 0.18
-        mark.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side - 2 * inset, weight: .bold))
+        mark.image = NSImage.icon(.stateSelected, size: side - 2 * inset)
         mark.frame = boxFrame.insetBy(dx: inset, dy: inset)
         let th = ceil(label.intrinsicContentSize.height)
         let x = boxFrame.maxX + Metrics.space2

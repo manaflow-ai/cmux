@@ -70,6 +70,32 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
+.cv-user__context {
+  box-sizing: border-box;
+  max-width: 70%;
+  margin-bottom: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__context > summary {
+  cursor: pointer;
+  text-align: right;
+  list-style-position: inside;
+}
+.cv-user__context-text {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
@@ -1101,7 +1127,9 @@ pre.cv-math-source {
 .acpmux-image-viewer {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-modal);
+  width: auto;
+  margin-inline: 0;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
@@ -1113,7 +1141,7 @@ pre.cv-math-source {
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-overlay);
 }
 .acpmux-image-viewer-body {
   position: relative;
@@ -1465,4 +1493,86 @@ pre.cv-math-source {
 .cv-diagram .cv-codeblock {
   margin: 0;
   border-radius: 0;
+}
+
+/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): a compact bar pinned to the
+   transcript's top right, over the rows, like the minimap; the matches are custom highlights. */
+.acpmux-find {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky, 10);
+  height: 0;
+}
+.acpmux-find__bar {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 3px 0 9px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--acpmux-base, var(--agent-page-bg));
+  box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
+  font-family: var(--cv-font);
+  font-size: var(--text-body);
+}
+.acpmux-find__field {
+  width: 180px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-find__field::placeholder {
+  color: var(--agent-muted);
+}
+.acpmux-find__field::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-find__count {
+  min-width: 0;
+  padding-right: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-find__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-soft, var(--agent-muted));
+  cursor: default;
+}
+.acpmux-find__step:hover:not(:disabled) {
+  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
+}
+.acpmux-find__step:disabled {
+  opacity: 0.4;
+}
+.acpmux-find__step:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+::highlight(acpmux-find) {
+  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+}
+::highlight(acpmux-find-active) {
+  background-color: #f5c542;
+  color: #1d1d1f;
 }

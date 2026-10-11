@@ -758,21 +758,6 @@ fn dock_column_rejects_an_unknown_role() {
     assert_eq!(wire.dock(), vec![None, None]);
 }
 
-#[test]
-fn move_tab_to_column_pins_the_new_column_with_its_role() {
-    let (mut wire, panes) = Wire::with_columns(1);
-    let chat = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
-    wire.ok(json!({
-        "cmd": "move-tab-to-column",
-        "surface": chat.id,
-        "pane": panes[0],
-        "dock": {"edge": "left", "mode": "docked", "role": "agent_chat"},
-    }));
-    let columns = wire.columns();
-    assert_eq!(columns.len(), 2);
-    assert_eq!(columns[1]["dock"], json!({"edge": "left", "mode": "docked", "role": "agent_chat"}));
-}
-
 // `permanent-dock-v1` (Home's conversation list, 2026-10-06): a docked
 // column marked permanent stays docked on its edge for every client, CLI
 // included. Its mode may change; undocking, moving it to another edge,

@@ -99,8 +99,15 @@ async fn dispatch_request(
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
-                // This connection presented this launch's person key (`hub/person.rs`).
+                // This connection is the person (`hub/person.rs`): never yet,
+                // as the proof comes after this reply.
                 "person": conn.is_person(),
+                // The challenge a local connection proves the person key against.
+                "personChallenge": if conn.challengeable() {
+                    json!({"nonce": conn.nonce, "connection": conn.id})
+                } else {
+                    Value::Null
+                },
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
@@ -108,10 +115,22 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
+        // Decided in order in `Conn::bind_person`; this only reports it.
+        method::MUX_PERSON_PROVE => {
+            if conn.is_person() {
+                Ok(json!({"person": true}))
+            } else {
+                Err(RpcError::new(
+                    -32000,
+                    "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
+                )
+                .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
+            }
+        }
         method::MUX_PERSON_ENROLL => {
             // The unix socket only: a WebSocket peer has no audit token.
             if conn.origin != Origin::Local {
@@ -688,6 +707,22 @@ async fn dispatch_request(
                     // Checked against the profile the preset resolves to now.
                     let profile =
                         cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    // A built-in Chief preset without a client env gets its
+                    // env from the definition (`config/chief_builtins.rs`),
+                    // whoever installs it; a client env is the person's
+                    // (`hub/person.rs` refused it from anyone else).
+                    if let Some(builtin) = crate::config::chief_builtins::parse(&name)
+                        && obj.get("env").is_none()
+                    {
+                        let family =
+                            crate::config::derive_family(&profile, &cfg.harnesses[&profile]);
+                        p.env = crate::config::chief_builtins::env(
+                            &builtin,
+                            &family,
+                            &crate::config::chief_builtins::Context::current(),
+                        )
+                        .map_err(RpcError::invalid_params)?;
+                    }
                     let kind = cfg.harnesses[&profile].kind;
                     crate::config::check_preset_args(kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
@@ -806,6 +841,15 @@ async fn dispatch_request(
         | method::MUX_HARNESS_RESTORE
         | method::MUX_HARNESS_DOCTOR
         | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
+        method::MUX_ROUTE_LIST
+        | method::MUX_ROUTE_SHOW
+        | method::MUX_ROUTE_ADD
+        | method::MUX_ROUTE_EDIT
+        | method::MUX_ROUTE_REMOVE
+        | method::MUX_ROUTE_RESTORE
+        | method::MUX_ROUTE_TEST
+        | method::MUX_ROUTE_DEFAULT_SET
+        | method::MUX_CHAT_ROUTE_SET => super::routes::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }

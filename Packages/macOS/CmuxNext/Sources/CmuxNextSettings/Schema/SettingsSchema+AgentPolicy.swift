@@ -52,8 +52,11 @@ extension SettingsSchema {
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
         "tabs.newTabTemplate",
+        "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.swapCmdTAndCmdN",
+        "tabs.tabBar.terminal", "tabs.tabBar.browser", "tabs.tabBar.agent",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
@@ -74,6 +77,7 @@ extension SettingsSchema {
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
+        "appearance.accent",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -189,6 +193,7 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly,
+        "computerUse.driver": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

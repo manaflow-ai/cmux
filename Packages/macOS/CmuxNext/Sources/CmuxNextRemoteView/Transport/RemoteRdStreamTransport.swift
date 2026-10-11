@@ -1,10 +1,10 @@
 public import Foundation
 import CmuxNextWakeups
-import Network
 import CmuxNextCompat
 
-/// The in-app `cmux.rd/1` transport over the stream carrier: one TCP
-/// connection carries control JSON and datagrams as `u8 type, u32 len`
+/// The in-app `cmux.rd/1` transport over the stream carrier: one ordered
+/// byte path (`RemoteRdByteCarrier`: loopback TCP, or a daemon
+/// `loopback-forward-v1` stream to another machine) carries control JSON and datagrams as `u8 type, u32 len`
 /// frames (until the overlay datagram service carries media). The shared Rust
 /// core does reassembly, FEC, per-stream feedback (`RemoteRdSession`: the
 /// page on stream 0, rb/1 popup surfaces on their own streams) and input redundancy
@@ -15,7 +15,7 @@ import CmuxNextCompat
 /// `RemoteUpstreamConsent`, the single place that enforces the consent
 /// contract; the pane drives it through `RemoteUpstreamControl`.
 public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, RemoteUpstreamControl {
-    private let endpoint: RemoteRdLoopbackEndpoint
+    private let carrier: any RemoteRdByteCarrier
     // internal for the +Service extension file
     let hello: RemoteRdHello
     private let startKey: String
@@ -27,7 +27,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     // internal for the +Service extension file
     let state: Mutex<Continuations>
     // internal for the +Service extension file
-    // crash-allow: confined to the serial `queue`; every access runs in a queue block or an NWConnection callback started on it.
+    // crash-allow: confined to the serial `queue`; every access runs in a queue block or a carrier event, which runs on it.
     nonisolated(unsafe) let engine: Engine
 
     // internal for the +Service extension file
@@ -42,13 +42,13 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     /// Queue-confined session state: the Rust core, the input channel, the
-    /// handshake and the connection.
+    /// handshake and whether the carrier started.
     // internal for the +Service extension file
     nonisolated final class Engine {
         let core: RemoteRdSession
         let input: RemoteRdInput
         var handshake: RemoteRdHandshake
-        var connection: NWConnection?
+        var started = false
         /// Cuts received bytes after control frames (surface streams open in between).
         var splitter = RemoteRdStreamSplitter()
         /// Created from the welcome's caps; ends with the session.
@@ -61,17 +61,25 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
+    /// A transport to a host on this Mac's loopback.
+    public convenience init?(
+        endpoint: RemoteRdLoopbackEndpoint, hello: RemoteRdHello, startKey: String, control: Bool = false,
+        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
+    ) {
+        self.init(carrier: RemoteRdLoopbackCarrier(endpoint: endpoint), hello: hello, startKey: startKey, control: control, nowMicros: nowMicros)
+    }
+
     /// `startKey` and `control` form the start message (`mode` view or
     /// control); `nowMicros` is a monotonic clock (injected for tests). Nil
     /// only when the Rust core cannot allocate its state.
     public init?(
-        endpoint: RemoteRdLoopbackEndpoint, hello: RemoteRdHello, startKey: String, control: Bool = false,
+        carrier: any RemoteRdByteCarrier, hello: RemoteRdHello, startKey: String, control: Bool = false,
         nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
     ) {
         guard let core = RemoteRdSession(carrier: .stream), let input = RemoteRdInput(carrier: .stream) else { return nil }
         var streamHello = hello
         streamHello.udpPort = nil
-        self.endpoint = endpoint
+        self.carrier = carrier
         self.hello = streamHello
         self.startKey = startKey
         self.control = control
@@ -82,7 +90,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     deinit {
         timer.cancel()
-        engine.connection?.cancel()
+        carrier.cancel()
     }
 
     /// Monotonic microseconds (the core's clock).
@@ -90,17 +98,14 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         DispatchTime.now().uptimeNanoseconds / 1_000
     }
 
-    /// Opens the connection and sends hello and start.
+    /// Opens the carrier and sends hello and start.
     public func connect() {
         queue.async { [self] in
-            guard engine.connection == nil, !engine.handshake.isEnded else { return }
-            let port = NWEndpoint.Port(rawValue: endpoint.port) ?? .any
-            let connection = NWConnection(host: NWEndpoint.Host.ipv4(.loopback), port: port, using: .tcp)
-            engine.connection = connection
-            connection.stateUpdateHandler = { [weak self] newState in
-                self?.connectionStateChanged(newState)
+            guard !engine.started, !engine.handshake.isEnded else { return }
+            engine.started = true
+            carrier.start(queue: queue) { [weak self] event in
+                self?.carrierEvent(event)
             }
-            connection.start(queue: queue)
         }
     }
 
@@ -209,36 +214,16 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     // MARK: Queue-confined work
 
-    private func connectionStateChanged(_ newState: NWConnection.State) {
-        switch newState {
+    private func carrierEvent(_ event: RemoteRdCarrierEvent) {
+        switch event {
         case .ready:
             sendControl(.hello(hello))
             sendControl(.start(key: startKey, mode: control ? "control" : "view"))
-            receiveNext()
-        case .failed, .cancelled:
+        case let .data(data):
+            guard !engine.handshake.isEnded else { return }
+            ingest(data)
+        case .closed:
             closed()
-        case .waiting:
-            // A loopback host that refuses the connection (no listener) only
-            // makes the connection wait for a path change that never comes:
-            // end the session so the viewer says why (cx-erey).
-            closed()
-        default:
-            break
-        }
-    }
-
-    private func receiveNext() {
-        guard let connection = engine.connection else { return }
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            if let data, !data.isEmpty {
-                ingest(data)
-            }
-            if isComplete || error != nil {
-                closed()
-            } else if !engine.handshake.isEnded {
-                receiveNext()
-            }
         }
     }
 
@@ -357,10 +342,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     private func sendRaw(_ bytes: Data) {
-        engine.connection?.send(content: bytes, completion: .contentProcessed { [weak self] error in
-            guard error != nil, let self else { return }
-            queue.async { self.closed() }
-        })
+        guard engine.started else { return }
+        carrier.send(bytes)
     }
 
     private func closed() {
@@ -386,8 +369,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         // Session end, host stop or disconnect: revoke and free every sender.
         engine.upstream?.endSession()
         timer.cancel()
-        engine.connection?.cancel()
-        engine.connection = nil
+        carrier.cancel()
         state.withLock { state in
             state.units?.finish()
             state.cursors?.finish()

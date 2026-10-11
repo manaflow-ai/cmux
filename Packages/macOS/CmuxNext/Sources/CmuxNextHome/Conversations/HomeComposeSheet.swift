@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// New Message: pick people from the user's contacts (team members and
 /// connected people) or type an email address, optionally name a group,
@@ -156,8 +157,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         }
         label.font = picked ? Typography.bodyEmphasized : Typography.body
         let cell = NSTableCellView()
-        let check = NSImageView(image: NSImage(systemSymbolName: picked ? "checkmark.circle.fill" : "circle",
-                                               accessibilityDescription: nil) ?? NSImage())
+        let check = NSImageView(image: NSImage.icon(picked ? .statusComplete : .stateIdle, size: 16))
         check.frame = NSRect(x: Metrics.space2, y: 4, width: 16, height: 16)
         label.frame = NSRect(x: Metrics.space2 + 22, y: 3, width: 320, height: 18)
         cell.addSubview(check)

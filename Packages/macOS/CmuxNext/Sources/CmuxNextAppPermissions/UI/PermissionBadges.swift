@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// The risk tone mark: a dot (neutral read scopes are hollow).
@@ -21,8 +22,7 @@ struct TierBadge: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: tier == .unverified ? "exclamationmark.triangle" : "checkmark.seal")
-                .font(.system(size: 9, weight: .semibold))
+            Icon(tier == .unverified ? .securityInsecure : .trustVerified, size: 12)
             Text(AppPermissionsStrings.tier(tier)).font(colors.caption)
         }
         .foregroundStyle(colors.tier(tier))
@@ -39,8 +39,7 @@ struct AppGlyph: View {
     @Environment(\.permissionColors) private var colors
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: size * 0.48, weight: .medium))
+        Icon(symbol: symbol, size: size * 0.48)
             .foregroundStyle(colors.text)
             .frame(width: size, height: size)
             .background(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous).fill(colors.field))

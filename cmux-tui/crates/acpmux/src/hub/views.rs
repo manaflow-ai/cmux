@@ -122,6 +122,10 @@ impl Hub {
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
+            // The Chief home the built-in Chief presets use (`config/chief_builtins.rs`),
+            // from this daemon's own environment; the app hands off a Chief-home
+            // daemon that lacks it.
+            "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
         })
     }
 }

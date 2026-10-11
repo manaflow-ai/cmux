@@ -304,36 +304,10 @@ impl HostAttachment {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<bool, ClearHistoryFailure> {
-        if !self.record.supports_clear_history {
-            return Ok(false);
+        match self.begin_clear_history(fallback_key)? {
+            Some(pending) => pending.wait().map(|()| true),
+            None => Ok(false),
         }
-        let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
-            .map_err(ClearHistoryFailure::known_not_delivered)?;
-        let response = self.send_control_request(
-            MessageKind::ClearHistory,
-            MessageKind::ClearHistoryAck,
-            payload,
-        )?;
-        match response.as_slice() {
-            [CLEAR_HISTORY_ACK_OK] => {}
-            [CLEAR_HISTORY_ACK_OK, ..] if self.smart_renderer => {}
-            [status] => {
-                let Some(failure) = clear_history_ack_failure(*status) else {
-                    self.disconnect();
-                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host returned an unknown clear-history status"
-                    )));
-                };
-                return Err(failure);
-            }
-            _ => {
-                self.disconnect();
-                return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                    "terminal host returned a malformed clear-history response"
-                )));
-            }
-        }
-        Ok(true)
     }
 
     pub fn supports_clear_history(&self) -> bool {
@@ -450,34 +424,10 @@ impl HostAttachment {
         limits: KittyGraphicsLimits,
         deadline: Instant,
     ) -> anyhow::Result<bool> {
-        if self.protocol_version < 3 {
-            return Ok(false);
+        match self.begin_kitty_graphics_limits(limits, deadline)? {
+            Some(pending) => pending.wait().map(|()| true),
+            None => Ok(false),
         }
-        let limits = limits
-            .validate()
-            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
-        encode_kitty_graphics_limits(&mut payload, limits)?;
-        let response = self
-            .send_control_request_with_policy(
-                MessageKind::SetKittyGraphicsLimits,
-                MessageKind::KittyGraphicsLimitsAck,
-                payload,
-                deadline,
-                // Advisory control: a missed ack must degrade graphics for
-                // this surface, not tear down a healthy host connection.
-                false,
-            )
-            .map_err(ClearHistoryFailure::into_error)
-            .context("terminal host did not acknowledge Kitty graphics limits")?;
-        let mut decoder = PayloadDecoder::new(&response);
-        let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
-        decoder.finish()?;
-        if acknowledged != limits {
-            self.disconnect();
-            anyhow::bail!("terminal host acknowledged different Kitty graphics limits");
-        }
-        Ok(true)
     }
 
     pub(crate) fn reconfigure_kitty_graphics_for_adoption(

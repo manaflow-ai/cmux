@@ -67,7 +67,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// H17: offline the user can type, but Send and tapbacks are off.
+    /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
@@ -231,7 +231,9 @@ public final class MessagesLabHomeView: NSView {
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
 
     /// Return in the field: sends the text and the attachments as one message.
-    public func sendDraft() { projection.send() }
+    /// Nil when it went (or waits for the owner as "sending"), else why not.
+    @discardableResult
+    public func sendDraft() -> String? { projection.send() }
 
     /// Automation (DEBUG socket): a love tapback on the newest incoming
     /// message through the picker's path (`ChatIntents.react`).
@@ -248,7 +250,8 @@ public final class MessagesLabHomeView: NSView {
     public func debugMenuTitles(mine: Bool) -> [String]? {
         guard let hit = controller.demo?.lastTextRow(mine: mine),
               let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
-        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : $0.title }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : ($0 as? MenuAction)?.label ?? $0.title }
     }
 
     /// Automation (DEBUG socket): the field's height and, for the newest
@@ -268,6 +271,18 @@ public final class MessagesLabHomeView: NSView {
         return out
     }
 
+    /// Automation (DEBUG socket): the text of the newest `limit` messages
+    /// this view holds (its own store), oldest first.
+    public func debugMessageTexts(limit: Int = 10) -> [String] {
+        guard let store = controller.store else { return [] }
+        return store.state.conversation.messages.suffix(limit).map { message in
+            message.parts.compactMap { part in
+                if case let .text(text, _) = part { return text }
+                return nil
+            }.joined(separator: "\n")
+        }
+    }
+
     /// Automation (DEBUG socket): plays or pauses the newest video bubble
     /// through the click's path (`ChatIntents.toggleVideo`).
     public func debugToggleNewestVideo() -> Bool {
@@ -281,6 +296,22 @@ public final class MessagesLabHomeView: NSView {
             }
         }
         return false
+    }
+
+    /// Automation (DEBUG socket): clicks the first shown link whose URL starts with `prefix`,
+    /// through the click's path (`ChatController.openLink`, so an app link goes to
+    /// `onAppLink`); the clicked URL, or nil when no shown link matches.
+    public func debugClickLink(prefix: String) -> String? {
+        guard let demo = controller.demo else { return nil }
+        let b = controller.host.bounds
+        for y in stride(from: b.minY, to: b.maxY, by: 3) {
+            for x in stride(from: b.minX, to: b.maxX, by: 3) {
+                let p = CGPoint(x: x, y: y)
+                guard let url = controller.linkURL(at: p), url.absoluteString.hasPrefix(prefix), let hit = demo.hit(p) else { continue }
+                return controller.openLink(hit, at: p) ? url.absoluteString : nil
+            }
+        }
+        return nil
     }
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points

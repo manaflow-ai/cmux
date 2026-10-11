@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// What one diff tab may do in the sidecar's session root, as the files the
 /// sidecar checks (the classic CLI wrote the same ones, CLI/cmux_open.swift

@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -43,13 +44,19 @@ final class ClosedTabTracker {
         undoToasts = CloseUndoToasts(services: services)
         let machines = services.machines
         observation = Task { [weak self] in
-            for await structure in Observations({ Self.structure(of: machines.daemons) }) {
+            for await structure in ObservationStream({ Self.structure(of: machines.daemons) }) {
                 self?.apply(structure)
             }
         }
     }
 
-    deinit { observation?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
+    }
 
     static func qualified(_ machine: String, _ id: String) -> String { "\(machine)/\(id)" }
 
@@ -134,6 +141,8 @@ final class ClosedTabTracker {
 
     /// Closed tabs, oldest first (history lists).
     var records: [ClosedTabHistory.Record] { history.closed }
+    /// Whether the tab `tabID` closed in an incognito window.
+    func isIncognito(_ tabID: String) -> Bool { incognitoRecords.contains(tabID) }
 
     /// Takes one record out to reopen it.
     func take(_ tabID: String) -> ClosedTabHistory.Record? {

@@ -997,4 +997,56 @@ mod tests {
         read_eof(&mut read).await;
         rig.cancel.cancel();
     }
+
+    #[test]
+    fn parse_accepts_the_wire_shapes_and_rejects_malformed_requests() {
+        let open = parse_tunnel_client_frame(br#"{"t":"open","cols":80,"rows":24}"#);
+        assert_eq!(
+            open,
+            Some(ClientFrame::Open { session: None, surface: None, cols: 80, rows: 24 })
+        );
+        let full = parse_tunnel_client_frame(
+            br#"{"t":"open","session":"web-abc2","surface":"s:1.2","cols":1,"rows":10000}"#,
+        );
+        assert_eq!(
+            full,
+            Some(ClientFrame::Open {
+                session: Some("web-abc2".to_owned()),
+                surface: Some("s:1.2".to_owned()),
+                cols: 1,
+                rows: 10_000,
+            })
+        );
+        assert_eq!(
+            parse_tunnel_client_frame(br#"{"t":"resize","cols":120,"rows":40}"#),
+            Some(ClientFrame::Resize { cols: 120, rows: 40 })
+        );
+        assert_eq!(parse_tunnel_client_frame(br#"{"t":"detach"}"#), Some(ClientFrame::Detach));
+        for bad in [
+            &br#"{"t":"open","cols":0,"rows":24}"#[..],
+            br#"{"t":"open","cols":10001,"rows":24}"#,
+            br#"{"t":"open","cols":80.5,"rows":24}"#,
+            br#"{"t":"open","cols":80}"#,
+            br#"{"t":"open","surface":"s:1.2","cols":80,"rows":24}"#,
+            br#"{"t":"open","session":"bad/name","cols":80,"rows":24}"#,
+            br#"{"t":"open","session":null,"cols":80,"rows":24}"#,
+            br#"{"t":"nope"}"#,
+            br#"[]"#,
+            br#"not json"#,
+        ] {
+            assert_eq!(parse_tunnel_client_frame(bad), None, "{}", String::from_utf8_lossy(bad));
+        }
+    }
+    #[test]
+    fn wire_error_codes_match_the_worker_map() {
+        assert_eq!(wire_error_code("trust_refused"), "trust_blocked");
+        assert_eq!(wire_error_code("bad_request"), "bad_request");
+        assert_eq!(wire_error_code("session_limit"), "session_limit");
+        assert_eq!(wire_error_code("terminal_gone"), "terminal_gone");
+        assert_eq!(wire_error_code("overflow"), "overflow");
+        assert_eq!(wire_error_code("trust_revoked"), "trust_revoked");
+        assert_eq!(wire_error_code("busy"), "busy");
+        assert_eq!(wire_error_code("failed"), "failed");
+        assert_eq!(wire_error_code("brand_new_code"), "failed");
+    }
 }

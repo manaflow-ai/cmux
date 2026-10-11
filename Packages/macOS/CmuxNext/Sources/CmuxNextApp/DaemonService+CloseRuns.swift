@@ -2,7 +2,7 @@ import CmuxNextDaemon
 
 /// Running a pane's close commands (`PaneController.close`).
 extension DaemonService {
-    typealias CloseRun = (String, @Sendable (DaemonConnection) async throws -> Void)
+    typealias CloseRun = (String, DaemonCommandBody)
 
     /// One `close-tabs` command for several surfaces when the daemon has
     /// `batch-close-v1`, else `commands` (one per tab).

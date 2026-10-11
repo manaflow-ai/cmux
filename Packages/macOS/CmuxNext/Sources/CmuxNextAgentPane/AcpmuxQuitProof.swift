@@ -1,6 +1,6 @@
 import Darwin
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// What proves that Quit Everything ended the local agents (R96 + P2-9).
 ///
@@ -82,7 +82,7 @@ public nonisolated struct AcpmuxQuitProof {
         let facts = read(home: home)
         if facts.daemon == .free { return true }
         if let pid = facts.daemonPID, pid > 0 {
-            _ = await AgentPaneProcessExit.exitEvent(pid: pid, within: within)
+            _ = await AgentPaneProcessExit(pid: pid).event(within: within)
         }
         return lockState(home.appendingPathComponent("daemon.lock")) == .free
     }

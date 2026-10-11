@@ -36,9 +36,12 @@ const sys: ReduceContext = { principal: { identity: "system:user", kind: "system
 
 describe("old iPhone grants get cloud-link once", () => {
 
-  it("is refused for a non-system caller", () => {
-    const session: ReduceContext = { ...sys, principal: { identity: `user:${OWNER}`, user: OWNER, kind: "session" } }
-    expect(userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, session)).toMatchObject({ ok: false })
+  it("is refused for a non-system caller: the public API does not run the internal op", async () => {
+    const session = await sessionToken("ios-migrate-public")
+    await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const r = await post("/v1/ops", session, { op: "install.ios_cloud_link_migrate", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(r.status).toBe(400)
+    expect(r.body?.error?.code ?? r.body?.code).toBe("validation.invalid")
   })
 
   it("a new iPhone install that asks for a narrower grant keeps it at the next request (review P2)", { timeout: 60_000 }, async () => {

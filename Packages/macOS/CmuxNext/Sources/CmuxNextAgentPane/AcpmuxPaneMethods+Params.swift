@@ -7,7 +7,8 @@ nonisolated extension AcpmuxPaneMethods {
     /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer"]),
+        // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
+        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
         "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
@@ -24,6 +25,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/status": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),

@@ -6,16 +6,17 @@ use super::*;
 use crate::config::check_preset_args;
 
 impl Hub {
-    /// `session/new` or `session/load` params for a session's ACP harness:
-    /// its folder and cmux's MCP servers (agent_tools.rs), none for a
-    /// remote origin or an isolated profile.
+    /// `session/new` or `session/load` params for acpmux session `id`'s ACP
+    /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
+    /// a remote origin or an isolated profile.
     pub(super) fn acp_params(
         &self,
+        id: &str,
         meta: &SessionMeta,
         profile: &HarnessProfile,
         session_id: Option<&str>,
     ) -> Value {
-        let servers = crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env);
+        let servers = crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
             params["sessionId"] = json!(id);
@@ -98,6 +99,8 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // The bound route last: it owns the provider variables (routes.rs).
+        self.apply_route(meta, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
@@ -123,24 +126,4 @@ pub fn expand_env_value(
         out = format!("{}/{rest}", home.to_string_lossy());
     }
     out
-}
-
-#[cfg(test)]
-mod env_tests {
-    #[test]
-    fn expands_cwd_and_home() {
-        let cwd = std::path::Path::new("/work/proj");
-        let home = std::path::Path::new("/Users/me");
-        assert_eq!(super::expand_env_value("${cwd}/.codex", cwd, home, ""), "/work/proj/.codex");
-        assert_eq!(super::expand_env_value("~/.omp", cwd, home, ""), "/Users/me/.omp");
-        assert_eq!(
-            super::expand_env_value("${home}/x:${cwd}", cwd, home, ""),
-            "/Users/me/x:/work/proj"
-        );
-        assert_eq!(
-            super::expand_env_value("--model=${model}", cwd, home, "gpt-5.5"),
-            "--model=gpt-5.5"
-        );
-        assert_eq!(super::expand_env_value("plain", cwd, home, ""), "plain");
-    }
 }

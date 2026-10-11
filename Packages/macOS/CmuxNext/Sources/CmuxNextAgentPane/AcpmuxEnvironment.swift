@@ -54,7 +54,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
             daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
-            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]
+            // ACPMUX_LOCAL_ROUTER: the daemon starts the local model relay
+            // (cmux-router routes; ModelRouterLease gives it the bearer).
+            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1"]
         )
     }
 

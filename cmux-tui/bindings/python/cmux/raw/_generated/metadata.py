@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e6659373670b304a54bc836c41332d90d2466b376974b392eb1a3c781a3042d7'
+IR_SHA256 = 'a8d165659e8607a7f94576bdeb04eca2a456618099082713cba92919e304f2f1'
 
 
 @dataclass(frozen=True)
@@ -952,6 +952,7 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'detached': CommandFieldMetadata(12, 'detached-terminals-v1'),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
@@ -1885,6 +1886,23 @@ COMMANDS = {
             'width': CommandFieldMetadata(None, None),
         },
     ),
+    'new-remote-terminal-tab': CommandMetadata(
+        'new-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'session_name': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-row': CommandMetadata(
         'new-row',
         'control',
@@ -2182,6 +2200,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'remote-terminal-snapshot': CommandMetadata(
+        'remote-terminal-snapshot',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'remove-screens-from-screen-group': CommandMetadata(
@@ -3158,6 +3187,20 @@ COMMANDS = {
             'theme': CommandFieldMetadata(None, None),
         },
     ),
+    'update-remote-terminal-tab': CommandMetadata(
+        'update-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_name': CommandFieldMetadata(None, None),
+            'snapshot': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
     'update-screen-group': CommandMetadata(
         'update-screen-group',
         'control',
@@ -3287,6 +3330,7 @@ COMMANDS = {
 EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
+    'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
@@ -3330,6 +3374,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),

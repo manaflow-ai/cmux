@@ -165,6 +165,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>end</string>
+			<key>pfm_description</key>
+			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>end</string>
+				<string>afterCurrent</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>hover</string>
 			<key>pfm_description</key>
 			<string>On Hover shows each tab bar's + only while the pointer is over that tab bar.</string>
@@ -237,6 +254,72 @@
 			<string>Cmd-W Closes Pinned Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.</string>
+			<key>pfm_name</key>
+			<string>tabs.swapCmdTAndCmdN</string>
+			<key>pfm_title</key>
+			<string>Swap Cmd-T and Cmd-N</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<key>pfm_name</key>
+			<string>tabs.tabBar.terminal</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>always</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar in Terminal Panes</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<key>pfm_name</key>
+			<string>tabs.tabBar.browser</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>always</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar in Browser Panes</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<key>pfm_name</key>
+			<string>tabs.tabBar.agent</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>always</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar in Agent Chats</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -501,6 +584,23 @@
 			<string>Computer Use</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>legacy</string>
+			<key>pfm_description</key>
+			<string>Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.</string>
+			<key>pfm_name</key>
+			<string>computerUse.driver</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>legacy</string>
+				<string>upstream</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Computer Use Driver</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -960,6 +1060,29 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>neutral</string>
+			<key>pfm_description</key>
+			<string>The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.</string>
+			<key>pfm_name</key>
+			<string>appearance.accent</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>neutral</string>
+				<string>theme</string>
+				<string>red</string>
+				<string>green</string>
+				<string>yellow</string>
+				<string>blue</string>
+				<string>magenta</string>
+				<string>cyan</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Accent</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>none</string>
 			<key>pfm_description</key>
 			<string>A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.</string>
@@ -973,6 +1096,12 @@
 				<string>met-woman-man-casement-436896</string>
 				<string>met-women-picking-olives-436536</string>
 				<string>met-sunflowers-436524</string>
+				<string>nga-degas-halevy-standing-66489</string>
+				<string>nga-degas-dancer-from-behind-32137</string>
+				<string>nga-carpaccio-groups-of-male-figures-73858</string>
+				<string>nga-perino-del-vaga-figure-studies-57613</string>
+				<string>nga-rubens-battle-of-nude-men-63034</string>
+				<string>nga-teniers-market-figures-62615</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Backdrop Art</string>
@@ -983,17 +1112,24 @@
 			<key>pfm_default</key>
 			<string>none</string>
 			<key>pfm_description</key>
-			<string>Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.</string>
+			<string>Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.</string>
 			<key>pfm_name</key>
 			<string>appearance.background</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
+				<string>nga-degas-halevy-standing-66489</string>
+				<string>nga-degas-dancer-from-behind-32137</string>
+				<string>nga-carpaccio-groups-of-male-figures-73858</string>
+				<string>nga-perino-del-vaga-figure-studies-57613</string>
+				<string>nga-rubens-battle-of-nude-men-63034</string>
+				<string>nga-teniers-market-figures-62615</string>
 				<string>wheat-field-with-cypresses</string>
 				<string>met-saint-catherine-436908</string>
 				<string>met-woman-man-casement-436896</string>
 				<string>met-women-picking-olives-436536</string>
 				<string>met-sunflowers-436524</string>
+				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Background</string>
@@ -3575,6 +3711,22 @@
 			<string>Show Context Usage</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>The display size for agent chat. Cmd-0 resets it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.zoom</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.5</real>
+			<key>pfm_title</key>
+			<string>Agent Chat Zoom</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>

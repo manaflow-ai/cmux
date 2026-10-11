@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3e57c3e9e793b2873bdaf1ae32324a1652e82bcb5df6b75417706abfc61db470",
+  "catalog_sha256": "a6433ffd0e0bbc273df24727340ad0763224c7f7c16431069159fe08f0e29109",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -126,6 +126,15 @@
     },
     "conversation.typing": {
       "class": "mutation"
+    },
+    "credential.mint": {
+      "class": "read"
+    },
+    "credential.rotate": {
+      "class": "mutation"
+    },
+    "credential.verify": {
+      "class": "read"
     },
     "frontend_projection.get": {
       "class": "read"
@@ -421,6 +430,27 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.get": {
+      "class": "read"
+    },
+    "settings.list": {
+      "class": "read"
+    },
+    "settings.reset": {
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "class": "read"
+    },
+    "settings.set": {
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "class": "read"
+    },
     "sidebar_layout.get": {
       "class": "read"
     },
@@ -593,6 +623,9 @@
       "class": "mutation"
     },
     "workspace.create": {
+      "class": "mutation"
+    },
+    "workspace.ensure_app": {
       "class": "mutation"
     },
     "workspace.ensure_home": {

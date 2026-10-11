@@ -43,6 +43,8 @@ export { SchedulerDO } from "./scheduler-do.ts"
 export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
+export { SpendGuardDO } from "./inference/spend-guard-do.ts"
+export { FreeDeviceDO } from "./inference/free-device-do.ts"
 
 /** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
 const gateUnreachable = (e: unknown) => {
@@ -106,6 +108,19 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   return stub.fetch(new Request(request.url, { headers, method: "GET" }))
 }
 
+/** The model router (src/inference): loaded only for its own paths. */
+const inference = async (path: string, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
+  const r = await import("./inference/route.ts")
+  if (path === "/v1/inference/models" && request.method === "GET") return r.handleInferenceModels(env)
+  if (path === "/v1/inference/chat/completions" && request.method === "POST") return r.handleChatCompletions(env, request, ctx)
+  if (path === "/v1/inference/status" && request.method === "GET") return r.handleInferenceStatus(env, request)
+  if (path.startsWith("/v1/inference/free/")) return (await import("./inference/free.ts")).handleFree(env, path, request)
+  // Messages API shape: a client's base URL is <origin>/v1/inference (it appends /v1/messages).
+  if (path === "/v1/inference/v1/messages" && request.method === "POST") return (await import("./inference/messages.ts")).handleMessages(env, request, ctx)
+  if (path === "/v1/inference/v1/messages/count_tokens" && request.method === "POST") return (await import("./inference/messages.ts")).handleCountTokens(env, request)
+  return Response.json({ error: { code: "not_found", message: "not found" } }, { status: 404 })
+}
+
 /** POST /v1/presence-key with the install's own token (home-messaging.md section 21). */
 const handlePresenceKey = async (request: Request, env: Env): Promise<Response> => {
   const auth = request.headers.get("authorization") ?? ""
@@ -131,7 +146,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
@@ -149,6 +164,7 @@ export default {
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
+    if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
     if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
     if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env)

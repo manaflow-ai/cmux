@@ -4,10 +4,11 @@ import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette open,
@@ -52,7 +53,12 @@ enum DebugTimings {
             marks.append((name, ms))
             return true
         }
-        if first { LaunchMarkSink.shared.write(name: name, ms: ms) }
+        if first {
+            LaunchMarkSink.shared.write(name: name, ms: ms)
+            #if DEBUG
+            UpdateHarness.mark("launch.\(name)", at: date)
+            #endif
+        }
     }
 
     static func install() {

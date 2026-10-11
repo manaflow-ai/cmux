@@ -121,7 +121,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "tab.jump":
     case "tab.open":
     case "action.run":
-    case "onboarding.importAndSync":
       return { ok: true, value: null };
     case "browser.open": {
       const url = String(request.params?.url ?? "");

@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -25,15 +26,19 @@ final class ChatSettingsPush {
         let push = ChatSettingsPush(socketPath: environment.socketPath)
         push.watchSocket()
         Task { @MainActor in
-            for await value in Observations({ settings.chatSettings }) {
+            for await value in ObservationStream({ settings.chatSettings }) {
                 push.update(value)
             }
         }
     }
 
-    isolated deinit {
-        watcher?.stop()
-        connection?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            watcher?.stop()
+            connection?.cancel()
+        }
     }
 
     private func watchSocket() {

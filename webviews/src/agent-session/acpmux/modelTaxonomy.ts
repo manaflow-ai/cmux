@@ -32,7 +32,8 @@ const capitalize = (word: string) => (word ? word[0]!.toUpperCase() + word.slice
 /// The provider and family of one model. Known id shapes first (claude-opus-*, gpt-6-*, o3),
 /// then the name; anything unknown is the harness's own, in a family named for its first word.
 export function classify(model: CatalogModel, harnessName: string): { provider: string; family: string } {
-  const id = model.id.toLowerCase();
+  // Router ids name the vendor first ("z-ai/glm-5.3", "qwen/qwen3.7-flash"): the model part decides.
+  const id = model.id.toLowerCase().replace(/^[a-z0-9.-]+\//, "");
   const name = (model.name || model.id).trim();
   const claude = /^claude-(?:[\d-]+-)?([a-z]+)/.exec(id);
   if (claude) return { provider: ANTHROPIC, family: capitalize(claude[1]!) };
@@ -52,6 +53,9 @@ export function classify(model: CatalogModel, harnessName: string): { provider: 
   if (id.startsWith("deepseek"))
     return { provider: "DeepSeek", family: capitalize(first(id).replace(/^deepseek/, "DeepSeek")) };
   if (/^(?:meta-)?llama/.test(id)) return { provider: "Meta", family: "Llama" };
+  if (id.startsWith("glm")) return { provider: "Z.ai", family: "GLM" };
+  if (id.startsWith("kimi")) return { provider: "Moonshot", family: "Kimi" };
+  if (id.startsWith("minimax")) return { provider: "MiniMax", family: "MiniMax" };
   return { provider: harnessName, family: capitalize(first(name)) };
 }
 

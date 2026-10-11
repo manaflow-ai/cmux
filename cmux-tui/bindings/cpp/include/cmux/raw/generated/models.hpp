@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e6659373670b304a54bc836c41332d90d2466b376974b392eb1a3c781a3042d7";
+inline constexpr std::string_view kProtocolIrSha256 = "a8d165659e8607a7f94576bdeb04eca2a456618099082713cba92919e304f2f1";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
+enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
 struct AgentSessionSource;
@@ -202,6 +203,7 @@ struct TerminalResources;
 struct TerminalResourcesResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
+struct ViewportPaneWidthResult;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
@@ -371,6 +373,7 @@ struct NewConversationTabResult;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
+struct NewRemoteTerminalTabRequest;
 struct NewRowRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
@@ -394,6 +397,7 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
 struct RemoveTabsFromTabGroupResult;
@@ -471,6 +475,7 @@ struct UpdateBrowserProfileRequest;
 struct UpdateFrontendBrowserTabRequest;
 struct UpdatePersonalGroupRequest;
 struct UpdateProfileRequest;
+struct UpdateRemoteTerminalTabRequest;
 struct UpdateScreenGroupRequest;
 struct UpdateTabGroupRequest;
 struct UpdateWorkspaceGroupRequest;
@@ -483,6 +488,7 @@ struct WaitForRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -526,6 +532,7 @@ struct ScreenChangedEvent;
 struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
+struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
 struct SurfaceExitedEvent;
@@ -580,6 +587,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class SettingsChangedEventOrigin;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
 
@@ -653,6 +661,28 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+enum class AgentPresenceActivity {
+    thinking,
+    editing,
+    reading,
+    running,
+    browsing,
+    computer_use,
+    waiting,
+};
+
+struct AgentPresenceChangedEvent {
+    std::optional<AgentPresenceActivity> activity{};
+    std::optional<std::string> agent{};
+    std::optional<std::uint64_t> line{};
+    std::optional<std::string> path{};
+    std::optional<std::string> session{};
+    Id surface{};
+    std::optional<std::string> tool{};
+    std::optional<std::uint64_t> updated_at_ms{};
+    friend bool operator==(const AgentPresenceChangedEvent&, const AgentPresenceChangedEvent&) = default;
 };
 
 struct AgentRecord {
@@ -2006,6 +2036,7 @@ struct CreateTerminalRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
     Field<std::string> cwd{};
+    std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
@@ -3219,6 +3250,17 @@ struct NewPaneRightRequest {
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
+struct NewRemoteTerminalTabRequest {
+    Field<std::uint16_t> cols{};
+    Field<Id> pane{};
+    Field<std::uint16_t> rows{};
+    std::string session_id{};
+    std::string session_name{};
+    std::string terminal_id{};
+    Field<std::string> title{};
+    friend bool operator==(const NewRemoteTerminalTabRequest&, const NewRemoteTerminalTabRequest&) = default;
+};
+
 struct NewRowRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
@@ -3581,6 +3623,11 @@ struct ReloadConfigRequest {
 struct ReloadConfigResult {
     std::optional<std::string> path{};
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
+};
+
+struct RemoteTerminalSnapshotRequest {
+    Id surface{};
+    friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
 };
 
 struct RemoveScreensFromScreenGroupRequest {
@@ -4283,6 +4330,7 @@ struct SetTerminalKeepRequest {
 struct SetTerminalKeepResult {
     bool keep{};
     std::string terminal_id{};
+    Field<std::string> terminal_resource_id{};
     friend bool operator==(const SetTerminalKeepResult&, const SetTerminalKeepResult&) = default;
 };
 
@@ -4311,6 +4359,23 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> title{};
     Field<Id> workspace{};
     friend bool operator==(const SetWorkspaceMetadataRequest&, const SetWorkspaceMetadataRequest&) = default;
+};
+
+enum class SettingsChangedEventOrigin {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+};
+
+struct SettingsChangedEvent {
+    std::vector<std::string> keys{};
+    SettingsChangedEventOrigin origin{};
+    std::uint64_t revision{};
+    friend bool operator==(const SettingsChangedEvent&, const SettingsChangedEvent&) = default;
 };
 
 struct ShutdownDaemonRequest {
@@ -4638,6 +4703,7 @@ struct TerminalPlacement {
     std::optional<Id> surface{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
@@ -4842,6 +4908,14 @@ struct UpdateProfileRequest {
     friend bool operator==(const UpdateProfileRequest&, const UpdateProfileRequest&) = default;
 };
 
+struct UpdateRemoteTerminalTabRequest {
+    Field<std::string> session_name{};
+    Field<std::string> snapshot{};
+    Id surface{};
+    Field<std::string> title{};
+    friend bool operator==(const UpdateRemoteTerminalTabRequest&, const UpdateRemoteTerminalTabRequest&) = default;
+};
+
 struct UpdateScreenGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
@@ -4893,6 +4967,11 @@ struct UrlOpenResultRequest {
 struct UrlOpenSubscribeRequest {
     std::vector<std::string> terminal_ids{};
     friend bool operator==(const UrlOpenSubscribeRequest&, const UrlOpenSubscribeRequest&) = default;
+};
+
+struct ViewportPaneWidthResult {
+    float width{};
+    friend bool operator==(const ViewportPaneWidthResult&, const ViewportPaneWidthResult&) = default;
 };
 
 struct VtStateEvent {
@@ -5038,6 +5117,12 @@ template <>
 struct Codec<ActivitySubscribeResult> {
     static Result<Json> encode(const ActivitySubscribeResult& value);
     static Result<ActivitySubscribeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentPresenceActivity> {
+    static Result<Json> encode(const AgentPresenceActivity& value);
+    static Result<AgentPresenceActivity> decode(const Json& value);
 };
 
 template <>
@@ -6145,6 +6230,12 @@ struct Codec<ViewAttachmentOutcome> {
 };
 
 template <>
+struct Codec<ViewportPaneWidthResult> {
+    static Result<Json> encode(const ViewportPaneWidthResult& value);
+    static Result<ViewportPaneWidthResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<VtStateResult> {
     static Result<Json> encode(const VtStateResult& value);
     static Result<VtStateResult> decode(const Json& value);
@@ -7159,6 +7250,12 @@ struct Codec<NewPaneRightRequest> {
 };
 
 template <>
+struct Codec<NewRemoteTerminalTabRequest> {
+    static Result<Json> encode(const NewRemoteTerminalTabRequest& value);
+    static Result<NewRemoteTerminalTabRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<NewRowRequest> {
     static Result<Json> encode(const NewRowRequest& value);
     static Result<NewRowRequest> decode(const Json& value);
@@ -7294,6 +7391,12 @@ template <>
 struct Codec<ReloadConfigResult> {
     static Result<Json> encode(const ReloadConfigResult& value);
     static Result<ReloadConfigResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteTerminalSnapshotRequest> {
+    static Result<Json> encode(const RemoteTerminalSnapshotRequest& value);
+    static Result<RemoteTerminalSnapshotRequest> decode(const Json& value);
 };
 
 template <>
@@ -7759,6 +7862,12 @@ struct Codec<UpdateProfileRequest> {
 };
 
 template <>
+struct Codec<UpdateRemoteTerminalTabRequest> {
+    static Result<Json> encode(const UpdateRemoteTerminalTabRequest& value);
+    static Result<UpdateRemoteTerminalTabRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<UpdateScreenGroupRequest> {
     static Result<Json> encode(const UpdateScreenGroupRequest& value);
     static Result<UpdateScreenGroupRequest> decode(const Json& value);
@@ -7828,6 +7937,12 @@ template <>
 struct Codec<AgentChangedEvent> {
     static Result<Json> encode(const AgentChangedEvent& value);
     static Result<AgentChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentPresenceChangedEvent> {
+    static Result<Json> encode(const AgentPresenceChangedEvent& value);
+    static Result<AgentPresenceChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -8086,6 +8201,12 @@ template <>
 struct Codec<ScrollChangedEvent> {
     static Result<Json> encode(const ScrollChangedEvent& value);
     static Result<ScrollChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<SettingsChangedEvent> {
+    static Result<Json> encode(const SettingsChangedEvent& value);
+    static Result<SettingsChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -8410,6 +8531,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<SettingsChangedEventOrigin> {
+    static Result<Json> encode(const SettingsChangedEventOrigin& value);
+    static Result<SettingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>

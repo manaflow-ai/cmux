@@ -116,13 +116,3 @@ pub(crate) fn parse(packet: &[u8]) -> Option<(SocketAddr, SocketAddr, &[u8])> {
         &udp[UDP_HEADER..length],
     ))
 }
-
-#[cfg(test)]
-pub(crate) fn checksum_ok(bytes: &[u8], seed: u32) -> bool {
-    checksum_finish(checksum_add(seed, bytes)) == 0
-}
-
-#[cfg(test)]
-pub(crate) fn sum(bytes: &[u8]) -> u32 {
-    checksum_add(0, bytes)
-}

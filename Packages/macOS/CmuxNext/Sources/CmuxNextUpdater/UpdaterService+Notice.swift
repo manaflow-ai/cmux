@@ -11,7 +11,19 @@ extension UpdaterService {
 
     /// The card's icon, text and actions for the running build, or nil.
     public var cardPresentation: UpdateCardPresentation? {
-        card?.presentation(version: identity.shortVersion, build: identity.build)
+        guard let card else { return nil }
+        var shown = card.presentation(version: identity.shortVersion, build: identity.build)
+        switch card {
+        case .available, .note(.found):
+            // The found build's short version, date and first changelog lines.
+            if let changelog = foundChangelog {
+                shown.detail = changelog.detail ?? shown.detail
+                shown.lines = changelog.lines
+            }
+        case .checking, .downloading, .note:
+            break
+        }
+        return shown
     }
 
     /// The found update's release notes: its GitHub release or commit, else

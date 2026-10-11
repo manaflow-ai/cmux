@@ -23,6 +23,7 @@ use split_ids::ensure_split_public_ids;
 
 mod full_projection;
 mod live_screen;
+mod projection_crosscheck;
 mod published_screens;
 mod scoped_projection;
 #[cfg(test)]
@@ -252,7 +253,19 @@ impl Mux {
             },
         )?;
         self.finish_app_terminal_first_view(&registered)?;
+        self.emit_raw_tree_changed(&commit);
         Ok(commit)
+    }
+
+    /// Raw clients subscribed with `tree_events` learn about a tab that a
+    /// resource content mutation (`terminal.project`, `terminal.move`) added
+    /// or moved: the resource journal alone reaches only resource API v2
+    /// subscribers, and the delta set has no entry for these. A replay
+    /// commits nothing new and stays quiet.
+    fn emit_raw_tree_changed(&self, commit: &ResourcePatchCommit) {
+        if !commit.replayed {
+            self.emit(super::MuxEvent::TreeChanged);
+        }
     }
 
     pub(crate) fn resource_move_terminal_selected(
@@ -591,6 +604,7 @@ impl Mux {
                 );
             }
         }
+        self.emit_raw_tree_changed(&commit);
         Ok(commit)
     }
 }

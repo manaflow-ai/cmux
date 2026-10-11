@@ -180,6 +180,14 @@ pub(super) fn pane_json(
                 "end": end,
             });
             raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            // `app-screens-v1`: the app (and route) an app tab shows.
+            if let Some(app) =
+                content_resource_id.and_then(|id| notifications.presentation.app_tabs.get(id))
+            {
+                tab["app"] = app.wire();
+            }
+            let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
+            super::remote_terminal_tabs_wire::apply(&mut tab, remote);
             tab
         }).collect::<Vec<_>>(),
     })
@@ -242,6 +250,7 @@ fn workspace_json(
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
         "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
+        "app": home::raw_workspace_app(&notifications.presentation, &workspace.key),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {

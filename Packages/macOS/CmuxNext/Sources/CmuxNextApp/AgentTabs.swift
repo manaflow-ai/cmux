@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
@@ -26,10 +27,12 @@ final class AgentTabStore {
     private let renderRate: AgentPaneRenderRate
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
-    private let customization: AgentPaneCustomizationWatcher
+    let customization: AgentPaneCustomizationWatcher
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
+    /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
+    var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -180,7 +183,7 @@ final class AgentTabStore {
         shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
         shortcutObservation = Task { [weak self] in
-            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+            for await value in ObservationStream({ AgentPaneShortcuts.read(registry) }) {
                 guard let self else { return }
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
@@ -333,11 +336,8 @@ final class AgentTabStore {
             return await handler.listProjects(query)
         }
         model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
-        model.onImportAndSync = { [weak self] in
-            guard let self else { return }
-            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
-            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
-        }
+        model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
@@ -358,7 +358,7 @@ final class AgentTabStore {
         view.customization = customization.current
         view.shortcuts = shortcuts
         pageSettings.apply(to: NewTabOmnibar.installed(on: view))
-        view.deviceChats = pageChats.chats
+        pageChats.seed(view)
         model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view

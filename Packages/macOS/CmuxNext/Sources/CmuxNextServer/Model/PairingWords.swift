@@ -21,8 +21,13 @@ public nonisolated struct PairingWords {
     public static func words(thumbprint: String) -> [String]? {
         guard let bytes = base64URLDecode(thumbprint), bytes.count == 32, list.count == 2048 else { return nil }
         let digest = Array(SHA256.hash(data: bytes))
-        let bits = digest.prefix(8).reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-        return (0..<4).map { index in list[Int((bits >> (64 - 11 * UInt64(index + 1))) & 0x7FF)] }
+        let bits: UInt64 = digest.prefix(8).reduce(0) { (bits: UInt64, byte: UInt8) -> UInt64 in (bits << 8) | UInt64(byte) }
+        // Typed steps: the one-line form took 0.7 s to type-check on Xcode 26.6.
+        return (0..<4).map { (index: Int) -> String in
+            let shift: UInt64 = 64 - 11 * UInt64(index + 1)
+            let word: UInt64 = (bits >> shift) & 0x7FF
+            return list[Int(word)]
+        }
     }
 
     static func base64URLDecode(_ text: String) -> Data? {

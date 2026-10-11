@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextDesign
@@ -83,7 +84,7 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing) in Observations({ () -> (Bool, Int, String, Bool, Bool) in
+            for await (isChief, _, title, cloud, typing) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
@@ -143,7 +144,7 @@ final class HomeHostView: NSView {
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
             // placed on a server) needs no local Chief owner.
-            for await (available, online, why, notice) in Observations({
+            for await (available, online, why, notice) in ObservationStream({
                 (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
                  service.conversationNotice(for: id))
             }) {
@@ -152,7 +153,7 @@ final class HomeHostView: NSView {
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true
-                // H17: offline the user can type, but Send is off.
+                // H17: offline the user can type; tapbacks are off and a send waits as "sending".
                 self?.transcript.isSendEnabled = online
             }
         }
@@ -166,14 +167,18 @@ final class HomeHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    isolated deinit {
-        availability?.cancel()
-        engineWatch?.cancel()
-        slideClient?.deactivate()
-        if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
-        if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
-        firstPage?.cancel()
-        transcript.stop()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            availability?.cancel()
+            engineWatch?.cancel()
+            slideClient?.deactivate()
+            if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
+            if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
+            firstPage?.cancel()
+            transcript.stop()
+        }
     }
 
     override var wantsUpdateLayer: Bool { true }

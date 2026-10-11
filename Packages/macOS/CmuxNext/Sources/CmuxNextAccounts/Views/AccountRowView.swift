@@ -1,6 +1,7 @@
 import CmuxAgentBrands
 import CmuxNextCodeRouter
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// One provider: name, status, redacted account label and source, the
@@ -115,7 +116,7 @@ private struct LinkedAccountLine: View {
 
     var body: some View {
         HStack(spacing: Metrics.space3) {
-            Image(systemName: "arrow.triangle.branch").foregroundStyle(palette.tertiary)
+            Icon(.accountRouted, size: 13).foregroundStyle(palette.tertiary)
             Text(account.label).font(palette.caption).foregroundStyle(palette.text).lineLimit(1).truncationMode(.middle)
             Text(account.state).font(palette.caption).foregroundStyle(account.isHealthy ? palette.secondary : palette.attention)
             Spacer(minLength: Metrics.space4)

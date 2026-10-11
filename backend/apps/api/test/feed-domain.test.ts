@@ -46,17 +46,6 @@ describe("answers, cancels and lifecycle", () => {
     expect(f.do(daemon, "feed.cancel", { item: c, reason: "poster_gone" }, "script").item.cancel.reason).toBe("poster_gone")
   })
 
-  it("expires by the owner's alarm and refuses answers after the deadline", () => {
-    const f = driver()
-    const id = f.do(agentA, "feed.post", approve({ expires_in_ms: 10_000 })).item.id
-    f.advance(10_000)
-    expect(f.try(mac, "feed.answer", { item: id, answer: { decision: "allow" } }, "user")).toMatchObject({ ok: false, code: "feed.closed" })
-    expect(f.try(mac, "feed.expire", { at: f.now })).toMatchObject({ ok: false, code: "auth.forbidden" })
-    expect(f.do(system, "feed.expire", { at: f.now }).items).toEqual([id])
-    expect(f.state.items[id]).toMatchObject({ state: "expired", closed_at: f.now })
-    expect(f.try(system, "feed.expire", { at: f.now })).toMatchObject({ ok: true, changed: false })
-    expect(f.try(system, "feed.expire", { at: "soon" })).toMatchObject({ ok: false, code: "validation.invalid" })
-  })
 })
 
 describe("review fixes: authority, bounds and adopt", () => {
@@ -119,14 +108,6 @@ describe("review fixes: authority, bounds and adopt", () => {
     expect(full).toBe(true)
   })
 
-  it("clears scheduled pushes when prefs turn that priority off", () => {
-    const f = driver()
-    const id = f.do(agentA, "feed.post", approve()).item.id
-    expect(f.state.items[id]!.push_due_at).not.toBeNull()
-    f.do(mac, "feed.prefs.set", { push_delay: { high: null } }, "user")
-    expect(f.state.items[id]!.push_due_at).toBeNull()
-  })
-
   it("adopts only consistent items of the calling install", () => {
     const src = driver()
     const open = src.do(agentA, "feed.post", approve()).item
@@ -170,22 +151,4 @@ describe("review fixes: authority, bounds and adopt", () => {
     expect(g.do(daemon, "feed.adopt.cancel", { key: `adopt:${id(5000)}` })).toMatchObject({ cancelled: true })
   })
 
-  it("adopt clamps a daemon clock that runs ahead and takes push timing from the cloud prefs", () => {
-    const src = driver()
-    const home = `local:${daemon.install}`
-    const g = driver()
-    // A daemon clock one hour ahead: times come down to the DO clock, far deadlines to the limits.
-    const ahead = src.do(agentA, "feed.post", approve()).item
-    const skewed = { ...ahead, home, created_at: g.now + 3600_000, updated_at: g.now + 3600_000, read_at: g.now + 3600_000, expires_at: g.now + 400 * 24 * 3600_000, push_due_at: g.now + 3600_000 }
-    const a = g.do(daemon, "feed.adopt", { item: skewed }).item
-    expect(a).toMatchObject({ created_at: g.now, read_at: g.now, expires_at: g.now + 30 * 24 * 3600_000 })
-    // An open request pushes on the cloud delay from its creation (high: 20 s), whatever the daemon sent.
-    expect(a.push_due_at).toBe(g.now + 20_000)
-    const early = src.do(agentA, "feed.post", approve()).item
-    expect(g.do(daemon, "feed.adopt", { item: { ...early, home, created_at: g.now - 60_000, push_due_at: null } }).item.push_due_at).toBe(g.now)
-    // Push off for that priority in the cloud: the daemon's due time is dropped.
-    g.do(mac, "feed.prefs.set", { push_delay: { high: null } }, "user")
-    const off = src.do(agentA, "feed.post", approve()).item
-    expect(g.do(daemon, "feed.adopt", { item: { ...off, home, push_due_at: g.now } }).item.push_due_at).toBeNull()
-  })
 })

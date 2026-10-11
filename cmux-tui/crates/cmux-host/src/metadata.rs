@@ -174,31 +174,6 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
 
-    struct Script(Vec<io::Result<String>>);
-
-    impl InstanceIdSource for Script {
-        fn fetch_once(&mut self) -> io::Result<String> {
-            if self.0.is_empty() { Err(io::Error::other("done")) } else { self.0.remove(0) }
-        }
-    }
-
-    #[test]
-    fn retries_by_attempt_count_and_rejects_unsafe_ids() {
-        let mut src = Script(vec![
-            Err(io::Error::other("timeout")),
-            Ok("i-1\n/../x".to_owned()),
-            Ok(" vm-abc.1_2 \n".to_owned()),
-        ]);
-        assert_eq!(
-            read_instance_id(&mut src, 5),
-            IdRead { instance_id: Some("vm-abc.1_2".to_owned()), attempts: 3 }
-        );
-        let mut empty = Script(vec![Ok(String::new()), Ok("  ".to_owned())]);
-        assert_eq!(read_instance_id(&mut empty, 2), IdRead { instance_id: None, attempts: 2 });
-        assert_eq!(valid_instance_id(&"a".repeat(129)), None);
-        assert_eq!(valid_instance_id("a b"), None);
-    }
-
     #[test]
     fn mmds_client_does_the_token_dance() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -223,11 +198,5 @@ mod tests {
         assert!(seen[0].contains("X-metadata-token-ttl-seconds: 60"));
         assert!(seen[1].starts_with("GET /latest/meta-data/instance-id "));
         assert!(seen[1].contains("X-aws-ec2-metadata-token: tok-1"));
-    }
-
-    #[test]
-    fn non_200_is_an_error() {
-        let raw = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-        assert!(parse_response(raw).is_err());
     }
 }

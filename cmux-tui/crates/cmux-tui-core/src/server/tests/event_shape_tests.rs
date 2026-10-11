@@ -24,6 +24,50 @@ fn agent_changed_event_preserves_the_scoped_agent_state() {
 }
 
 #[test]
+fn agent_presence_changed_event_carries_the_target_and_clears_with_nulls() {
+    let presence = crate::AgentPresence {
+        activity: crate::AgentActivity::Reading,
+        agent: Some(Arc::from("claude")),
+        session: Some(Arc::from("s-1")),
+        tool: Some(Arc::from("Read")),
+        path: Some(Arc::from("/repo/src/lib.rs")),
+        line: Some(120),
+        updated_at_ms: 41,
+    };
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::AgentPresenceChanged {
+            surface: 7,
+            presence: Some(Arc::new(presence)),
+        }),
+        json!({
+            "event": "agent-presence-changed",
+            "surface": 7,
+            "activity": "reading",
+            "agent": "claude",
+            "session": "s-1",
+            "tool": "Read",
+            "path": "/repo/src/lib.rs",
+            "line": 120,
+            "updated_at_ms": 41,
+        })
+    );
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::AgentPresenceChanged { surface: 7, presence: None }),
+        json!({
+            "event": "agent-presence-changed",
+            "surface": 7,
+            "activity": null,
+            "agent": null,
+            "session": null,
+            "tool": null,
+            "path": null,
+            "line": null,
+            "updated_at_ms": null,
+        })
+    );
+}
+
+#[test]
 fn graphics_status_events_preserve_structured_localization_data() {
     assert_eq!(
         subscribed_event_json(&MuxEvent::GraphicsStatus(

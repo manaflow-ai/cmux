@@ -38,6 +38,7 @@ pub(crate) struct LocalServerMessages {
     pub stop_rejected: &'static str,
     pub wrong_owner: &'static str,
     pub different_session: &'static str,
+    pub different_state: &'static str,
     pub invalid_identity: &'static str,
     pub install_key_invalid: &'static str,
     pub unsupported_protocol: &'static str,
@@ -56,6 +57,7 @@ pub(crate) struct LocalServerMessages {
     pub suggestion: &'static str,
     pub unexpected_after_stop: &'static str,
     pub stop_timeout: &'static str,
+    pub all_sessions_agent_refused: &'static str,
 }
 
 impl LocalServerMessages {
@@ -118,6 +120,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     stop_rejected: "the local server rejected the stop request; retry with --force only when active clients can disconnect",
     wrong_owner: "the selected socket is not owned by a cmux local server",
     different_session: "the selected socket belongs to a different session",
+    different_state: "the session's running owner serves another state directory (it was deleted or replaced); stop that owner with `cmux daemon stop` and retry",
     invalid_identity: "the local server returned an incomplete lifecycle identity",
     install_key_invalid: "--install-key-stdin needs one install key line on standard input",
     unsupported_protocol: "the selected session uses an incompatible cmux-tui protocol; restart it with this cmux build",
@@ -136,6 +139,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     suggestion: "Did you mean `{candidate}`?",
     unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
     stop_timeout: "timed out waiting for the local server to stop",
+    all_sessions_agent_refused: "--all-sessions is refused for an agent caller ({marker} is set); drop --all-sessions to list this session",
 };
 
 pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
@@ -175,6 +179,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     stop_rejected: "ローカルサーバーが停止要求を拒否しました。アクティブなクライアントを切断できる場合のみ --force で再試行してください",
     wrong_owner: "選択したソケットは cmux ローカルサーバーに所有されていません",
     different_session: "選択したソケットは別のセッションに属しています",
+    different_state: "このセッションの実行中のオーナーは別の状態ディレクトリを使用しています (削除または置き換えられました)。`cmux daemon stop` でそのオーナーを停止してから再試行してください",
     invalid_identity: "ローカルサーバーが完全なライフサイクル識別情報を返しませんでした",
     install_key_invalid: "--install-key-stdin には標準入力でインストールキーを1行渡す必要があります",
     unsupported_protocol: "選択したセッションは互換性のない cmux-tui プロトコルを使用しています。この cmux ビルドで再起動してください",
@@ -193,4 +198,5 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     suggestion: "`{candidate}` のことですか？",
     unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
     stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
+    all_sessions_agent_refused: "エージェントからの呼び出しでは --all-sessions を使えません ({marker} が設定されています)。このセッションを一覧するには --all-sessions を外してください",
 };

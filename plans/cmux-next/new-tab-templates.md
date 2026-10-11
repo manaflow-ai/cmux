@@ -23,11 +23,11 @@ The first four share one component (`NewTabScreen`) and its field logic: a templ
 
 ## Switching
 
-The dots render under every template (a radio group, one button per template, current one pressed). A dot click re-renders the page in place (local state, no reload) and sends `newTab.setTemplate {template}`; the host writes the setting through `SettingsController.setSetting` as `.caller("page")`. The Terminal dot also sends `tab.open {kind: terminal}`, so the page becomes a terminal through the same replace path as a terminal choice on the page.
+The dots are off by default until they are styled (cx-7qqu): Debug Settings `newTab.templateSwitcher` sends `templateSwitcher: true` in the page handshake, and only then do they render. The saved template applies either way. When on, the dots render under every template (a radio group, one button per template, current one pressed). A dot click re-renders the page in place (local state, no reload) and sends `newTab.setTemplate {template}`; the host writes the setting through `SettingsController.setSetting` as `.caller("page")`. The Terminal dot also sends `tab.open {kind: terminal}`, so the page becomes a terminal through the same replace path as a terminal choice on the page.
 
 ## Terminal routing
 
-`newTab.sameKind` (Cmd-T, the strip's +) resolves `tabs.newTabKind` to a kind. When that kind is the page and the template is `terminal`, `NewTabKind.resolve` returns a terminal instead, so every entrypoint that uses the shared action gets a terminal. A person's new workspace (Cmd-N, sidebar +) also starts on a terminal instead of the page (`WindowManager.createWorkspace`). The explicit `newTab.page` action and Focus Location Bar still open the page, which is the way back to the dots (plus Settings and cmux.json). The spare page pool does not prewarm while the template is `terminal`.
+`newTab.default` (Cmd-T, the strip's +) resolves `tabs.newTabKind` to a kind. When that kind is the page and the template is `terminal`, `NewTabKind.resolve` returns a terminal instead, so every entrypoint that uses the shared action gets a terminal. A person's new workspace (Cmd-N, sidebar +) also starts on a terminal instead of the page (`WindowManager.createWorkspace`). The explicit `newTab.page` action and Focus Location Bar still open the page, which is the way back to the dots (plus Settings and cmux.json). The spare page pool does not prewarm while the template is `terminal`.
 
 ## Not in the prototype
 

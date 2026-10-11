@@ -41,6 +41,8 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// What the tab's agent is touching now; nil when it is not acting (`agent-presence-v1`).
+    public internal(set) var presence: AgentPresence?
     /// Browser page zoom or terminal font scale saved on the tab record;
     /// nil = 1 (daemon state resources).
     public internal(set) var zoom: Double?
@@ -79,6 +81,11 @@ public final class TabModel: Identifiable {
     /// source, `agent-session-tabs-v1`); nil for every other tab.
     public var agentSession: AgentSessionRef? {
         kind == .conversation ? snapshot.conversation?.agentSession : nil
+    }
+
+    /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
+    public var appTab: AppTabRef? {
+        kind == .browser ? snapshot.app : nil
     }
 
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
@@ -171,6 +178,10 @@ public final class TabModel: Identifiable {
 
     func setAgent(_ value: AgentStatus?) {
         if agent != value { agent = value }
+    }
+
+    func setPresence(_ value: AgentPresence?) {
+        if presence != value { presence = value }
     }
 
     func markDead() {

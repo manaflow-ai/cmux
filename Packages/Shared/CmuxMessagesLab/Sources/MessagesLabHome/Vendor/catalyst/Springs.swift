@@ -119,7 +119,7 @@ struct SpringElement {
     var isPulse: Bool { abs(to - from) < 1e-6 }
     func share(_ i: Int) -> Double {
         let total = components.reduce(0) { $0 + $1.delta }
-        guard let component = components[checked: i] else { return 0 } // cmux: checked
+        guard let component = components[checked: i] else { return 0 } // checked
         return abs(total) < 1e-9 ? 0 : component.delta / total
     }
     /// Value at `tau` after the event for a move from `a` to `b` (pulse: `a` plus the fitted deltas).
@@ -151,9 +151,9 @@ enum Springs {
                                                spring: Spring(duration: duration, bounce: c["bounce"] as? Double ?? 0,
                                                               initialVelocity: c["initialVelocity"] as? Double ?? 0),
                                                delta: c["delta"] as? Double ?? 0,
-                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // cmux: no force unwrap
+                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // no force unwrap
             }
-            out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name) // cmux
+            out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name)
         }
         return out
     }()
@@ -178,17 +178,42 @@ enum Springs {
     /// An outgoing message that arrives from outside the field (another
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
-    static var bubbleRight: SpringElement { element("bubble.right") }
-    /// The send morph's width and scale: macOS 27 fits (lossless takes), and the macOS 26 fits
-    /// (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    /// The send morph's right edge, width, center and scale: macOS 27 fits (lossless takes), and
+    /// the macOS 26 fits (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    static var bubbleRight: SpringElement { osElement("bubble.right") }
     static var bubbleWidth: SpringElement { osElement("bubble.width") }
-    static var bubbleCenterY: SpringElement { element("bubble.centerY") }
+    static var bubbleCenterY: SpringElement { osElement("bubble.centerY") }
     static var bubbleScale: SpringElement { osElement("bubble.scale") }
+    /// The send morph's elements for one send: after a draft that shrinks the field (macOS 27), the
+    /// `.fieldShrink` fits (refit3, cx-3cb.6); else the elements above.
+    struct Bubble {
+        var right, width, centerY, scale, opacity: SpringElement
+        init(fieldShrinks: Bool) {
+            func e(_ n: String, _ base: SpringElement) -> SpringElement {
+                fieldShrinks && !ComposeMetrics.macOS26 ? (Springs.all[n + ".fieldShrink"] ?? base) : base
+            }
+            right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
+            centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)
+            opacity = e("bubble.opacity", Springs.bubbleOpacity)
+        }
+    }
     static func osElement(_ name: String) -> SpringElement {
         ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
     }
-    static var bubbleOpacity: SpringElement { element("bubble.opacity") }
+    static var bubbleOpacity: SpringElement { osElement("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
+    /// The send's phase (s, added to the send transaction's begin time): how far into its curves
+    /// Messages' first send frame is, against ours. Messages' first send frame shows the send about
+    /// 10 ms into every curve after a 1-line draft, and one frame later in its curves (about 21 ms)
+    /// after a draft that shrinks the field; ours shows 14.3 ms (our first frame after the commit).
+    /// Measured on the seven lossless macOS 27 send takes, the same in the flying bubble's four
+    /// edges, the rows and the field top (tools/evidence/ANIMATIONS.md, section 1, "Send phase"):
+    /// the field's shrink costs Messages one more frame before its first send frame while its
+    /// animations' clock has started. macOS 26 (the original recording): none.
+    static func sendPhase(fieldShrinks: Bool) -> Double {
+        guard !ComposeMetrics.macOS26 else { return 0 }
+        return fieldShrinks ? -0.0066 : 0
+    }
     static var fieldOpacity: SpringElement { element("field.opacity") }
 
     /// A single-spring element for small effects that the recording does not
@@ -202,6 +227,14 @@ enum Springs {
     static let typingFade = simple("typing.fade", delay: 0.05, duration: 0.12)
     static let typingOut = simple("typing.out", delay: 0.02, duration: 0.2)
     static let receivedFade = simple("received.fade", delay: 0.2, duration: 0.2)
+    /// Reply arrival, macOS (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1;
+    /// tools/evidence/ANIMATIONS.md section 3). A received text that is not a thread reply cross-fades
+    /// with the typing bubble from the first frame; a thread reply first draws its connector at full
+    /// opacity while the typing bubble fades (the same fade in both), then fades its bubble in.
+    static var receivedTextFade: SpringElement { element("received.textFade") }
+    static var typingOutOnReceive: SpringElement { element("typing.outOnReceive") }
+    static var connectorDrawOnReceive: SpringElement { element("connector.drawOnReceive") }
+    static var receivedThreadFade: SpringElement { element("received.threadFade") }
     static let receiptIn = simple("receipt.in", delay: 0.085, duration: 0.15)
     static let receiptPop = simple("receipt.pop", delay: 0.085, duration: 0.251)
     static let receiptOldOut = simple("receipt.oldOut", delay: 0.042, duration: 0.163)   // fitted on luma, 6.55-7.25 s
@@ -275,7 +308,7 @@ enum Animate {
     static func sampledPulse(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, depth: Double = 1,
                              begin: CFTimeInterval) {
         let end = element.settleTime
-        let n = max(2, CrashGuard.int(end * 240, in: 0...14_400)) // cmux: at most 60 s of samples, no trap on NaN
+        let n = max(2, CrashGuard.int(end * 240, in: 0...14_400)) // at most 60 s of samples, no trap on NaN
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = (0...n).map {
             NSNumber(value: min(1, max(0, base + depth * (element.value(Double($0) / 240, from: base, to: base) - base))))
@@ -294,9 +327,9 @@ enum Animate {
     /// lowest value and then stays at 0 (a surface that leaves with the
     /// pulse's fade-out and does not come back). Sampled at 240 Hz.
     static func sampledUntilMinimum(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, begin: CFTimeInterval) {
-        let n = max(2, CrashGuard.int(element.settleTime * 240, in: 0...14_400)) // cmux: at most 60 s, no trap on NaN
+        let n = max(2, CrashGuard.int(element.settleTime * 240, in: 0...14_400)) // at most 60 s, no trap on NaN
         let samples: [Double] = (0...n).map { min(1, max(0, element.value(Double($0) / 240, from: base, to: base))) }
-        // cmux: zero from the lowest sample on, without index math.
+        // zero from the lowest sample on, without index math.
         let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
         let values = samples.enumerated().map { $0.offset >= low ? 0 : $0.element }
         let a = CAKeyframeAnimation(keyPath: keyPath)
@@ -494,14 +527,14 @@ enum Presenter {
                 tau = 0
             }
             let total = k.duration * Double(max(1, k.repeatCount))
-            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // cmux: no force unwrap
+            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // no force unwrap
             // Wrap only repeating animations (a one-shot at exactly its end
             // must not wrap to its first value).
             if k.repeatCount > 1 { tau = tau.truncatingRemainder(dividingBy: k.duration) }
             let u = tau / k.duration
             let times = (k.keyTimes ?? []).map(\.doubleValue)
             let ts = times.count == values.count ? times : values.indices.map { Double($0) / Double(values.count - 1) }
-            // cmux: the first inner key time at or past u, else the last; checked reads.
+            // the first inner key time at or past u, else the last; checked reads.
             let i = ts.dropFirst().dropLast().firstIndex(where: { $0 >= u }) ?? max(1, ts.count - 1)
             guard let t0 = ts[checked: i - 1], let t1 = ts[checked: i], let v0 = values[checked: i - 1]?.doubleValue,
                   let v1 = values[checked: i]?.doubleValue else { return (kp, values.last?.doubleValue ?? 0) }

@@ -56,6 +56,9 @@ pub struct SshBootstrapConfig {
     pub local_binary: Option<PathBuf>,
     pub auto_install: bool,
     pub timeout: Duration,
+    /// `remote-probe` capabilities the remote must advertise before this
+    /// client may attach (`SshProviderConfig::required_remote_capabilities`).
+    pub required_capabilities: Vec<String>,
 }
 
 impl SshBootstrapConfig {
@@ -73,6 +76,7 @@ impl SshBootstrapConfig {
             local_binary: std::env::current_exe().ok(),
             auto_install: true,
             timeout: Duration::from_secs(60),
+            required_capabilities: Vec::new(),
         }
     }
 
@@ -121,6 +125,9 @@ pub struct RemoteProbe {
     pub remote_protocol: u8,
     pub os: String,
     pub arch: String,
+    /// Absent in builds before `remote-probe` advertised capabilities.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,15 +181,20 @@ impl SshBootstrapper {
 
     async fn ensure_installed_locked(&self) -> Result<BootstrapOutcome, BootstrapError> {
         let installed = self.probe().await?;
-        if installed.as_ref().is_some_and(|probe| self.compatible(probe)) {
+        if installed.as_ref().is_some_and(|probe| self.same_build(probe).is_ok()) {
             return Ok(BootstrapOutcome::AlreadyInstalled);
         }
         if !self.config.auto_install {
+            // Without install rights the remote binary belongs to someone
+            // else (a paired server's own installer, an operator). Attach to
+            // any build that speaks this link protocol; the daemon's
+            // `identify` then judges features. Only a real link
+            // incompatibility refuses (cx-mkwc).
             return match installed {
-                Some(probe) => Err(BootstrapError::Incompatible {
-                    version: probe.version,
-                    protocol: probe.remote_protocol,
-                }),
+                Some(probe) => match self.attachable(&probe) {
+                    Ok(()) => Ok(BootstrapOutcome::AlreadyInstalled),
+                    Err(reason) => Err(BootstrapError::incompatible(&probe, reason)),
+                },
                 None => Err(BootstrapError::Missing),
             };
         }
@@ -289,11 +301,8 @@ impl SshBootstrapper {
             status: 0,
             stderr: "installer completed but the remote binary is absent".into(),
         })?;
-        if !self.compatible(&probe) {
-            return Err(BootstrapError::Incompatible {
-                version: probe.version,
-                protocol: probe.remote_protocol,
-            });
+        if let Err(reason) = self.same_build(&probe) {
+            return Err(BootstrapError::incompatible(&probe, reason));
         }
         Ok(BootstrapOutcome::Installed)
     }
@@ -392,12 +401,9 @@ impl SshBootstrapper {
                 return Err(error);
             }
         };
-        if !self.compatible(&probe) {
+        if let Err(reason) = self.same_build(&probe) {
             self.cleanup_remote_staging(temporary_dir, deadline).await;
-            return Err(BootstrapError::Incompatible {
-                version: probe.version,
-                protocol: probe.remote_protocol,
-            });
+            return Err(BootstrapError::incompatible(&probe, reason));
         }
         // The move also removes the now-empty staging directory, so a
         // successful install spends no extra round trip on cleanup.
@@ -425,11 +431,8 @@ impl SshBootstrapper {
                 stderr: "install completed but the remote binary is absent".into(),
             });
         };
-        if !self.compatible(&probe) {
-            return Err(BootstrapError::Incompatible {
-                version: probe.version,
-                protocol: probe.remote_protocol,
-            });
+        if let Err(reason) = self.same_build(&probe) {
+            return Err(BootstrapError::incompatible(&probe, reason));
         }
         Ok(BootstrapOutcome::Installed)
     }
@@ -569,17 +572,61 @@ impl SshBootstrapper {
         Ok(())
     }
 
-    fn compatible(&self, probe: &RemoteProbe) -> bool {
+    /// The link rule: the remote binary is cmux-tui and frames the link
+    /// exactly like this build. This is the only rule when the client may
+    /// not install (`--no-install`); the app's `InstallNeed` applies the
+    /// same rule before it starts a link.
+    fn attachable(&self, probe: &RemoteProbe) -> Result<(), Incompatibility> {
+        if probe.app != "cmux-tui" {
+            return Err(Incompatibility::WrongApp { app: probe.app.clone() });
+        }
+        if probe.remote_protocol != REMOTE_PROTOCOL_VERSION {
+            return Err(Incompatibility::RemoteProtocol {
+                remote: probe.remote_protocol,
+                local: REMOTE_PROTOCOL_VERSION,
+            });
+        }
+        if let Some(missing) = self
+            .config
+            .required_capabilities
+            .iter()
+            .find(|capability| !probe.capabilities.contains(capability))
+        {
+            return Err(Incompatibility::MissingCapability { capability: missing.clone() });
+        }
+        Ok(())
+    }
+
+    /// The install rule: the remote binary is the exact distribution (and,
+    /// for an unpublished build, the exact build) that this client would
+    /// install, so an installing client replaces anything else.
+    fn same_build(&self, probe: &RemoteProbe) -> Result<(), Incompatibility> {
+        self.attachable(probe)?;
         let installed_distribution =
             probe.distribution_version.as_deref().unwrap_or(&probe.version);
-        probe.app == "cmux-tui"
-            && installed_distribution == self.config.package_version
-            && (!self.config.package_installable
-                || probe.npm_bootstrap_version.as_deref()
-                    == Some(self.config.package_version.as_str()))
-            && (self.config.package_installable
-                || probe.build_identity.as_deref() == Some(self.config.build_identity.as_str()))
-            && probe.remote_protocol == REMOTE_PROTOCOL_VERSION
+        if installed_distribution != self.config.package_version {
+            return Err(Incompatibility::Distribution {
+                remote: installed_distribution.to_owned(),
+                local: self.config.package_version.clone(),
+            });
+        }
+        if self.config.package_installable
+            && probe.npm_bootstrap_version.as_deref() != Some(self.config.package_version.as_str())
+        {
+            return Err(Incompatibility::Distribution {
+                remote: format!("npm {}", probe.npm_bootstrap_version.as_deref().unwrap_or("none")),
+                local: format!("npm {}", self.config.package_version),
+            });
+        }
+        if !self.config.package_installable
+            && probe.build_identity.as_deref() != Some(self.config.build_identity.as_str())
+        {
+            return Err(Incompatibility::Build {
+                remote: probe.build_identity.clone(),
+                local: self.config.build_identity.clone(),
+            });
+        }
+        Ok(())
     }
 
     async fn run_remote<const N: usize>(
@@ -979,8 +1026,49 @@ pub enum BootstrapError {
     PlatformProbe(String),
     LocalBinaryIncompatible { local: String, remote: String },
     WindowsRequiresWsl,
-    Incompatible { version: String, protocol: u8 },
+    Incompatible { version: String, build_identity: Option<String>, reason: Incompatibility },
     ChecksumMismatch { package: String },
+}
+
+/// Why a remote cmux-tui cannot serve this client. `code()` is the stable,
+/// typed name that callers (the app, scripts) match; the text is for people.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Incompatibility {
+    /// The remote binary is not cmux-tui.
+    WrongApp { app: String },
+    /// The link framing differs; neither side can talk to the other.
+    RemoteProtocol { remote: u8, local: u8 },
+    /// The remote speaks this link protocol but is older than a link flag
+    /// this connection needs (for example `remote-link --mux-socket`), so it
+    /// would ignore the flag and reach the wrong daemon (cx-z3zh).
+    MissingCapability { capability: String },
+    /// An installing client found another distribution version.
+    Distribution { remote: String, local: String },
+    /// An installing client with an unpublished build found another build.
+    Build { remote: Option<String>, local: String },
+}
+
+impl Incompatibility {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::WrongApp { .. } => "remote-wrong-app",
+            Self::RemoteProtocol { remote, local } if remote < local => "remote-protocol-older",
+            Self::RemoteProtocol { .. } => "remote-protocol-newer",
+            Self::MissingCapability { .. } => "remote-protocol-older",
+            Self::Distribution { .. } => "remote-distribution-mismatch",
+            Self::Build { .. } => "remote-build-mismatch",
+        }
+    }
+}
+
+impl BootstrapError {
+    fn incompatible(probe: &RemoteProbe, reason: Incompatibility) -> Self {
+        Self::Incompatible {
+            version: probe.version.clone(),
+            build_identity: probe.build_identity.clone(),
+            reason,
+        }
+    }
 }
 
 impl fmt::Display for BootstrapError {
@@ -1016,10 +1104,37 @@ impl fmt::Display for BootstrapError {
                 formatter,
                 "npm package {package} does not match the SHA-256 checksum this cmux-tui build pins; the download was removed"
             ),
-            Self::Incompatible { version, protocol } => write!(
-                formatter,
-                "remote cmux-tui {version} uses remote protocol {protocol}, expected {REMOTE_PROTOCOL_VERSION}"
-            ),
+            Self::Incompatible { version, build_identity, reason } => {
+                let build = build_identity.as_deref().unwrap_or("unknown");
+                match reason {
+                    Incompatibility::WrongApp { app } => write!(
+                        formatter,
+                        "the remote binary is {app}, not cmux-tui; install cmux-tui on the remote host"
+                    ),
+                    Incompatibility::RemoteProtocol { remote, local } if remote < local => write!(
+                        formatter,
+                        "remote cmux-tui {version} (build {build}) is older: it speaks remote protocol {remote}, this cmux-tui needs {local}; update the remote cmux-tui"
+                    ),
+                    Incompatibility::RemoteProtocol { remote, local } => write!(
+                        formatter,
+                        "remote cmux-tui {version} (build {build}) is newer: it speaks remote protocol {remote}, this cmux-tui speaks {local}; update this cmux-tui"
+                    ),
+                    Incompatibility::MissingCapability { capability } => write!(
+                        formatter,
+                        "remote cmux-tui {version} (build {build}) is older: it lacks {capability}, which this connection needs; update the remote cmux-tui"
+                    ),
+                    Incompatibility::Distribution { remote, local } => write!(
+                        formatter,
+                        "remote cmux-tui is distribution {remote} (build {build}), this cmux-tui installs {local}; the remote binary does not match this build"
+                    ),
+                    Incompatibility::Build { remote, local } => write!(
+                        formatter,
+                        "remote cmux-tui {version} is build {}, this cmux-tui is build {local}; the remote binary does not match this build",
+                        remote.as_deref().unwrap_or("unknown")
+                    ),
+                }?;
+                write!(formatter, " [{}]", reason.code())
+            }
         }
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTabs
 
@@ -98,7 +99,9 @@ extension PaneController {
                 _ = try await c.closeTabGroup(group, transaction: t)
             }
         case .moveToNewWindow:
-            groupCommand("move-tab-group-to-new-workspace") { c, t in _ = try await c.moveTabGroupToNewWorkspace(group, transaction: t) }
+            // The menu's Move Group to New Window: the action places the moved
+            // workspace (the raw daemon move left it at the daemon's place, cx-caoh).
+            services.registry.perform("tabGroup.moveToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .tabGroup, id: id)))
         case .save:
             groupCommand("save-tab-group") { c, _ in _ = try await c.saveTabGroup(group) }
         case .unsave:

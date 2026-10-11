@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The shared notice card above the footer (BOTTOM-LEFT-CARDS K1; Lawrence
 /// 2026-10-09): every message to the user in this slot (the "Did you know"
@@ -21,12 +22,14 @@ final class SidebarNoticeCardView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
+    /// List lines under the detail (a changelog), one label each.
+    private var lineLabels: [NSTextField] = []
     private let icon = NSImageView()
     private let spinner = NSProgressIndicator()
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
-    let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: "")
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
     let surface: OverlaySurfaceView
     /// The lines and buttons, flipped, over the surface.
@@ -87,6 +90,17 @@ final class SidebarNoticeCardView: NSView {
         titleLabel.stringValue = notice.title
         detailLabel.stringValue = notice.detail ?? ""
         detailLabel.isHidden = notice.detail == nil
+        if previous?.lines != notice.lines {
+            lineLabels.forEach { $0.removeFromSuperview() }
+            lineLabels = notice.lines.prefix(Self.maxLines).map { line in
+                let label = NSTextField(labelWithString: "• " + line)
+                label.lineBreakMode = .byTruncatingTail
+                label.maximumNumberOfLines = 1
+                label.toolTip = line
+                content.addSubview(label)
+                return label
+            }
+        }
         shortcutLabel.stringValue = notice.shortcut ?? ""
         shortcutLabel.isHidden = notice.shortcut == nil || notice.actions.isEmpty
         let spins = notice.progress == .indeterminate
@@ -125,6 +139,8 @@ final class SidebarNoticeCardView: NSView {
         (ceil(Typography.caption.boundingRectForFont.height), ceil(Typography.bodyEmphasized.boundingRectForFont.height))
     }
     private static let barHeight: CGFloat = 3
+    /// List lines a notice shows.
+    static let maxLines = 4
     private static let closeSide: CGFloat = 16
 
     /// The card's height for `notice`: padding, the heading, the title, two
@@ -134,6 +150,7 @@ final class SidebarNoticeCardView: NSView {
         var height = padding + line.body + padding
         if notice.eyebrow != nil { height += line.caption }
         if notice.detail != nil { height += Metrics.space1 + 2 * line.caption }
+        if !notice.lines.isEmpty { height += Metrics.space1 + CGFloat(min(notice.lines.count, maxLines)) * line.caption }
         if case .fraction = notice.progress { height += Metrics.space2 + barHeight }
         if !notice.actions.isEmpty { height += Metrics.space2 + SidebarUpdateButton.height }
         return ceil(height)
@@ -171,6 +188,12 @@ final class SidebarNoticeCardView: NSView {
             detailLabel.frame = NSRect(x: textX, y: y + Metrics.space1, width: textWidth, height: 2 * line.caption)
             y += Metrics.space1 + 2 * line.caption
         }
+        if !lineLabels.isEmpty { y += Metrics.space1 }
+        for label in lineLabels {
+            label.font = Typography.caption
+            label.frame = NSRect(x: textX, y: y, width: textWidth, height: line.caption)
+            y += line.caption
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if case .fraction(let progress) = notice?.progress {
@@ -201,10 +224,10 @@ final class SidebarNoticeCardView: NSView {
             eyebrowLabel.textColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             detailLabel.textColor = Palette.textSecondary
+            for label in lineLabels { label.textColor = Palette.textSecondary }
             shortcutLabel.textColor = Palette.textTertiary
             icon.contentTintColor = Palette.textSecondary
-            let config = NSImage.SymbolConfiguration(pointSize: Typography.bodyEmphasized.pointSize, weight: .regular)
-            icon.image = notice?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil)?.withSymbolConfiguration(config) }
+            icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
             bar.backgroundColor = Palette.textSecondary.cgColor
         }

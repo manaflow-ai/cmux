@@ -1,4 +1,3 @@
-import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
@@ -11,11 +10,27 @@ public struct SidebarMapping {
     public static let shared = Self()
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
+
+    /// What a browser workspace's row shows of its front tab's page
+    /// (cx-e32b): the title in place of a name the user never gave, and the
+    /// favicon in place of an icon the user never chose.
+    public struct PageFace {
+        public var title: String?
+        public var favicon: SidebarFavicon?
+
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil) {
+            self.title = title
+            self.favicon = favicon
+        }
+    }
+
     /// `statusLine` maps a workspace id to the status hooks reported
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
-    /// titled `newTabTitle` (localized by the App).
+    /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
+    /// face of a workspace whose front tab is a browser, and the favicon of
+    /// each browser tab in the tab list.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -23,7 +38,8 @@ public struct SidebarMapping {
                                 muted: Set<String> = [],
                                 statusLine: (String) -> String? = { _ in nil },
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
-                                newTabPages: Set<String> = [], newTabTitle: String = "") -> [SidebarRowSection] {
+                                newTabPages: Set<String> = [], newTabTitle: String = "",
+                                pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -31,12 +47,14 @@ public struct SidebarMapping {
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
                 .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
-                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle) }
+                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     color: color(group.color) ?? .grey,
+                    // A custom `#RRGGBB` (cx-25az) draws instead of the token.
+                    custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
@@ -56,18 +74,21 @@ public struct SidebarMapping {
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
-                    newTabTitle: String = "") -> SidebarWorkspace {
+                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
+        let page = front.flatMap { $0.kind == .browser ? pageFace(workspace, $0) : nil }
         let entries = workspace.status?.entries ?? []
-        return SidebarWorkspace(
+        // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
+        let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
+        var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            title: workspace.displayName,
-            directory: folder?.cwd.map(abbreviate),
+            title: page?.title ?? workspace.displayName,
+            directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),
             // The hooks' status line, else the daemon's workspace status
@@ -78,9 +99,9 @@ public struct SidebarMapping {
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
-            icon: Self.icon(color: workspace.color, icon: workspace.icon),
+            icon: Self.icon(color: workspace.color, icon: workspace.icon) ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
-            kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,
+            kindBrand: front?.agentBrand,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
@@ -89,14 +110,17 @@ public struct SidebarMapping {
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
+                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
             isClosable: workspace.kind != Self.homeKind,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
-            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(abbreviate)
+            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
+        row.presence = presence(tabs)
+        return row
     }
 
     /// The tab the row stands for: the selected tab of the workspace's most
@@ -116,12 +140,11 @@ public struct SidebarMapping {
         return tab.kind == .browser ? .browser : .terminal
     }
 
-    /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
+    /// The brand of the agent running in these tabs (design/agent-icons): the first that
+    /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
-        tabs.lazy.compactMap { tab -> String? in
-            guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
-            return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
-        }.first
+        let busy = tabs.lazy.filter { $0.agent?.state == .working || $0.agent?.state == .blocked }.compactMap(\.agentBrand).first
+        return busy ?? tabs.lazy.compactMap(\.agentBrand).first
     }
 
     /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.
@@ -207,6 +230,16 @@ public struct SidebarMapping {
         })
         guard kinds.count <= 1 else { return .mixed }
         return kinds.first ?? .terminal
+    }
+
+    /// A folder of another computer (SSH, Cloud) as its shell prompt writes it: its account's
+    /// home (`/Users/<name>` or `/home/<name>`) as `~`. The app does not know that machine's home
+    /// otherwise, and this Mac's home says nothing about it (cx-gaq9).
+    public static func abbreviateRemote(_ path: String) -> String {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home", !parts[2].isEmpty,
+              parts[2] != "Shared" else { return path }
+        return (["~"] + parts.dropFirst(3)).joined(separator: "/")
     }
 
     func abbreviate(_ path: String) -> String {

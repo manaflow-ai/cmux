@@ -65,7 +65,11 @@ pub(crate) struct ActiveClientStream {
 
 impl ActiveClientStream {
     pub(crate) fn register(host: Arc<HostShared>) -> Self {
-        host.active_client_streams.fetch_add(1, Ordering::AcqRel);
+        // The first stream ends an orphan clock: wake the accept loop so it
+        // stops counting (cx-3ryj), as the last stream's drop wakes it.
+        if host.active_client_streams.fetch_add(1, Ordering::AcqRel) == 0 {
+            host.accept_waker.wake();
+        }
         Self { host }
     }
 }

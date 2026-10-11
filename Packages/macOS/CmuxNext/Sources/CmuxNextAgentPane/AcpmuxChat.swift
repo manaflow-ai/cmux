@@ -13,10 +13,15 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     public let accounts: [String]
     public let roots: [String]
     public let sourcePath: String?
+    /// What the live acpmux session continuing this chat needs from the
+    /// person (`needsInput`, `failed`, `unread`), nil when nothing.
+    public var attention: String?
+    /// That session's latest reply, one line; nil without a live session.
+    public var preview: String?
 
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
-                roots: [String] = [], sourcePath: String? = nil) {
+                roots: [String] = [], sourcePath: String? = nil, attention: String? = nil, preview: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -28,6 +33,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.accounts = accounts
         self.roots = roots
         self.sourcePath = sourcePath
+        self.attention = attention
+        self.preview = preview
     }
 
     /// Decodes the daemon's `chat_value` object. Unknown optional fields are ignored.
@@ -44,7 +51,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   updatedAt: Date(timeIntervalSince1970: updated / 1000),
                   messageCount: (json["messageCount"] as? NSNumber).map { $0.intValue },
                   accounts: json["accounts"] as? [String] ?? [], roots: json["roots"] as? [String] ?? [],
-                  sourcePath: json["sourcePath"] as? String)
+                  sourcePath: json["sourcePath"] as? String,
+                  attention: json["attention"] as? String, preview: json["preview"] as? String)
     }
 
     private static func milliseconds(_ value: Any?) -> Double? {

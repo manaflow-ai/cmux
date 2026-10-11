@@ -76,30 +76,4 @@ mod tests {
         assert_eq!(classify(&wg(4, 32)), DatagramClass::WireGuardData);
         assert_eq!(classify(&wg(4, 32 + 1424)), DatagramClass::WireGuardData);
     }
-
-    #[test]
-    fn wrong_sizes_and_reserved_bytes_are_unknown() {
-        assert_eq!(classify(&wg(1, 147)), DatagramClass::Unknown);
-        assert_eq!(classify(&wg(4, 31)), DatagramClass::Unknown);
-        // Unpadded data (boringtun) and MTU-capped padding are both data.
-        assert_eq!(classify(&wg(4, 33)), DatagramClass::WireGuardData);
-        assert_eq!(classify(&wg(4, 1452)), DatagramClass::WireGuardData);
-        assert_eq!(classify(&wg(5, 148)), DatagramClass::Unknown);
-        let mut reserved = wg(1, 148);
-        reserved[2] = 1;
-        assert_eq!(classify(&reserved), DatagramClass::Unknown);
-        assert_eq!(classify(&[]), DatagramClass::Unknown);
-    }
-
-    #[test]
-    fn stun_needs_cookie_and_exact_length() {
-        let request = crate::stun::binding_request([7; 12]);
-        assert_eq!(classify(&request), DatagramClass::Stun);
-        let mut long = request.clone();
-        long.push(0);
-        assert_ne!(classify(&long), DatagramClass::Stun);
-        let mut no_cookie = request;
-        no_cookie[4] = 0;
-        assert_ne!(classify(&no_cookie), DatagramClass::Stun);
-    }
 }

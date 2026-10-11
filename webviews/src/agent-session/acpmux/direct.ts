@@ -53,6 +53,7 @@ export type AcpmuxAdopt = { harness: string; agentSessionId: string; ifLive?: "f
 export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
+  noProject = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -62,7 +63,15 @@ export function newSessionParams(
   return {
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
-    _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+    _meta: {
+      acpmux: {
+        harness,
+        ...(host.peer ? { peer: host.peer } : {}),
+        // Do not work in a project: the host starts the chat in its agent-home folder, not the
+        // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
+        ...(noProject ? { noProject: true } : {}),
+      },
+    },
   };
 }
 
@@ -443,6 +452,10 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// Attachments sent with a prompt until its user-message event gives it a durable row id.
+  private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
+  /// Attachments for completed prompts, used when their turn is retried later.
+  private retryAttachments = new Map<string, ComposerAttachment[]>();
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
@@ -451,6 +464,8 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
+  private replayThrough?: number;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
   /// clock): the smallest arrival lag of a live event, since delays only make it larger.
   private clockOffset?: number;
@@ -522,6 +537,53 @@ export class AcpmuxDirectClient {
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
+  }
+
+  /// A client with no connection that shows one recorded session as it stood at a point in it
+  /// (session replay, replay/ReplayScreen.tsx). `seekReplay` moves the point; nothing is ever sent.
+  static replay(sessionId: string, events: EventRecord[], listener: Listener): AcpmuxDirectClient {
+    const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
+    client.closed = true;
+    client.events = events
+      .filter((event) => event.seq > 0 && (event.sessionId ?? sessionId) === sessionId)
+      .sort((a, b) => a.seq - b.seq);
+    client.replayThrough = 0;
+    return client;
+  }
+
+  /// Shows the replayed session through `throughSeq`. Moving forward folds only the events since;
+  /// moving back folds again from the start.
+  seekReplay(throughSeq: number): void {
+    const from = this.replayThrough ?? 0;
+    if (throughSeq === from) return;
+    this.replayThrough = throughSeq;
+    if (throughSeq < from) this.rebuild();
+    else
+      for (const event of this.events) {
+        if (event.seq <= from || event.seq > throughSeq) continue;
+        this.lastSeq = event.seq;
+        this.firstSeq ??= event.seq;
+        this.reduce(event);
+      }
+    this.emit("replay");
+  }
+
+  /// Every recorded transcript event of a session, oldest first, for session replay.
+  async recordedEvents(sessionId: string): Promise<EventRecord[]> {
+    const events: EventRecord[] = [];
+    for (let after = 0; ;) {
+      const page = await this.request("_acpmux/events", {
+        sessionId,
+        afterSeq: after,
+        limit: 2000,
+        kinds: ["transcript"],
+      });
+      const batch: EventRecord[] = page?.events ?? [];
+      events.push(...batch);
+      const last = batch.at(-1)?.seq;
+      if (!page?.hasMore || last === undefined || last <= after) return events;
+      after = last;
+    }
   }
 
   static async connect(
@@ -674,6 +736,8 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
     this.optimisticPromptRows.clear();
     this.optimisticPromptTexts.clear();
+    this.optimisticPromptAttachments.clear();
+    this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
@@ -1109,7 +1173,8 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
-    const events = [...this.events].sort((a, b) => a.seq - b.seq);
+    const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
+    const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
     for (const event of events) {
       this.lastSeq = Math.max(this.lastSeq, event.seq);
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
@@ -1202,7 +1267,15 @@ export class AcpmuxDirectClient {
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
+            ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
+            : {}),
         });
+        if (fallbackPromptId) {
+          const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
+          if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);
+          this.optimisticPromptAttachments.delete(fallbackPromptId);
+        }
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
@@ -1406,7 +1479,8 @@ export class AcpmuxDirectClient {
       connection,
       origin: this.origin,
       sessionId: this.selectedSessionId,
-      isWorking: this.turnOpen || summary?.status === "running",
+      // A replayed turn is history: no live "Working for" clock.
+      isWorking: this.replayThrough === undefined && (this.turnOpen || summary?.status === "running"),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -1496,6 +1570,7 @@ export class AcpmuxDirectClient {
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
+    if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
     const accept = () => {
@@ -1527,6 +1602,7 @@ export class AcpmuxDirectClient {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
+        this.optimisticPromptAttachments.delete(promptId);
         // The prompt is still in the composer, so Enter sends it again (no Retry button).
         if (held && !isTrustRefusal(error)) this.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
         else this.emit();
@@ -1550,6 +1626,7 @@ export class AcpmuxDirectClient {
       }
       this.optimisticPromptRows.delete(promptId);
       this.optimisticPromptTexts.delete(promptId);
+      this.optimisticPromptAttachments.delete(promptId);
       // The host refused one frame and answered it: the connection is as it was.
       this.emit(refused ? undefined : "failed");
       throw error;
@@ -1565,6 +1642,10 @@ export class AcpmuxDirectClient {
     this.rows.delete(rowId);
     this.emit();
     return this.send(failed.input, failed.attachments);
+  }
+  /// The original blocks for a completed turn, for the App send path to retry safely.
+  retryAttachmentsFor(rowId: string): ComposerAttachment[] {
+    return this.retryAttachments.get(rowId) ?? [];
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
@@ -1661,13 +1742,15 @@ export class AcpmuxDirectClient {
     }
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
-  create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
+  /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
+  create(harness?: string, cwd?: string, peer?: string, noProject = false): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
         cwd,
         peer,
-        () => void this.create(harness, cwd, peer).catch(() => undefined),
+        () => void this.create(harness, cwd, peer, noProject).catch(() => undefined),
+        noProject,
       );
       return sessionId ? this.select(sessionId) : undefined;
     })();
@@ -1682,9 +1765,15 @@ export class AcpmuxDirectClient {
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
   /// `again` re-runs the caller's step after a Trust answer (the trust route).
-  async startSession(harness?: string, cwd?: string, peer?: string, again?: () => void): Promise<string | undefined> {
+  async startSession(
+    harness?: string,
+    cwd?: string,
+    peer?: string,
+    again?: () => void,
+    noProject = false,
+  ): Promise<string | undefined> {
     const result = await this.newSession(
-      newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject),
       again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
@@ -1839,6 +1928,18 @@ export class AcpmuxDirectClient {
         this.emit("fork failed");
       }
       return undefined;
+    } finally {
+      this.forking = false;
+    }
+  }
+  /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
+  /// host opens beside this chat. One fork at a time, as `fork`.
+  async forkAside(throughSeq: number): Promise<string | undefined> {
+    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    this.forking = true;
+    try {
+      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      return result?.sessionId ? String(result.sessionId) : undefined;
     } finally {
       this.forking = false;
     }

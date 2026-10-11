@@ -17,14 +17,16 @@ import Foundation
 public final class SocketTasksSource: TasksSource {
     private let path: String
     private var sink: (@MainActor (TasksSourceEvent) -> Void)?
-    private var fd: Int32 = -1
-    private var readSource: (any DispatchSourceRead)?
-    private var writeSource: (any DispatchSourceWrite)?
+    /// Whether a connection is open (its descriptor belongs to `connection`).
+    private var connected = false
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private let retryTimer = DemandTimer(owner: "tasks.reconnect")
     private var backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))
-    private var inbox = Data()
-    private var outbox = Data()
+    /// Owns the descriptor: reads, framing, JSON decoding and writes run on
+    /// its queue, off the main actor (cx-9c8m).
+    private var connection: TasksSocketConnection?
+    /// Bumped per connection, so lines a closed connection decoded are dropped.
+    private var generation = 0
     private var nextID: UInt64 = 1
     private var keysByID: [UInt64: String] = [:]
 
@@ -58,7 +60,7 @@ public final class SocketTasksSource: TasksSource {
     }
 
     public func send(_ intent: TasksIntent) {
-        guard fd >= 0 else { return }
+        guard connected else { return }
         let id = nextID
         nextID += 1
         keysByID[id] = intent.key
@@ -70,11 +72,17 @@ public final class SocketTasksSource: TasksSource {
 
     private func open() -> Bool {
         guard let socket = Self.connect(path: path) else { return false }
-        fd = socket
-        let read = DispatchSource.makeReadSource(fileDescriptor: socket, queue: .main)
-        read.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.readAvailable() } } // main-proof: dispatch source on queue: .main
-        read.resume()
-        readSource = read
+        connected = true
+        generation += 1
+        let generation = generation
+        // The main actor gets each read's decoded lines in one hop.
+        let connection = TasksSocketConnection(fd: socket)
+        connection.start { [weak self] batch in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.deliver(batch, generation: generation) } // main-proof: DispatchQueue.main.async
+            }
+        }
+        self.connection = connection
         backoff.reset()
         directoryWatch?.cancel()
         directoryWatch = nil
@@ -113,16 +121,10 @@ public final class SocketTasksSource: TasksSource {
     }
 
     private func closeConnection() {
-        readSource?.cancel()
-        readSource = nil
-        writeSource?.cancel()
-        writeSource = nil
-        if fd >= 0 {
-            close(fd)
-            fd = -1
-        }
-        inbox.removeAll()
-        outbox.removeAll()
+        connection?.stop()
+        connection = nil
+        connected = false
+        generation += 1
         keysByID.removeAll()
     }
 
@@ -153,14 +155,14 @@ public final class SocketTasksSource: TasksSource {
 
     /// One attempt after the next `Backoff` delay (a one-shot timer, never a poll).
     private func scheduleAttempt() {
-        guard !retryTimer.isScheduled, sink != nil, fd < 0 else { return }
+        guard !retryTimer.isScheduled, sink != nil, !connected else { return }
         retryTimer.schedule(after: backoff.next()) { @MainActor [weak self] in
             self?.attempt()
         }
     }
 
     private func attempt() {
-        guard fd < 0, let sink else { return }
+        guard !connected, let sink else { return }
         sink(.connection(.connecting))
         if !open() {
             sink(.connection(.disconnected(TasksStrings.ownerNotRunning)))
@@ -169,24 +171,13 @@ public final class SocketTasksSource: TasksSource {
 
     // MARK: - Reading
 
-    private func readAvailable() {
-        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        // concurrency-allow: O_NONBLOCK descriptor read from its readable dispatch source; EAGAIN returns at once.
-        let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-        if n < 0, errno == EAGAIN || errno == EINTR { return }
-        guard n > 0 else {
-            lost()
-            return
+    private func deliver(_ batch: TasksSocketConnection.Batch, generation: Int) {
+        guard generation == self.generation, connected else { return }
+        for line in batch.lines {
+            dispatch(line)
+            if !connected { return }
         }
-        inbox.append(contentsOf: chunk[0..<n])
-        // One pass over the buffer, one removal at the end (no quadratic splits).
-        var start = inbox.startIndex
-        while let newline = inbox[start...].firstIndex(of: UInt8(ascii: "\n")) {
-            dispatch(TasksWire.decode(Data(inbox[start..<newline])))
-            start = inbox.index(after: newline)
-            if fd < 0 { return }
-        }
-        inbox.removeSubrange(inbox.startIndex..<start)
+        if batch.ended { lost() }
     }
 
     private func dispatch(_ line: TasksWire.Line) {
@@ -207,16 +198,129 @@ public final class SocketTasksSource: TasksSource {
     // MARK: - Writing
 
     private func enqueue(_ fields: [String: TasksJSON], params: [String: TasksJSON]) {
-        guard fd >= 0, var data = try? JSONEncoder().encode(TasksRequestLine(fields: fields, params: params)) else { return }
+        guard connected, let connection, var data = try? JSONEncoder().encode(TasksRequestLine(fields: fields, params: params)) else { return }
         data.append(UInt8(ascii: "\n"))
-        outbox.append(data)
-        flush()
+        connection.send(data)
+    }
+}
+
+/// One Tasks connection's descriptor, confined to its own serial queue:
+/// non-blocking reads, newline framing, JSON decoding and writes never run on
+/// the main actor. A snapshot line can be large; the scan resumes where the
+/// last read stopped (no rescan of a partial line), and a line over
+/// `inboxLimit` ends the connection (the source reconnects and resyncs).
+/// The descriptor is closed only after every dispatch source on it finished
+/// cancelling, so its number is never reused under a read or a write.
+// crash-allow: every mutable field is touched only on `queue` (a serial queue); the public methods hop onto it.
+nonisolated final class TasksSocketConnection: @unchecked Sendable {
+    struct Batch: Sendable {
+        var lines: [TasksWire.Line] = []
+        /// EOF, a read or write error, or an oversized line: the connection is over.
+        var ended = false
     }
 
-    /// Write what the socket takes now; wait for writable space for the rest.
+    static let inboxLimit = 64 * 1024 * 1024
+
+    private let queue = DispatchQueue(label: "com.cmuxterm.app.next.tasks.socket", qos: .userInitiated)
+    private let fd: Int32
+    // Everything below is touched only on `queue`.
+    private var deliver: (@Sendable (Batch) -> Void)?
+    private var readSource: (any DispatchSourceRead)?
+    private var writeSource: (any DispatchSourceWrite)?
+    private var inbox = Data()
+    private var scanned = 0
+    private var outbox = Data()
+    private var stopped = false
+    /// Sources whose cancel handler has not run yet; the descriptor closes at zero.
+    private var openSources = 0
+
+    init(fd: Int32) {
+        self.fd = fd
+    }
+
+    /// Starts reading; `deliver` gets each read's decoded lines, in order, on the queue.
+    func start(deliver: @escaping @Sendable (Batch) -> Void) {
+        queue.async { [self] in
+            self.deliver = deliver
+            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+            source.setEventHandler { [weak self] in self?.readAvailable() }
+            // Strong: the descriptor must close even after the owner let go.
+            source.setCancelHandler { self.sourceCancelled() }
+            openSources += 1
+            readSource = source
+            source.resume()
+        }
+    }
+
+    /// Queues `data` for writing.
+    func send(_ data: Data) {
+        queue.async { [self] in
+            guard !stopped else { return }
+            outbox.append(data)
+            flush()
+        }
+    }
+
+    /// Ends the connection: cancels both sources; the last cancel handler closes the descriptor.
+    func stop() {
+        queue.async { [self] in finish() }
+    }
+
+    private func finish() {
+        guard !stopped else { return }
+        stopped = true
+        deliver = nil
+        outbox.removeAll()
+        if readSource == nil, writeSource == nil {
+            close(fd)
+            return
+        }
+        readSource?.cancel()
+        writeSource?.cancel()
+        readSource = nil
+        writeSource = nil
+    }
+
+    private func sourceCancelled() {
+        openSources -= 1
+        if openSources == 0 { close(fd) }
+    }
+
+    private func end() {
+        var batch = Batch()
+        batch.ended = true
+        deliver?(batch)
+        finish()
+    }
+
+    private func readAvailable() {
+        guard !stopped else { return }
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        // concurrency-allow: O_NONBLOCK descriptor read on the connection's queue, from its readable dispatch source.
+        let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+        if n < 0, errno == EAGAIN || errno == EINTR { return }
+        guard n > 0 else { return end() }
+        inbox.append(contentsOf: chunk[0..<n])
+        // One pass over the new bytes, one removal at the end.
+        var batch = Batch()
+        var start = inbox.startIndex
+        var from = inbox.index(inbox.startIndex, offsetBy: scanned)
+        while let newline = inbox[from...].firstIndex(of: UInt8(ascii: "\n")) {
+            batch.lines.append(TasksWire.decode(Data(inbox[start..<newline])))
+            start = inbox.index(after: newline)
+            from = start
+        }
+        inbox.removeSubrange(inbox.startIndex..<start)
+        scanned = inbox.count
+        if !batch.lines.isEmpty { deliver?(batch) }
+        if inbox.count > Self.inboxLimit { end() }
+    }
+
+    /// Writes what the socket takes now; waits for writable space for the rest.
     private func flush() {
+        guard !stopped else { return }
         while !outbox.isEmpty {
-            // concurrency-allow: O_NONBLOCK descriptor; a full socket returns EAGAIN and the write source resumes it.
+            // concurrency-allow: O_NONBLOCK descriptor on the connection's queue; a full socket returns EAGAIN and the write source resumes it.
             let n = outbox.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
             if n > 0 {
                 outbox.removeSubrange(outbox.startIndex..<outbox.startIndex + n)
@@ -225,18 +329,20 @@ public final class SocketTasksSource: TasksSource {
             } else if n < 0, errno == EINTR {
                 continue
             } else {
-                lost()
-                return
+                return end()
             }
         }
         if outbox.isEmpty {
+            // A writable socket fires constantly: drop the source until bytes wait again.
             writeSource?.cancel()
             writeSource = nil
         } else if writeSource == nil {
-            let source = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: .main)
-            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.flush() } } // main-proof: dispatch source on queue: .main
-            source.resume()
+            let source = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: queue)
+            source.setEventHandler { [weak self] in self?.flush() }
+            source.setCancelHandler { self.sourceCancelled() }
+            openSources += 1
             writeSource = source
+            source.resume()
         }
     }
 }

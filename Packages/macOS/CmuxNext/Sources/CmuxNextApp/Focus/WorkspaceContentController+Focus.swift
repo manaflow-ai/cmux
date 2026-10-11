@@ -8,6 +8,9 @@ extension WorkspaceContentController {
     /// Tells the coordinator the current panes, tabs and selections.
     func sendTopology() {
         guard !isParked else { return }
+        #if DEBUG
+        DebugLayoutCounters.topologySends &+= 1
+        #endif
         focus.send(.topology(focusTopology()))
     }
 
@@ -70,8 +73,9 @@ extension WorkspaceContentController {
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
         // An agent chat tab is a conversation tab on an acpmux session; its content is the agent page.
-        // A page tab is a conversation tab with a page source; its content is the internal page.
-        tab.agentSession != nil ? .agent : tab.page != nil ? .page : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
+        // A page tab is a conversation tab with a page source, an app tab (`app-screens-v1`) a frontend
+        // tab with an app; the content of both is an internal page.
+        tab.agentSession != nil ? .agent : (tab.page != nil || tab.appTab != nil) ? .page : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
     }
 
     static func of(_ kind: TabKind, isFrontendOwned: Bool) -> FocusTopology.Kind {
@@ -96,5 +100,17 @@ extension PaneController {
             return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
+    }
+}
+
+extension WorkspaceContentController {
+    /// Every tab of every screen's panes, in layout order: its id and its daemon tab, looked
+    /// up in this workspace's own store (nil for a session-local browser tab).
+    func tabsInLayoutOrder() -> [(id: String, model: TabModel?)] {
+        focusTopology().panes.flatMap { pane in
+            let id = LayoutPaneID(pane.id)
+            let models = panes[id]?.pane.tabs ?? handles.panes[id].flatMap(daemon.store.pane)?.tabs ?? []
+            return pane.tabs.map { tab in (tab.id, models.first { $0.id == tab.id }) }
+        }
     }
 }

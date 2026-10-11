@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -58,6 +59,8 @@ enum DaemonClosedHistory {
             daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.resourceID == id }
         }
         let clock = ContinuousClock(), start = clock.now
+        // Its browser tabs' pages restore the history they closed with (cx-d0d.59).
+        if daemon.isLocal { services.cache.pageRequests.closedHistories.expect(item) }
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             let reopened: StateResourceClient.ReopenedItem
@@ -75,13 +78,14 @@ enum DaemonClosedHistory {
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
                     undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
-                    for await present in Observations({ inStore() }) where present {
+                    for await present in ObservationStream({ inStore() }) where present {
                         undo?.noteReopenTabsArrived(start.duration(to: clock.now))
                         return
                     }
                 }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
+                services.cache.pageRequests.closedHistories.drop(item)
                 if item.kind == .workspace, item.group == nil,
                    case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
                     services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)

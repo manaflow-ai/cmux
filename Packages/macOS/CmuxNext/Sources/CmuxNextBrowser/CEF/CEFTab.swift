@@ -166,6 +166,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !pastFirstRealPage else { return }
         pastFirstRealPage = true
         applyPageBackground()
+        applyOcclusion()
     }
 
     /// The tab's view moved or its theme scope changed: a page still on

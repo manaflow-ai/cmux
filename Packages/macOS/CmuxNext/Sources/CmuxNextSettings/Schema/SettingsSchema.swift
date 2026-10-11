@@ -51,7 +51,7 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.welcomeChecklist", "onboarding.continueSetup", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
@@ -150,11 +150,13 @@ public nonisolated enum SettingsSchema {
             ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.newTabTemplate(group: tabs),
+            TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
-        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
+            TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
+        ] + TabSettingsSchema.paneTabBars(group: tabs) + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),

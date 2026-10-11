@@ -48,7 +48,21 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url):
             clearTitleBeforeCommit()
             guard let navigation else { return }
-            machine.apply(.failed(navigation, Self.loadError(code: code, text: text, url: url)))
+            let error = Self.loadError(code: code, text: text, url: url)
+            machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
+                // The failed address is the tab's document now (Chrome's
+                // omnibox shows it), even when Chromium sends no address
+                // change for its error page, as after a New Tab page. After
+                // `.failed` the machine also takes it as the committed URL,
+                // so a later cancelled load does not revert to the New Tab.
+                machine.apply(.urlChanged(failing))
+                committedURL = failing
+                // Chromium draws its error page or interstitial and commits it
+                // with no OnLoadStart: that page ends the New Tab page's hole,
+                // as a committed page does, so it is not masked out (cx-2nfi).
+                if error.engineShowsPage { reachedFirstRealPage() }
+            }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
@@ -90,13 +104,28 @@ extension CEFTab {
         }
     }
 
-    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load.
+    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
+    /// a replacing navigation, a download, a rerouted URL) and draws no page.
+    /// Every other main-frame failure commits Chromium's own page right
+    /// after OnLoadError: the net error page ("This site can't be reached"),
+    /// the certificate, HSTS or Safe Browsing interstitial, or the blocked
+    /// page. That page is the one the user sees, as in Chrome.
+    /// Exception: ERR_INVALID_AUTH_CREDENTIALS commits an empty page (seen
+    /// live, cx-zjcq), so cmux's view stays for it rather than a blank tab.
     static func loadError(code: Int, text: String, url: String) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return BrowserLoadError(domain: "net", code: code, message: text.isEmpty ? "net::\(code)" : text, failingURL: URL(string: url))
+        return BrowserLoadError(
+            domain: "net", code: code, message: text.isEmpty ? "net::\(code)" : text, failingURL: URL(string: url),
+            engineShowsPage: !chromiumDrawsEmptyPage.contains(code)
+        )
     }
+
+    /// Net errors whose Chromium error page is empty.
+    static let chromiumDrawsEmptyPage: Set<Int> = [
+        -338, // ERR_INVALID_AUTH_CREDENTIALS
+    ]
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
@@ -105,12 +134,23 @@ extension CEFTab {
             favicon = nil
             return
         }
-        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
+            let image = await self?.fetchFavicon(url)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
+    }
+
+    /// Through this tab's own request context first (its cookies and profile, Chromium's
+    /// cache; cx-d0d.8), kept in the shared loader's cache, else the app's cookieless fetch.
+    public func fetchFavicon(_ url: URL) async -> NSImage? {
+        let loader = BrowserFaviconLoader.shared
+        if let cached = loader.cachedFavicon(at: url, profile: profileID) { return cached }
+        if let browserID, let png = await runtime.favicon(browserID, url: url, maxPixels: BrowserFaviconLoader.maximumPixels),
+           let image = loader.store(png, at: url, profile: profileID) {
+            return image
+        }
+        return await loader.favicon(at: url, profile: profileID)
     }
 
     // MARK: Scripts

@@ -2,15 +2,20 @@ import CmuxNextDaemon
 import CmuxNextOnboarding
 import Foundation
 
+/// Classic cmux session import (Leo, cx-aha.5). Kept with no UI entry and no
+/// silent run until cx-rwlb wires it as a user-started action before public launch.
 extension AppOnboardingServices {
+    // Kept for cx-rwlb: no caller until the import action exists.
     var canImportClassicSessions: Bool {
         FileManager.default.fileExists(atPath: ClassicSessionImporter().fileURL.path)
     }
 
+    // Kept for cx-rwlb: no caller until the import action exists.
     func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
-        try await owner.scanClassicSessions()
+        try await Task.detached(priority: .utility) { try ClassicSessionImporter().read() }.value
     }
 
+    // Kept for cx-rwlb: no caller until the import action exists.
     /// Recreates local workspace shells and terminal tabs. Classic commands,
     /// scrollback, and remote panels are intentionally ignored.
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {

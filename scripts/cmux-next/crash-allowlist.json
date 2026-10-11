@@ -580,11 +580,11 @@
    "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
   },
   {
-   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/CrashGuard.swift",
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/catalyst/CrashGuard.swift",
    "class": "swift.index_subscript",
-   "count": 1,
-   "reason": "The checked accessor itself: startIndex <= index < endIndex is checked on the line above.",
-   "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
+   "count": 4,
+   "reason": "The checked accessors themselves: subscript(checked:) after startIndex <= index < endIndex, slice(_:_:) with lo and hi clamped into startIndex...endIndex, update(at:) after checkedIndex, Dictionary.value(for:) with an index from index(forKey:). Vendored from MessagesLab eb1ed28 (catalyst/Sources/CrashGuard.swift).",
+   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
   },
   {
    "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/SidebarPinDragging.swift",
@@ -601,10 +601,10 @@
    "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
   },
   {
-   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/CrashGuard.swift",
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/CrashGuard.swift",
    "class": "swift.index_subscript",
    "count": 4,
-   "reason": "The checked accessors themselves: subscript(checked:) after startIndex <= index < endIndex, slice(_:_:) with lo and hi clamped into startIndex...endIndex, update(at:) after checkedIndex, Dictionary.value(for:) with an index from index(forKey:).",
+   "reason": "The checked accessors themselves: subscript(checked:) after startIndex <= index < endIndex, slice(_:_:) with lo and hi clamped into startIndex...endIndex, update(at:) after checkedIndex, Dictionary.value(for:) with an index from index(forKey:). Vendored from MessagesLab eb1ed28 (catalyst/Sources/CrashGuard.swift).",
    "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
   },
   {

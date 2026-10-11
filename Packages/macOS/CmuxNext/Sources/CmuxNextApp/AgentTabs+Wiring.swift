@@ -98,6 +98,10 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
         }
+        tabs.locate = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
+            return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
+        }
         // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
         tabs.gitLink = { [weak services, weak tabs] key in

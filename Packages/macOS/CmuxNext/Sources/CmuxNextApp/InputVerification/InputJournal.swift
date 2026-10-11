@@ -1,5 +1,5 @@
 import Darwin
-import Synchronization
+import CmuxNextCompat
 
 /// The input journal (plans/cmux-next/input-spec.md section 3): a bounded
 /// ring of every input event and every focus and attach transition, with

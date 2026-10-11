@@ -235,11 +235,6 @@ impl ProgramStatusRecords {
     }
 
     #[cfg(test)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    #[cfg(test)]
     pub(crate) fn get(&self, id: &str) -> Option<&ProgramStatusRecord> {
         self.records.get(id)
     }
