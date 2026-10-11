@@ -802,13 +802,19 @@ async fn a_relayed_allow_counts_only_with_the_persons_decision_proof_and_only_on
     let plain = json!({"sessionId": id, "permissionId": pid, "optionId": "yes"});
     assert_eq!(reason(&relay.call("_acpmux/permission_respond", plain).await), REASON);
     let other_option = decision_proof(KEY, &instance, &id, &pid, "no", &nonce);
-    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_option)).await;
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_option))
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
     let other_instance = decision_proof(KEY, "0123456789abcdef", &id, &pid, "yes", &nonce);
-    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_instance)).await;
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_instance))
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
     let other_key = decision_proof(&"7".repeat(64), &instance, &id, &pid, "yes", &nonce);
-    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_key)).await;
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_key))
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
     assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
 
@@ -825,9 +831,13 @@ async fn a_relayed_allow_counts_only_with_the_persons_decision_proof_and_only_on
     let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
     assert_ne!(nonce2, nonce);
     let replayed = decision_proof(KEY, &instance, &id, &pid2, "yes", &nonce);
-    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce, &replayed)).await;
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce, &replayed))
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
-    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &good)).await;
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &good))
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
     let ok = decision_proof(KEY, &instance, &id, &pid2, "yes", &nonce2);
     relay.ok("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &ok)).await;
