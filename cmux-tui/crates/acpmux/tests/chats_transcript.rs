@@ -77,7 +77,8 @@ fn amp(h: &Path, project: &Path) {
 
 /// An Amp thread cut short mid-write: still listed (untitled), but not JSON.
 fn amp_broken(h: &Path) {
-    let text = r#"{"v": 1, "id": "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d", "messages": [{"role": "us"#;
+    let text =
+        r#"{"v": 1, "id": "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d", "messages": [{"role": "us"#;
     write(&h.join(format!(".local/share/amp/threads/{BROKEN_AMP_ID}.json")), text);
 }
 
@@ -236,7 +237,10 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
     let gone = call(&tx, &mut rx, 9, "_acpmux/chat_transcript", json!({"key": key})).await;
     // Unreadable, or not found once the index saw the file go.
     let reason = &gone["error"]["data"]["reason"];
-    assert!(gone["error"].is_object() && (reason.is_null() || reason == "transcript_unreadable"), "{gone}");
+    assert!(
+        gone["error"].is_object() && (reason.is_null() || reason == "transcript_unreadable"),
+        "{gone}"
+    );
 
     let unknown =
         call(&tx, &mut rx, 5, "_acpmux/chat_transcript", json!({"key": "droid:nope"})).await;
