@@ -309,3 +309,86 @@ fn conversation_thread_reads_the_whole_thread_and_pages_carry_root_stats() {
         assert!(refused.to_string().contains("unknown_message"), "{root}: {refused}");
     }
 }
+
+/// Retracts `message` as the author on `conn`; the subscribed `home`
+/// connection sees the change.
+fn retract(conn: &mut Conn, conversation: &str, key: &str, message: &Value) {
+    let reply = conn.reply(
+        "conversation-op",
+        json!({"conversation": conversation, "idempotency_key": key,
+               "op": {"kind": "message.retract", "message_id": message["id"]}}),
+    );
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+/// A retracted reply stays in the thread read (the panel shows "message
+/// deleted") but not in the stats (cx-59n8.9): reply_count, the last reply
+/// and the authors count only replies that are not retracted, the same on
+/// the cloud owner.
+#[test]
+fn a_retracted_reply_stays_in_the_thread_but_not_in_the_stats() {
+    let server = HeadlessServer::start("conversation-thread-retract");
+    let mut home = Conn::open(&server.socket);
+    let conversation = create(&mut home, "thread-retract");
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut agent = Conn::open(&server.socket);
+    agent.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
+    home.request("subscribe", json!({}));
+
+    let root = sent(&mut home, None, &conversation, "root", None);
+    let root_id = root["id"].as_str().unwrap().to_owned();
+    let r1 = sent(&mut home, None, &conversation, "r1", Some(&root_id));
+    let r2 = sent(&mut home, Some(&mut agent), &conversation, "r2", Some(&root_id));
+    let r3 = sent(&mut home, None, &conversation, "r3", Some(&root_id));
+    let all = vec![
+        r1["id"].as_str().unwrap().to_owned(),
+        r2["id"].as_str().unwrap().to_owned(),
+        r3["id"].as_str().unwrap().to_owned(),
+    ];
+    let thread = |home: &mut Conn| {
+        home.request("conversation-thread", json!({"conversation": conversation, "root": root_id}))
+    };
+    let stats = |home: &mut Conn| {
+        let snapshot = home
+            .request("conversation-snapshot", json!({"conversation": conversation, "tail": 10}));
+        let history = home.request(
+            "conversation-history",
+            json!({"conversation": conversation, "before_seq": 100, "limit": 10}),
+        );
+        (snapshot["threads"].clone(), history["threads"].clone())
+    };
+
+    // A middle reply retracted: its author leaves the authors, the count
+    // drops, the last reply stays.
+    retract(&mut agent, &conversation, "retract-r2", &r2);
+    let middle = json!({"root": root_id, "reply_count": 2, "last_reply_seq": r3["seq"],
+                        "last_reply_at": r3["created_at"], "authors": ["user_local"]});
+    let page = thread(&mut home);
+    assert_eq!(ids(&page["replies"]), all, "{page}");
+    assert!(page["replies"][1]["retracted_at"].is_string(), "{page}");
+    assert_eq!(page["thread"], middle, "{page}");
+    assert_eq!(stats(&mut home), (json!([middle]), json!([middle])));
+
+    // The last reply retracted: the last reply is the newest one that is
+    // not retracted.
+    retract(&mut home, &conversation, "retract-r3", &r3);
+    let last = json!({"root": root_id, "reply_count": 1, "last_reply_seq": r1["seq"],
+                      "last_reply_at": r1["created_at"], "authors": ["user_local"]});
+    assert_eq!(thread(&mut home)["thread"], last);
+    assert_eq!(stats(&mut home), (json!([last]), json!([last])));
+
+    // Every reply retracted: no stats entry, an empty summary on the read.
+    retract(&mut home, &conversation, "retract-r1", &r1);
+    let none = thread(&mut home);
+    assert_eq!(ids(&none["replies"]), all, "{none}");
+    assert_eq!(
+        none["thread"],
+        json!({"root": root_id, "reply_count": 0, "last_reply_seq": null,
+               "last_reply_at": null, "authors": []})
+    );
+    assert_eq!(stats(&mut home), (json!([]), json!([])));
+}
