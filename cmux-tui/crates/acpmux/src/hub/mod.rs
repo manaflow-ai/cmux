@@ -527,6 +527,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),

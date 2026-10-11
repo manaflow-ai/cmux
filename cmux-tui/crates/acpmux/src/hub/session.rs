@@ -21,6 +21,8 @@ pub struct Session {
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
+    /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
+    pub(super) restored: StdMutex<Vec<(String, String)>>,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending

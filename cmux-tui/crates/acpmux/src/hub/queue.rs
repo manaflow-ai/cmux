@@ -62,14 +62,20 @@ impl Hub {
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, tokio::sync::MutexGuard<'a, ()>), Value> {
         let restored = {
-            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            queue
-                .iter()
-                .find(|q| q.restored && q.prompt_id == p.prompt_id)
-                .map(|q| (q.turn_id.clone(), q.withdraw.clone()))
+            let mut ids =
+                session.restored.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let i = ids.iter().position(|(id, _)| id == p.prompt_id);
+            i.map(|i| ids.remove(i).1)
         };
         let (turn_id, withdraw) = match restored {
-            Some((turn_id, withdraw)) => (turn_id, Some(withdraw)),
+            // Queued already, unless `remove_queued` withdrew it meanwhile: then it never runs.
+            Some(turn_id) => {
+                let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                match queue.iter().find(|q| q.turn_id == turn_id) {
+                    Some(q) => (turn_id, Some(q.withdraw.clone())),
+                    None => return Err(withdrawn_reply(p.prompt_id, &turn_id)),
+                }
+            }
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 let waiting = session.turn().is_some() || session.queued() > 0;
@@ -155,7 +161,14 @@ impl Hub {
                 .first()
                 .is_none_or(|q| q.turn_id == turn_id);
             if head && session.turn().is_none() {
-                return Some(guard);
+                if !self.shutting_down() {
+                    return Some(guard);
+                }
+                // A stopping daemon starts no turn: the prompt stays queued in the log, and the
+                // next daemon runs it (`restore_queues`).
+                drop(guard);
+                withdraw.notified().await;
+                return None;
             }
             drop(guard);
             tokio::select! {
@@ -205,6 +218,13 @@ impl Hub {
             queue.remove(i)
         };
         session.queue_moved.notify_waiters();
+        // A resend of a rebuilt prompt waits on the ledger entry `restore_queues` made.
+        if removed.restored
+            && let Some((_, outcome)) =
+                session.prompts.lock().unwrap().iter().find(|(id, _)| id == prompt_id)
+        {
+            outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
+        }
         self.append(
             session,
             "mux",
@@ -241,6 +261,7 @@ impl Hub {
             }
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut ledger = session.prompts.lock().unwrap();
+            let mut restored = session.restored.lock().unwrap();
             for e in waiting {
                 let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
                 let (prompt_id, turn_id, text) =
@@ -255,6 +276,7 @@ impl Hub {
                 };
                 let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
                 let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
+                restored.push((prompt_id.clone(), turn_id.clone()));
                 queue.push(QueuedPrompt {
                     prompt_id: prompt_id.clone(),
                     turn_id,
@@ -290,6 +312,8 @@ impl Hub {
                 let hub = self.clone();
                 let session = session.clone();
                 tokio::spawn(async move {
+                    // After the login env and the catalog reload: its harness may need them.
+                    hub.wait_startup().await;
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
                         control: r.control,
