@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Crash-surface sweep: runs every socket action of a running tagged cmux-next build and stops at
-the first one that kills the app.
+the first one after which the app no longer answers.
+
+It changes real state: settings, files, workspaces, and system defaults (makeDefaultBrowser and
+makeDefaultTerminal run too). Run it only against a disposable tagged build on a fleet capture
+slot, never on a machine someone uses; it refuses any socket that is not a tagged debug socket.
 
 For each action in `action.list` (sorted by id, from `--start`), it runs the action with no
 arguments, again with `focus: true`, then a few fuzzed values for each declared argument (empty,
-huge, wrong type, out of range, a bogus target). After each call it checks that the app still
+huge, wrong type, out of range, a bogus target for target-kind arguments). After each call it checks that the app still
 answers and presses Escape twice to close what the action opened. One JSON line per call goes to
 `--out`. When the app stops answering, it prints `DEAD <index> <action>` and exits 3, so a caller
 can relaunch the app and resume at the next index. Actions that end the app on purpose (quit,
@@ -73,11 +77,15 @@ def calls(action):
     yield {}
     yield {"focus": True}
     for argument in action.get("arguments") or []:
+        if not argument.get("name"):
+            continue
         for value in fuzz(argument):
             yield {"args": {argument["name"]: value}}
 
 
 def main():
+    if not re.search(r"/cmux-debug-[\w.-]+\.sock$", opts.socket):
+        sys.exit("refusing: only a tagged debug socket (/tmp/cmux-debug-<tag>[-capslot<N>].sock)")
     listed = rpc("action.list") or {}
     actions = sorted(listed.get("actions") or [], key=lambda a: a["id"])
     if not actions:

@@ -1,4 +1,5 @@
 import AppKit
+import os
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextActions
@@ -75,7 +76,9 @@ extension AppActionContext {
         guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
             throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
         }
-        NSWorkspace.shared.openInBackground(url)
+        NSWorkspace.shared.openInBackground(url) { opened in
+            if !opened { Logger(subsystem: "com.cmuxterm.app.next", category: "actions").error("open failed after its app was found") }
+        }
     }
 
     /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`
