@@ -725,7 +725,9 @@ export default agentPaneEntry({
         await ctx.press("Meta+c");
         await ctx.waitFor(() => {
           const answer = ctx.document.querySelector('[data-row-id="gallery-selection-answer"]');
-          return answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement);
+          return (
+            answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement)
+          );
         });
       },
     },
