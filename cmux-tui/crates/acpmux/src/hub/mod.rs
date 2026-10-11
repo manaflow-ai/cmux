@@ -759,7 +759,7 @@ impl Hub {
             ));
         }
         if session.moving().is_some() {
-            return Err(super::queue::moving_error().message);
+            return Err(queue::moving_error().message);
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
