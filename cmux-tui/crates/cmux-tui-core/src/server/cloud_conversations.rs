@@ -259,6 +259,13 @@ pub(super) fn mux_ack(mux: &Mux, client: u64, params: MuxAckParams) -> anyhow::R
     Ok(lease_user(mux, client)?.mux_ack(&params.conversation, params.seq)?)
 }
 
+/// Whether `client`'s event stream carries cloud events (P2-1 of the
+/// cmux#13742 review): only the verified cmux app's while the app holds the
+/// lease.
+pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
+    mux.cloud_conversations().is_some_and(|service| service.delivers_to(is_app(mux, client)))
+}
+
 /// Whether `cmd` calls the cloud and should leave the request loop.
 pub(super) fn is_network(cmd: &Command) -> bool {
     matches!(

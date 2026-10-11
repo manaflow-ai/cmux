@@ -579,6 +579,15 @@ impl CloudConversations {
         self.inner.notify();
     }
 
+    /// Whether a connection (`is_app`: the verified cmux app) receives cloud
+    /// events. While the app holds the lease, its events are the human's:
+    /// only the app gets them. Without an app lease (a headless brain's own
+    /// daemon, which reads events on a second connection) every trusted
+    /// local stream does, as before.
+    pub fn delivers_to(&self, is_app: bool) -> bool {
+        is_app || !self.app_holds_lease()
+    }
+
     /// Whether `target` still has an upstream driver (tests and diagnostics).
     pub fn has_stream(&self, target: &Target) -> bool {
         self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).contains_key(target)
