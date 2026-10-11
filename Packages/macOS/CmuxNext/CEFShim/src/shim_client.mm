@@ -6,6 +6,7 @@
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
 #include "command_line_switches.h"
+#include "external_url.h"
 #include "local_file_handoff.h"
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
@@ -95,6 +96,8 @@ class Client : public CefClient,
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
   // Every download waits for the host's path (shim_downloads.mm).
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
+  // Location requests ask in the host's prompt bar (shim_permissions.mm).
+  CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return PermissionHandler(); }
 
   // MARK: Focus
 
@@ -135,7 +138,7 @@ class Client : public CefClient,
   // a remote machine, or the reverse) is cancelled; the host re-creates the
   // tab in the other store with the same URL.
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
-                      bool, bool is_redirect) override {
+                      bool user_gesture, bool is_redirect) override {
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
@@ -148,6 +151,10 @@ class Client : public CefClient,
     if (NavigationRefusedForAgent(id, url)) return true;
     if (cmux_shim::CEFHandsOffLocalFile(url)) {
       Emit(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, 0, 0, url);
+      return true;
+    }
+    if (IsExternalAppURL(url)) {
+      Emit(CMUX_SHIM_EXTERNAL_URL, id, 0, user_gesture && !is_redirect ? 1 : 0, 0, url);
       return true;
     }
     if (!NavigationViolatesGuard(id, url)) return false;

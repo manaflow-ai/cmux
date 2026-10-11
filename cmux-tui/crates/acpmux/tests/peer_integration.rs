@@ -519,3 +519,68 @@ async fn a_peer_decides_a_relayed_allow_with_its_own_decision_proof() {
     assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
     assert_eq!(decided["msg"]["answeredBy"], by, "{decided}");
 }
+
+/// cx-0q7o slice 2b: every answer for a peer's prompt goes to the peer,
+/// which is the only one that decides its prompts: a client that is not the
+/// person here may deny (as on the peer itself). A forwarded answer carries a
+/// hop count, and one past the limit is refused, so two daemons that each
+/// think the other has the session cannot pass it back and forth.
+#[tokio::test]
+async fn every_answer_for_a_peers_prompt_goes_to_the_peer_within_a_hop_limit() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "deny").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "deny"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut app = client(a.clone()).await;
+    let mut relay = plain(a.clone()).await;
+    app.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    app.next += 1;
+    let prompt_id = app.next;
+    app.tx
+        .send(
+            Message::request(
+                prompt_id,
+                method::SESSION_PROMPT,
+                json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "ask: rm"}]}),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    let pending = app.wait(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == remote_id).await;
+    let perm = pending["permissionId"].as_str().unwrap().to_owned();
+
+    let e = relay
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": remote_id, "permissionId": perm, "optionId": "no",
+                   "_meta": {"acpmux": {"peerHops": 8}}}),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.contains("hops"), "{e}");
+    relay
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": remote_id, "permissionId": perm, "optionId": "no"}),
+        )
+        .await
+        .unwrap();
+    let decided = app
+        .wait(method::MUX_EVENT, |p| {
+            p["kind"] == "permission_decision" && p["sessionId"] == remote_id
+        })
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
+}

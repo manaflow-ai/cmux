@@ -186,9 +186,16 @@
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-tools{display:flex;flex-wrap:wrap;gap:2px;margin-top:-2px}
 .nt-tool-host,.nt-card-host,.nt-row-host{display:contents}
+.nt-tool-host-with-menu{display:flex;align-items:center;gap:2px}
 .nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-tool-icon{display:inline-grid;place-items:center;width:16px}
+.nt-tool-menu{display:flex;align-items:center}
+.nt-tool-menu-button{width:28px;height:30px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font-size:var(--text-title);cursor:pointer}
+.nt-tool-menu-button:hover,.nt-tool-menu-button[data-popup-open]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.ui-popup.nt-tool-menu-popover{min-width:150px;padding:5px;border-radius:10px;background:var(--acpmux-composer-bg);box-shadow:0 8px 24px rgb(0 0 0/.3),inset 0 0 0 .5px var(--acpmux-composer-edge)}
+.ui-menu-item.nt-tool-menu-item{display:flex;align-items:center;width:100%;min-height:28px;padding:7px 9px;border:0;border-radius:6px;background:none;color:var(--agent-soft);font-family:system-ui;font-size:var(--text-control);line-height:var(--text-control--line-height);text-align:left;cursor:pointer}
+.ui-menu-item.nt-tool-menu-item[data-highlighted]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. The page scrolls only when
    the window is too short. Marks are muted at rest: color is for state, not for every row. */
@@ -208,7 +215,7 @@
 .nt-all-list{flex:1;min-height:0}
 .nt-all-item{box-sizing:border-box;padding:1px 0}
 .nt-all-row{display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;cursor:default;white-space:nowrap}
-.nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-all-row:hover,.nt-all-row:focus-visible{outline:0;color:var(--agent-text)}
 .nt-all-glyph{flex:none;display:flex;width:16px;height:16px;filter:grayscale(1);opacity:.5}
 .nt-all-row:hover .nt-all-glyph,.nt-all-row:focus-visible .nt-all-glyph,.nt-all-row[data-state] .nt-all-glyph{filter:none;opacity:1}
 .nt-all-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}

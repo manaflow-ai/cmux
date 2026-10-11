@@ -87,6 +87,7 @@ USAGE
   cmux tab <selector> move --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux tab <selector> pin|unpin
+  cmux tab <tab_…> restart
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
   cmux tab <selector> update --icon <value>|--clear-icon

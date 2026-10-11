@@ -49,6 +49,11 @@ cmux browser "$TAB" screenshot --out page.png
 cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
 cmux browser "$TAB" screenshot --full-page --out full.png
 cmux browser "$TAB" screenshot --out - > page.png
+cmux browser "$TAB" tabs
+cmux browser page tabs --all
+cmux browser "$TAB" new-tab https://example.com
+cmux browser "$TAB" select
+cmux browser "$TAB" close
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
@@ -70,6 +75,14 @@ fixed headers repeat in WebKit tabs). Without `--out` the PNG is a new file in
 the temporary directory (kept for an hour, newest 32); `--out PATH` copies it there. It prints the path
 (`--json`: the tab, path, width and height). `--out -` writes only the PNG to
 stdout.
+
+`tabs` lists the browser tabs of the tab's workspace (`page tabs`: the focused
+workspace; `--all`: every workspace) with id, title, URL, pane and whether each
+is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
+and prints its id under `created`; `select` (or `switch`) shows and focuses the
+tab; `close` closes it. They run the same actions as the tab strip, wait for
+them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
+act on the tab you name; the old `tab switch|close <index>` has no equivalent.
 
 ## Daemon browsers (`browser_…`)
 
@@ -107,12 +120,11 @@ cmux browser screenshot-page
 The old CLI's `cookies`, `storage`, `state save|load`, `console`,
 `errors`, `highlight`, `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
-`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
+`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, form `select <selector> <value>`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
-`tab list|new|switch|close` inside a browser, `identify`, `profile`,
-`design-mode status` and `--snapshot-after` have no per-tab command
-(`wait` and `screenshot` are above). Cookies, storage, saved state, console,
-dialogs, downloads, hover and scroll are in the browser REPL
+`identify`, `profile`, `design-mode status` and `--snapshot-after` have no
+per-tab command (`wait` and `screenshot` are above). Cookies, storage, saved
+state, console, dialogs, downloads, hover and scroll are in the browser REPL
 ([repl-guide.md](repl-guide.md)); do not poll with `eval`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 

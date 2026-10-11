@@ -17,20 +17,22 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;
+mod events;
 mod keybinding;
 mod open;
+mod page;
 mod run;
 mod settings;
 mod skew;
@@ -62,12 +64,6 @@ const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 const BUSY_RETRIES: u32 = 3;
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
-/// `browser.page.wait` answers by its own timeout (default 5 s, the old
-/// `cmux browser wait`); the CLI waits that long plus this margin.
-const DEFAULT_WAIT_MS: u64 = 5_000;
-const WAIT_MARGIN: Duration = Duration::from_secs(5);
-/// The app gives a screenshot 30 s (a full page is captured tile by tile).
-const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// How `action.run` names its action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -355,138 +351,6 @@ fn parse_limit(value: &str, scope: &str) -> Result<u64, UsageError> {
         .ok_or_else(|| UsageError::new(messages.scope_usage.replace("{scope}", scope)))
 }
 
-/// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
-/// the mux grammar's.
-fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
-    let messages = &crate::localization::catalog().app_control;
-    let usage = || UsageError::new(messages.browser_page_usage);
-    let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
-    let mut params = Map::new();
-    if target != "page" {
-        params.insert("tab".into(), json!(target));
-    }
-    let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
-    let mut timeout = READ_TIMEOUT;
-    let method = match (verb.as_str(), words.as_slice()) {
-        ("navigate" | "goto" | "open", [url]) => {
-            params.insert("url".into(), json!(url));
-            "browser.page.navigate"
-        }
-        ("back", []) => "browser.page.back",
-        ("forward", []) => "browser.page.forward",
-        ("reload", []) => "browser.page.reload",
-        ("state" | "url" | "title", []) => "browser.page.state",
-        ("eval", [script]) => {
-            params.insert("script".into(), json!(script));
-            "browser.page.eval"
-        }
-        ("snapshot", _) => {
-            let options = Options::parse(rest, &["selector", "max-depth"], &["interactive"])?;
-            if let Some(selector) = options.value("selector") {
-                params.insert("selector".into(), json!(selector));
-            }
-            if let Some(depth) = options.value("max-depth") {
-                let depth: u32 = depth.parse().map_err(|_| usage())?;
-                params.insert("max_depth".into(), json!(depth));
-            }
-            if options.flag("interactive") {
-                params.insert("interactive".into(), json!(true));
-            }
-            "browser.page.snapshot"
-        }
-        ("wait", _) => {
-            // `wait [SELECTOR] [--selector S] …`: one condition, chosen by the app.
-            let (selector, flags) = match rest.split_first() {
-                Some((first, flags)) if !first.starts_with("--") => (Some(first.as_str()), flags),
-                _ => (None, rest),
-            };
-            let options = Options::parse(
-                flags,
-                &[
-                    "selector",
-                    "text",
-                    "url-contains",
-                    "url",
-                    "load-state",
-                    "function",
-                    "timeout-ms",
-                    "timeout",
-                ],
-                &[],
-            )?;
-            if let Some(selector) = options.value("selector").or(selector) {
-                params.insert("selector".into(), json!(selector));
-            }
-            for (flag, key) in [
-                ("text", "text_contains"),
-                ("url", "url_contains"),
-                ("url-contains", "url_contains"),
-                ("load-state", "load_state"),
-                ("function", "function"),
-            ] {
-                if let Some(value) = options.value(flag) {
-                    params.insert(key.into(), json!(value));
-                }
-            }
-            let timeout_ms = match (options.value("timeout-ms"), options.value("timeout")) {
-                (Some(ms), _) => Some(ms.parse::<u64>().map_err(|_| usage())?),
-                (None, Some(seconds)) => {
-                    let seconds = seconds.parse::<f64>().map_err(|_| usage())?;
-                    if !seconds.is_finite() || seconds < 0.0 {
-                        return Err(usage());
-                    }
-                    Some(((seconds * 1000.0) as u64).max(1))
-                }
-                (None, None) => None,
-            };
-            if let Some(timeout_ms) = timeout_ms {
-                params.insert("timeout_ms".into(), json!(timeout_ms));
-            }
-            timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_WAIT_MS)) + WAIT_MARGIN;
-            "browser.page.wait"
-        }
-        ("screenshot", _) => {
-            let options = Options::parse(rest, &["out", "selector"], &["full-page"])?;
-            if options.value("selector").is_some() && options.flag("full-page") {
-                return Err(usage());
-            }
-            if let Some(selector) = options.value("selector") {
-                params.insert("selector".into(), json!(selector));
-            }
-            if options.flag("full-page") {
-                params.insert("full_page".into(), json!(true));
-            }
-            let out = options.value("out").map(str::to_owned);
-            return Ok(AppCommand::Screenshot { params: Value::Object(params), out });
-        }
-        ("click" | "focus" | "text" | "value", [selector]) => {
-            params.insert("selector".into(), json!(selector));
-            match verb.as_str() {
-                "click" => "browser.page.click",
-                "focus" => "browser.page.focus",
-                "text" => "browser.page.text",
-                _ => "browser.page.value",
-            }
-        }
-        ("fill" | "type", [selector, text]) => {
-            params.insert("selector".into(), json!(selector));
-            params.insert("text".into(), json!(text));
-            if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
-        }
-        _ => return Err(usage()),
-    };
-    if !matches!(verb.as_str(), "snapshot" | "wait") && words.len() != rest.len() {
-        return Err(usage());
-    }
-    Ok(AppCommand::Call {
-        method,
-        params: Value::Object(params),
-        timeout: Some(timeout),
-        pick: None,
-    })
-}
-
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
 /// (`--wait` is the default), `--interactive`, and `--<argument> VALUE` for
 /// each schema argument (`--arg name=value` also works).
@@ -704,7 +568,10 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
-    let key = if method == "action.run" {
+    // Runs that may create or close something carry a key, so a retry is not a second run.
+    let keyed =
+        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
+    let key = if keyed.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
@@ -770,95 +637,6 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
 /// Progress notes go to stderr for a person, never in JSON or quiet output.
 fn output_shows_notes(output: OutputMode) -> bool {
     output == OutputMode::Human
-}
-
-/// Puts a `browser.page.screenshot` PNG where `out` says and prints where it
-/// went: the path, or with `--json` the result without the image data.
-/// The app saves the PNG to a file and returns its `path` (the old `cmux
-/// browser screenshot` did too); `png_base64` comes inline only when small.
-/// Without `--out` the app's file is the result; `--out -` writes only the
-/// PNG to stdout.
-fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
-    matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
-}
-
-fn save_screenshot(mut result: Value, out: Option<&str>, output: OutputMode) -> i32 {
-    let messages = &crate::localization::catalog().app_control;
-    let Some(object) = result.as_object_mut() else {
-        return failure("app.invalid_response", messages.invalid_response, output, 3);
-    };
-    let inline = object.remove("png_base64");
-    let saved = object.get("path").and_then(Value::as_str).map(PathBuf::from);
-    let inline = match inline.as_ref().and_then(Value::as_str).map(|data| BASE64.decode(data)) {
-        Some(Ok(png)) => Some(png),
-        Some(Err(_)) => {
-            return failure("app.invalid_response", messages.invalid_response, output, 3);
-        }
-        None => None,
-    };
-    if inline.is_none() && saved.is_none() {
-        return failure("app.invalid_response", messages.invalid_response, output, 3);
-    }
-    let write_failed = |path: &std::path::Path, error: std::io::Error| {
-        let message = messages
-            .screenshot_write_failed
-            .replace("{path}", &path.display().to_string())
-            .replace("{error}", &error.to_string());
-        failure("io.write_failed", &message, output, 1)
-    };
-    if out == Some("-") {
-        let png = match (inline, &saved) {
-            (Some(png), _) => png,
-            (None, Some(saved)) => match std::fs::read(saved) {
-                Ok(png) => png,
-                Err(error) => return write_failed(saved.as_path(), error),
-            },
-            (None, None) => unreachable!("checked above"),
-        };
-        let mut stdout = std::io::stdout().lock();
-        return match stdout.write_all(&png).and_then(|()| stdout.flush()) {
-            Ok(()) => 0,
-            Err(_) => 3,
-        };
-    }
-    let path = match (out, &saved, inline) {
-        (None, Some(saved), _) => saved.clone(),
-        (target, _, inline) => {
-            let path = match target {
-                Some(path) => PathBuf::from(path),
-                None => {
-                    let name = super::command::random_prefixed("screenshot")
-                        .unwrap_or_else(|_| format!("screenshot-{}", std::process::id()));
-                    std::env::temp_dir()
-                        .join("cmux-browser-screenshots")
-                        .join(format!("{name}.png"))
-                }
-            };
-            let created = path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .map_or(Ok(()), std::fs::create_dir_all);
-            let written = created.and_then(|()| match (inline, &saved) {
-                (Some(png), _) => std::fs::write(&path, png),
-                // Copying a file onto itself truncates it first.
-                (None, Some(saved)) if same_file(saved, &path) => Ok(()),
-                (None, Some(saved)) => std::fs::copy(saved, &path).map(|_| ()),
-                (None, None) => unreachable!("checked above"),
-            });
-            if let Err(error) = written {
-                return write_failed(path.as_path(), error);
-            }
-            path
-        }
-    };
-    let path = std::fs::canonicalize(&path).unwrap_or(path).display().to_string();
-    match output {
-        OutputMode::Human => super::wire::print_local_success(&Value::String(path), output),
-        _ => {
-            result["path"] = json!(path);
-            super::wire::print_local_success(&result, output)
-        }
-    }
 }
 
 fn error_code(error: &Value) -> Option<&str> {
@@ -1128,34 +906,6 @@ pub(super) fn parse_response(line: &str) -> Result<Result<Value, Value>, String>
 
 /// `events.stream`: one JSON event per line until the app closes the
 /// stream or this process is interrupted. Blocking reads, no polling.
-fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> i32 {
-    if let Err(error) =
-        send_line(stream, &json!({ "id": 1, "method": "events.stream", "params": params }))
-    {
-        return failure("app.transport", &error, output, 3);
-    }
-    let reader = match stream.try_clone() {
-        Ok(reader) => BufReader::new(reader),
-        Err(error) => return failure("app.transport", &error.to_string(), output, 3),
-    };
-    let mut stdout = std::io::stdout().lock();
-    for line in reader.lines() {
-        let Ok(line) = line else { return 3 };
-        let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-        if value.get("ok").and_then(Value::as_bool) == Some(false) {
-            let error = value.get("error").cloned().unwrap_or(Value::Null);
-            return super::wire::print_local_error(&error, output, 1);
-        }
-        let written = match output {
-            OutputMode::Quiet => Ok(()),
-            _ => writeln!(stdout, "{line}").and_then(|()| stdout.flush()),
-        };
-        if written.is_err() {
-            return 0;
-        }
-    }
-    0
-}
 
 /// `accounts.list` with `handles_stable: false`: the Keychain salt failed,
 /// so the `acct_…` handles last only for this app launch.

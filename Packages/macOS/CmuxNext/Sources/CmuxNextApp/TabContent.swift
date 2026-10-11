@@ -81,6 +81,10 @@ final class TerminalEntry {
     /// Tab `dead` and connection changes for this view.
     private var watch: TerminalLinkWatch
 
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
+
     init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore,
          surface: SurfaceID, gate: TerminalTargetGate? = nil) {
         self.validity = validity

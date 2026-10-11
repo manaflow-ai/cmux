@@ -229,3 +229,49 @@ async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
     assert_eq!(answer["_meta"]["acpmux"]["steer"], true, "{answer}");
     assert_ne!(answer["_meta"]["acpmux"]["withdrawn"], true, "{answer}");
 }
+
+/// A turn that fails stops its queue: the prompts behind it were written for a turn that went
+/// well. They wait, in order, until a client resumes the queue; prompts sent meanwhile run first.
+#[tokio::test]
+async fn queue_ops_a_failed_turn_pauses_the_queue_until_resumed() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_with_queue(&mut c, &[("p-f", "fail-streamed: boom"), ("p-a", "a"), ("p-b", "b")])
+        .await;
+    // A stopped turn is no failure: the queue goes on to "boom".
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let attached =
+            c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        if attached["session"]["turn"].is_null() {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the failed turn never ended: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Settled: the failed turn ended, and nothing behind it started.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(attached["session"]["queuePaused"], true, "{attached}");
+    assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"]);
+
+    // Sent after the failure: each runs, the second behind the first, ahead of the held ones.
+    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-c", "slow")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "tick0 ").await;
+    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-d", "d")).await;
+    assert_eq!(echoes_until(&mut c, "echo: d").await, ["echo: d"]);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"], "the held prompts still wait");
+
+    let resumed = c
+        .request("_acpmux/queue_edit", json!({"sessionId": id, "promptId": "p-a", "op": "resume"}))
+        .await
+        .unwrap();
+    assert_eq!(resumed["ok"], true, "{resumed}");
+    assert_eq!(echoes_until(&mut c, "echo: b").await, ["echo: a", "echo: b"]);
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(attached["session"]["queuePaused"], false, "{attached}");
+}

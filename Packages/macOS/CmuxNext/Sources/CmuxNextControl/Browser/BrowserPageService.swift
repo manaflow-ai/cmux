@@ -78,6 +78,7 @@ public struct BrowserPageService: Sendable {
             element("value", BrowserPageScripts.value, engine: engine),
         ])
         router.register(waitAndCaptureMethods())
+        router.register(tabMethods(router: router))
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.

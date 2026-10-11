@@ -9,7 +9,9 @@ import Foundation
 ///
 /// - older messages before the first shown one: `.prependPage`
 /// - a new message: `.receive` (theirs: the receive transition; mine from
-///   another client, Chief or the CLI: MessagesLab's external insert)
+///   another client, Chief or the CLI: MessagesLab's external insert); a
+///   thread reply carries its root as `replyTo` (HomeMapping.replyTo), so it
+///   arrives as MessagesLab's thread reply
 /// - a send this view started is already in the projection (`aliases`): its
 ///   echo only updates the status
 /// - status (delivered, read, not delivered): `.status`, the newest change only
@@ -33,13 +35,15 @@ struct HomeDiff: Equatable {
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                     media: HomeMapping.Media = { _ in nil }, links: HomeMapping.Links = { _ in nil }) -> HomeDiff {
+                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil }) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
-        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links) }
+        let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
+        let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
+        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
 
         // Older page: the new messages before the first shown one.
         var head = 0
@@ -52,6 +56,8 @@ struct HomeDiff: Equatable {
 
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
+                // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
+                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
                 guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
