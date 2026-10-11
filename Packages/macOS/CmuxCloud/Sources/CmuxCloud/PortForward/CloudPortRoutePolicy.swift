@@ -30,7 +30,7 @@ public struct CloudPortRoutePolicy: Sendable {
             // A wildcard bind is an advertisement for where the service
             // listens, not a safe destination to dial. SSH loopback forwards
             // must connect to the loopback interface explicitly.
-            host = routeHost == "0.0.0.0" ? "127.0.0.1" : routeHost
+            host = RemoteLoopbackProxyAlias.isUnspecifiedHost(routeHost) ? "127.0.0.1" : routeHost
         } else {
             guard routeHost != "::" else { return nil }
             host = routeHost

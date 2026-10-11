@@ -33,6 +33,11 @@ struct CloudPortRoutePolicyTests {
             allowLoopback: true
         )?.host == "127.0.0.1")
         #expect(policy.privateURL(
+            "http://[::]:3000/path",
+            address: "::",
+            allowLoopback: true
+        )?.host == "127.0.0.1")
+        #expect(policy.privateURL(
             "http://0.0.0.0:3000/path",
             address: "0.0.0.0",
             allowLoopback: false

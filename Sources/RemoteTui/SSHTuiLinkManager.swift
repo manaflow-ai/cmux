@@ -29,6 +29,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private var loopbackForwards: [LoopbackForwardKey: SSHTuiLoopbackForwardProcess] = [:]
     private var loopbackForwardStarts: [LoopbackForwardKey: Task<UInt16, Error>] = [:]
     private var loopbackForwardClosures: [LoopbackForwardKey: Task<Void, Never>] = [:]
+    private var disconnecting = false
 
     init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths,
          listenerRegistry: SSHTuiLoopbackListenerLeaseRegistry = SSHTuiLoopbackListenerLeaseRegistry(),
@@ -51,6 +52,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// `ssh`. Restores and reconnects skip it: the carrier's own retries wait
     /// for a host or an agent that comes back, with one login per link.
     func connected(machineID: String, preflight: Bool, upgrade: Bool = false) async throws -> CloudMachineLink.Connected {
+        guard !disconnecting else { throw CancellationError() }
         let generation = connectionGeneration
         try Task.checkCancellation()
         guard generation == connectionGeneration else { throw CancellationError() }
@@ -165,7 +167,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     func setPrivateAddresses(_ addresses: [String], for machineID: String) {}
 
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
-        guard machineID == connection.id else { throw CancellationError() }
+        guard !disconnecting, machineID == connection.id else { throw CancellationError() }
         _ = try await connected(machineID: machineID)
         if let browser, let ready = await browser.readyEndpoint { return ready }
         if let browserStarting { return try await browserStarting.value }
@@ -181,7 +183,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     }
 
     func loopbackForward(machineID: String, target: CloudPortForwardTarget) async throws -> UInt16 {
-        guard machineID == connection.id, target.port > 0, target.port <= Int(UInt16.max),
+        guard !disconnecting, machineID == connection.id, target.port > 0, target.port <= Int(UInt16.max),
               RemoteLoopbackProxyAlias.isLoopbackHost(target.host) else {
             throw CancellationError()
         }
@@ -313,6 +315,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
 
     /// Detaching a Mac closes its carrier, never the daemon or its terminal processes.
     func disconnect() async {
+        guard !disconnecting else { return }
+        disconnecting = true
         connectionGeneration &+= 1
         let previous = current
         current = nil
@@ -344,5 +348,6 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         loopbackForwards.removeAll()
         for forward in lateForwards { await forward.stop() }
         await previous?.disconnect()
+        disconnecting = false
     }
 }

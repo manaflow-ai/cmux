@@ -505,7 +505,7 @@ final class CloudBrowserAccessState {
         let explicitSSHLoopback: String?
         if allowsLoopback, let host = url.host,
            RemoteLoopbackProxyAlias.isLoopbackHost(host) {
-            explicitSSHLoopback = host.lowercased() == "0.0.0.0" ? "127.0.0.1" : host
+            explicitSSHLoopback = RemoteLoopbackProxyAlias.isUnspecifiedHost(host) ? "127.0.0.1" : host
         } else {
             explicitSSHLoopback = nil
         }

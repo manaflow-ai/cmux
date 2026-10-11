@@ -73,6 +73,28 @@ public struct RemoteLoopbackProxyAlias {
         return false
     }
 
+    /// Whether `host` is an unspecified address that must never be used as a
+    /// forwarding destination. Wildcard binds are normalized to 127.0.0.1 by
+    /// the route policy before an SSH helper receives the target.
+    public static func isUnspecifiedHost(_ host: String) -> Bool {
+        guard let normalizedHost = normalizeHost(host) else { return false }
+
+        var ipv4 = in_addr()
+        if inet_aton(normalizedHost, &ipv4) == 1 {
+            return UInt32(bigEndian: ipv4.s_addr) == 0
+        }
+
+        var ipv6 = in6_addr()
+        guard inet_pton(AF_INET6, normalizedHost, &ipv6) == 1 else { return false }
+        let bytes = withUnsafeBytes(of: &ipv6) { Array($0) }
+        if bytes.allSatisfy({ $0 == 0 }) { return true }
+        if bytes.prefix(10).allSatisfy({ $0 == 0 }), bytes[10] == 0xFF, bytes[11] == 0xFF {
+            return bytes[12..<16].allSatisfy { $0 == 0 }
+        }
+        return bytes[0..<4] == [0x00, 0x64, 0xFF, 0x9B]
+            && bytes[4..<16].allSatisfy { $0 == 0 }
+    }
+
     /// The alias host a browser should use for `host`, falling back to the
     /// bare alias when `host` is not in the localhost family.
     public static func browserAliasHost(forLoopbackHost host: String, aliasHost: String) -> String {

@@ -56,6 +56,16 @@ struct RemoteLoopbackProxyAliasTests {
         #expect(!RemoteLoopbackProxyAlias.isLoopbackHost(alias))
     }
 
+    @Test("wildcard loopback spellings are identified before forwarding")
+    func unspecifiedDetection() {
+        #expect(RemoteLoopbackProxyAlias.isUnspecifiedHost("0.0.0.0"))
+        #expect(RemoteLoopbackProxyAlias.isUnspecifiedHost("::"))
+        #expect(RemoteLoopbackProxyAlias.isUnspecifiedHost("::ffff:0.0.0.0"))
+        #expect(RemoteLoopbackProxyAlias.isUnspecifiedHost("64:ff9b::0"))
+        #expect(!RemoteLoopbackProxyAlias.isUnspecifiedHost("127.0.0.1"))
+        #expect(!RemoteLoopbackProxyAlias.isUnspecifiedHost("::1"))
+    }
+
     @Test("host normalization strips schemes, ports, brackets, and dots")
     func hostNormalization() {
         #expect(RemoteLoopbackProxyAlias.normalizeHost("LOCALHOST") == "localhost")
