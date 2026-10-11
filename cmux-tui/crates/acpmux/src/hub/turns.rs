@@ -195,7 +195,7 @@ impl Hub {
         }))
     }
 
-    async fn run_prompt(
+    pub(super) async fn run_prompt(
         self: &Arc<Self>,
         session: &Arc<Session>,
         mut blocks: Vec<Value>,
@@ -279,30 +279,19 @@ impl Hub {
             );
             return Ok(r);
         }
-        let turn_id = uuid::Uuid::now_v7().to_string();
-        let waiting = session.turn().is_some() || session.queued() > 0;
-        let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-        let withdraw = waiting.then(|| {
-            let withdraw = self.enqueue(session, &text, client, position, &prompt_id, &turn_id);
-            accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": true, "position": position}),
-            );
-            withdraw
-        });
-        // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let guard = match withdraw {
-            Some(withdraw) => tokio::select! {
-                guard = session.turn_lock.lock() => guard,
-                () = withdraw.notified() => return Ok(super::queue::withdrawn_reply(&prompt_id, &turn_id)),
-            },
-            None => session.turn_lock.lock().await,
+        // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
+        let slot = super::queue::Slot {
+            text: &text,
+            blocks: &blocks,
+            client,
+            prompt_id: &prompt_id,
+            control,
+            trust_gate,
         };
-        if !waiting {
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-        } else if let Some(withdrawn) = self.take_queued(session, &prompt_id, &turn_id) {
-            drop(guard);
-            return Ok(withdrawn);
-        }
+        let (turn_id, waiting, guard) = match self.queue_slot(session, slot, &mut accept).await {
+            Ok(slot) => slot,
+            Err(withdrawn) => return Ok(withdrawn),
+        };
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
@@ -503,6 +492,7 @@ impl Hub {
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
         *session.turn.lock().unwrap() = None;
+        session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
             let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
