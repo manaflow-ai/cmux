@@ -108,6 +108,9 @@ export function DiffPanel({
   onGitIntentHandled?: () => void;
   /// The session's idempotency keys, kept by the page across a close and reopen of the view.
   writeKeys?: WriteKeys;
+  /// Address on a review thread (cx-ncc.77.3): sends the agent a prompt to address it; resolves
+  /// once the chat took it.
+  onAddressThread?: (prompt: string) => Promise<unknown>;
 }) {
   const t = useT();
   registerAgentDiffTheme();

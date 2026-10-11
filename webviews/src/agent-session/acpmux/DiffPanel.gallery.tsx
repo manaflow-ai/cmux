@@ -278,6 +278,31 @@ const showReviewThreads: Play = async (ctx) => {
     throw new Error("the resolved thread is not folded");
 };
 
+/// Address on the open thread sends the agent a prompt naming the file, the line and each
+/// comment; the button then says it went to the chat.
+const addressThread: Play = async (ctx) => {
+  await chooseScope(ctx, "Branch");
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 5);
+  await ctx.click({ role: "button", name: "Address review comments on docs/review.md:23" });
+  await ctx.waitFor(() => ctx.document.documentElement.dataset.diffGalleryPrompt !== undefined);
+  const prompt = ctx.document.documentElement.dataset.diffGalleryPrompt ?? "";
+  for (const part of [
+    "docs/review.md",
+    "line 23",
+    "reviewer: Which tree? Name the panel.",
+    "you: The changed files tree.",
+    "https://github.com/o/r/pull/7#discussion_r1",
+  ])
+    if (!prompt.includes(part)) throw new Error(`the prompt lacks ${JSON.stringify(part)}: ${prompt}`);
+  await ctx.waitFor(() =>
+    [...ctx.document.querySelectorAll(".acpmux-review-thread output")].some(
+      (output) => output.textContent === "Sent to the chat",
+    ),
+  );
+  if (ctx.document.querySelectorAll(".acpmux-review-address").length !== 3)
+    throw new Error("only the unresolved threads that were not sent should offer Address");
+};
+
 const showLoading: Play = async (ctx) => {
   await chooseScope(ctx, "Uncommitted");
   await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-state-body" }));
@@ -343,6 +368,17 @@ export default componentEntry<GalleryProps>({
       note: "Branch shows the pull request's review threads under their lines; an outdated one sits above the diff.",
       props: { files, source: threadsSource },
       play: showReviewThreads,
+    },
+    "address-thread": {
+      note: "Address on a review thread sends the agent a prompt with its file, line and comments.",
+      props: {
+        files,
+        source: threadsSource,
+        onAddressThread: async (prompt: string) => {
+          document.documentElement.dataset.diffGalleryPrompt = prompt;
+        },
+      },
+      play: addressThread,
     },
     loading: {
       note: "An async git scope keeps its loading state visible until the host answers.",
