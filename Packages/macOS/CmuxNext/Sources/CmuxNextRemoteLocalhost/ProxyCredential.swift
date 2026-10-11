@@ -6,11 +6,6 @@ public struct ProxyCredential: Sendable, Hashable {
     public var username: String
     public var password: String
 
-    /// `Proxy-Authorization` value Chromium sends for this credential.
-    public var basicAuthorization: String {
-        "Basic " + Data("\(username):\(password)".utf8).base64EncodedString()
-    }
-
     /// `bytes` random bytes as lowercase hex (SecRandomCopyBytes). If that call
     /// fails, the bytes come from SystemRandomNumberGenerator (arc4random_buf, also
     /// a cryptographically secure source on Darwin), so the secret stays unguessable.

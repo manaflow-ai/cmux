@@ -68,6 +68,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
     private var observers: [any NSObjectProtocol] = []
+    /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
+    private var cursorHold: HomeCursorRectHold?
 
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
         self.me = me
@@ -227,10 +229,19 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
+    /// The typing hold gives back what it holds while the views are still in the old window.
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        cursorHold?.remove(self)
+        cursorHold = nil
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
+        cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
+        cursorHold?.add(self)
         guard let window else { return }
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,

@@ -45,15 +45,8 @@ public nonisolated struct ThemeSpec: Hashable, Sendable, CustomStringConvertible
         self.dark = resolvedDark
     }
 
-    /// True for a light/dark pair naming two different themes.
-    public var isConditional: Bool { light != dark }
-
     /// The theme name for the current system appearance.
     public func name(isDark: Bool) -> String { isDark ? dark : light }
-
-    /// The Ghostty config line that applies this spec to one variant, so a
-    /// resolved config never depends on the conditional state.
-    public func configLine(isDark: Bool) -> String { "theme = \(name(isDark: isDark))" }
 
     public var description: String { raw }
 

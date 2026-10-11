@@ -65,14 +65,6 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
         }
     }
 
-    /// `dm.open` and `conversation.create` name no conversation; every other kind needs one.
-    public var namesConversation: Bool {
-        switch self {
-        case .dmOpen, .create: false
-        default: true
-        }
-    }
-
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: DynamicKey.self)
         try c.encode(kindName, forKey: DynamicKey("kind"))
