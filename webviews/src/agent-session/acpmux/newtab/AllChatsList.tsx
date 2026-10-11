@@ -8,6 +8,7 @@
 // With `onBring` (the History page, cx-zlnl) rows also select: Cmd/Ctrl-click toggles one,
 // Shift-click a range, Enter opens the selection, and the menu brings it into active sessions.
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
@@ -110,6 +111,19 @@ function useChatPages(load: LoadChatsPage) {
   useEffect(() => {
     fetchPage("", undefined);
   }, [fetchPage]);
+  // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
+  // reads its first page again when the host pushes the index's chats (cx-ztlw: the first Cmd-T
+  // page stayed empty for good). A search or a ready list with rows is left alone.
+  const latest = useRef(state);
+  latest.current = state;
+  useEffect(
+    () =>
+      subscribeDeviceChats(() => {
+        const current = latest.current;
+        if (!current.query && (!current.ready || current.rows.length === 0)) fetchPage("", undefined);
+      }),
+    [fetchPage],
+  );
   return { state, fetchPage };
 }
 
