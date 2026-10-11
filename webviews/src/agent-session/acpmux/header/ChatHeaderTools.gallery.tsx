@@ -10,6 +10,8 @@ type HeaderToolsProps = {
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
   sideTabs?: boolean;
+  hasChanges?: boolean;
+  onChanges?: (mode: "toggle" | "open") => void;
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
@@ -71,10 +73,10 @@ const openMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
 
-// The App reports Terminal's and Browser's splits open and panes beside the chat (its headerState push).
+// The App reports Terminal's, Browser's and Changes' panels open and panes beside the chat (its headerState push).
 const panelsOpen: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
-  setHeaderState({ lit: ["splitRight", "splitBrowserRight"], sideTabs: true });
+  setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer"], sideTabs: true });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
@@ -148,8 +150,8 @@ export default componentEntry<HeaderToolsProps>({
       props: base,
     },
     "panels-open": {
-      note: "Terminal, Browser and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
-      props: { ...base, sideTabs: true },
+      note: "Terminal, Browser, Changes and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      props: { ...base, sideTabs: true, hasChanges: true, onChanges: () => undefined },
       play: panelsOpen,
     },
     "menu-open": {

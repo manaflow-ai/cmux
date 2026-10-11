@@ -13,15 +13,17 @@ import { useSyncExternalStore } from "react";
 /// A bare id takes the default mode. Unknown ids and repeats are dropped; `[]` shows no quick actions;
 /// a missing or malformed list keeps the default.
 ///
-/// The page decides nothing about a split: Terminal and Browser send their mode with the app action
-/// (`pane.action {id, mode}`), and the App opens the split or closes the one this button opened
-/// (CmuxNextApp AgentChatSplitToggles). The last turn's changes live in the Sources popover, not here.
+/// The page decides nothing about a split: Terminal, Browser and Changes send their mode with the app
+/// action (`pane.action {id, mode}`), and the App opens the panel or closes the one this button opened
+/// (CmuxNextApp AgentChatSplitToggles). Changes owns the diff viewer of the chat's folder, beside it as
+/// an agent's diff (cx-00n1, Claude Code desktop's diff toggle); it shows only while the chat has changes
+/// or its diff is open (hidden, not disabled, cx-qom0). The last turn's changes are also in Sources.
 ///
 /// `newTab` is ChatGPT's [+] New tab: it opens a New Tab page in a column right of the chat, and the
 /// same button then reads Hide tabs, which hides the panes beside the chat (the App zooms the chat,
 /// closing nothing) and shows them again. It always toggles; its mode is ignored.
 
-export type QuickActionId = "terminal" | "browser" | "newTab";
+export type QuickActionId = "terminal" | "browser" | "changes" | "newTab";
 /// `toggle`: a second click closes the split the first one opened. `open`: every click opens another.
 export type QuickActionMode = "toggle" | "open";
 export interface QuickAction {
@@ -29,7 +31,7 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["terminal", "browser", "newTab"];
+const ids: readonly QuickActionId[] = ["terminal", "browser", "changes", "newTab"];
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
 const isMode = (value: unknown): value is QuickActionMode => value === "toggle" || value === "open";
 
