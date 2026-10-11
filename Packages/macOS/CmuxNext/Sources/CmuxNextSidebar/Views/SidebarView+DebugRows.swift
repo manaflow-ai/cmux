@@ -37,6 +37,9 @@ public struct SidebarDebugItem: Sendable {
     public var refKind: String
     public var ref: String
     public var region: String
+    /// The section holding the item: its id and title (nil when untitled).
+    public var section: String = ""
+    public var sectionTitle: String? = nil
     public var isActive: Bool
     /// The item in window points from the top-left (as `debug.mouse` takes them).
     public var windowFrame: CGRect?
@@ -69,6 +72,7 @@ extension SidebarView {
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
                 }
                 return SidebarDebugItem(id: item.id.rawValue, refKind: item.ref.kind, ref: item.ref.value, region: section.region.rawValue,
+                                        section: section.id.rawValue, sectionTitle: section.title,
                                         isActive: model.selectedItem == .topItem(item.id), windowFrame: frame)
             }
         }

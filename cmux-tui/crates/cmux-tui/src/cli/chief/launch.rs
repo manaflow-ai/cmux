@@ -86,6 +86,7 @@ fn ensure_error(error: &EnsureError) -> &'static str {
         EnsureError::NotReady => "it did not become ready in time",
         EnsureError::WrongOwner => "another program serves its socket",
         EnsureError::DifferentSession => "another session serves its socket",
+        EnsureError::DifferentState => "its running owner serves a deleted or replaced home",
         EnsureError::InvalidIdentity | EnsureError::UnsupportedProtocol => {
             "it speaks another protocol version"
         }
