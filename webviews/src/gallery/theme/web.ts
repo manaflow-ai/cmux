@@ -54,6 +54,7 @@ export function webThemePayload(
     variables: {
       "--cmux-surface-background": css(page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
+      "--cmux-surface-solid": css(page),
       "--cmux-elevated-background": css(tokens.elevatedBackground),
       "--cmux-text": css(tokens.textPrimary),
       "--cmux-text-secondary": css(tokens.textSecondary),
