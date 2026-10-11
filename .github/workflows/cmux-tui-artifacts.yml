@@ -355,7 +355,7 @@ jobs:
             runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&status=in_progress&per_page=100" \
+              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&per_page=100" \
               2>/dev/null || true)"
             if [[ -n "$runs_json" ]]; then
               while IFS=$'\t' read -r candidate_id candidate_sha; do
@@ -369,7 +369,7 @@ jobs:
                   && (( candidate_id < owner_run_id )); then
                   owner_run_id="$candidate_id"
                 fi
-              done < <(python3 -c 'import json,sys; [print("{}\t{}".format(run.get("id", ""), run.get("head_sha", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") == "in_progress"]' <<<"$runs_json")
+              done < <(python3 -c 'import json,sys; [print("{}\t{}".format(run.get("id", ""), run.get("head_sha", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") != "completed"]' <<<"$runs_json")
             fi
           fi
           # The same commit pushed to two branches at once (a lane branch,
@@ -378,13 +378,15 @@ jobs:
           # byte-identical, so the later commit-addressed upload hit the
           # write-once objects (immutable-r2-conflict) and that run never
           # published its tree. Any branch's oldest active run of this commit
-          # owns it; main keeps its own build for latest/.
+          # owns it; main keeps its own build for latest/. Active means not
+          # completed: a run whose jobs already run can still read queued or
+          # pending (two runs pushed together each saw the other that way).
           if [[ "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" != refs/heads/main ]]; then
             same_sha_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$SHA&event=push&status=in_progress&per_page=100" \
+              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$SHA&event=push&per_page=100" \
               2>/dev/null || true)"
             if [[ -n "$same_sha_json" ]]; then
               while IFS=$'\t' read -r candidate_id candidate_branch; do
@@ -393,7 +395,7 @@ jobs:
                 if (( candidate_id < owner_run_id )); then
                   owner_run_id="$candidate_id"
                 fi
-              done < <(python3 -c 'import json,sys; sha=sys.argv[1]; [print("{}\t{}".format(run.get("id", ""), run.get("head_branch", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") == "in_progress" and run.get("head_sha") == sha]' "$SHA" <<<"$same_sha_json")
+              done < <(python3 -c 'import json,sys; sha=sys.argv[1]; [print("{}\t{}".format(run.get("id", ""), run.get("head_branch", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") != "completed" and run.get("head_sha") == sha]' "$SHA" <<<"$same_sha_json")
             fi
           fi
           if [[ "$owner_run_id" == "$RUN_ID" ]]; then
