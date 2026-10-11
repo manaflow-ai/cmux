@@ -27,6 +27,8 @@ const SESSION: &str = "acp_chat_1";
 enum Reply {
     Data(Value),
     Error(&'static str, String),
+    /// A refusal with `error_details`.
+    Detailed(&'static str, String, Value),
     /// The connection closes without an answer (a lost answer).
     Drop,
 }
@@ -76,6 +78,8 @@ fn serve_connection(
             Reply::Error(code, error) => {
                 json!({"id": request["id"], "ok": false, "error": error, "error_code": code})
             }
+            Reply::Detailed(code, error, details) => json!({"id": request["id"], "ok": false,
+                "error": error, "error_code": code, "error_details": details}),
             Reply::Drop => return,
         };
         if writeln!(writer, "{answer}").is_err() {
@@ -98,6 +102,8 @@ struct Source {
     begun: u32,
     committed: Option<String>,
     aborted: Vec<String>,
+    /// The next begin freezes the chat and its answer is lost.
+    lose_begin_answer: bool,
 }
 
 impl Source {
@@ -112,12 +118,21 @@ impl Source {
                 if self.committed.is_some() {
                     return Reply::Error("agent_transfer.unknown_tab", "closed".into());
                 }
-                if self.moving.is_some() {
-                    return refused("transfer.moving: this chat is already being moved");
+                if let Some(moving) = &self.moving {
+                    return Reply::Detailed(
+                        "agent_transfer.refused",
+                        "acpmux refused the request: transfer.moving: this chat is already \
+                         being moved"
+                            .into(),
+                        json!({"transfer_id": moving}),
+                    );
                 }
                 self.begun += 1;
                 let id = format!("xfer_{}", self.begun);
                 self.moving = Some(id.clone());
+                if std::mem::take(&mut self.lose_begin_answer) {
+                    return Reply::Drop;
+                }
                 let files: Vec<Value> = self
                     .files
                     .iter()
@@ -569,5 +584,37 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.aborted, ["xfer_1"]);
         assert!(source.moving.is_none());
+    }
+
+    #[test]
+    fn a_lost_begin_answer_is_resolved_by_a_rerun_that_moves_the_chat() {
+        let world = World::new(Target::default());
+        world.source.lock().unwrap().lose_begin_answer = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_1"));
+
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_2"));
+        // Nobody ever held the first move's manifest: the target never saw it.
+        assert_eq!(world.count("target:agent-transfer-receive"), 1);
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"]);
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+    }
+
+    #[test]
+    fn a_frozen_move_this_pump_never_began_is_left_alone() {
+        let world = World::new(Target::default());
+        world.source.lock().unwrap().moving = Some("xfer_other".into());
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_other"));
+        assert_eq!(world.count("source:agent-transfer-abort"), 0);
+        assert_eq!(world.count("target:agent-transfer-receive"), 0);
+        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_other"));
     }
 }

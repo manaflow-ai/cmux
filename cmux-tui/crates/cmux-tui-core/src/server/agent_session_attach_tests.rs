@@ -154,8 +154,13 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
         };
         if let Some(result) = reply {
             let frame = match result.get(FAKE_ERROR) {
-                Some(message) => json!({"jsonrpc":"2.0","id":id,
-                                        "error":{"code":-32000,"message":message}}),
+                Some(message) => {
+                    let mut error = json!({"code":-32000,"message":message});
+                    if let Some(data) = result.get(FAKE_ERROR_DATA) {
+                        error["data"] = data.clone();
+                    }
+                    json!({"jsonrpc":"2.0","id":id,"error":error})
+                }
                 None => json!({"jsonrpc":"2.0","id":id,"result":result}),
             };
             writeln!(writer, "{frame}").unwrap();
@@ -165,13 +170,16 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
 
 /// A fake answer carrying this key is sent as a JSON-RPC error.
 const FAKE_ERROR: &str = "__fake_error";
+/// The `data` of that error, when the fake answer carries one.
+const FAKE_ERROR_DATA: &str = "__fake_error_data";
 
 /// The fake's `_acpmux/transfer_*` answers: a receive whose manifest names
 /// [`UNGUARDED_CHAT`] is answered as an acpmux without the guard would, one
 /// whose manifest `transferId` is `xfer_many_<n>` gets receive id `rcv_<n>`,
 /// a finish named `exists` or `incomplete` fails as acpmux's would, a forget
 /// of move `xfer_landed` answers that its chat landed, and an abort of
-/// [`ABORT_FAILS_CHAT`] fails.
+/// [`ABORT_FAILS_CHAT`] fails, and a begin of [`MOVING_CHAT`] answers that
+/// it is being moved already, with that move's id as acpmux's error data.
 fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
     use base64::Engine as _;
     let base64 = base64::engine::general_purpose::STANDARD;
@@ -195,6 +203,10 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
             json!({FAKE_ERROR: "transfer.incomplete: \"events/0.ndjson\": 0 of 3"})
         }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
+        "_acpmux/transfer_begin" if params["sessionId"] == json!(MOVING_CHAT) => json!({
+            FAKE_ERROR: "transfer.moving: this chat is already being moved",
+            FAKE_ERROR_DATA: {"transferId": "xfer_frozen"},
+        }),
         "_acpmux/transfer_begin" => json!({
             "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
             "sessionId": params["sessionId"],
@@ -223,6 +235,8 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
     })
 }
 
+/// A chat the fake says is already being moved (move `xfer_frozen`).
+pub(super) const MOVING_CHAT: &str = "acp_moving_already";
 /// A chat whose move the fake refuses to abort.
 pub(super) const ABORT_FAILS_CHAT: &str = "acp_abort_fails";
 /// A bundle's `session.json` (acpmux `SessionMeta`), with the source
