@@ -91,7 +91,7 @@ USAGE
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [<path>...]
   cmux git files [TARGET] [--limit <n>] <query>...
-  cmux git ls [TARGET] [--limit <n>]
+  cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
     [--exclude <path,...>] [--reason manual|handoff|turn] [--max-bytes <n>]
     [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
@@ -130,7 +130,7 @@ characters in order (case-insensitive, spaces ignored), best first: tracked
 files and untracked files that are not ignored. At most --limit (50, up to
 200) are printed, relative to the folder searched.
 
-ls lists the immediate children of the target folder, as a file explorer
+list (or ls) lists the immediate children of the target folder, as a file explorer
 shows them: folders first, then files, by name. A child is listed when git
 knows a file at or under it (tracked, or untracked and not ignored); a
 submodule is a folder. At most --limit (2000, up to 5000) are printed.
