@@ -7040,6 +7040,41 @@
           "aliases": []
         },
         {
+          "id": "jumpToLastPrompt",
+          "title": {
+            "en": "Jump to Last Prompt",
+            "ar": "الانتقال إلى آخر موجّه",
+            "bs": "Idi na posljednji upit",
+            "da": "Gå til seneste prompt",
+            "de": "Zum letzten Prompt springen",
+            "es": "Ir al último prompt",
+            "fr": "Aller au dernier prompt",
+            "it": "Vai all’ultimo prompt",
+            "ja": "最後のプロンプトへ移動",
+            "km": "ទៅកាន់សំណើចុងក្រោយ",
+            "ko": "마지막 프롬프트로 이동",
+            "no": "Gå til siste ledetekst",
+            "pl": "Przejdź do ostatniego polecenia",
+            "pt-BR": "Ir para o último prompt",
+            "ru": "Перейти к последнему запросу",
+            "th": "ไปยังพรอมต์ล่าสุด",
+            "tr": "Son isteme git",
+            "uk": "Перейти до останнього запиту",
+            "vi": "Chuyển đến lời nhắc gần nhất",
+            "zh-CN": "跳转到最后的提示",
+            "zh-TW": "跳至最後的提示"
+          },
+          "shortcut": {
+            "key": "b",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "toggleUnread",
           "title": {
             "en": "Toggle Unread",
