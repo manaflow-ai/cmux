@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd960fe6dfbaffe0086711df457be64d1771a350b1faae367ce50e22ed47bb304'
+IR_SHA256 = 'fedcc7ed425fa53e217d5ecf048c0256fe9f900a7bd5b306bdb3c681c1c0dc89'
 
 
 @dataclass(frozen=True)
@@ -2461,6 +2461,17 @@ COMMANDS = {
         None,
         {
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'restart-tab': CommandMetadata(
+        'restart-tab',
+        'control',
+        12,
+        'tab-restart-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'run': CommandMetadata(

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d960fe6dfbaffe0086711df457be64d1771a350b1faae367ce50e22ed47bb304. */
+/* cmux-tui mux protocol 12, IR fedcc7ed425fa53e217d5ecf048c0256fe9f900a7bd5b306bdb3c681c1c0dc89. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d960fe6dfbaffe0086711df457be64d1771a350b1faae367ce50e22ed47bb304" as const;
+export const SDK_IR_SHA256 = "fedcc7ed425fa53e217d5ecf048c0256fe9f900a7bd5b306bdb3c681c1c0dc89" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2203,6 +2203,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "restart-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-restart-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "run": {
     "authority": "control",
@@ -20902,6 +20912,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ResolveTerminalResult"
+    }
+  },
+  "restart-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "aliases": [
+            "tab"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "TabRef"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "run": {

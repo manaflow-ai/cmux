@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d960fe6dfbaffe0086711df457be64d1771a350b1faae367ce50e22ed47bb304.
+// cmux-tui mux protocol 12, IR fedcc7ed425fa53e217d5ecf048c0256fe9f900a7bd5b306bdb3c681c1c0dc89.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2597,6 +2597,16 @@ pub struct ResolveTerminalRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RestartTabRequest {
+    #[serde(alias = "tab")]
+    pub surface: T::TabRef,
+}
+
+#[rustfmt::skip]
+pub type RestartTabResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RunRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4511,6 +4521,10 @@ impl CmuxClient {
 
     pub fn resolve_terminal(&mut self, request: ResolveTerminalRequest) -> Result<T::ResolveTerminalResult> {
         self.execute(&RESOLVE_TERMINAL_METADATA, &request)
+    }
+
+    pub fn restart_tab(&mut self, request: RestartTabRequest) -> Result<RestartTabResult> {
+        self.execute(&RESTART_TAB_METADATA, &request)
     }
 
     pub fn run(&mut self, request: RunRequest) -> Result<T::RunResult> {

@@ -3743,6 +3743,12 @@ class ResolveTerminalRequest:
 
 
 @dataclass(frozen=True)
+class RestartTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/restart-tab/request'
+    surface: TabRef
+
+
+@dataclass(frozen=True)
 class RunRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/run/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
@@ -5561,6 +5567,7 @@ __all__ = [
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
+    'RestartTabRequest',
     'RunRequest',
     'SaveScreenGroupRequest',
     'SaveTabGroupRequest',

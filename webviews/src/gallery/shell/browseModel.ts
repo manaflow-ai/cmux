@@ -7,10 +7,16 @@ export type BrowseItem = {
 };
 
 export type BrowseKind = "all" | "static" | "motion";
+export type BrowseMode = "entries" | "variants";
 
 /** Whether an entry has a recorded play sequence in any of its variants. */
 export function browseHasMotion(entry: GalleryEntry): boolean {
   return Object.values(entry.variants).some((variant) => Boolean(variant.play));
+}
+
+/** Whether the concrete card variant has a recorded play sequence. */
+export function browseItemHasMotion(item: BrowseItem): boolean {
+  return Boolean(item.entry.variants[item.variant]?.play);
 }
 
 /** Advance a card to the next real variant, wrapping so a cycle never invents a state. */
@@ -40,8 +46,11 @@ export function browseVariant(entry: GalleryEntry): string | undefined {
 }
 
 /** Stable card data for ready registry entries. Empty entries cannot produce a useful stage. */
-export function browseItems(entries: readonly GalleryEntry[]): BrowseItem[] {
+export function browseItems(entries: readonly GalleryEntry[], mode: BrowseMode = "entries"): BrowseItem[] {
   return entries.flatMap((entry) => {
+    if (mode === "variants") {
+      return Object.keys(entry.variants).map((variant) => ({ entry, variant }));
+    }
     const variant = browseVariant(entry);
     return variant ? [{ entry, variant }] : [];
   });
@@ -52,7 +61,9 @@ export function browseMatches(item: BrowseItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
   const variants = Object.keys(item.entry.variants).join(" ");
-  return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${variants}`.toLowerCase().includes(needle);
+  return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${variants} ${item.variant}`
+    .toLowerCase()
+    .includes(needle);
 }
 
 /** Prefer the first variant named by a query so a filtered card shows the state being searched for. */
@@ -68,14 +79,34 @@ export function filterBrowseItems(
   entries: readonly GalleryEntry[],
   query: string,
   kind: BrowseKind = "all",
+  mode: BrowseMode = "entries",
 ): BrowseItem[] {
-  return browseItems(entries)
+  const needle = query.trim().toLowerCase();
+  const variantQuery =
+    mode === "variants" && needle
+      ? new Set(
+          entries.flatMap((entry) =>
+            Object.keys(entry.variants).filter((variant) => variant.toLowerCase().includes(needle)),
+          ),
+        )
+      : undefined;
+  return browseItems(entries, mode)
     .filter(
       (item) =>
         browseMatches(item, query) &&
-        (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
+        (!variantQuery || variantQuery.size === 0 || variantQuery.has(item.variant)) &&
+        (kind === "all" ||
+          (kind === "motion"
+            ? mode === "variants"
+              ? browseItemHasMotion(item)
+              : browseHasMotion(item.entry)
+            : mode === "variants"
+              ? !browseItemHasMotion(item)
+              : !browseHasMotion(item.entry))),
     )
-    .map((item) => ({ ...item, variant: browseMatchedVariant(item, query) ?? item.variant }));
+    .map((item) =>
+      mode === "entries" ? { ...item, variant: browseMatchedVariant(item, query) ?? item.variant } : item,
+    );
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */
