@@ -25,7 +25,9 @@ struct ThemedDialogControlsTests {
         row.frame = NSRect(x: 0, y: 0, width: 380, height: 28)
         row.isSelected = true
         row.isEmphasized = true
-        #expect(Self.isNeutral(Self.pixel(row, x: 370, y: 14)))
+        let fill = try #require(Self.pixel(row, x: 370, y: 14))
+        #expect(fill.alphaComponent > 0)
+        #expect(Self.isNeutral(fill))
     }
 
     /// Low chroma: a theme gray, not the system accent's blue.

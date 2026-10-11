@@ -65,8 +65,8 @@ struct BookmarkEditView: View {
         }
         .padding(Metrics.space5)
         .frame(width: Metrics.paletteWidth * 0.5)
-        // Default buttons in the theme's accent, never the system blue (cx-wqn5).
-        .tint(Color(nsColor: Palette.accent))
+        // The default button in the theme's selection fill, never the system blue (cx-wqn5).
+        .tint(model.colors.selection)
         .onAppear { nameFocused = true }
     }
 }

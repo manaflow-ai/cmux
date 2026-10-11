@@ -115,7 +115,7 @@ final class MachineBrowserPageTab: BrowserTab {
 final class MachineBrowserStateView: NSView {
     private let message = NSTextField(wrappingLabelWithString: "")
     private let queued = NSTextField(wrappingLabelWithString: "")
-    let openLocallyButton = NSButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
+    let openLocallyButton = ThemedDefaultButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
     private let retryButton = NSButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
     var onOpenLocally: (() -> Void)?
     var onRetry: (() -> Void)?
@@ -134,7 +134,6 @@ final class MachineBrowserStateView: NSView {
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
         openLocallyButton.keyEquivalent = "\r"
-        openLocallyButton.useThemeDefaultBezel()
         retryButton.target = self
         retryButton.action = #selector(retryPressed)
         let buttons = NSStackView(views: [retryButton, openLocallyButton])

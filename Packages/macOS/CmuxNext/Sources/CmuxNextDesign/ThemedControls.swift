@@ -12,14 +12,33 @@ public final class ThemedTableRowView: NSTableRowView {
     public override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
         let rect = bounds.insetBy(dx: Metrics.space1, dy: 1)
-        Palette.selectionFill.setFill()
+        performWithTheme { Palette.selectionFill }.setFill()
         NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
     }
 }
 
-extension NSButton {
-    /// The Return (default) button in the theme's selection fill instead of the system accent.
-    public func useThemeDefaultBezel() {
-        bezelColor = Palette.selectionFill
+/// A dialog's Return (default) button in its scope's selection fill instead of the system accent
+/// (cx-wqn5), re-resolved when it moves into a window and on every theme change.
+public final class ThemedDefaultButton: NSButton {
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        applyTheme()
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTheme()
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
+    }
+
+    private func applyTheme() {
+        bezelColor = performWithTheme { Palette.selectionFill }
     }
 }
