@@ -12,11 +12,11 @@
   display: grid;
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .acpmux-composer-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
-  font-size: 14px;
+  font-size: var(--text-title);
   font-weight: 600;
 }
