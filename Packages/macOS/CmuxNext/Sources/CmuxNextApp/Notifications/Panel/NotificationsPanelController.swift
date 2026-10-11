@@ -174,7 +174,10 @@ final class NotificationsPanelController {
         card.select(selection.index(in: rows))
         guard let panel, panel.isVisible else { return }
         let top = panel.frame.maxY
-        panel.setFrame(NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height), display: true)
+        let frame = NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height)
+        guard frame != panel.frame else { return }
+        panel.setFrame(frame, display: true)
+        motion.resized(panel)
     }
 
     // MARK: Actions
@@ -206,7 +209,8 @@ final class NotificationsPanelController {
 
     /// Escape closes; Up and Down select; Return opens; Delete dismisses.
     private func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+        // A closing panel that kept the keys (no visible window to hand them to) takes none.
+        guard isShown, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
         let selected = selection.index(in: rows).map { rows[$0] }
         switch event.keyCode {
         case 53:
