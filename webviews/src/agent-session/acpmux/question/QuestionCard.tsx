@@ -220,6 +220,7 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
                 key={option.id}
                 type="button"
                 className="acpmux-question-row"
+                data-focus-ring="row"
                 role={multi ? "checkbox" : "radio"}
                 aria-checked={chosen}
                 aria-keyshortcuts={key}
@@ -331,6 +332,7 @@ function OtherRow({
     <button
       type="button"
       className="acpmux-question-row acpmux-question-other-choice"
+      data-focus-ring="row"
       role={multi ? "checkbox" : "radio"}
       aria-checked={chosen}
       aria-keyshortcuts={key}
