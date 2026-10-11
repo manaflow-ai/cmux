@@ -170,12 +170,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 mainMenu: .file
             ),
             // Hint mode (cx-zjtn.1): label every clickable control in the
-            // window, type a label to click it. A preview feature for now.
+            // window, type a label to click it. A preview feature for now;
+            // its key is the leader chord Cmd-J F (LeaderLayer).
             ActionDescriptor(
                 id: "hints.show",
                 title: String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module),
                 keywords: ["hint", "vimium", "keyboard", "click", "jump", "label"],
-                defaultShortcut: Shortcut("j", modifiers: [.command]),
                 category: .window, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard]
             ),
             ActionDescriptor(

@@ -42,8 +42,9 @@ enum WindowHintTargets {
                 guard !remoteViewNames.contains(where: name.contains) else { continue }
             }
             guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
+            // Only controls report enabled; custom rows and tabs leave it unset.
             if element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
-               element.isAccessibilityEnabled() {
+               (element as? NSControl)?.isEnabled ?? true {
                 let rect = window.convertFromScreen(element.accessibilityFrame()).intersection(bounds)
                 let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
                 if rect.width >= 4, rect.height >= 4, seen.insert(key).inserted {
