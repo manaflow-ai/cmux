@@ -137,4 +137,10 @@ public nonisolated struct AgentPaneGitFailure: Error, Equatable, Sendable {
     public static let invalidRequest = AgentPaneGitFailure(native: "native.invalid_request")
     /// Anything else, such as a result that is not JSON.
     public static let failed = AgentPaneGitFailure(native: "native.failed")
+    /// A commit or push for a pane with no session, or whose session has no
+    /// folder on this Mac (another machine's chat); never sent.
+    public static let noSessionFolder = AgentPaneGitFailure(native: "native.no_session_folder")
+    /// A commit or push built on a status read for another session than the
+    /// pane's; never sent.
+    public static let sessionChanged = AgentPaneGitFailure(native: "native.session_changed")
 }

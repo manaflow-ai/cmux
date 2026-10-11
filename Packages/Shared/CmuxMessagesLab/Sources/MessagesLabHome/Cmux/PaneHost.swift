@@ -545,8 +545,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
-        if thread.escape() { return }
-        if isWorking { onStop?() }
+        // In the field a working agent stops first (one Esc), as before threads; then the
+        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
+        if isWorking { onStop?(); return }
+        _ = thread.escape()
     }
 
     // MARK: Drops

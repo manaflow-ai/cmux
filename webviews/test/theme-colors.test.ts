@@ -4,6 +4,8 @@
 //   translucent window, so labels on a filled button vanished;
 // - an element filled or ringed with that clear page background (a pill over a rule, an avatar's
 //   cut-out ring), so it vanished over a see-through window;
+// - a ring, pill or glyph in the theme's surface token, which is translucent in a see-through
+//   window, instead of the opaque page color;
 // - a literal color (a fixed yellow find highlight, a white popup edge). Files not yet migrated
 //   are listed in theme-colors.pending.json with their count, which may only go down.
 import { describe, expect, test } from "bun:test";
@@ -119,13 +121,24 @@ describe("page colors follow the theme", () => {
 
   test("an element never fills or rings itself with the clear page background", () => {
     // The page's own background (`html`, a root alias) may read it; an element takes the opaque
-    // surface (`--cmux-surface-token`).
+    // page color (`--cmux-surface-solid`).
     const pageFill = /^\s*background:\s*var\(--cmux-surface-background,\s*transparent\)/;
     const alias = /^\s*--[\w-]+:\s*var\(--cmux-surface-background\b/;
     const found = pageCSS.flatMap((file) =>
       lines(file)
         .filter(({ text }) => /var\(--cmux-surface-background\b/.test(text))
         .filter(({ text }) => !pageFill.test(text) && !alias.test(text))
+        .map(({ where, text }) => `${where} ${text.trim()}`),
+    );
+    expect(found).toEqual([]);
+  });
+
+  test("a ring, pill or glyph on a fill takes the opaque page color", () => {
+    // `--cmux-surface-token` carries the theme's background-opacity and ignores a page's own
+    // background, so a ring over a rule let the rule through; `--cmux-surface-solid` is opaque.
+    const found = pageCSS.flatMap((file) =>
+      lines(file)
+        .filter(({ text }) => /var\(--cmux-surface-token\b/.test(text))
         .map(({ where, text }) => `${where} ${text.trim()}`),
     );
     expect(found).toEqual([]);

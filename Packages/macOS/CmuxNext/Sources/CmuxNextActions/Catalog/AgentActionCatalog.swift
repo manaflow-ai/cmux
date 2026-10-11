@@ -115,6 +115,65 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // This action opens its GUI approval checklist, without writing.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // Search Files… (Cmd-P, as in the Codex app, cx-ncc.69): the chat folder's files, and a
+            // pick mentions one in the prompt. Only while an agent chat has the keyboard; elsewhere
+            // Cmd-P stays Go to Workspace. Scripts call `file.search` on the page's host instead.
+            ActionDescriptor(
+                id: "agentPane.searchFiles",
+                title: String(localized: "action.agentPane.searchFiles", defaultValue: "Search Files…", bundle: .module),
+                keywords: ["agent", "chat", "file", "files", "search", "find", "mention", "open", "quick"],
+                defaultShortcut: Shortcut("p", modifiers: [.command]),
+                category: .agents, symbol: "doc.text.magnifyingglass", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            // Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app
+            // (cx-ncc.72). Only while an agent chat has the keyboard. Archive runs the chat menu's
+            // Archive; scripts use `cmux acp` and the chat's own transcript instead.
+            ActionDescriptor(
+                id: "agentPane.copyLastCodeBlock",
+                title: String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module),
+                keywords: ["agent", "chat", "code", "block", "copy", "snippet", "answer", "reply"],
+                defaultShortcut: Shortcut(";", modifiers: [.command, .option]),
+                category: .agents, symbol: "doc.on.clipboard", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.archiveChat",
+                title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),
+                keywords: ["agent", "chat", "archive", "hide", "close", "done"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
+                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.git.commit",
+                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit changes…", bundle: .module),
+                keywords: ["agent", "git", "commit", "changes", "stage", "message"],
+                category: .agents, symbol: "checkmark.circle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The session host owns `cmux git commit` (git.commit); this
+                // action opens the changes view's commit form for that op.
+                // Palette only, as the other agentPane actions: no default
+                // shortcut (no free chord that means commit in a terminal-
+                // first app), and no menu-bar or right-click item, because
+                // it acts on the focused chat's changes view, which has no
+                // menu of its own. The toolbar button is its other entrypoint.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "agentPane.git.push",
+                title: String(localized: "action.agentPane.git.push", defaultValue: "Push branch", bundle: .module),
+                keywords: ["agent", "git", "push", "upload", "remote", "branch", "upstream"],
+                category: .agents, symbol: "arrow.up.circle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The session host owns `cmux git push` (git.push); this runs
+                // the changes view's Push button, which never forces. Palette
+                // only, for the reasons given for agentPane.git.commit.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
