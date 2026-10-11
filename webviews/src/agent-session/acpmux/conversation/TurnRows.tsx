@@ -9,6 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
+import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
@@ -61,9 +62,7 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <div className="cv-tool cv-thought" key={index}>
-          <span className="cv-tool__text">{group.item.text}</span>
-        </div>
+        <ThoughtRow key={index} item={group.item} />
       );
   }
 }
