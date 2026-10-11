@@ -26,7 +26,21 @@ extension UpdaterService {
         let wasRequired = requiredMinimumVersion
         managedChannel = channel.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
         managedMinimumVersion = minimumVersion?.trimmingCharacters(in: .whitespaces)
+        applyDownloadPolicy()
         if requiredMinimumVersion != wasRequired { recheckRequiredUpdate() }
+    }
+
+    /// The running app follows another channel than `UpdateChannel` names (a
+    /// NIGHTLY app under `stable`): its own feed's updates do not download by
+    /// themselves; the channel switch is the way to the managed channel. RC
+    /// builds count as stable; DEV builds follow no channel.
+    var isOffManagedChannel: Bool {
+        guard let managedChannel else { return false }
+        switch identity.track {
+        case .stable, .rc: return managedChannel != .stable
+        case .nightly: return managedChannel != .nightly
+        case .development: return false
+        }
     }
 
     /// Shows the required update again (app activation, Sparkle start) while

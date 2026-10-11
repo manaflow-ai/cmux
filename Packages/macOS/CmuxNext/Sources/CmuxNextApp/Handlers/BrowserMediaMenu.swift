@@ -36,6 +36,10 @@ enum BrowserMediaMenu {
             title: title, subtitle: subtitle, media: media, artwork: tab.favicon,
             onCommand: { [weak tab] command in
                 guard let tab else { return }
+                // A muted tab's media stays muted until the tab unmutes.
+                if command == .toggleMute, tab.state.isAudioMuted, let muting = tab as? any BrowserAudioMuting {
+                    return muting.setAudioMuted(false)
+                }
                 Task { await tab.media(command) }
             },
             onReveal: { [weak registry] in

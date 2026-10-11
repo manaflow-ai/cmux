@@ -15,6 +15,7 @@ enum WorkspaceGroupHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindEdits(registry, context)
         bindMembers(registry, context)
+        WorkspaceGroupPlaces.bind(into: registry, context: context)
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
                       run: { _ in selectGroup(context, offset: 1) })
         registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
@@ -38,7 +39,12 @@ enum WorkspaceGroupHandlers {
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
-            try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
+            let sidebar = try context.sidebar(), ids = [SidebarWorkspaceID(workspace.id)]
+            // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
+            guard SidebarEdits.canMove(ids, toGroup: sidebarID(group), in: sidebar.model.sections) else {
+                throw ActionFailure(message: RefusalStrings.groupOnAnotherMachine)
+            }
+            sidebar.handle(.move(ids, toGroup: sidebarID(group)))
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
@@ -205,7 +211,7 @@ enum WorkspaceGroupHandlers {
     }
 
     /// The workspaces of the targeted group.
-    private static func members(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
+    static func members(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
         let id = try context.group(invocation).id
         return context.workspaces(inPersonalGroup: id)
     }

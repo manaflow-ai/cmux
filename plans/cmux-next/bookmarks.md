@@ -121,28 +121,36 @@ All are editable in the palette's shortcut recorder and in cmux.json.
 
 ## 4. Extensions
 
-`chrome.bookmarks` in the CEF Chrome runtime works today against Chromium's
-own per-profile `BookmarkModel` (extensions-matrix.md: create, search and
-remove pass, with Chromium's "Bookmarks Bar" and "Other Bookmarks"). That
-model is not cmux's: an extension sees a separate, empty tree, and its
-changes never reach cmux. The fork owner confirmed (2026-09-30) that no
-routing exists and that it is not in this wave.
+`chrome.bookmarks` shows cmux's bookmarks: Chromium's per-profile
+`BookmarkModel` is a cache of cmux's tree, kept in sync both ways (fork API
+22, manaflow-ai/cef#17; cx-d0d.37).
 
-Follow-up for the fork (accepted approach: two-way sync, Chromium's model
-as a cache):
-
-- Shim: a `BookmarkModelObserver` per profile forwards node added, changed
-  (title, url), moved (parent, index) and removed to the host with
-  Chromium's node id; a host API applies cmux operations to the model
-  (add folder/url at parent+index with a given GUID, set title/url, move,
-  remove) without echoing them back.
-- Fields: cmux id <-> Chromium node GUID (cmux keeps a per-profile map;
-  creating from cmux sets the GUID from the `bm_` id), roots `bar` <->
-  `bookmark_bar_node`, `other` <-> `other_node` (`mobile_node` stays empty
-  and hidden), kind folder/url, title, url, index, date added.
-- Start: on profile load the host replaces Chromium's tree with cmux's
-  (cmux wins at startup). After that, last writer wins per node; a delete on
-  either side wins over a concurrent edit.
+- Fork: `cmux_bookmarks_sync(profile, tree)` makes the local Bookmarks bar
+  and Other bookmarks equal to cmux's tree with the fewest model operations,
+  so extensions get `onCreated`, `onChanged`, `onMoved` and `onRemoved` only
+  for real differences. `cmux_bookmarks_observe` reports every other change
+  (added with its subtree, changed, moved, removed, reordered, reset, and
+  "loaded" when the model is ready). Changes made by a sync are not
+  reported, so nothing echoes. Mobile and managed bookmarks and account
+  storage are left alone.
+- Ids: a cmux id `bm_<32 hex>` is that UUID in Chromium, so no map is kept.
+  Roots: `bar` is `bookmark_bar_node`, `other` is `other_node`.
+- Stores: every persistent Chromium profile of a cmux profile (its own and
+  its remote-localhost stores) is synced. Incognito contexts read the regular
+  profile's model in Chromium.
+- Start: a store syncs when its model loads, and only once cmux's tree for
+  that profile is loaded (the daemon's reply or the file), so cmux wins at
+  startup and a placeholder never empties Chromium's model. An extension
+  change that arrives before then is dropped by that first sync.
+- After that, cmux syncs a profile's stores after every change of its tree,
+  and an extension's change is applied to cmux as an ordinary operation
+  (create with the node's id, update, move, delete). An operation cmux
+  refuses (for example a URL cmux does not accept) is undone in Chromium by
+  syncing that store again. An extension's new bookmark does not change the
+  folder the star uses next.
+- Engines without the bridge (fork API < 22) keep Chromium's own tree, as
+  before. The extension suite (`ext_e2e/bookmark_bridge.py`) records the
+  checks as unsupported there.
 
 ## 5. Places (terminal locations): left out
 
@@ -187,7 +195,8 @@ reorder on the bar and in the manager, the bubble's Remove and folder change.
 
 Favicons on the bar and in its menus: the site's icon (an open tab's on the
 bookmark's origin, else the origin's `/favicon.ico`); a bar drawn while one
-loads redraws when it lands. Not built: Chromium's `chrome.bookmarks` bridge
-(section 4), bookmark rows in incognito omnibars, Bookmark All Tabs across
-every pane of a window (it takes the focused pane), a dedicated sync with
-other Macs.
+loads redraws when it lands. Bookmark All Tabs saves every pane of the
+window (#19071). An incognito omnibar offers the default profile's bookmarks
+(scripts/cmux-next/bookmarks-incognito-omnibar-live.py). The
+`chrome.bookmarks` bridge is built (section 4) and ships with fork API 22.
+Not built: a dedicated sync with other Macs.

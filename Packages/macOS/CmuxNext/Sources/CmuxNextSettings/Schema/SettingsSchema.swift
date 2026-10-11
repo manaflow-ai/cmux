@@ -150,6 +150,7 @@ public nonisolated enum SettingsSchema {
             ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.newTabTemplate(group: tabs),
+            TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),

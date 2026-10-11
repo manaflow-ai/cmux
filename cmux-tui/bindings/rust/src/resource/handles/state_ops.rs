@@ -28,8 +28,9 @@ mod workspace_groups;
 mod workspace_update;
 
 pub use closed::{
-    ClosedItemSnapshot, ClosedListOptions, ClosedMemberRecord, ClosedReopenOptions,
-    ClosedReopenResult, ClosedScreenRecord, ClosedTabRecord,
+    ClosedDeleteResult, ClosedDeleteTarget, ClosedItemSnapshot, ClosedListOptions,
+    ClosedMemberRecord, ClosedReopenOptions, ClosedReopenResult, ClosedScreenRecord,
+    ClosedTabRecord,
 };
 pub use column_update::{ColumnEdge, ColumnMode};
 pub use home::CONVERSATION_TABS_CAPABILITY;

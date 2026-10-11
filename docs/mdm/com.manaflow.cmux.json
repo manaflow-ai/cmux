@@ -158,6 +158,22 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.accent" : {
+      "default" : "neutral",
+      "description" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
+      "enum" : [
+        "neutral",
+        "theme",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "title" : "Accent",
+      "type" : "string"
+    },
     "appearance.appTheme" : {
       "default" : "followTerminal",
       "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
@@ -2081,6 +2097,16 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.newTabPosition" : {
+      "default" : "end",
+      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "enum" : [
+        "end",
+        "afterCurrent"
+      ],
+      "title" : "New Tab Position",
       "type" : "string"
     },
     "tabs.newTabTemplate" : {

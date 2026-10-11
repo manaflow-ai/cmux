@@ -61,6 +61,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var isUnresponsive: Bool
     /// What the page plays (`BrowserMediaState+Scripts`); nil when nothing.
     public var media: BrowserMediaState?
+    /// The tab is muted (`BrowserAudioMuting`); kept across navigations.
+    public var isAudioMuted = false
 
     public init(
         url: URL? = nil,

@@ -170,6 +170,21 @@ Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace
 
 **Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T follows the tab bar: it opens a tab in a pane that shows it, and a new workspace from one that hides it. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
+## `tabs.newTabPosition`
+
+Where Cmd-T and the + button put a new tab.
+
+```json
+{
+  "tabs": { "newTabPosition": "afterCurrent" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, as in Chrome and Edge.
+- `"afterCurrent"`: right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition afterCurrent`.
+
 ## `tabs.newTabTemplate`
 
 The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.

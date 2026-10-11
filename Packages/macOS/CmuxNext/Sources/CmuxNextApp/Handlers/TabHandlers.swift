@@ -24,6 +24,7 @@ enum TabHandlers {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
         registry.bind("newTab.default", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind("newTab.ofKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, followsSetting: false) })
+        registry.bind("newTab.toRight", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, toRight: true) })
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
         registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
@@ -51,9 +52,8 @@ enum TabHandlers {
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             if let tab = pane.tab(id), tab.kind == .browser {
-                // Same engine as the original (cookies live in one engine).
-                let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
-                pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
+                // Same engine as the original (cookies live in one engine), next to it, with its history.
+                BrowserTabDuplicate(pane: pane).open(tab)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
             } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {

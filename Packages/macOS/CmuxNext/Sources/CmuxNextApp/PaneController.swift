@@ -152,18 +152,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 // A browser tab names the machine whose localhost it sees.
                 let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
                 let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
-                item.machineBadge = badge?.text
-                item.machineBadgeHelp = badge?.help
+                (item.machineBadge, item.machineBadgeHelp) = (badge?.text, badge?.help)
                 // Incognito tabs have only a placeholder record in the daemon.
                 let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
                 if incognito {
                     let live = services.cache.incognitoDisplay(tab)
-                    item.title = live.title ?? Strings.untitledBrowser
-                    item.subtitle = live.url
+                    (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url)
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
+                    if services.cache.pageRequests.titleAttention.marks(tab, selected: stripModel.selectedID?.rawValue == tab.id, in: services.cache) { item.isUnread = true }
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
+                item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
             }
             TabItemMapping.shared.applyUserIcon(tab, to: &item)
             return item

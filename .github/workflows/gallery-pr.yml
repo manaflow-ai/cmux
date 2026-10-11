@@ -186,7 +186,7 @@ jobs:
         with:
           name: gallery-stage-${{ matrix.stage }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/evidence
-          retention-days: 14
+          retention-days: 1  # only the compare job in this run reads the stages
 
   compare:
     needs: render
@@ -220,6 +220,10 @@ jobs:
           for stage in base head repeat; do
             mkdir -p "$evidence/runs/$stage"
             jq -s 'add' "$evidence"/runs/$stage/shard-*/results.json > "$evidence/runs/$stage/results.json"
+            # The comparer reads screenshots beside results.json. Downloaded shard artifacts
+            # keep each PNG under shard-N/, so flatten those files before pairing base/head.
+            find "$evidence"/runs/$stage/shard-* -maxdepth 1 -type f ! -name results.json \
+              -exec cp {} "$evidence/runs/$stage/" \;
           done
 
       - name: Compare

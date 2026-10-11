@@ -313,7 +313,7 @@ public final class AgentPaneModel {
             onOpenChatInTerminal(key)
             return AgentPaneReply.success()
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .tabState, .archive, .sideChat: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .archive, .sideChat: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

@@ -27,6 +27,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case unresponsiveChanged(Bool)
     /// The page's media report (`BrowserMediaState+Scripts`); nil when it stopped.
     case mediaChanged(BrowserMediaState?)
+    /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
+    case audioMutedChanged(Bool)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -171,6 +173,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .mediaChanged(let media):
             state.media = media
+
+        case .audioMutedChanged(let muted):
+            state.isAudioMuted = muted
         }
     }
 

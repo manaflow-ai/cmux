@@ -15,7 +15,7 @@ enum BubblePath {
         if let p = cache[k] { return p }
         if cache.count > 2000 { cache.removeAll() }
         let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail).cgPath
-        cache.updateValue(p, forKey: k) /* cmux */
+        cache.updateValue(p, forKey: k)
         return p
     }
     static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius) -> UIBezierPath {
@@ -130,7 +130,7 @@ enum Glass {
         let white = UIColor.white
         let space = CGColorSpace(name: CGColorSpace.sRGB)
         for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
-            // cmux: no force unwraps (crash program); an empty rim or a failed gradient draws nothing.
+            // no force unwraps ; an empty rim or a failed gradient draws nothing.
             guard let span = stops.last?.0 else { continue }
             let g = CGGradient(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor } as CFArray,
                                locations: stops.map { $0.0 / span })

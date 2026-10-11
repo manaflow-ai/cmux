@@ -3,7 +3,7 @@
 
 Each round starts from nothing: no Chief home (`~/.cmux/chief/isolated/<tag>`,
 which holds the conversation owner's store, the brain's memory and acpmux),
-no Home cache, no app. It launches the tagged app (no-activate, scratch
+no app, and no Home cache unless --keep-cache. It launches the tagged app (no-activate, scratch
 config), opens Home, and sends one message through the Home composer
 (`debug.home.drive` focus, type, send) as soon as the composer exists, while
 the Chief owner and the brain host are still starting. The round passes when
@@ -15,7 +15,7 @@ which ends the app, the Chief host, its acpmux and the owner daemon.
 
 Prints one row per round and a total; exits 0 only when every round passed.
 
-Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--out DIR]
+Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--keep-cache] [--out DIR]
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 
@@ -29,6 +29,10 @@ parser.add_argument("--mode", choices=("immediate", "settled", "both"), default=
                     help="immediate: send as soon as the composer exists; settled: send as chief-subagents-live.py's"
                          " first ask does (the Chief conversation listed, the host connected, its tools socket up,"
                          " 10 s, window snapshots each second); both: alternate, odd rounds immediate")
+parser.add_argument("--keep-cache", action="store_true",
+                    help="keep the app's Home cache (~/Library/Caches/cmux-home/<owner>) between rounds, as a user's"
+                         " Mac does when the Chief home is made again at the same path (cx-ebm.55); from round 2 on"
+                         " the cache names the previous round's Chief conversation")
 opts = parser.parse_args()
 
 TAG = opts.tag
@@ -149,7 +153,7 @@ def end_round(app, cache):
             pass
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    if cache:
+    if cache and not opts.keep_cache:
         shutil.rmtree(os.path.dirname(cache), ignore_errors=True)
 
 
@@ -203,7 +207,7 @@ def one_round(n, env):
             return False, "the app's control socket never answered", None
         rpc("action.run", {"id": "home.show"})
         # Send as soon as the composer exists: the owner and the brain host may still be starting.
-        if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 120):
+        if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 240):
             return False, f"no Home composer: {json.dumps(rpc('debug.home'))[:600]}", None
         if settled:
             settle(n, stop)
@@ -215,6 +219,26 @@ def one_round(n, env):
             drive = rpc("debug.home.drive", {"action": action, **extra}) or {}
             if not drive.get("ok"):
                 break
+        waited = ""
+        if not drive.get("ok") and str(drive.get("refused", "")).startswith("waiting_for_owner"):
+            # Only the cache knew the shown conversation: the app keeps the text and sends it once
+            # the owner confirms that conversation. When the owner has another one (a Chief home
+            # made again), Home moves to the live Chief with the text, and the user presses Return
+            # there, as this does once (cx-ebm.55).
+            shown = [(rpc("debug.home") or {}).get("page", {}).get("shown")]
+            pressed = []
+
+            def delivered_or_moved():
+                if logged(text):
+                    return True
+                now = (rpc("debug.home") or {}).get("page", {}).get("shown")
+                if now and now != shown[0] and not pressed:
+                    pressed.append(rpc("debug.home.drive", {"action": "send"}) or {})
+                    shown[0] = now
+                return False
+            wait(delivered_or_moved, 60, step=0.5)
+            waited = f"waited for the owner ({'pressed Return again in ' + str(shown[0]) + ': ' + json.dumps(pressed[0])[:80] if pressed else 'sent by itself'}); "
+            drive = {"ok": True}
         sent_at = time.time() - started
         home = rpc("debug.home") or {}
         cache = (home.get("chief_owner") or {}).get("cache")
@@ -227,7 +251,7 @@ def one_round(n, env):
         reached_at = time.time() - started
         home = rpc("debug.home") or {}
         cache = (home.get("chief_owner") or {}).get("cache") or cache
-        detail = (f"{'settled' if settled else 'immediate'}: composer {shown_at:.1f}s, send {sent_at:.1f}s, "
+        detail = (f"{waited}{'settled' if settled else 'immediate'}: composer {shown_at:.1f}s, send {sent_at:.1f}s, "
                   f"in the brain's log x{count} by {reached_at:.1f}s; at the send {json.dumps(before)}")
         if count == 1:
             return True, detail, cache

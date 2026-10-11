@@ -23,6 +23,22 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.newTabPosition`: where Cmd-T and the strip's + put the new tab (cx-d0d.58).
+    static func newTabPosition(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NewTabPosition.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position"),
+            help: SettingsText.keyed("settings.tabs.newTabPosition.help",
+                                    "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
+            kind: .choice([
+                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+                SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+            ]),
+            default: .string(NewTabPosition.fallback.rawValue),
+            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "insert"]
+        )
+    }
+
     /// `tabs.newTabTemplate`: which New Tab page template shows (the page's dots also set it).
     static func newTabTemplate(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(

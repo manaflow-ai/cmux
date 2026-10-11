@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896. */
+/* cmux-tui mux protocol 12, IR 6b5b223c9e49e7dbf1a3a78185e07970f6efa2e25ca37a64eae363929ea39260. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896" as const;
+export const SDK_IR_SHA256 = "6b5b223c9e49e7dbf1a3a78185e07970f6efa2e25ca37a64eae363929ea39260" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3090,6 +3090,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-presence-changed": {
+    "since": 12,
+    "capability": "agent-presence-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -3711,6 +3719,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "AgentPresenceActivity": {
+    "kind": "enum",
+    "values": [
+      "thinking",
+      "editing",
+      "reading",
+      "running",
+      "browsing",
+      "computer_use",
+      "waiting"
+    ]
   },
   "AgentRecord": {
     "additional_properties": false,
@@ -23625,6 +23645,91 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "updated_at_ms": {
         "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-presence-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "description": "What the agent is doing now; null clears the surface's presence and every other field is then null.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentPresenceActivity"
+        }
+      },
+      "agent": {
+        "description": "Adapter identity (claude, codex, ...).",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-presence-changed"
+        }
+      },
+      "line": {
+        "description": "The 1-based line the tool call targets, when the tool input names one.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "path": {
+        "description": "The file the tool call targets, when the tool input names one.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "description": "The agent's portable session id, a stable identity for colour.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "tool": {
+        "description": "The native tool name of the current or last tool call.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_at_ms": {
+        "description": "When the hook observed the event; null on clear.",
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",

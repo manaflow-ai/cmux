@@ -9,23 +9,29 @@ struct SidebarGroupLine: Equatable {
     var color: GroupTint
 }
 
-// The members' line (the Chrome tab group line): ONE layer per open group in
-// the decoration view under the rows, from under the header bar to the end
-// of the last member row. Per-row pieces left gaps at the row spacing and
+// The members' line (the Chrome tab group line): ONE view per open group
+// under the rows (SidebarGroupLineViews), from under the header bar to the
+// end of the last member row. Per-row pieces left gaps at the row spacing and
 // under the header (cx-qno.17 proof), so the line is drawn per group.
 extension SidebarListView {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
-    /// group's line goes with its card (SidebarListLift).
-    func groupLines(_ layout: SidebarLayout) -> [SidebarGroupLine] {
-        Self.groupLines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups) { frame(for: $0) }
+    /// group's line goes with its card (SidebarListLift). `current` places
+    /// each row where its view is now, the animation's start, so a new line
+    /// starts over its rows and moves with them (cx-ai79).
+    func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
+        SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups) { row in
+            current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
+        }
     }
+}
 
+extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from the
     /// header's middle (the opaque header bar covers the top) to the last
     /// member row's bottom, rounded off just above it, in the members'
     /// gutter (`SidebarStyle.groupGutter`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
-    static func groupLines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
+    static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
         var last: [GroupID: SidebarRow] = [:]
         for row in rows {

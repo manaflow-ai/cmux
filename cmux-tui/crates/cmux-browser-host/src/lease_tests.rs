@@ -32,6 +32,7 @@ fn caller_of(step: &Value) -> LeaseCaller {
         on_behalf_of: step["on_behalf_of"].as_str().map(str::to_owned),
         origin: text("origin"),
         label: text("label"),
+        terminal: None,
         implicit_session: step["implicit_session"].as_bool().unwrap_or(false),
         engine: text("engine"),
     }

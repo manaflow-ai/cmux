@@ -29,6 +29,9 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.resourceCardNotShown", "the tab or workspace is not shown in a window, so its resource card cannot open")
     }
     static var workspaceHasNoDirectory: String { text("handlers.refusal.workspaceHasNoDirectory", "the workspace has no working directory") }
+    static var sectionTakesNoWorkspaces: String { text("handlers.refusal.sectionTakesNoWorkspaces", "that section cannot hold workspaces") }
+    static var groupCannotJoinSection: String { text("handlers.refusal.groupCannotJoinSection", "the group's workspaces cannot be added to a section yet") }
+    static var groupAlreadyInSection: String { text("handlers.refusal.groupAlreadyInSection", "every workspace in the group is already in that section") }
     static var workspaceNotInSidebar: String { text("handlers.refusal.workspaceNotInSidebar", "the workspace is not in the sidebar") }
     static var noWorkspaceToActOn: String { text("handlers.refusal.noWorkspaceToActOn", "no workspace to act on") }
     static func noWorkspaceGroup(_ id: String) -> String { format("handlers.refusal.noWorkspaceGroup", "no workspace group %@", id) }
@@ -51,4 +54,7 @@ nonisolated extension RefusalStrings {
         format("handlers.refusal.settingNotToggle", "%@ is not an on/off setting; change it in Settings", key)
     }
     static var groupRequired: String { text("handlers.refusal.groupRequired", "group is required") }
+    static var groupOnAnotherMachine: String {
+        text("handlers.refusal.groupOnAnotherMachine", "a group holds workspaces of one machine; this workspace is on another machine")
+    }
 }
