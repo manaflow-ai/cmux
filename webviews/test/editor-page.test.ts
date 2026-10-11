@@ -239,7 +239,8 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         await save(page);
         await caret(page, 1, 1);
         await page.keyboard.type("abc");
-        await page.keyboard.press("Meta+z");
+        // Monaco's undo is CtrlCmd: Cmd on a Mac, Ctrl on the Linux CI runner.
+        await page.keyboard.press("ControlOrMeta+z");
         expect(await editorText(page)).toBe("keep\r\nme\r\n");
         await save(page);
         expect(fs.statSync(target).mtimeMs).toBe(before);
