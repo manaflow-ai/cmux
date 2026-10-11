@@ -357,6 +357,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
+    // Debug builds only: `ACPMUX_TEST_FORK_HOLD_MS` forks a child that sleeps
+    // and exits without exec, as a spawn (a model probe, an agent host) that
+    // is forked but has not reached its exec yet. Until it execs, the child
+    // shares the daemon's descriptors, the lock among them. Bounded.
+    #[cfg(all(unix, debug_assertions))]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_FORK_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        let ms = ms.min(5_000);
+        let nap = libc::timespec {
+            tv_sec: (ms / 1_000) as libc::time_t,
+            tv_nsec: ((ms % 1_000) * 1_000_000) as libc::c_long,
+        };
+        // SAFETY: the child only calls nanosleep and _exit, both
+        // async-signal-safe, and touches no Rust state.
+        if unsafe { libc::fork() } == 0 {
+            unsafe {
+                libc::nanosleep(&nap, std::ptr::null_mut());
+                libc::_exit(0);
+            }
+        }
+    }
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
     {
