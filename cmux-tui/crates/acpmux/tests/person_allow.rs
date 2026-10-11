@@ -985,7 +985,8 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     let home = start_home("nodump");
     let mut fds = [-1i32; 2];
     // SAFETY: a fresh socket pair; both ends are owned here.
-    assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) }, 0);
+    let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
+    assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
     let (ours, theirs) = (fds[0], fds[1]);
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
     cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn", "--person-key-fd", "3"])
@@ -999,7 +1000,7 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     // SAFETY: only dup2 between fork and exec (async-signal-safe).
     unsafe {
         cmd.pre_exec(move || {
-            if libc::dup2(theirs, 3) < 0 {
+            if libc::dup2(theirs, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())

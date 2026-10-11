@@ -462,18 +462,72 @@ fn read_person_key(fd: i32) -> Option<String> {
     // SAFETY: the launcher passed this descriptor for us to read and close;
     // `File` owns and closes it here.
     let f = unsafe { std::fs::File::from_raw_fd(fd) };
-    let mut buf = Vec::with_capacity(80);
+    // A socket (`daemon start --person-key-fd`): say that this process is
+    // not dumpable now; the launcher writes the key only after that, so a
+    // same-uid reader of /proc/<pid>/fd before this point finds no key.
+    if is_socket(&f) {
+        use std::io::Write;
+        if let Err(e) = (&f).write_all(KEY_READY) {
+            tracing::warn!("--person-key-fd {fd}: {e}");
+            return None;
+        }
+    }
+    let mut buf = zeroize::Zeroizing::new(Vec::with_capacity(80));
     if let Err(e) = f.take(128).read_to_end(&mut buf) {
         tracing::warn!("--person-key-fd {fd}: {e}");
         return None;
     }
-    let key = String::from_utf8(buf).ok()?.trim().to_owned();
+    let key = std::str::from_utf8(&buf).ok()?.trim().to_owned();
     if crate::hub::person::valid_key(&key) {
         Some(key)
     } else {
         tracing::warn!("--person-key-fd {fd}: not a person key");
         None
     }
+}
+
+/// What a daemon writes on a socket key descriptor once it is not dumpable.
+const KEY_READY: &[u8] = b"nodump\n";
+
+/// Whether `f` is a socket.
+#[cfg(unix)]
+fn is_socket(f: &std::fs::File) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    f.metadata().is_ok_and(|m| m.file_type().is_socket())
+}
+
+/// `acpmux daemon start --person-key-fd <fd>` (cx-0q7o slice 2a, D2): the
+/// app's own ssh exec (or the VM provisioning exec) passes this launch's
+/// person key on `fd` (stdin: 0). This process makes itself not dumpable,
+/// reads one line, starts the daemon with a socket pair as its key
+/// descriptor, and writes the key only after the daemon said it is not
+/// dumpable. A daemon that already runs holds another key or none: this
+/// refuses then (a keyed restart stops it first with `daemon shutdown
+/// --keep-agents`). Returns the daemon's readiness line.
+#[cfg(unix)]
+pub async fn start_keyed(fd: i32) -> Result<String> {
+    use std::io::BufRead;
+    use std::os::fd::FromRawFd;
+    not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
+    let path = socket_path();
+    if Client::connect(&path).await.is_ok() {
+        return Err(anyhow!(
+            "a daemon already runs at {}: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+            path.display()
+        ));
+    }
+    // SAFETY: the caller passed this descriptor for this process to read;
+    // ManuallyDrop: stdin stays open for the process.
+    let input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
+    let mut line = zeroize::Zeroizing::new(String::with_capacity(80));
+    std::io::BufReader::new(std::io::Read::take(&*input, 128))
+        .read_line(&mut line)
+        .context("read the person key")?;
+    let key = zeroize::Zeroizing::new(line.trim().to_owned());
+    if !crate::hub::person::valid_key(&key) {
+        return Err(anyhow!("--person-key-fd {fd}: not a person key (64 lowercase hex characters)"));
+    }
+    start_daemon_with(Some(key)).await
 }
 
 /// Makes this process not dumpable before it holds a person key (cx-0q7o):
@@ -718,10 +772,16 @@ pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
 /// readiness line (empty when it exited first).
 #[cfg(unix)]
 async fn start_daemon() -> Result<String> {
+    start_daemon_with(None).await
+}
+
+/// `start_daemon`, with a person key for the daemon (`start_keyed`).
+#[cfg(unix)]
+async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<String> {
     let path = socket_path();
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
     // worker thread would keep runtime teardown waiting on a hung daemon.
-    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached()?)
+    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
         .context("wait for acpmux daemon")?;
     // The daemon writes one line to the pipe once its socket is bound, or
     // the pipe reaches end of file when it exits first (another daemon won
@@ -780,9 +840,11 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
-/// return the read end of its readiness pipe.
+/// return the read end of its readiness pipe. With `key`, the daemon also
+/// gets `--person-key-fd M`, one end of a socket pair: the key is written
+/// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
-fn spawn_detached() -> Result<std::fs::File> {
+fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
@@ -803,6 +865,16 @@ fn spawn_detached() -> Result<std::fs::File> {
         libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
         libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
     }
+    // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
+    let pair = match &key {
+        Some(_) => {
+            let (ours, theirs) = std::os::unix::net::UnixStream::pair()
+                .context("socket pair for the person key")?;
+            Some((ours, theirs))
+        }
+        None => None,
+    };
+    let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon must use this client's state directory, including a host
@@ -811,6 +883,7 @@ fn spawn_detached() -> Result<std::fs::File> {
         .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
         .args(["daemon", "run", "--ready-fd"])
         .arg(write_fd.to_string())
+        .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
         .stdin(std::process::Stdio::null())
         .stdout(log)
         .stderr(log_err);
@@ -823,6 +896,9 @@ fn spawn_detached() -> Result<std::fs::File> {
                 // readiness descriptor open across exec.
                 libc::setsid();
                 libc::fcntl(write_fd, libc::F_SETFD, 0);
+                if let Some(fd) = key_fd {
+                    libc::fcntl(fd, libc::F_SETFD, 0);
+                }
                 Ok(())
             });
         }
@@ -830,7 +906,30 @@ fn spawn_detached() -> Result<std::fs::File> {
     cmd.spawn().context("spawn acpmux daemon")?;
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
+    if let (Some(key), Some((ours, theirs))) = (key, pair) {
+        drop(theirs);
+        hand_key(ours, &key);
+    }
     Ok(reader)
+}
+
+/// Write the key on the daemon's key socket after the daemon said it is
+/// not dumpable, then close it. No signal (the daemon refused the key, or
+/// exited): nothing is written, and the daemon runs without a key.
+#[cfg(unix)]
+fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
+    use std::io::{Read, Write};
+    let _ = link.set_read_timeout(Some(START_BUDGET));
+    let mut said = [0u8; KEY_READY.len()];
+    if link.read_exact(&mut said).is_err() || said != KEY_READY {
+        tracing::warn!("the daemon did not say it is not dumpable: no person key was handed over");
+        return;
+    }
+    let line = zeroize::Zeroizing::new(format!("{key}\n"));
+    if let Err(e) = link.write_all(line.as_bytes()) {
+        tracing::warn!("hand the person key to the daemon: {e}");
+    }
+    let _ = link.shutdown(std::net::Shutdown::Both);
 }
 
 /// Run `notify_command` from the config on two transitions only: a

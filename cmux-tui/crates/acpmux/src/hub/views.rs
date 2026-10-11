@@ -106,6 +106,10 @@ impl Hub {
             "build": BUILD,
             "pid": std::process::id(),
             "startedAt": self.started_at,
+            // Whether this run holds a person key, and its id (`hub/person.rs`):
+            // the app checks that a daemon it started with a key still runs.
+            "personKey": self.person.has_key(),
+            "personInstance": self.person.instance(),
             "home": crate::config::home(),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),

@@ -56,6 +56,15 @@
 //!   policy, a rule or a mode: those widen and stay the person's own.
 //!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
 //!   cannot read the key from its memory.
+//! - Through a peer (slice 2a): a daemon that only mirrors a peer's session
+//!   cannot check a proof made with the peer's key, so it forwards a
+//!   proof-carrying allow and the peer decides. `answeredBy` from a
+//!   connection that is not the person counts only together with a proof
+//!   that counts. `initialize` and `_acpmux/status` name the run
+//!   (`personInstance`); status says whether it holds a key (`personKey`).
+//!   The key reaches a daemon that `acpmux daemon start --person-key-fd 0`
+//!   launches over a socket pair, only after the daemon said it is not
+//!   dumpable (`daemon.rs`).
 //!
 //! [`Hub::person_check`] is the one check, run for every request before it
 //! is handled or forwarded. Without the person, a client may read prompts and
@@ -171,6 +180,11 @@ pub struct PersonGate {
 }
 
 impl PersonGate {
+    /// Whether this daemon run holds a person key (never the key itself).
+    pub fn has_key(&self) -> bool {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+    }
+
     /// This daemon run's id (16 random bytes, lowercase hex).
     pub fn instance(&self) -> &str {
         self.instance.get_or_init(|| new_nonce()[..32].to_owned())
@@ -441,18 +455,27 @@ impl Hub {
         }
         match m {
             method::MUX_PERMISSION_RESPOND => {
-                // Who answered for the person is the person's own claim.
-                if params
-                    .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
-                    .is_some_and(|v| !v.is_null())
+                let option = params.get("optionId").filter(|v| !v.is_null());
+                // A peer's prompt with a decision proof: the peer decides
+                // with its own key; it gets the whole request.
+                if option.is_some() && self.peer_decides(params) {
+                    return Ok(());
+                }
+                let proved = option.is_some_and(|o| self.person_decided(params, o));
+                // Who answered for the person is the person's own claim, or
+                // comes with the person's decision proof (cx-0q7o).
+                if !proved
+                    && params
+                        .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+                        .is_some_and(|v| !v.is_null())
                 {
                     return Err(person_required("answeredBy"));
                 }
                 // No option: a cancel.
-                let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
+                let Some(option) = option else {
                     return Ok(());
                 };
-                if self.option_rejects(params, option) || self.person_decided(params, option) {
+                if proved || self.option_rejects(params, option) {
                     Ok(())
                 } else {
                     Err(person_required("allowing a permission"))
@@ -567,6 +590,20 @@ impl Hub {
             let name = params.get("name").and_then(Value::as_str)?;
             cfg.presets.get(name).and_then(|p| p.policy)
         }
+    }
+
+    /// Whether an allow is for a peer's session (this daemon does not have it)
+    /// and carries a decision proof: the peer checks the proof with its own
+    /// key, which this daemon does not hold (cx-0q7o slice 2a).
+    fn peer_decides(&self, params: &Value) -> bool {
+        let meta = params.pointer("/_meta/acpmux");
+        let carried =
+            |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str).is_some_and(|v| !v.is_empty());
+        carried(DECISION_NONCE_FIELD)
+            && carried(DECISION_FIELD)
+            && crate::server::session_key(params)
+                .ok()
+                .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
     }
 
     /// Whether a relayed allow carries the person's decision proof for the
