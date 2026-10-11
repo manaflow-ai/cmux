@@ -4,6 +4,7 @@ import Foundation
 /// Executes one synchronous pasteboard preparation in an isolated subprocess.
 struct TerminalPastePreparationWorker {
     func run(arguments: [String]) -> Int32 {
+        reportStarted()
         guard let workingDirectory = workingDirectory(from: arguments),
               isValidWorkingDirectory(workingDirectory) else {
             return 64
@@ -74,6 +75,21 @@ struct TerminalPastePreparationWorker {
 
         shouldCleanupImages = false
         return 0
+    }
+
+    /// Tells the supervising client that exec and app-image load are done, so
+    /// its preparation deadline starts now. Stdout is then pointed at
+    /// /dev/null so nothing else this process prints reaches that pipe.
+    /// Stdout is never closed: a later open() could reuse descriptor 1.
+    private func reportStarted() {
+        _ = fcntl(STDOUT_FILENO, F_SETNOSIGPIPE, 1)
+        var byte = UInt8(ascii: "r")
+        _ = write(STDOUT_FILENO, &byte, 1)
+        let devNull = open("/dev/null", O_WRONLY)
+        if devNull >= 0 {
+            _ = dup2(devNull, STDOUT_FILENO)
+            _ = close(devNull)
+        }
     }
 
     private func workerResponse(

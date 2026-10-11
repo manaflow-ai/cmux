@@ -763,6 +763,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
 
+      - name: Validate the R2 binaries pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_binaries_prune.py
+
+      - name: Validate the Actions artifact pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_actions_artifact_prune.py
+
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
@@ -780,6 +788,10 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate release DMG LZMA encoding
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_release_dmg_lzma.sh
 
       - name: Validate Homebrew cask macOS dependency syntax
         if: ${{ matrix.group == 'release-notary' }}
