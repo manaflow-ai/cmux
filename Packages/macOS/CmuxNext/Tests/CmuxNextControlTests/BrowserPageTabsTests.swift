@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `browser.page.tabs|new_tab|select|close` (the old `cmux browser tab
+/// `browser.page.tabs|new_tab|select_tab|close` (the old `cmux browser tab
 /// list|new|switch|close`): listing reads one workspace's app browser tabs,
 /// and the others run the registry action on a tab checked to be an app
 /// browser tab. Before, app browser tabs had no tab verbs of their own.
@@ -60,7 +60,7 @@ import Testing
 
     @Test func selectCloseAndOpenRunTheTabActionsOnTheBrowserTab() async throws {
         let (router, executor) = install()
-        let selected = try await router.handle(ControlRequest(method: "browser.page.select", params: ["tab": "tab_0456", "wait": false])).get()
+        let selected = try await router.handle(ControlRequest(method: "browser.page.select_tab", params: ["tab": "tab_0456", "wait": false])).get()
         #expect(selected["tab"] == "tab_0456beef")
         #expect(selected["ran"] == true)
         #expect(executor.last == ControlActionRequest(actionID: "tab.focus", target: ControlTargetRef(kind: "tab", id: "tab_0456beef")))
@@ -78,14 +78,14 @@ import Testing
         let refused = await router.handle(ControlRequest(method: "browser.page.close"))
         #expect(refused.failure?.code == "invalid_params")
         let terminal = ControlSnapshot.sample().topology.workspaces[0].screens[0].panes[0].tabs[0].id
-        let named = await router.handle(ControlRequest(method: "browser.page.select", params: ["tab": .string(terminal)]))
+        let named = await router.handle(ControlRequest(method: "browser.page.select_tab", params: ["tab": .string(terminal)]))
         #expect(named.failure?.code == "invalid_params")
         #expect(executor.requests.withLock { $0 }.isEmpty)
     }
 
     @Test func theIdempotencyKeyTravelsWithTheRun() async throws {
         let (router, executor) = install()
-        _ = try await router.handle(ControlRequest(method: "browser.page.select",
+        _ = try await router.handle(ControlRequest(method: "browser.page.select_tab",
                                                    params: ["tab": "tab_0456", "wait": false, "idempotency_key": "k1"])).get()
         // The same key for a different run is refused, so it reached action.run.
         let reused = await router.handle(ControlRequest(method: "browser.page.close",

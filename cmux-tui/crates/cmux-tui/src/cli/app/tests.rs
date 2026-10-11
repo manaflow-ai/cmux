@@ -289,6 +289,12 @@ fn browser_tab_verbs_reach_the_app_and_runs_carry_a_key() {
             json!({ "tab": "tab_01ab", "url": "https://cmux.com" }),
         ),
         (
+            vec!["browser", "tab_01ab", "switch"],
+            json!({ "id": 1, "ok": true, "result": { "ran": true } }),
+            "browser.page.select_tab",
+            json!({ "tab": "tab_01ab" }),
+        ),
+        (
             vec!["browser", "tab_01ab", "close", "--no-wait"],
             closed,
             "browser.page.close",

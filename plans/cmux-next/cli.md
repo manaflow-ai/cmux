@@ -162,7 +162,7 @@ On the merges of `feat-cmux-next` (2026-10-02, owner after feat-cmux-next-99):
 On `feat-cmux-next-browser-tabs` (browser group 2):
 
 - `browser.page.tabs` (snapshot lane: the app browser tabs of the named tab's workspace,
-  the focused one, or `all`) and `browser.page.new_tab|select|close`, which check that the tab
+  the focused one, or `all`) and `browser.page.new_tab|select_tab|close`, which check that the tab
   is an app browser tab and then run `openBrowser`, `tab.focus` or `closeTab` through
   `action.run` (same work queue, wait, idempotency key, `sequence` and `created` ids as
   the keyboard and `cmux tab …`). CLI: `cmux browser <tab_…|page> tabs [--all] | new-tab

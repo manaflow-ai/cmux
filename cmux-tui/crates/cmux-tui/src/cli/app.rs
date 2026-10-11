@@ -417,7 +417,7 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
             match verb.as_str() {
                 "new-tab" => "browser.page.new_tab",
                 "close" => "browser.page.close",
-                _ => "browser.page.select",
+                _ => "browser.page.select_tab",
             }
         }
         _ => return Err(usage()),
@@ -649,7 +649,8 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     // Runs that may create or close something carry a key, so a retry is not a second run.
-    let keyed = ["action.run", "browser.page.new_tab", "browser.page.select", "browser.page.close"];
+    let keyed =
+        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
     let key = if keyed.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),

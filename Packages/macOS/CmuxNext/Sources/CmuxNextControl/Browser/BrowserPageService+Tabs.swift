@@ -1,7 +1,7 @@
 public import CmuxNextSettings
 import Foundation
 
-/// `browser.page.tabs|new_tab|select|close`: the old `cmux browser tab
+/// `browser.page.tabs|new_tab|select_tab|close`: the old `cmux browser tab
 /// list|new|switch|close`. Open, select and close run the registry actions
 /// the keyboard, menu and `cmux tab …` run (`openBrowser`, `tab.focus`,
 /// `closeTab`) with `action.run`'s contract, on a tab checked to be an app
@@ -14,7 +14,7 @@ extension BrowserPageService {
             tabAction("new_tab", "openBrowser", router: router) { call in
                 call.request.params["url"]?.stringValue.flatMap { $0.isEmpty ? nil : ["url": .string($0)] } ?? [:]
             },
-            tabAction("select", "tab.focus", router: router) { _ in [:] },
+            tabAction("select_tab", "tab.focus", router: router) { _ in [:] },
             tabAction("close", "closeTab", router: router) { _ in [:] },
         ]
     }
