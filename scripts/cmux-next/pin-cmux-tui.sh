@@ -151,8 +151,22 @@ read_pin() {
 }
 
 # Downloads $1 to $2 with retries; never follows to a non-HTTPS URL.
+# curl's own --retry skips many transient network failures (exit 35 "Recv
+# failure", 56 "connection reset"): a fleet build fetched three companions from
+# a published manifest, then lost the fourth download to one timed-out TLS read
+# and failed the job (cx-4pdg, 2026-10-11). So every failure except an HTTP
+# error (exit 22: the object is not there, which callers poll for) is retried
+# here, with a short backoff.
 download() {
-  curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1"
+  local attempt=1 rc=0
+  while :; do
+    rc=0
+    curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1" || rc=$?
+    (( rc == 0 || rc == 22 || attempt >= ${CMUX_TUI_DOWNLOAD_ATTEMPTS:-4} )) && return "$rc"
+    echo "warning: download of $1 failed (curl exit $rc, attempt $attempt); retrying" >&2
+    sleep "$(( attempt * ${CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS:-2} ))"
+    attempt=$((attempt + 1))
+  done
 }
 
 # The tree key of <rev> (default HEAD) is derived from

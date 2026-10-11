@@ -170,6 +170,12 @@ pub struct Message {
     pub parts: Vec<Part>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<PartRef>,
+    /// The messages this one answers ([`Op::MessageSend`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
+    /// The ids in `answers` whose work still runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers_pending: Vec<String>,
     /// The root message of the thread this message is a reply in. A root
     /// has none; a thread has one level. Messages before threads have none
     /// (their `reply_to` stays as it was).
@@ -240,6 +246,14 @@ pub enum Op {
         parts: Vec<Part>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<PartRef>,
+        /// The ids of the messages this reply answers (an agent's turn
+        /// reply). Old readers ignore it; empty is left off the wire.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        answers: Vec<String>,
+        /// The ids in `answers` whose work (subagents) still runs: more
+        /// replies to them follow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        answers_pending: Vec<String>,
         /// The thread root this message replies in: a message of this
         /// conversation that is not itself in a thread.
         #[serde(default, skip_serializing_if = "Option::is_none")]
