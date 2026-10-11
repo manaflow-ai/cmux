@@ -485,6 +485,8 @@ struct MachinesPanelView: View {
         nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
         nodeActions.removeCoderouterAccount = { [self] account in removeCoderouterAccount(account) }
         nodeActions.refreshCoderouter = { [self] in requestCoderouterRefresh() }
+        nodeActions.refreshCloudMachines = { [weak viewModel] in viewModel?.refresh(tree: true) }
+        nodeActions.refreshDevices = { [weak devicesModel] in devicesModel?.refresh() }
         nodeActions.openCoderouterGuidePane = { [weak tabManager] in
             guard let workspace = tabManager?.selectedWorkspace,
                   let paneId = workspace.bonsplitController.focusedPaneId
