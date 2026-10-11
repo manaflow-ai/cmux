@@ -22,7 +22,7 @@ enum DebugBrowserExternal {
                 guard let chrome = entry(call.params, services: services)?.chrome else {
                     return .value(.object(["error": .string("no browser tab")]))
                 }
-                return .value(.object(chrome.debugPageStatus.mapValues { .string($0) }))
+                return .value(.object(PageStatusDebug(chrome).fields.mapValues { .string($0) }))
             },
         ])
         #endif

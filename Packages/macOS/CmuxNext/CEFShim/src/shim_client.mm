@@ -170,6 +170,31 @@ class Client : public CefClient,
     return WebStoreRequestHandler(request->GetURL().ToString());
   }
 
+  // MARK: Certificate errors
+
+  // The host shows its own certificate warning page: a main-frame
+  // certificate error fails the load (the cert error code reaches
+  // OnLoadError) unless the host asked to proceed on this tab's host
+  // (cmux_shim_certificate_proceed): then Chromium continues, and remembers
+  // the choice in its profile, or decides itself with its own interstitial
+  // (named hosts, where only Chromium knows whether HSTS forbids it).
+  bool OnCertificateError(CefRefPtr<CefBrowser> browser, cef_errorcode_t, const CefString& request_url,
+                          CefRefPtr<CefSSLInfo>, CefRefPtr<CefCallback> callback) override {
+    CefURLParts parts;
+    const std::string host = CefParseURL(request_url, parts) ? CefString(&parts.host).ToString() : std::string();
+    switch (TakeCertificateProceed(browser->GetIdentifier(), host)) {
+      case CertificateProceed::kContinue:
+        callback->Continue();
+        return true;
+      case CertificateProceed::kChromium:
+        return false;
+      case CertificateProceed::kNone:
+        callback->Cancel();
+        return true;
+    }
+    return false;
+  }
+
   // MARK: Renderer process failures
 
   // The host shows its own "sad tab" in the pane and reloads from it; Chrome

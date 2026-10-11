@@ -1,8 +1,8 @@
 public import Foundation
 
 /// A tab that can load a page whose TLS certificate the system does not
-/// trust, after the user chose Proceed on the interstitial (WebKit; the
-/// Chromium engine shows its own interstitial).
+/// trust, after the user chose Proceed on cmux's warning page (both engines;
+/// Chromium may hand the choice to its own interstitial for HSTS).
 public protocol BrowserCertificateBypassing: AnyObject {
     /// Trusts the failing page's host for this browser profile until the
     /// app quits, and loads the page again.

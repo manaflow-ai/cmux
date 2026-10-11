@@ -242,6 +242,12 @@ CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
 
+// A Proceed the host asked for on a certificate warning
+// (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the
+// next certificate error of that browser on that host.
+enum class CertificateProceed { kNone, kContinue, kChromium };
+CertificateProceed TakeCertificateProceed(int browser_id, const std::string& host);
+
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);
 CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token);

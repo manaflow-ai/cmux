@@ -201,6 +201,35 @@ class FaviconReply : public CefDownloadImageCallback {
 
 }  // namespace
 
+namespace {
+
+struct PendingProceed {
+  std::string host;
+  CertificateProceed mode;
+};
+
+// Proceeds the host asked for, one per browser (UI thread). A browser's
+// entry is replaced by its next Proceed or taken by its next certificate
+// error on that host.
+std::map<int, PendingProceed>& CertificateProceeds() {
+  static auto* proceeds = new std::map<int, PendingProceed>();
+  return *proceeds;
+}
+
+}  // namespace
+
+namespace cmux_shim {
+
+CertificateProceed TakeCertificateProceed(int browser_id, const std::string& host) {
+  auto it = CertificateProceeds().find(browser_id);
+  if (it == CertificateProceeds().end() || it->second.host != host) return CertificateProceed::kNone;
+  const CertificateProceed mode = it->second.mode;
+  CertificateProceeds().erase(it);
+  return mode;
+}
+
+}  // namespace cmux_shim
+
 extern "C" {
 
 int cmux_shim_content_setting(int browser_id, const char* url, const char* type) {
@@ -249,6 +278,14 @@ int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int m
   // As a favicon (Chromium's favicon request flags), from the cache when it
   // has the icon, in the tab's request context: its cookies and profile.
   browser->GetHost()->DownloadImage(url, true, static_cast<uint32_t>(max_size), false, new FaviconReply(browser_id, reply));
+  return 1;
+}
+
+int cmux_shim_certificate_proceed(int browser_id, const char* host, int chromium_decides) {
+  if (!BrowserById(browser_id) || !host || !*host) {
+    return 0;
+  }
+  CertificateProceeds()[browser_id] = {host, chromium_decides ? CertificateProceed::kChromium : CertificateProceed::kContinue};
   return 1;
 }
 
