@@ -3649,6 +3649,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/agent_session_start.rs"]
+mod agent_session_start;
+#[cfg(unix)]
 #[path = "cli/all_sessions_scope.rs"]
 mod all_sessions_scope;
 #[cfg(unix)]
@@ -3659,6 +3662,9 @@ mod app_workspaces;
 mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
+#[cfg(unix)]
+#[path = "cli/conversation_threads.rs"]
+mod conversation_threads;
 #[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "dc3fdadfb34174c9cedba71743b815fc009483b7d91785758df40fe90c21f48b";
+inline constexpr std::string_view kProtocolIrSha256 = "7de95d1ff60c566052892e88e347e2ef04e91d21b40abdbbfbe34dbf7caf911c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1736,6 +1736,7 @@ struct ConversationMessage {
     std::optional<ConversationPartRef> reply_to{};
     std::optional<std::string> retracted_at{};
     std::uint64_t seq{};
+    std::optional<std::string> thread_root{};
     friend bool operator==(const ConversationMessage&, const ConversationMessage&) = default;
 };
 

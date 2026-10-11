@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dc3fdadfb34174c9cedba71743b815fc009483b7d91785758df40fe90c21f48b. */
+/* cmux-tui mux protocol 12, IR 7de95d1ff60c566052892e88e347e2ef04e91d21b40abdbbfbe34dbf7caf911c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -235,6 +235,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread_root"?: string;
 };
 
 export type ConversationPart = {

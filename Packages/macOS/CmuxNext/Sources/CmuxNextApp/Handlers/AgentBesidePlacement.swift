@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation
 import Observation
+import CmuxNextWakeups
 
 /// beside_caller in the app (hq-6d right-column design). The control router
 /// picks the pane (ControlCaller): the column right of the agent's chat, or,
@@ -55,8 +56,8 @@ enum AgentBesidePlacement {
                 }
                 return nil
             }
-            let bound = Task { @MainActor in
-                try? await Task.sleep(for: openLimit)
+            let bound = DemandTimer(owner: "AgentBesidePlacement.tabOpen")
+            bound.schedule(after: openLimit) { @MainActor in
                 listed.cancel()
                 sink.finish()
             }
@@ -84,8 +85,8 @@ enum AgentBesidePlacement {
                         }
                         return false
                     }
-                    let bound = Task { @MainActor in
-                        try? await Task.sleep(for: openLimit)
+                    let bound = DemandTimer(owner: "AgentBesidePlacement.chatDock")
+                    bound.schedule(after: openLimit) { @MainActor in
                         listed.cancel()
                     }
                     let moved = await listed.value
