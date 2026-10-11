@@ -440,6 +440,59 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         _ = navigationDelegate
     }
 
+    /// Regression for #18793: a static selection goes through the bounded
+    /// document-region capture, and its handoff PNG came out upside down.
+    @Test func staticSelectionHandoffPNGKeepsTopAboveBottom() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = hostSnapshotWebView(webView)
+        defer { window.close() }
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <style>
+              html, body { margin: 0; background: #fff; }
+              #card { position: static; width: 400px; }
+              #top { height: 150px; background: #f00; }
+              #bottom { height: 150px; background: #00f; }
+            </style>
+            <div id="card"><div id="top">TOP</div><div id="bottom">BOTTOM</div></div>
+            """,
+            baseURL: nil
+        )
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
+
+        let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 10,
+            cleanupTimeout: 2,
+            scrollSettleTimeout: 0.05
+        )
+        let selection = try await screenshotEvaluator.captureDocumentRect(
+            NSRect(x: 0, y: 0, width: 400, height: 300),
+            from: webView
+        )
+        let pngData = try await BrowserScreenshotPasteboardWriter(
+            maximumPixelCount: BrowserScreenshotPasteboardWriter.maximumDesignModeArtifactPixelCount,
+            oversizedImagePolicy: .downscale
+        ).pngData(for: selection)
+        let bitmap = try #require(NSBitmapImageRep(data: pngData))
+        let centerX = bitmap.pixelsWide / 2
+        let top = try #require(bitmap.colorAt(x: centerX, y: bitmap.pixelsHigh / 8)?
+            .usingColorSpace(.sRGB))
+        let bottom = try #require(bitmap.colorAt(x: centerX, y: bitmap.pixelsHigh * 7 / 8)?
+            .usingColorSpace(.sRGB))
+
+        #expect(top.redComponent > 0.7 && top.blueComponent < 0.3, "top was \(top)")
+        #expect(bottom.blueComponent > 0.7 && bottom.redComponent < 0.3, "bottom was \(bottom)")
+        _ = navigationDelegate
+    }
+
     @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
