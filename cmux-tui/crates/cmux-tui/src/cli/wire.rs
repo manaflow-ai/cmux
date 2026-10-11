@@ -32,6 +32,8 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: {error}");
         return 2;
     }
+    #[cfg(unix)]
+    super::status::drop_caller_terminal_when_routed(&global, &mut plan);
     let mut request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
@@ -300,13 +302,23 @@ fn require_server_capability(
     if supported {
         return Ok(());
     }
+    // The daemon's own CLI may serve it (another build): run that CLI
+    // (cli/skew.rs), else name the exact fix.
+    #[cfg(unix)]
+    let fix = super::skew::reexec_at_dead_end(global).err().flatten();
+    #[cfg(not(unix))]
+    let fix: Option<String> = None;
+    let mut message = crate::localization::catalog().skew.journal_unsupported.to_owned();
+    if let Some(fix) = fix {
+        message = format!("{message}\n{fix}");
+    }
     let details = json!({
         "capability":capability,
         "action":"restart_session"
     });
     let error = json!({
         "code":"operation.unsupported",
-        "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+        "message":message,
         "details":details,
         "retryable":false
     });

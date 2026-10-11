@@ -382,6 +382,20 @@ jobs:
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
+      # cmux-layout-reducer-ffi is its own workspace too (no committed
+      # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
+      # preview. cmux-app-ffi links it, and build-app-ffi.sh builds --locked,
+      # so a stale cmux-app-ffi/Cargo.lock fails here with the needed diff.
+      - name: cmux-layout-reducer-ffi (own workspace)
+        working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cd ../cmux-app-ffi
+          cargo metadata --format-version 1 > /dev/null
+          git diff --exit-code -- Cargo.lock
+
   valgrind-leak-check-shard:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -703,6 +717,20 @@ jobs:
             macos_app_support_loads_after_xdg -- --exact
           ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
+
+      # An app update replaces the daemon while terminals run; the new build
+      # must adopt the hosts the previous one spawned (durable-sessions.md
+      # 4.2). The cross-build test is ignored without a previous binary, so
+      # run it here against the release-pinned daemon, the one release users
+      # update from.
+      - name: Previous release upgrade adoption
+        working-directory: cmux-tui
+        run: |
+          ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
+          pin_commit="$(sed -n 's/^commit=//p' ../scripts/cmux-next/cmux-tui.pin)"
+          CMUX_TUI_PREVIOUS_BIN="$PWD/target/hosted/$pin_commit/cmux-tui" \
+            ../scripts/ci/cargo-test-selected.sh -p cmux-tui --test terminal_host_recovery \
+            hosts_of_a_previous_build_survive_an_upgrade_restart_and_are_adopted -- --ignored
 
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
       # check compares against (schemas/terminal-corpus/crosscheck/run.sh).

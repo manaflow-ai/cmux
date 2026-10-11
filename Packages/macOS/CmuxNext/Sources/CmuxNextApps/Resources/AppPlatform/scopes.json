@@ -585,6 +585,10 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.files.list": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.files.search": {
       "scope": "git:read",
       "class": "read"
@@ -1753,6 +1757,7 @@
     "user.text_confirm.lower",
     "user.text_confirm.lower.challenge",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close"
   ]
 }

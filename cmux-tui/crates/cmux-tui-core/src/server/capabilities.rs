@@ -5,8 +5,9 @@ use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
 /// when the binary installed a cloud transport, `history-search-v1` when it
-/// installed the search index, and
-/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs.
+/// installed the search index,
+/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
+/// `daemon-build-v1` when the binary installed its build identity.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
@@ -17,11 +18,20 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
     }
     #[cfg(unix)]
+    capabilities.push(tab_restart::CAPABILITY);
+    #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }
+    #[cfg(unix)]
+    if mux.serves_agent_session_start() {
+        capabilities.push(AGENT_SESSION_START_CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
+    }
+    if daemon_build::installed() {
+        capabilities.push(DAEMON_BUILD_CAPABILITY);
     }
     capabilities
 }
@@ -32,6 +42,7 @@ pub(super) fn advertised_capabilities(
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
@@ -101,8 +112,11 @@ pub(super) fn advertised_capabilities(
         BOOKMARKS_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
+        icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
+        conversations::CONVERSATION_DRAFT_CAPABILITY,
+        conversations::CONVERSATION_THREADS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
@@ -120,6 +134,7 @@ pub(super) fn advertised_capabilities(
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
+        crate::state::agent_start::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
@@ -135,6 +150,7 @@ pub(super) fn advertised_capabilities(
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
+        crate::git_ops::FILES_LIST_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,

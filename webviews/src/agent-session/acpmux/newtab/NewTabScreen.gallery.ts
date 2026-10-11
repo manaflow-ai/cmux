@@ -104,6 +104,24 @@ export default agentPaneEntry({
           const row = ctx.document.querySelector(".nt-all-item:not(.is-loader)")?.getBoundingClientRect();
           return !!list && !!box && !!row && row.top >= list.top - 1 && row.top >= box.bottom;
         });
+        // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
+        // within the scroller, below the field. The scroll is a measured step, so the play reports.
+        await ctx.scroll({ selector: ".nt-all-list" }, "bottom");
+        if ((ctx.document.querySelector(".nt-all-list")?.scrollTop ?? 0) === 0)
+          throw new Error("All chats did not scroll");
+        const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
+        const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
+        if (rows.length === 0) throw new Error("All chats drew no rows");
+        // A row outside the scroller's box must be clipped: the point at its center shows
+        // something else (the field, a card), never a row.
+        const outside = rows.filter((row) => {
+          const rect = row.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const within = y >= list.top && y <= list.bottom && x >= list.left && x <= list.right;
+          return !within && !!ctx.document.elementFromPoint(x, y)?.closest(".nt-all-item");
+        });
+        if (outside.length) throw new Error(`${outside.length} All chats rows draw outside the list`);
       },
     },
     "long-title": {
@@ -196,6 +214,44 @@ export default agentPaneEntry({
       note: "Tools use the host action catalog and shortcut labels.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
+    },
+    "tool-menu-open": {
+      note: "A tool's extra actions open from its trailing disclosure without moving the page or clipping the popup.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The tool menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening a portaled tool menu must not move the page." },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".nt-tool-menu-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
+      },
+    },
+    "tool-menu-keyboard": {
+      note: "Arrow navigation and Escape keep the tool menu's focus contract explicit.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "Keyboard tool menus must remain on top of the page." },
+        layoutShiftMax: { value: 0, reason: "Keyboard menu navigation must not move page content." },
+      },
+      play: async (ctx) => {
+        const trigger = { selector: ".nt-tool-menu-button" };
+        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
+        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
+        await ctx.focus(trigger);
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(0));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => focused(1));
+        await ctx.press("Escape");
+        await ctx.waitFor(
+          () =>
+            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
+            ctx.document.activeElement === ctx.find(trigger),
+        );
+      },
     },
     "typed-prompt": {
       note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",

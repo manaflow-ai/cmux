@@ -8,6 +8,7 @@
 // With `onBring` (the History page, cx-zlnl) rows also select: Cmd/Ctrl-click toggles one,
 // Shift-click a range, Enter opens the selection, and the menu brings it into active sessions.
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
@@ -110,6 +111,19 @@ function useChatPages(load: LoadChatsPage) {
   useEffect(() => {
     fetchPage("", undefined);
   }, [fetchPage]);
+  // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
+  // reads its first page again when the host pushes the index's chats (cx-ztlw: the first Cmd-T
+  // page stayed empty for good). A search or a ready list with rows is left alone.
+  const latest = useRef(state);
+  latest.current = state;
+  useEffect(
+    () =>
+      subscribeDeviceChats(() => {
+        const current = latest.current;
+        if (!current.query && (!current.ready || current.rows.length === 0)) fetchPage("", undefined);
+      }),
+    [fetchPage],
+  );
   return { state, fetchPage };
 }
 
@@ -224,6 +238,7 @@ export function AllChatsList({
         <button
           type="button"
           className="nt-all-row"
+          data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
           title={row.cwd ? `${title}\n${row.cwd}` : title}
@@ -289,18 +304,25 @@ export function AllChatsList({
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
           {active.map((chat) => (
             <li key={chat.id}>
-              <button
-                type="button"
-                className="nt-all-row"
-                data-state={chat.state}
-                onClick={() => onOpenActive?.(chat.id)}
+              {/* Its right-click menu: Open, as its click (cx-2lm4). */}
+              <ContextMenu
+                className="nt-row-host"
+                items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
               >
-                <span className="nt-all-glyph">
-                  <AgentMark harness={chat.harness} />
-                </span>
-                <span className="nt-all-title">{chat.title}</span>
-                <span className="nt-all-state">{chat.label}</span>
-              </button>
+                <button
+                  type="button"
+                  className="nt-all-row"
+                  data-focus-ring="row"
+                  data-state={chat.state}
+                  onClick={() => onOpenActive?.(chat.id)}
+                >
+                  <span className="nt-all-glyph">
+                    <AgentMark harness={chat.harness} />
+                  </span>
+                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-state">{chat.label}</span>
+                </button>
+              </ContextMenu>
             </li>
           ))}
         </ul>

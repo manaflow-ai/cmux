@@ -59,7 +59,7 @@ declare namespace Cmux {
   type ConversationEventItem = unknown
   type ConversationId = string
   type ConversationKind = "chief" | "dm" | "group"
-  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
+  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; answers?: Array<string>; answers_pending?: Array<string>; thread_root?: string; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
   type ConversationMessageItem = { type: "message" | "message_updated"; conversation: string; rev: number; message: Cmux.ConversationMessage }
   type ConversationOrigin = { kind: "remote"; install: string }
   type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }
@@ -120,7 +120,9 @@ declare namespace Cmux {
   type GitCheckpointSkipCode = "not_selected" | "over_limit" | "excluded" | "credential" | "ignored" | "nested_repository" | "submodule" | "unsupported_type" | "unreadable"
   type GitDiffResult = { scope: Cmux.GitDiffScope; root: string; head?: string; base?: string; files: Array<Cmux.GitChangedFile>; additions: number; deletions: number; total_files: number; files_omitted: number; untracked_skipped?: number }
   type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch"
+  type GitFileEntry = { name: string; kind: "file" | "directory" }
   type GitFileMatch = { path: string; matches: Array<number> }
+  type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
   type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
@@ -376,6 +378,10 @@ declare namespace Cmux {
   type WgPublicKey = string
   type WindowRecordDeleteResult = { id: string; revision: string }
   type WindowRecordSnapshot = { id: string; install_id: string; window_id: string; owner: string; revision: string; record: Cmux.JsonValue; updated_at_ms: string }
+  type WorkspaceAgentStart = { cwd: string | null; kind: Cmux.WorkspaceAgentStartKind; agent_home: string | null; skipped?: Cmux.WorkspaceAgentStartSkip }
+  type WorkspaceAgentStartKind = "seed" | "chosen" | "workspace" | "agent_home"
+  type WorkspaceAgentStartSkip = { cwd: string; reason: Cmux.WorkspaceAgentStartSkipReason }
+  type WorkspaceAgentStartSkipReason = "home" | "above_home" | "agent_home" | "missing"
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
   type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null; pinned?: boolean }
   type WorkspaceLogLevel = "info" | "progress" | "success" | "warning" | "error"
@@ -384,8 +390,11 @@ declare namespace Cmux {
   type WorkspaceProgress = { value: number | null; label: string | null; updated_at_ms: string }
   type WorkspaceRef = { session_id: string; workspace_ref: string; workspace_id: string /* workspace_… */ | null }
   type WorkspaceSnapshot = { id: string /* workspace_… */; session_id: string /* session_… */; name: string; index: number; focused: boolean; extra?: Record<string, Cmux.JsonValue> }
-  type WorkspaceStatusEntry = { key: string; text: string; icon: string | null; color: string | null; updated_at_ms: string }
+  type WorkspaceStatusEntry = { key: string; text: string; icon: string | null; color: string | null; updated_at_ms: string; state?: Cmux.WorkspaceStatusState; progress?: number | null; style?: Cmux.WorkspaceStatusStyle | null; expires_at_ms?: string | null; owner?: Cmux.WorkspaceStatusOwner | null; target_terminal?: string /* terminal_… */ | null; exit_code?: number | null; duration_ms?: string | null }
+  type WorkspaceStatusOwner = { pid?: number; machine?: string; terminal?: string /* terminal_… */; agent_session?: string }
   type WorkspaceStatusSnapshot = { workspace_id: string /* workspace_… */; entries: Array<Cmux.WorkspaceStatusEntry>; progress: Cmux.WorkspaceProgress | null; log_count: number; last_log: Cmux.WorkspaceLogLine | null }
+  type WorkspaceStatusState = "busy" | "success" | "error" | "waiting" | "info"
+  type WorkspaceStatusStyle = "arc" | "native" | "dot" | "none"
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
 
@@ -766,6 +775,8 @@ interface CmuxGlobal {
     /** `git.diff` (read, scope `git:read`) */
     diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; max_files?: number }, Cmux.GitDiffResult>
     files: {
+      /** `git.files.list` (read, scope `git:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitFilesListResult>
       /** `git.files.search` (read, scope `git:read`) */
       search: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; query: string; limit?: number }, Cmux.GitFilesSearchResult>
     }
@@ -1465,7 +1476,7 @@ interface CmuxGlobal {
     /** `workspace_status.list` (read, scope `workspace_status:read`) */
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.WorkspaceStatusSnapshot>>
     /** `workspace_status.set` (mutation, scope `workspace_status:write`) */
-    set: CmuxOp<{ machine?: string; session?: string; workspace: string; key: string; text: string; icon?: string; color?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceStatusSnapshot>>
+    set: CmuxOp<{ machine?: string; session?: string; workspace: string; key: string; text: string; icon?: string; color?: string; state?: Cmux.WorkspaceStatusState; progress?: number; style?: Cmux.WorkspaceStatusStyle; ttl_ms?: number; owner?: Cmux.WorkspaceStatusOwner; target_terminal?: string /* terminal_… */; exit_code?: number; duration_ms?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceStatusSnapshot>>
   }
   call<T = unknown>(name: string, params?: unknown, options?: CmuxCallOptions): Promise<T>
   live<T = unknown>(op: string | { opName: string }, params?: unknown, options?: { events?: string[]; select?: (v: unknown) => T }): CmuxLive<T>

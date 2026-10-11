@@ -1,4 +1,4 @@
-import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot, QueueEdit } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
@@ -452,6 +452,9 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
+  /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
+  private queuedSends = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -737,6 +740,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.clear();
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
+    this.queuedSends.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -949,8 +953,6 @@ export class AcpmuxDirectClient {
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = path ?? text(summary?.cwd) ?? text(entry?.cwd);
     if (!cwd) return Promise.reject(new Error(translate("error.noFolderSearch")));
-    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error(translate("error.remoteSearch")));
     return postNative("file.search", { cwd, query, limit });
   }
 
@@ -980,9 +982,8 @@ export class AcpmuxDirectClient {
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = text(summary?.cwd) ?? text(entry?.cwd);
     if (!sessionId || !cwd) return Promise.reject(new Error(translate("error.noFolderChanges")));
-    // The native host reads folders on this Mac; a cloud session's folder is on its machine.
-    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error(translate("error.remoteChanges")));
+    // The native host runs the read on the machine whose acpmux runs the session (a Cloud or
+    // SSH machine's chat reads through that machine's daemon), so no page-side machine check.
     return this.gitRoute === "daemon"
       ? this.request(method, { sessionId, cwd, ...params })
       : postNative(method, { cwd, ...params });
@@ -1202,9 +1203,24 @@ export class AcpmuxDirectClient {
   /// Mux events that move the live summary, queue or permission.
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
-    if (event.kind === "queued" || event.kind === "queue_updated") {
+    if (event.kind === "queue_updated") {
+      // An edit keeps the prompt's place.
+      const id = String(msg.promptId ?? "");
+      this.queue = this.queue.map((entry) => (entry.id === id ? { id, prompt: String(msg.text ?? "") } : entry));
+    } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
+      const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
+      this.queue = [...this.queue].sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size));
+    } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
+      // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
+      // composer is free for the next one.
+      if (id && this.optimisticPromptRows.has(id)) {
+        settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
+        this.optimisticPromptTexts.delete(id);
+        this.queuedSends.add(id);
+        this.promptAccepts.get(id)?.();
+      }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -1470,6 +1486,8 @@ export class AcpmuxDirectClient {
             model: summary.model,
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
+            steering: summary.steering === true,
+            queuePaused: summary.queuePaused === true,
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
@@ -1542,12 +1560,15 @@ export class AcpmuxDirectClient {
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
+  /// `steer`: into the running turn now, and an agent that cannot steer stops the turn and
+  /// takes it next (`_meta.acpmux.interrupt`); otherwise it waits behind the turn.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
     ticket?: string,
+    steer = false,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1585,11 +1606,23 @@ export class AcpmuxDirectClient {
       await this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, attachments),
-        _meta: { acpmux: { promptId }, ...(ticket ? { cmuxGesture: ticket } : {}) },
+        _meta: {
+          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}) },
+          ...(ticket ? { cmuxGesture: ticket } : {}),
+        },
       });
       accept();
+      // Ran or withdrawn: what it held for its bubble is done with.
+      this.queuedSends.delete(promptId);
+      this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
+      // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
+      const queued = this.queuedSends.delete(promptId);
+      if (queued) {
+        this.optimisticPromptRows.set(promptId, rowId);
+        this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+      }
       const code = (error as { code?: unknown } | null)?.code;
       const refused = typeof code === "string" && code.startsWith("transport.");
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
@@ -1598,7 +1631,7 @@ export class AcpmuxDirectClient {
       const held = !taken && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
-      if (isTrustRefusal(error) || held) {
+      if ((isTrustRefusal(error) && !queued) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
@@ -1684,16 +1717,35 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
   }
+  /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
+  /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
+  async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
+    if (!this.selectedSessionId) return { ok: false };
+    return this.request("_acpmux/queue_edit", { sessionId: this.selectedSessionId, promptId, ...edit });
+  }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
-  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
+  /// pick first takes a gesture ticket for this prompt and option (`transport.gesture`): the host
+  /// signs an allow for another machine's agent daemon only for that exact pick (cx-0q7o).
   async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
-    if (this.selectedSessionId)
-      await this.request("_acpmux/permission_respond", {
-        sessionId: this.selectedSessionId,
-        permissionId,
-        ...(optionId === undefined ? {} : { optionId }),
-        ...(answers === undefined ? {} : { answers }),
-      });
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    const ticket =
+      optionId === undefined || answers !== undefined
+        ? undefined
+        : await postNative<{ ticket?: string }>("transport.gesture", {
+            intent: { method: "_acpmux/permission_respond", params: { sessionId, permissionId, optionId } },
+          }).then(
+            (reply) => reply?.ticket,
+            () => undefined,
+          );
+    await this.request("_acpmux/permission_respond", {
+      sessionId,
+      permissionId,
+      ...(optionId === undefined ? {} : { optionId }),
+      ...(answers === undefined ? {} : { answers }),
+      ...gestureMeta(ticket),
+    });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     await this.permissions.respond(groupId, revision, decision);

@@ -57,8 +57,13 @@ impl Hub {
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
             "queued": session.queued(),
+            // A turn failed: the prompts that waited behind it wait for a client to resume them.
+            "queuePaused": session.queue_paused(),
+            // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
+            // with `interrupt` stops the turn and runs next.
+            "steering": session.steering.load(Ordering::SeqCst),
             "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
-            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at})).collect::<Vec<_>>(),
+            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
@@ -84,7 +89,11 @@ impl Hub {
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        v["pending"] = Value::Array(session.permissions.lock().unwrap().pending_records());
+        let mut pending = session.permissions.lock().unwrap().pending_records();
+        for p in &mut pending {
+            p["personInstance"] = Value::String(self.person.instance().to_owned());
+        }
+        v["pending"] = Value::Array(pending);
         v
     }
 
@@ -102,6 +111,10 @@ impl Hub {
             "build": BUILD,
             "pid": std::process::id(),
             "startedAt": self.started_at,
+            // Whether this run holds a person key, and its id (`hub/person.rs`):
+            // the app checks that a daemon it started with a key still runs.
+            "personKey": self.person.has_key(),
+            "personInstance": self.person.instance(),
             "home": crate::config::home(),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),

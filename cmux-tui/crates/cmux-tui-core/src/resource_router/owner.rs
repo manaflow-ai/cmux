@@ -126,10 +126,12 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
         | ResourceOperation::GitDiff
+        | ResourceOperation::GitFilesList
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
+        | ResourceOperation::WorkspaceAgentStartGet
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate

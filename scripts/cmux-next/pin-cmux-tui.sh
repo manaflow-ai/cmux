@@ -91,6 +91,7 @@
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
+#        | acpmux-path (where a tree fetch puts acpmux)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
@@ -151,8 +152,22 @@ read_pin() {
 }
 
 # Downloads $1 to $2 with retries; never follows to a non-HTTPS URL.
+# curl's own --retry skips many transient network failures (exit 35 "Recv
+# failure", 56 "connection reset"): a fleet build fetched three companions from
+# a published manifest, then lost the fourth download to one timed-out TLS read
+# and failed the job (cx-4pdg, 2026-10-11). So every failure except an HTTP
+# error (exit 22: the object is not there, which callers poll for) is retried
+# here, with a short backoff.
 download() {
-  curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1"
+  local attempt=1 rc=0
+  while :; do
+    rc=0
+    curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1" || rc=$?
+    (( rc == 0 || rc == 22 || attempt >= ${CMUX_TUI_DOWNLOAD_ATTEMPTS:-4} )) && return "$rc"
+    echo "warning: download of $1 failed (curl exit $rc, attempt $attempt); retrying" >&2
+    sleep "$(( attempt * ${CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS:-2} ))"
+    attempt=$((attempt + 1))
+  done
 }
 
 # The tree key of <rev> (default HEAD) is derived from
@@ -702,6 +717,9 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
+  # The app bundles acpmux too; a tree published before its build carried
+  # acpmux has none, and the app build compiles it (build-acpmux.sh).
+  fetch_tree_companion "$1" "$2" acpmux acpmux
 }
 
 fetch_tree() {
@@ -1232,6 +1250,11 @@ PY
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-cloud"
     fi
+    ;;
+  acpmux-path)
+    # Tree mode only: a pin fetch brings no acpmux.
+    TARGET="$(host_tree_target)"
+    echo "$(tree_dir "$(checkout_tree_key)")/acpmux"
     ;;
   browser-host-path)
     mode_from_args "$@"

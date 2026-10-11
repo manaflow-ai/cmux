@@ -12,6 +12,8 @@ mod acp;
 mod agent_browser_provider;
 mod agent_hook_install;
 mod agent_plugin_config;
+#[cfg(unix)]
+mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -1646,6 +1648,31 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
+/// Records this daemon's build id and its own binary (which is also its CLI)
+/// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
+/// path cannot be resolved reports its build id only.
+#[cfg(unix)]
+fn install_daemon_build() {
+    // cmux-remote (which stamps the source revision) is a Unix-only
+    // dependency; a Windows daemon reports its package version until the
+    // stamp moves to a cross-platform crate.
+    #[cfg(unix)]
+    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let build_id = env!("CARGO_PKG_VERSION");
+    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
+    cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
+        build_id, cli_path,
+    ));
+}
+
+/// The build id comes from cmux-remote's build script, and cmux-remote is a
+/// unix-only dependency. A Windows daemon installs no build, so `identify`
+/// reports `null` for both fields and leaves out `daemon-build-v1`, as an
+/// embedder does.
+#[cfg(not(unix))]
+fn install_daemon_build() {}
+
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     startup_env::take_cloud_template_env();
@@ -2103,6 +2130,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
+    install_daemon_build();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2405,6 +2433,10 @@ fn run_server(
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
     mux.set_acpmux_socket(acp::daemon_socket_path());
+    #[cfg(unix)]
+    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    #[cfg(unix)]
+    mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);

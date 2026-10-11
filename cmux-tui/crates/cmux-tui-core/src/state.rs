@@ -15,6 +15,7 @@ pub(crate) mod agent_folder;
 mod agent_folder_tests;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
+pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
@@ -75,6 +76,8 @@ pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
+pub(crate) mod status_meta;
+pub(crate) mod status_owners;
 pub(crate) mod store;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;

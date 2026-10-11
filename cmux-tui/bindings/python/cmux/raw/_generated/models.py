@@ -544,9 +544,12 @@ class ConversationMessage:
     parts: List[ConversationPart]
     reactions: List[ConversationReaction]
     seq: int
+    answers: Union[List[str], MissingType] = field(default=MISSING)
+    answers_pending: Union[List[str], MissingType] = field(default=MISSING)
     edited_at: Union[str, MissingType] = field(default=MISSING)
     reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
     retracted_at: Union[str, MissingType] = field(default=MISSING)
+    thread_root: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -841,7 +844,9 @@ class IdentifyResult:
     version: str
     workspace_revision: int
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
+    build_id: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    cli_path: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
@@ -2449,6 +2454,27 @@ class ConversationCreateResult:
 
 
 @dataclass(frozen=True)
+class ConversationDraftRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/request'
+    conversation: str
+    done: bool
+    fresh: bool
+    kind: str
+    segment: int
+    seq: int
+    text: str
+    turn: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    truncated: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationDraftResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/result'
+    published: bool
+
+
+@dataclass(frozen=True)
 class ConversationHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/request'
     before_seq: int
@@ -2819,6 +2845,12 @@ class ForgetSessionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/forget-session/request'
     session_id: str
     force: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class GetBlobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-blob/request'
+    blob: str
 
 
 @dataclass(frozen=True)
@@ -3450,6 +3482,13 @@ class ProcessInfoRequest:
 
 
 @dataclass(frozen=True)
+class PutBlobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/put-blob/request'
+    data: str
+    media_type: str
+
+
+@dataclass(frozen=True)
 class PutFrontendProjectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/put-frontend-projection/request'
     frontend: str
@@ -3657,6 +3696,12 @@ class ResizeSurfaceRequest:
 class ResolveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/resolve-terminal/request'
     terminal_id: str
+
+
+@dataclass(frozen=True)
+class RestartTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/restart-tab/request'
+    surface: TabRef
 
 
 @dataclass(frozen=True)
@@ -5326,6 +5371,8 @@ __all__ = [
     'ConversationBindResult',
     'ConversationCreateRequest',
     'ConversationCreateResult',
+    'ConversationDraftRequest',
+    'ConversationDraftResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
     'ConversationImportRequest',
@@ -5370,6 +5417,7 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
+    'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendBrowserHistoryRequest',
@@ -5442,6 +5490,7 @@ __all__ = [
     'PinWorkspaceRequest',
     'PingRequest',
     'ProcessInfoRequest',
+    'PutBlobRequest',
     'PutFrontendProjectionRequest',
     'PutSessionRequest',
     'ReadScreenRequest',
@@ -5468,6 +5517,7 @@ __all__ = [
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
+    'RestartTabRequest',
     'RunRequest',
     'SaveScreenGroupRequest',
     'SaveTabGroupRequest',

@@ -39,7 +39,7 @@ export const MARKDOWN_STYLE_DEFAULTS = {
   "--cmux-md-paragraph-spacing": "1em",
   "--cmux-md-list-spacing": "0.25em",
   "--cmux-md-list-indent": "1.8em",
-  "--cmux-md-link-color": "light-dark(#0b63c7, #6cb0ff)",
+  "--cmux-md-link-color": "var(--cmux-accent, currentColor)",
   "--cmux-md-quote-color": "var(--cmux-md-muted-color)",
   "--cmux-md-quote-border": "3px solid var(--cmux-md-border-color)",
   "--cmux-md-table-border": "1px solid var(--cmux-md-border-color)",

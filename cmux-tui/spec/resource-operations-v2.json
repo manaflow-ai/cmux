@@ -2220,7 +2220,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; busy ({since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1), absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -6760,9 +6760,148 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "state": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceStatusState"
+          },
+          "description": "Present when the entry is more than a plain status line (loading indicators)."
+        },
+        "progress": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "style": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "WorkspaceStatusStyle"
+            }
+          }
+        },
+        "expires_at_ms": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the daemon removes the entry (ttl_ms)."
+        },
+        "owner": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "WorkspaceStatusOwner"
+            }
+          }
+        },
+        "target_terminal": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          }
+        },
+        "exit_code": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          }
+        },
+        "duration_ms": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
         }
       },
       "extra": false
+    },
+    "WorkspaceStatusOwner": {
+      "kind": "object",
+      "fields": {
+        "pid": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "A process that owns the entry. Accepted only from a trusted local client and honored only on the machine that accepted it; its exit removes the entry."
+        },
+        "machine": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Machine id recorded with pid (results only)."
+        },
+        "terminal": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          },
+          "description": "A terminal of this session host that owns the entry; its exit removes the entry."
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceStatusState": {
+      "kind": "enum",
+      "values": [
+        "busy",
+        "success",
+        "error",
+        "waiting",
+        "info"
+      ]
+    },
+    "WorkspaceStatusStyle": {
+      "kind": "enum",
+      "values": [
+        "arc",
+        "native",
+        "dot",
+        "none"
+      ]
     },
     "WorkspaceProgress": {
       "kind": "object",
@@ -7037,6 +7176,88 @@
         }
       },
       "extra": false
+    },
+    "WorkspaceAgentStart": {
+      "kind": "object",
+      "fields": {
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The folder the chat starts in, canonical; null only for kind agent_home when the workspace id names no safe folder."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceAgentStartKind"
+          }
+        },
+        "agent_home": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The workspace's agent-home folder (a root of its chats once it exists); null when the id names no safe folder."
+        },
+        "skipped": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceAgentStartSkip"
+          },
+          "description": "The proposed cwd when it was not used, and why."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceAgentStartKind": {
+      "kind": "enum",
+      "values": [
+        "seed",
+        "chosen",
+        "workspace",
+        "agent_home"
+      ]
+    },
+    "WorkspaceAgentStartSkip": {
+      "kind": "object",
+      "fields": {
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The proposed cwd as the caller sent it (not made canonical)."
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceAgentStartSkipReason"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceAgentStartSkipReason": {
+      "kind": "enum",
+      "values": [
+        "home",
+        "above_home",
+        "agent_home",
+        "missing"
+      ]
     },
     "WorkspaceLogLevel": {
       "kind": "enum",
@@ -7709,6 +7930,32 @@
       },
       "extra": false
     },
+    "GitFileEntry": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The child's name: one path component, never a path."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "file",
+              "directory"
+            ]
+          },
+          "description": "directory when git lists files under it or it is a submodule; file otherwise."
+        }
+      },
+      "extra": false
+    },
     "GitFileMatch": {
       "kind": "object",
       "fields": {
@@ -7783,6 +8030,50 @@
             "name": "uint32"
           },
           "description": "How many candidates matched, before limit."
+        }
+      },
+      "extra": false
+    },
+    "GitFilesListResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level, as in every git operation."
+        },
+        "folder": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder listed, in git's spelling: root or a folder under it. Every entry is a child of folder."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitFileEntry"
+            },
+            "max_items": 5000
+          },
+          "description": "Directories first, then by name case-insensitively, then by exact name; at most limit."
+        },
+        "truncated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The folder has more children than limit, or the candidate listing was cut at its size bound."
         }
       },
       "extra": false
@@ -8985,6 +9276,44 @@
             "kind": "ref",
             "name": "ConversationPartRef"
           }
+        },
+        "answers": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 64
+          },
+          "description": "The ids of the messages this reply answers (an agent's turn reply)."
+        },
+        "answers_pending": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 64
+          },
+          "description": "The ids in answers whose work (subagents) still runs: more replies to them follow."
+        },
+        "thread_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The root message of the thread this message replies in; a root has none."
         },
         "created_at": {
           "required": true,
@@ -14309,6 +14638,66 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "git.files.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a folder inside a repository; its immediate children are listed. A file path lists the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "default": 2000
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitFilesListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Candidates are tracked files still in the working tree and untracked files no ignore rule hides, under the listed folder; a folder that holds only ignored files is never an entry.",
+        "Each candidate folds into its first path component: a component with paths below it is a directory; a lone component is a file, unless it is a folder on disk (a submodule), which is a directory.",
+        "Entries are directories first, then by name case-insensitively, then by exact name. A candidate listing cut at its size bound sets truncated.",
+        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
       ]
     },
     "git.files.search": {
@@ -23030,7 +23419,7 @@
                 "name": "string"
               }
             },
-            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes. null clears it."
+            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes, never the user's home folder or a folder above it. null clears it."
           },
           "expected_revision": {
             "required": false,
@@ -23062,6 +23451,50 @@
         "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.agent_start.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4096
+            },
+            "description": "A folder the caller proposes (the selected tab's folder, the New Tab page's folder, a folder the user picked). Used when it names an existing folder that is not the home folder, above it, or inside agent-home; otherwise reported in skipped."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The one owner of where a new agent chat of the workspace starts (cx-9aps). Rules, first match wins: the proposed cwd (kind seed), the workspace's agent folder (kind chosen), the first folder of the workspace's terminal tabs in screen, pane and tab order (kind workspace), the workspace's agent-home folder <data dir>/cmux/agent-home/<workspace key> (kind agent_home). The user's home folder, every folder above it and folders inside agent-home are never a seed, chosen or workspace folder; without a known home folder nothing is. The daemon never creates the agent-home folder."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "WorkspaceAgentStart"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -24720,6 +25153,74 @@
               "kind": "primitive",
               "name": "string"
             }
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceStatusState"
+            },
+            "description": "Absent is info: a plain status line, as before."
+          },
+          "progress": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Known progress; only with state busy. Absent is indeterminate."
+          },
+          "style": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceStatusStyle"
+            },
+            "description": "Indicator style hint; a client may ignore it by user setting."
+          },
+          "ttl_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 604800000
+            },
+            "description": "The daemon removes the entry this long after the write (at most 7 days)."
+          },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceStatusOwner"
+            },
+            "description": "Who owns the entry; its end removes the entry in a daemon commit."
+          },
+          "target_terminal": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            },
+            "description": "The terminal the status is about."
+          },
+          "exit_code": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int32"
+            },
+            "description": "Outcome of a finished run; only with state success or error."
+          },
+          "duration_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Run duration; only with state success or error."
           },
           "expected_revision": {
             "required": false,

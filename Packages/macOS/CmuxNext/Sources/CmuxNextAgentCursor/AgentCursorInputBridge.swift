@@ -56,9 +56,6 @@ public final class AgentCursorInputBridge {
         self.publishers = publishers
     }
 
-    /// Sessions with sequence state (diagnostics, tests).
-    public var trackedSessions: Int { sequence.count }
-
     /// One `input` frame's event (its JSON).
     public func receive(_ data: Data) {
         let event: AutomationInputEvent

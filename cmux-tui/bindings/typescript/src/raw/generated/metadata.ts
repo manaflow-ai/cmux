@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6b5b223c9e49e7dbf1a3a78185e07970f6efa2e25ca37a64eae363929ea39260. */
+/* cmux-tui mux protocol 12, IR 1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6b5b223c9e49e7dbf1a3a78185e07970f6efa2e25ca37a64eae363929ea39260" as const;
+export const SDK_IR_SHA256 = "1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -692,6 +692,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. A replay of the same idempotency key and request returns the created conversation with replayed:true. See spec/commands.md."
     ]
   },
+  "conversation-draft": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-draft-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the connection's bound agent participant publishes. Ephemeral: never stored, only on conversation.events. See spec/commands.md."
+    ]
+  },
   "conversation-history": {
     "authority": "local-admin",
     "since": 12,
@@ -1089,6 +1099,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "get-blob": {
+    "authority": "control",
+    "since": 12,
+    "capability": "icon-assets-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -1882,6 +1902,17 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "put-blob": {
+    "authority": "control",
+    "since": 12,
+    "capability": "icon-assets-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "media_type is image/png, image/jpeg, image/webp, or image/svg+xml; data is standard base64.",
+      "See spec/commands.md for the limits and the result object."
+    ]
+  },
   "put-frontend-projection": {
     "authority": "control",
     "since": 7,
@@ -2151,6 +2182,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "restart-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-restart-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "run": {
     "authority": "control",
@@ -4760,6 +4801,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ConversationMessage": {
     "additional_properties": false,
     "fields": {
+      "answers": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "answers_pending": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
       "author": {
         "nullable": false,
         "presence": "required",
@@ -4852,6 +4915,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "thread_root": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -6148,6 +6219,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "build_id": {
+        "capability": "daemon-build-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "capabilities": {
         "default": [],
         "nullable": false,
@@ -6158,6 +6239,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "string"
           },
           "kind": "array"
+        }
+      },
+      "cli_path": {
+        "capability": "daemon-build-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "daemon_handoff": {
@@ -14335,6 +14426,108 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "conversation-draft": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "done": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "fresh": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "harness": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "segment": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "text": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "truncated": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "turn": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "published": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "conversation-history": {
     "request": {
       "additional_properties": false,
@@ -16177,6 +16370,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "get-blob": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "blob": {
           "nullable": false,
           "presence": "required",
           "type": {
@@ -19390,6 +19603,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ProcessInfoResult"
     }
   },
+  "put-blob": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "media_type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "put-frontend-projection": {
     "request": {
       "additional_properties": false,
@@ -20435,6 +20676,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ResolveTerminalResult"
+    }
+  },
+  "restart-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "aliases": [
+            "tab"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "TabRef"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "run": {

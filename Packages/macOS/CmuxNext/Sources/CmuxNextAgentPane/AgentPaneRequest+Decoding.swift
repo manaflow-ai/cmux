@@ -13,6 +13,14 @@ extension AgentPaneRequest {
         return .preview(url: text, toggle: toggle)
     }
 
+    /// The chat folder a header action names: an absolute path, or one written from the home
+    /// folder (`~/code/cmux`, as acpmux may record it), expanded (cx-awk8). Else none.
+    private static func headerFolder(_ text: String) -> String? {
+        guard !text.contains("\0") else { return nil }
+        let path = text == "~" || text.hasPrefix("~/") ? NSHomeDirectory() + text.dropFirst() : text
+        return path.hasPrefix("/") ? String(path.prefix(maximumOpenTabText)) : nil
+    }
+
     /// Decodes a `WKScriptMessage.body` (a dictionary once bridged).
     public init(body: Any) {
         guard let object = body as? [String: Any], let method = object["method"] as? String else {
@@ -107,6 +115,8 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
+        case "newTab.context":
+            self = .newTabContext
         case "newTab.remember":
             // One input (R86): only the agent pick is remembered.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -136,6 +146,14 @@ extension AgentPaneRequest {
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
+        case "workspace.useFolder":
+            // Any text: a path that is not an existing absolute folder is refused by the host
+            // (`transport.path_invalid`), so the page never takes it for an older host.
+            if let cwd = params?["cwd"] as? String, cwd.utf8.count <= Self.maximumOpenTabText {
+                self = .useFolder(cwd, confirm: params?["confirm"] as? Bool == true)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
@@ -153,7 +171,7 @@ extension AgentPaneRequest {
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
+                let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
                 self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
                 self = .unsupported(method)

@@ -29,8 +29,8 @@ public nonisolated struct AgentPageOps {
         var methods = Dictionary(uniqueKeysWithValues: [
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.showContextUsage",
             "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
-            "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.browse", "workspace.chooseFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
+            "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "newTab.context", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState", "chat.archive", "chat.sideChat",
             "shell.run", "shell.read", "shell.stop",
             "git.diff", "git.status", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo",

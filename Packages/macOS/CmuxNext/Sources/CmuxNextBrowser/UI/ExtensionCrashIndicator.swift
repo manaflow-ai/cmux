@@ -40,9 +40,6 @@ final class ExtensionCrashIndicator {
         slot.insertArrangedSubview(button, at: slot.arrangedSubviews.firstIndex(of: puzzle) ?? slot.arrangedSubviews.count)
     }
 
-    /// The crashed extensions the button reloads (tests, debug).
-    var crashedNames: [String] { store?.crashed.map(\.name) ?? [] }
-
     func reloadCrashed() {
         guard let store else { return }
         for info in store.crashed { _ = store.reload(info.id) }

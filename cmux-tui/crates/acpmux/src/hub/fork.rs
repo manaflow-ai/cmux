@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. `session/fork`: a new session from a
 //! parent's conversation. Its per-session env is the fork request's own,
-//! never the parent's (session_env.rs).
+//! never the parent's (session_env.rs). `through` (a Claude chat only) forks
+//! through an earlier turn instead of the chat's end (`fork_at.rs`).
 
 use super::*;
 use std::sync::atomic::Ordering;
@@ -12,6 +13,7 @@ impl Hub {
         name: Option<String>,
         cwd: Option<PathBuf>,
         session_env: std::collections::BTreeMap<String, String>,
+        through: Option<u64>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         // The profile env plus the preset's, for `agent_tools::left_out`.
@@ -30,7 +32,31 @@ impl Hub {
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         let id = uuid::Uuid::now_v7().to_string();
-        let (res, new_sid) = if is_claude {
+        let cut = through.filter(|_| is_claude);
+        let mut turn_count = parent_meta.turn_count;
+        let (res, new_sid) = if let Some(through) = cut {
+            // The fork resumes a copy of Claude's transcript through that turn.
+            let history = self
+                .store
+                .events(&session.id, 0, 500_000)
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The chat moved past that turn at its next event, which acpmux logs
+            // before the next prompt reaches Claude.
+            let cut_ms = history.iter().find(|e| e.seq > through).map_or(u64::MAX, |e| e.at);
+            turn_count =
+                history.iter().filter(|e| e.seq <= through && e.kind == "turn_result").count()
+                    as u64;
+            // Claude resumes from the project directory the copy sits in.
+            if cwd != parent_meta.cwd {
+                return Err(RpcError::invalid_params(
+                    "a fork through an earlier turn keeps the chat's folder",
+                ));
+            }
+            let store = self.harness_homes().with_env(&[&fork_env]).claude;
+            let copy = super::fork_at::claude_transcript_through(&store, &sid, cut_ms)
+                .map_err(|e| RpcError::internal(format!("fork through turn: {e}")))?;
+            (json!({}), copy)
+        } else if is_claude {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
             (json!({}), String::new())
@@ -49,7 +75,7 @@ impl Hub {
                 .to_owned();
             (res, new_sid)
         };
-        let fork_seq = session.seq.load(Ordering::SeqCst);
+        let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
         let meta = SessionMeta {
@@ -62,7 +88,7 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
-            agent_session_id: if is_claude { None } else { Some(new_sid) },
+            agent_session_id: if is_claude && cut.is_none() { None } else { Some(new_sid) },
             status: SessionStatus::Idle,
             created_at: now,
             updated_at: now,
@@ -83,7 +109,7 @@ impl Hub {
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
-            turn_count: parent_meta.turn_count,
+            turn_count,
             usage: None,
             permission_rules: None,
             tags: Default::default(),
@@ -99,7 +125,7 @@ impl Hub {
             composer_draft: None,
         };
         let new = self.make_session(meta);
-        if is_claude {
+        if is_claude && cut.is_none() {
             *new.fork_from.lock().unwrap() = Some(sid.clone());
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
@@ -122,7 +148,9 @@ impl Hub {
                         | "turn_result"
                         | "turn_end"
                 ) {
-                    self.append(&new, &e.dir, &e.kind, e.msg);
+                    // Each keeps its time: a later fork through it cuts Claude's
+                    // transcript there (`fork_at.rs`), and a replay plays it then.
+                    self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
                 }
             }
         }

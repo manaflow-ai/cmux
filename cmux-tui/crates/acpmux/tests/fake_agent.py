@@ -6,6 +6,7 @@ Behaviour per prompt text:
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "until-cancel" -> streams "running", then waits for session/cancel
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 
@@ -268,6 +269,23 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "http: URL KEY" posts a one-message chat request to URL with KEY as the
+    # bearer (a model call) and replies "HTTP <status> <body>".
+    if text.startswith("http:"):
+        import urllib.request, urllib.error
+        url, key = text[5:].split()
+        body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "hi"}]}).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={"authorization": f"Bearer {key}", "content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                reply = f"HTTP {resp.status} {resp.read().decode()[:300]}"
+        except urllib.error.HTTPError as e:
+            reply = f"HTTP {e.code} {e.read().decode()[:300]}"
+        except Exception as e:
+            reply = f"HTTP error {e}"
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "mcp" replies with the mcpServers of the last session/new, load or fork.
     if text == "mcp":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
@@ -352,6 +370,17 @@ def handle_prompt(rid, params):
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
+    if text == "until-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text == "slow":

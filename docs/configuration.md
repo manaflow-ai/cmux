@@ -168,7 +168,7 @@ Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace
 - `"auto"` (default): terminal and browser panes show the tab bar. An agent chat alone in its column, or in the chat dock, hides it until the pane holds two tabs.
 - `"always"` shows it, and `"never"` hides it.
 
-**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T follows the tab bar: it opens a tab in a pane that shows it, and a new workspace from one that hides it. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
+**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T always opens a tab in the current workspace, like a browser, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
 ## `tabs.newTabPosition`
 

@@ -290,7 +290,7 @@ mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
-mod terminal_respawn;
+pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 mod terminal_work;
 mod topology_result;
@@ -986,7 +986,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 impl Drop for Mux {
     fn drop(&mut self) {
         self.journal_plugin.shutdown();
-        self.finalize_terminal_journal("mux drop");
+        self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()

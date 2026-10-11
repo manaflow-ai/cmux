@@ -24,6 +24,5 @@ nonisolated enum ScreenStrings {
     static var noOtherScreens: String { text("screens.refusal.noOthers", "there are no other screens to close") }
     static var noClosedScreen: String { text("screens.refusal.noClosed", "no recently closed screen") }
     static var iconArgumentRequired: String { text("screens.refusal.iconRequired", "an icon argument (SF Symbol name or emoji) is required") }
-    static func noSavedScreenGroup(_ id: String) -> String { String(format: text("screens.refusal.noSaved", "no saved screen group %@"), id) }
     static var sameWorkspace: String { text("screens.refusal.sameWorkspace", "the screen is already in that workspace") }
 }

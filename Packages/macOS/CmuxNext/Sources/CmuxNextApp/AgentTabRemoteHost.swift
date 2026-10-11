@@ -11,9 +11,12 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let session: String
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
+    /// route); nil where the app has no exec channel of its own (cx-0q7o).
+    var approvals: AgentPaneRemoteApprovals?
 
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        let route = AgentPaneRemoteRoute(machine: machine) { [surface, session, endpoint] in
+        let route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
             let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
             return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session)
         }
@@ -46,8 +49,11 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }
 
-    func permission(id: String, option: String) async throws {
-        _ = try await mapped { try await client.permission(id: id, option: option); return Data() }
+    func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {
+        _ = try await mapped {
+            try await client.permission(id: id, option: option, decisionNonce: decisionNonce, personDecision: personDecision)
+            return Data()
+        }
     }
 
     func detach() async { await client.detach() }

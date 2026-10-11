@@ -3649,6 +3649,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/agent_session_start.rs"]
+mod agent_session_start;
+#[cfg(unix)]
 #[path = "cli/all_sessions_scope.rs"]
 mod all_sessions_scope;
 #[cfg(unix)]
@@ -3660,11 +3663,16 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/conversation_threads.rs"]
+mod conversation_threads;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/icon_assets.rs"]
+mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
 #[cfg(unix)]
@@ -3675,6 +3683,9 @@ mod lone_width;
 #[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
+#[cfg(unix)]
+#[path = "cli/status.rs"]
+mod status;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

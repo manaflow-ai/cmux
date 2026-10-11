@@ -813,12 +813,18 @@ async fn run_client(
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         let socket = socket_preparation.bind()?;
+        // The SSH route behind this socket, so a CLI at a version-skew dead
+        // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
+        let route_record = write_tunnel_route(&local_socket, &route);
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
             let mut socket = socket;
             serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
             let _ = socket.unlink();
+            if let Some(record) = route_record {
+                let _ = fs::remove_file(record);
+            }
         });
         let mut fatal = multiplexer.subscribe_fatal();
         ready
@@ -1486,6 +1492,34 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
 
 async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
     while !*shutdown.borrow() && shutdown.changed().await.is_ok() {}
+}
+
+/// `<socket>.route`: the SSH route a client runtime's local socket tunnels
+/// to. Only SSH routes are recorded (no credential is in them); the CLI only
+/// prints it, never runs it.
+pub(crate) fn tunnel_route_record(socket: &Path) -> PathBuf {
+    let mut path = socket.as_os_str().to_owned();
+    path.push(".route");
+    PathBuf::from(path)
+}
+
+fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
+    if !route.starts_with("ssh://") {
+        return None;
+    }
+    let record = tunnel_route_record(socket);
+    let _ = fs::remove_file(&record);
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file =
+            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
+        file.write_all(route.as_bytes()).ok()?;
+    }
+    #[cfg(not(unix))]
+    fs::write(&record, route).ok()?;
+    Some(record)
 }
 
 async fn wait_for_fatal(fatal: &mut watch::Receiver<Option<String>>) -> String {

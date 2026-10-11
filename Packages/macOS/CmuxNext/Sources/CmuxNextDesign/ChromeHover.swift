@@ -108,10 +108,6 @@ public final class ChromeHover {
         Motion.set(layer, "backgroundColor", to: end, fade: token, from: start)
     }
 
-    /// The fill as drawn now (model value), and where it is drawn.
-    public var shownFill: CGColor? { fill.backgroundColor }
-    public var fillFrame: CGRect { fill.frame }
-
     /// Call from the view's `layout()`.
     public func layout() {
         guard let view, !drawsBehindContent else { return }

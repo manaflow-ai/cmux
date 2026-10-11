@@ -39,6 +39,10 @@ public final class TerminalSurfaceModel {
     public internal(set) var backgroundOverride: NSColor?
 
     public init() {}
+
+    // cx-qxxu: Cmd-T's New Tab page withdraws a terminal while its action runs; the default
+    // main-actor deinit's hop traps there (cx-t7hu). Teardown only releases values.
+    nonisolated deinit {}
 }
 
 /// Hooks the App implements to act on terminal requests. Every method has a

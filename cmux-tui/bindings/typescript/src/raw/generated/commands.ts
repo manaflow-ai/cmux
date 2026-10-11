@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6b5b223c9e49e7dbf1a3a78185e07970f6efa2e25ca37a64eae363929ea39260. */
+/* cmux-tui mux protocol 12, IR 1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce. */
 
 
 import type * as T from "./types.js";
@@ -543,6 +543,24 @@ export type ConversationCreateResult = {
 };
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationDraftRequest extends CmuxRequestBase {
+  cmd: "conversation-draft";
+  "conversation": string;
+  "done": boolean;
+  "fresh": boolean;
+  "harness"?: (string) | null;
+  "kind": string;
+  "segment": bigint;
+  "seq": bigint;
+  "text": string;
+  "truncated"?: (boolean) | null;
+  "turn": string;
+}
+export type ConversationDraftResult = {
+  "published": boolean;
+};
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationHistoryRequest extends CmuxRequestBase {
   cmd: "conversation-history";
   "before_seq": bigint;
@@ -915,6 +933,13 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
   "session_id": string;
 }
 export type ForgetSessionResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface GetBlobRequest extends CmuxRequestBase {
+  cmd: "get-blob";
+  "blob": string;
+}
+export type GetBlobResult = T.JsonValue;
 
 /** Protocol v10; authority: local-admin. */
 export interface GetBrowserProviderRequest extends CmuxRequestBase {
@@ -1551,6 +1576,14 @@ export interface ProcessInfoRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface PutBlobRequest extends CmuxRequestBase {
+  cmd: "put-blob";
+  "data": string;
+  "media_type": string;
+}
+export type PutBlobResult = T.JsonValue;
+
 /** Protocol v7; authority: control. */
 export interface PutFrontendProjectionRequest extends CmuxRequestBase {
   cmd: "put-frontend-projection";
@@ -1772,6 +1805,13 @@ export interface ResolveTerminalRequest extends CmuxRequestBase {
   cmd: "resolve-terminal";
   "terminal_id": string;
 }
+
+/** Protocol v12; authority: control. */
+export interface RestartTabRequest extends CmuxRequestBase {
+  cmd: "restart-tab";
+  "surface": T.TabRef;
+}
+export type RestartTabResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface RunRequest extends CmuxRequestBase {
@@ -2465,6 +2505,7 @@ export type CmuxRequest =
   | ConversationAttachmentUploadRequest
   | ConversationBindRequest
   | ConversationCreateRequest
+  | ConversationDraftRequest
   | ConversationHistoryRequest
   | ConversationImportRequest
   | ConversationListRequest
@@ -2501,6 +2542,7 @@ export type CmuxRequest =
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
+  | GetBlobRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
   | GetFrontendBrowserHistoryRequest
@@ -2565,6 +2607,7 @@ export type CmuxRequest =
   | PinWorkspaceRequest
   | PingRequest
   | ProcessInfoRequest
+  | PutBlobRequest
   | PutFrontendProjectionRequest
   | PutSessionRequest
   | ReadScreenRequest
@@ -2589,6 +2632,7 @@ export type CmuxRequest =
   | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
+  | RestartTabRequest
   | RunRequest
   | SaveScreenGroupRequest
   | SaveTabGroupRequest
@@ -3077,6 +3121,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "local-conversations-v1";
     stream: null;
   };
+  "conversation-draft": {
+    request: ConversationDraftRequest;
+    result: ConversationDraftResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-draft-v1";
+    stream: null;
+  };
   "conversation-history": {
     request: ConversationHistoryRequest;
     result: ConversationHistoryResult;
@@ -3363,6 +3415,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "get-blob": {
+    request: GetBlobRequest;
+    result: GetBlobResult;
+    authority: "control";
+    since: 12;
+    capability: "icon-assets-v1";
     stream: null;
   };
   "get-browser-provider": {
@@ -3877,6 +3937,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "put-blob": {
+    request: PutBlobRequest;
+    result: PutBlobResult;
+    authority: "control";
+    since: 12;
+    capability: "icon-assets-v1";
+    stream: null;
+  };
   "put-frontend-projection": {
     request: PutFrontendProjectionRequest;
     result: PutFrontendProjectionResult;
@@ -4067,6 +4135,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "restart-tab": {
+    request: RestartTabRequest;
+    result: RestartTabResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-restart-v1";
     stream: null;
   };
   "run": {

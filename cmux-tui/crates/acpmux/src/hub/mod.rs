@@ -8,6 +8,7 @@ mod adoption;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
+mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -26,6 +27,7 @@ mod models_view;
 mod paging;
 mod pool;
 mod queue;
+mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -112,6 +114,9 @@ pub struct RemoteSession {
 pub(super) struct PendingPermission {
     pub(super) request: Value,
     pub(super) reply: oneshot::Sender<Value>,
+    /// The nonce a relayed allow's decision proof covers (`person.rs`,
+    /// cx-0q7o): new for each prompt, valid only while it is pending.
+    pub(super) decision_nonce: String,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +159,9 @@ pub struct PromptOptions {
     /// session cannot steer now (no running turn, or an agent that does not
     /// steer).
     pub steer_only: bool,
+    /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
+    /// running turn and run this next" instead of waiting behind the queue.
+    pub interrupt: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -405,6 +413,8 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
+        // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
+        self.resume_queues();
         // The last live model lists, before anything slow.
         self.load_live_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
@@ -504,6 +514,7 @@ impl Hub {
         drop(sessions);
         // A turn whose agent host still runs is not lost: the host is adopted.
         self.mark_unknown_outcomes(&Self::live_host_sessions());
+        self.restore_queues();
     }
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
@@ -520,6 +531,8 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            queue_moved: Notify::new(),
+            restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
@@ -609,10 +622,24 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
     ) -> (EventRecord, bool) {
+        self.append_at(session, dir, kind, msg, host_seq, None)
+    }
+
+    /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
+    /// None: now), as a fork's copy of its parent's turns did.
+    pub(super) fn append_at(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let record =
-            EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
+        let at = at.unwrap_or_else(now_ms);
+        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
@@ -646,6 +673,9 @@ impl Hub {
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
+                | "queue_order"
+                | "queue_paused"
+                | "queue_resumed"
                 | "created"
                 | "tags"
                 | "rules"

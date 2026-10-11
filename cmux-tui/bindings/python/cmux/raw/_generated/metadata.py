@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6b5b223c9e49e7dbf1a3a78185e07970f6efa2e25ca37a64eae363929ea39260'
+IR_SHA256 = '1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce'
 
 
 @dataclass(frozen=True)
@@ -715,6 +715,26 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-draft': CommandMetadata(
+        'conversation-draft',
+        'local-admin',
+        12,
+        'conversation-draft-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'done': CommandFieldMetadata(None, None),
+            'fresh': CommandFieldMetadata(None, None),
+            'harness': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(None, None),
+            'segment': CommandFieldMetadata(None, None),
+            'seq': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
+            'truncated': CommandFieldMetadata(None, None),
+            'turn': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-history': CommandMetadata(
         'conversation-history',
         'local-admin',
@@ -1206,6 +1226,17 @@ COMMANDS = {
         {
             'force': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-blob': CommandMetadata(
+        'get-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'blob': CommandFieldMetadata(None, None),
         },
     ),
     'get-browser-provider': CommandMetadata(
@@ -2081,6 +2112,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'put-blob': CommandMetadata(
+        'put-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'media_type': CommandFieldMetadata(None, None),
+        },
+    ),
     'put-frontend-projection': CommandMetadata(
         'put-frontend-projection',
         'control',
@@ -2393,6 +2436,17 @@ COMMANDS = {
         None,
         {
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'restart-tab': CommandMetadata(
+        'restart-tab',
+        'control',
+        12,
+        'tab-restart-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'run': CommandMetadata(

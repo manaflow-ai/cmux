@@ -24,6 +24,8 @@ export interface ContextMenuProps {
   selection?: "menu";
   /** Called as the menu opens, before it renders, so items can read what was under the pointer. */
   onOpen?(): void;
+  /** Targets (a CSS selector) that keep the host's own menu, such as a text field's Cut, Copy and Paste. */
+  ignore?: string;
 }
 
 /**
@@ -35,7 +37,7 @@ export interface ContextMenuProps {
  * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Escape returns focus to
  * the invoking control when it has one.
  */
-export function ContextMenu({ items, children, className, selection, onOpen }: ContextMenuProps) {
+export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -69,6 +71,7 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
       className={cx("ui-context-menu-host", className)}
       onContextMenu={(event) => {
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
+        if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
         onOpen?.();
         setActive(0);
@@ -82,14 +85,26 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
       {children}
       {point
         ? createPortal(
-            <div className="ui-context-menu-backdrop" onPointerDown={() => close()}>
+            // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent
+            // pane) still opens the menu at the pointer above the page (cx-j4sd).
+            <div
+              className="ui-context-menu-backdrop"
+              style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
+              onPointerDown={() => close()}
+            >
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
                 ref={(node) => node?.focus()}
                 className="ui-popup ui-context-menu"
                 role="menu"
+                data-focus-ring="rows"
                 tabIndex={-1}
-                style={{ left: Math.max(4, Math.min(point.x, window.innerWidth - 244)), top: Math.max(4, point.y) }}
+                style={{
+                  position: "fixed",
+                  minWidth: 180,
+                  left: Math.max(4, Math.min(point.x, window.innerWidth - 244)),
+                  top: Math.max(4, point.y),
+                }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {

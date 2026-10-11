@@ -57,12 +57,9 @@ final class AgentTabStore {
         -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
-    /// Saves `path` as the agent folder of `workspace` (tab `key`'s), on the tab's daemon.
-    var persistAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> AgentPaneFolderChoice = { _, _, _ in
-        .unavailable(AgentPaneFolderChoice.notSavedMessage)
-    }
-    /// Whether tab `key`'s daemon serves `workspace-agent-folder-v1`.
-    var servesAgentFolder: @MainActor (_ key: String) -> Bool = { _ in false }
+    /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
+    /// where its new chats start (cx-9aps). Nil while the tab is not found.
+    var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most
@@ -104,6 +101,8 @@ final class AgentTabStore {
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
+    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
+    var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
@@ -149,7 +148,7 @@ final class AgentTabStore {
     var pendingTurns: [String: String] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
-    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
+    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
@@ -233,12 +232,6 @@ final class AgentTabStore {
         if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
     }
 
-    /// The link turn tab `key`'s page has not been handed yet.
-    func pendingTurn(in key: String) -> String? {
-        let key = resolve(key)
-        return views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
-    }
-
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
@@ -258,6 +251,18 @@ final class AgentTabStore {
         if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
             newTabPages[key] = firstPageNewTab?(nil)
+        }
+        // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
+        // when there is one: no cold load and React mount on the open path (cx-ec99).
+        // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
+        if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
+           seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
+            standaloneViews.remove(spare)
+            wire(spare.model, key: key)
+            views[key] = spare
+            spare.adoptNewTab(newTab.page)
+            track(key, in: store)
+            return spare
         }
         let model = AgentPaneModel(
             host: paneHost,
@@ -357,7 +362,10 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        pageSettings.apply(to: NewTabOmnibar.installed(on: view))
+        pageSettings.apply(to: view)
+        // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
+        // React-only New Tab). Chat panes keep it.
+        if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
         model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()

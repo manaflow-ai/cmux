@@ -120,11 +120,17 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
                 runs: None,
             }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
+            thread_root: None,
         },
     )
     .unwrap();
-    // Typing has no cloud frame yet: a no-op, nothing sent.
-    port.typing(CONV, true).unwrap();
+    // Typing has no cloud frame yet: said (typing_unsupported), nothing sent.
+    assert!(matches!(
+        port.typing(CONV, true),
+        Err(OpError::Rejected(reason)) if reason == "typing_unsupported"
+    ));
     let calls = rpc.calls.lock().unwrap();
     assert_eq!(calls.len(), 4);
     assert_eq!(calls[0].0, "cloud-conversation-snapshot");
@@ -445,6 +451,9 @@ fn the_cloud_link_leases_the_chief_token_subscribes_and_answers() {
                 runs: None,
             }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
+            thread_root: None,
         },
     )
     .unwrap();

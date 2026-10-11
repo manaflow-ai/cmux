@@ -165,6 +165,12 @@ enum Springs {
     static var read: SpringElement { element("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
+    /// The first inline reply to the last message: the rows above that new thread root make room for its
+    /// change-of-thread gap (RowBuilder), from `threadRootDip` below their old place (lossless typing-unfocused-take1).
+    static var receiveThreadRoot: SpringElement { element("transcript.receiveThreadRoot") }
+    /// How far the rows above a new thread root drop on the arrival's first frame (pt; the gap above the root
+    /// closes), before they rise with `receiveThreadRoot` (lossless typing-unfocused-take1: 881 -> 888 pt).
+    static let threadRootDip: CGFloat = 7
     /// A received photo or video (lossless send-typed-media take: an ease-in-out move, the
     /// photo's opacity following it).
     static var receiveMedia: SpringElement { element("transcript.receiveMedia") }

@@ -203,6 +203,8 @@ final class AppServices {
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
+    /// Cross-build session discovery and acknowledge-then-close handoff.
+    private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
@@ -293,7 +295,6 @@ final class AppServices {
             BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0)
         }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
-        NewTabOmnibar.services = self
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
@@ -349,9 +350,9 @@ final class AppServices {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps
-                    // its first id; links name it by the resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                    // A tab first seen without a `tab_` resource id keeps its first id; links
+                    // (and TabMirror's wait) name it by the observed resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
                         return (tab, pane)
                     }
                 }

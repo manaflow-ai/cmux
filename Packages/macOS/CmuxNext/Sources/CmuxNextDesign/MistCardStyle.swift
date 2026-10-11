@@ -16,9 +16,6 @@ public nonisolated struct MistContrastCheck: Equatable, Sendable {
     public let minimum: Double
     /// The measured WCAG ratio.
     public let ratio: Double
-
-    /// Whether the chosen text passes the WCAG AA threshold.
-    public var passesAA: Bool { ratio >= minimum }
 }
 
 /// A small frosted card placed behind dense text over mist artwork.
@@ -33,9 +30,6 @@ public nonisolated struct MistCardStyle: Equatable, Sendable {
     public let cornerRadius: Double
     /// The proof that card text remains readable over sampled art.
     public let contrastCheck: MistContrastCheck
-
-    /// Mist cards are intentionally scoped to their dense content owner.
-    public let appliesLocally = true
 
     /// Creates a local card style from a resolved contrast check.
     ///

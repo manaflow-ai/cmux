@@ -32,6 +32,11 @@ async fn run() -> Result<()> {
     let mut stdout = tokio::io::stdout();
     let spec: SpawnSpec =
         read_frame(&mut stdin).await?.ok_or_else(|| anyhow!("no spawn spec on stdin"))?;
+    // The host owns its daemon's local router while it lives: a kept agent
+    // keeps its router through a daemon restart. The path comes from the
+    // daemon, whose home may be a tagged build's override.
+    let _router_owner =
+        spec.router_owner_fifo.as_deref().and_then(crate::daemon::open_router_owner);
     match start(&spec).await {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
@@ -161,7 +166,9 @@ enum Event {
     Exited(Option<i32>),
     Accepted(tokio::net::UnixStream),
     Frame(u64, Option<ControllerFrame>),
-    /// SIGTERM: end the harness and the host.
+    /// SIGTERM: end the harness and the host. Also sent when no daemon
+    /// can adopt this host any more (`watch_record`, a pooled host's lost
+    /// controller).
     Term,
     /// A quiet drain period (its generation) ended: output pipes still open
     /// belong to processes that left the harness group (setsid).
@@ -207,6 +214,11 @@ struct State {
     leader_alive: Arc<std::sync::atomic::AtomicBool>,
     /// Stderr lines not kept while over the buffer cap.
     stderr_dropped: u64,
+    /// No daemon can adopt this host any more: end like SIGTERM.
+    unadoptable: bool,
+    /// The connection of the last controller that said `Hello`, also when
+    /// a failed send already dropped it as the controller.
+    last_owner: Option<u64>,
 }
 
 impl Started {
@@ -293,6 +305,8 @@ impl Started {
                 }
             });
         }
+        // Held for the host's life: dropping it stops the watch.
+        let _record_watch = watch_record(&spec, &record.start_nonce, events_tx.clone());
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
@@ -337,6 +351,8 @@ impl Started {
             pgid,
             leader_alive,
             stderr_dropped: 0,
+            unadoptable: false,
+            last_owner: None,
         };
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
@@ -430,6 +446,16 @@ impl Started {
                 }
                 Event::Frame(id, frame) => state.on_frame(id, frame).await,
             }
+            if state.unadoptable {
+                // As SIGTERM: end the harness while its group is ours, then the host.
+                if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
+                    && let Some(pg) = state.pgid
+                {
+                    // SAFETY: the leader is unreaped, so the group is ours.
+                    unsafe { libc::killpg(pg, libc::SIGKILL) };
+                }
+                break;
+            }
             if state.finished() {
                 break;
             }
@@ -454,7 +480,7 @@ impl Started {
                 });
             }
         }
-        remove_artifacts(&state.spec.hosts_dir, &state.record);
+        remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
         Ok(())
     }
@@ -629,6 +655,13 @@ impl State {
             if is_owner {
                 self.controller = None;
             }
+            if self.last_owner == Some(id) {
+                // A pooled host nobody took yet belongs to that daemon alone
+                // (a new daemon ends every one it finds): its controller
+                // gone, it ends. A promoted host keeps the same link, and a
+                // kept host waits for the next daemon.
+                self.unadoptable |= still_pooled(&self.spec);
+            }
             self.pending_conns.retain(|(pid, _)| *pid != id);
             return;
         };
@@ -663,6 +696,7 @@ impl State {
                 exited,
             });
             self.controller = Some(Controller { id, tx, resumed: false });
+            self.last_owner = Some(id);
             return;
         }
         if !is_owner {
@@ -763,6 +797,70 @@ fn wait_exit_unreaped(pid: i32) -> bool {
             return false;
         }
     }
+}
+
+/// The host was started in the pool directory and its record is still
+/// there (not promoted into the hosts directory).
+fn still_pooled(spec: &SpawnSpec) -> bool {
+    spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
+        && record_path(&spec.hosts_dir, &spec.session_id).exists()
+}
+
+/// Whether a daemon can still find this host: its record (this incarnation's,
+/// by start nonce) is in its hosts directory, or (a promoted pooled host) in
+/// the parent hosts directory. A newer host of the same session that wrote
+/// its own record makes this one unadoptable.
+fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
+    if names_this_host(&record_path(&spec.hosts_dir, &spec.session_id), nonce) {
+        return true;
+    }
+    spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
+        && spec
+            .hosts_dir
+            .parent()
+            .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
+}
+
+/// Watches the directories that hold this host's record (FSEvents or
+/// inotify; no polling). When the record is gone (the daemon's home was
+/// deleted, or a daemon removed the record), no daemon can ever adopt this
+/// host: it ends like SIGTERM. Every event only triggers a stat; a record
+/// rewritten in place (write, then rename) is still present.
+fn watch_record(
+    spec: &SpawnSpec,
+    nonce: &str,
+    tx: mpsc::Sender<Event>,
+) -> Option<notify::RecommendedWatcher> {
+    use notify::Watcher as _;
+    let watched = spec.clone();
+    let own = nonce.to_owned();
+    let term = tx.clone();
+    let mut watcher = notify::recommended_watcher(move |_event: notify::Result<notify::Event>| {
+        // The notify thread is not a runtime thread: a blocking send never
+        // drops the end when the event queue is full.
+        if !record_present(&watched, &own) {
+            let _ = term.blocking_send(Event::Term);
+        }
+    })
+    .map_err(|e| tracing::warn!("the host cannot watch its record: {e}"))
+    .ok()?;
+    let mut dirs = vec![spec.hosts_dir.clone()];
+    if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
+        && let Some(hosts) = spec.hosts_dir.parent()
+    {
+        dirs.push(hosts.to_path_buf());
+    }
+    for dir in &dirs {
+        if let Err(e) = watcher.watch(dir, notify::RecursiveMode::NonRecursive) {
+            tracing::warn!("the host cannot watch {}: {e}", dir.display());
+        }
+    }
+    // The record may have gone before the watch began (the home deleted
+    // right after the start): check once now.
+    if !record_present(spec, nonce) {
+        let _ = tx.try_send(Event::Term);
+    }
+    Some(watcher)
 }
 
 #[cfg(test)]
