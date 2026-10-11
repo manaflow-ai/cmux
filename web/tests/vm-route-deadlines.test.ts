@@ -103,6 +103,42 @@ describe("VM route answer deadlines", () => {
   });
 });
 
+// The remaining provider-bound routes: machine read and rename, private
+// network enrollment (190 s worst case in production), attach, sessions and
+// create. Each answers inside its legacy caller's budget when the client
+// states none, and a create still running answers in progress.
+describe("remaining VM routes", () => {
+  const expected: Array<[VmRouteDeadlineOperation, number, boolean]> = [
+    ["getVm", 55_000, false],
+    ["rename", 55_000, true],
+    ["tunnelEnroll", 55_000, true],
+    ["tunnelRead", 55_000, false],
+    ["tunnelRevoke", 15_000, true],
+    ["attach", 955_000, true],
+    ["sessionList", 55_000, false],
+    ["sessionOpen", 955_000, true],
+    ["create", 595_000, true],
+  ];
+  test.each(expected)("%s answers at %i ms (mutating %p) when the provider never answers", async (operation, budgetMs, mutating) => {
+    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never);
+    expect(virtualMs).toBeGreaterThanOrEqual(budgetMs);
+    expect(virtualMs).toBeLessThanOrEqual(budgetMs + 250);
+    const error = answer?._tag === "Left" ? answer.left as VmOperationDeadlineError : null;
+    expect(error?._tag).toBe("VmOperationDeadlineError");
+    expect(error?.mutating).toBe(mutating);
+    expect(background).toHaveLength(1);
+  });
+
+  test("a create whose provider hangs into a gateway 502 answers in progress, not an outage", async () => {
+    const { answer } = await underDeadline("create", Effect.fail(providerFailure("create", new ProviderError("freestyle", "create", gateway502()))));
+    const error = answer?._tag === "Left" ? answer.left : null;
+    expect(error?._tag).toBe("VmOperationDeadlineError");
+    const response = await vmWorkflowErrorResponse(error);
+    expect(response?.status).toBe(503);
+    expect(await response!.json()).toMatchObject({ error: "vm_operation_in_progress", phase: "create" });
+  });
+});
+
 describe("client-stated budgets", () => {
   test("a stated budget replaces the legacy caller's, less the margin", async () => {
     const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000);
