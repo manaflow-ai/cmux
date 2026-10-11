@@ -88,6 +88,21 @@ describe("code colors come from the terminal palette", () => {
     stop();
   });
 
+  test("plain code text follows the terminal foreground in place", () => {
+    hostSends(night);
+    const stop = followHostTerminalTheme((appearance) =>
+      applyDiffViewerAppearance(resolveDiffViewerAppearance(appearance)),
+    );
+    const resolved = resolveDiffViewerAppearance(undefined);
+    const theme = shikiThemeFromGhostty({ ...resolved.themes.dark, type: "dark" }, resolved);
+    const plain = variableOf(theme.tokenColors.find((rule) => rule.scope == null)?.settings.foreground);
+    expect(plain).toBeDefined();
+    expect(rootVariable(plain!)).toBe("#e8e8f0");
+    hostSends({ ...night, foreground: "#f0e0d0" });
+    expect(rootVariable(plain!)).toBe("#f0e0d0");
+    stop();
+  });
+
   test("the chat and the pages map each scope to the same palette slot", () => {
     hostSends(night);
     applyDiffViewerAppearance(resolveDiffViewerAppearance(undefined));
