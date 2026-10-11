@@ -56,11 +56,14 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.saveLog":
-            if let text = params?["text"] as? String, !text.isEmpty, text.utf8.count <= Self.maximumLogBytes {
-                self = .saveLog(text: text, suggestedName: Self.logFileName(params?["suggestedName"] as? String))
+            if let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: .log) {
+                self = .saveFile(save)
             } else {
                 self = .unsupported(method)
             }
+        case "pane.saveFile":
+            // Stub until the side panel's Save lands (cx-ncc.75).
+            self = .unsupported(method)
         case "pane.showContextUsage":
             if let show = params?["show"] as? Bool {
                 self = .showContextUsage(show)
