@@ -54,8 +54,8 @@ public nonisolated struct GhosttyWorkingDirectoryInheritance: Equatable, Sendabl
     /// The folder a new terminal of `kind` must start in when its caller named
     /// none: nil while it inherits (the caller's folder logic and the daemon's
     /// resolver decide), else the home folder.
-    public func uninheritedStart(_ kind: Kind, home: String = NSHomeDirectory()) -> String? {
-        inherits(kind) ? nil : home
+    public func uninheritedStart(_ kind: Kind, home: String? = nil) -> String? {
+        inherits(kind) ? nil : home ?? NSHomeDirectory()
     }
 }
 
