@@ -77,7 +77,7 @@ public final class LayoutPassGuard {
     public private(set) var maxPassesWindowLimit: Int?
     /// Views counted per window at most; a window with this many or more
     /// gets the full ``bound``.
-    static let viewCountCap = 2 * bound
+    public static let viewCountCap = 2 * bound
     public private(set) var isInstalled = false
 
     /// Per view this turn, at its window's frame.
