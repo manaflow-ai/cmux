@@ -800,6 +800,25 @@ jobs:
             --feed appcast-x86_64.xml \
             --feed appcast.xml
 
+      # Thin installs read releases/latest/download/appcast-<arch>.xml, so only
+      # the highest stable version may become latest. A backport tag (for
+      # example v0.62.1 after v0.63.1) is published without taking it over.
+      - name: Decide whether this release is latest
+        id: latest_release
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          published="$(gh release list --exclude-drafts --exclude-pre-releases --json tagName -q '.[].tagName')"
+          highest="$(printf '%s\n%s\n' "$published" "$GITHUB_REF_NAME" | sed '/^$/d' | sort -V | tail -1)"
+          if [ "$highest" = "$GITHUB_REF_NAME" ]; then
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$GITHUB_REF_NAME is older than $highest; publishing without marking it latest"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Keep a new stable release hidden until its entire asset set is verified.
       - name: Publish verified release
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -809,6 +828,7 @@ jobs:
           generate_release_notes: true
           prerelease: false
           draft: false
+          make_latest: ${{ steps.latest_release.outputs.make_latest }}
 
       - name: Upload release appcast to R2
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
