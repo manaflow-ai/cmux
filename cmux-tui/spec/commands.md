@@ -6026,7 +6026,9 @@ replies with seq above `after_seq` (default 0), in ascending seq. Trusted
 local connections only (a paired remote device is refused). A root that is
 unknown, in another conversation or itself a thread reply is refused with
 `conversation_rejected` `unknown_message`. Stats are computed at read time
-over every reply: a retracted reply still counts.
+over the replies that are not retracted: a retracted reply stays in `replies`
+(the client shows it as deleted) but does not count in `reply_count`,
+`last_reply_seq`, `last_reply_at` or `authors`.
 
 Params: `conversation`, `root` (required); `after_seq`, `limit` (optional).
 

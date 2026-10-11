@@ -9,4 +9,10 @@ extension TabModel {
         guard !dead, let agent, agent.state != .done else { return nil }
         return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
     }
+
+    /// The name of that agent ("Claude Code", "Codex"), or nil when cmux does not list it.
+    var agentName: String? {
+        let id = agentSession?.harness ?? (dead || agent?.state == .done ? nil : agent?.agent)
+        return id.flatMap { id in AgentBrandCatalog.agents.first { $0.id == id.lowercased() }?.name }
+    }
 }
