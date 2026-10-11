@@ -85,22 +85,11 @@ extension HermesAgentIndex {
         guard !normalizedSessionIDs.isEmpty || (startedAt != nil && !cwdCandidates.isEmpty) else {
             return RecoveryInspection(existingSessionIDs: [], evidence: [])
         }
-        let snapshot: HermesAgentDatabaseSnapshot
         do {
-            guard let madeSnapshot = try makeSnapshot(
+            return try withStateDatabase(
                 stateDBPath: stateDBPath,
-                prefix: "cmux-hermes-agent-recovery"
-            ) else {
-                return nil
-            }
-            snapshot = madeSnapshot
-        } catch {
-            return nil
-        }
-        defer { snapshot.remove() }
-
-        do {
-            return try withDatabase(snapshot.databaseURL.path) { database in
+                snapshotPrefix: "cmux-hermes-agent-recovery"
+            ) { database in
                 try loadRecoveryInspection(
                     database: database,
                     sessionIDs: normalizedSessionIDs,
