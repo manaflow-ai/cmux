@@ -435,6 +435,7 @@ ensure_tree_publisher() {
       sha="$fallback"
     else
       echo "warning: could not point refs/heads/cmux-tui-pin-${sha:0:12} at $sha (push $sha first; the token needs contents: write); not dispatching tree $key" >&2
+      await_outside_publisher "$key" "$sha"
       return 0
     fi
   fi
@@ -448,9 +449,38 @@ ensure_tree_publisher() {
     echo "cmux-tui tree $key: dispatched cmux-tui-artifacts.yml on $pin for $sha" >&2
     tree_publisher_sha="$sha"; tree_publisher_action=dispatched
   else
-    echo "warning: could not dispatch cmux-tui-artifacts.yml on $pin (the token needs actions: write); tree $key has no publisher" >&2
+    echo "warning: could not dispatch cmux-tui-artifacts.yml on $pin (the token needs actions: write); waiting for another publisher of tree $key" >&2
+    await_outside_publisher "$key" "$sha"
   fi
   return 0
+}
+
+# await_outside_publisher <key> <sha>: a pull request's token may write nothing
+# (403), and main's cmux-next-pr-merge-tree.yml (pull_request_target, started by
+# the same push) then pins the merge commit and dispatches its publish. Waits up
+# to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS (default 90; path routing has 5 minutes) for an artifacts run for
+# <sha>, or one with the same tree, and sets tree_publisher_sha to defer to it.
+await_outside_publisher() {
+  local key="$1" sha="$2" current
+  local wait="${CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS:-90}" poll="${CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS:-10}" started=$SECONDS
+  # Only a pull request has that publisher; other callers have their own waits.
+  [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] || return 0
+  [[ "$wait" =~ ^[0-9]+$ && "$poll" =~ ^[0-9]+$ ]] || { echo "warning: CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS and _POLL_SECONDS must be whole seconds" >&2; return 0; }
+  echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
+  while :; do
+    if [[ "$(artifacts_runs_state "$sha")" == active ]]; then
+      echo "cmux-tui tree $key: an artifacts run for $sha started; deferring to it" >&2
+      tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
+    fi
+    current="$(active_publisher_for_key "$key")"
+    if [[ -n "$current" ]]; then
+      echo "cmux-tui tree $key: active artifacts run for $current has the same tree; deferring to it" >&2
+      tree_publisher_sha="$current"; tree_publisher_action=active; return 0
+    fi
+    (( SECONDS - started + poll <= wait )) || break
+    sleep "$poll"
+  done
+  echo "warning: no artifacts run for tree $key started within ${wait}s; tree $key has no publisher" >&2
 }
 
 # pin_tree_ref <sha>: points refs/heads/cmux-tui-pin-<sha12> at <sha> and prints
