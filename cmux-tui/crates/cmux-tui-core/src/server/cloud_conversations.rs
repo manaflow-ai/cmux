@@ -319,3 +319,7 @@ fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>
 #[cfg(test)]
 #[path = "cloud_conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cloud_lease_gate_tests.rs"]
+mod lease_gate_tests;
