@@ -41,7 +41,7 @@ extension NSView {
     /// `rect` on whole backing pixels, for a text field's frame set from `layout()` (cx-wcej; see
     /// `PaletteText.height`).
     func pixelAligned(_ rect: NSRect) -> NSRect {
-        backingAlignedRect(rect, options: .alignAllEdgesNearest)
+        backingAlignedRect(rect, options: [.alignMinXNearest, .alignMinYNearest, .alignWidthNearest, .alignHeightNearest])
     }
 }
 
