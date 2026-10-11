@@ -16,17 +16,17 @@ public enum ThemeInk: Sendable {
 }
 
 /// A label whose text color follows its theme scope (room, workspace):
-/// `themeColor` runs inside `performWithTheme` whenever the label joins a
-/// window or the theme changes, so the color is never frozen at creation.
-/// The theme's primary text by default; `Palette.textSecondary` for notes.
+/// the color is read inside `performWithTheme` whenever the label joins a
+/// window or the theme changes, so it is never frozen at creation.
 public final class ThemedLabel: NSTextField {
-    public var themeColor: @MainActor () -> NSColor = { Palette.textPrimary } {
+    /// A style color read in the label's scope; nil draws `ink`.
+    public var themeColor: (() -> NSColor)? {
         didSet { applyThemeColor() }
     }
 
-    /// One of the theme's text colors (sets `themeColor`).
+    /// One of the theme's text colors, when `themeColor` is nil.
     public var ink: ThemeInk = .primary {
-        didSet { themeColor = { [ink] in ink.color } }
+        didSet { applyThemeColor() }
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -40,22 +40,20 @@ public final class ThemedLabel: NSTextField {
     }
 
     private func applyThemeColor() {
-        performWithTheme { textColor = themeColor() }
+        performWithTheme { textColor = themeColor?() ?? ink.color }
     }
 }
 
 /// An image view whose tint follows its theme scope, like `ThemedLabel`.
 public final class ThemedImageView: NSImageView {
-    public var themeTint: (@MainActor () -> NSColor)? {
+    /// A style color read in the view's scope; nil tints with `ink`.
+    public var themeTint: (() -> NSColor)? {
         didSet { applyThemeTint() }
     }
 
-    /// One of the theme's text colors as the tint (sets `themeTint`).
+    /// One of the theme's text colors, when `themeTint` is nil.
     public var ink: ThemeInk? {
-        didSet {
-            guard let ink else { return themeTint = nil }
-            themeTint = { ink.color }
-        }
+        didSet { applyThemeTint() }
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -69,7 +67,7 @@ public final class ThemedImageView: NSImageView {
     }
 
     private func applyThemeTint() {
-        guard let themeTint else { return }
-        performWithTheme { contentTintColor = themeTint() }
+        guard themeTint != nil || ink != nil else { return }
+        performWithTheme { contentTintColor = themeTint?() ?? ink?.color }
     }
 }
