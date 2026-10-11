@@ -141,7 +141,7 @@ pub fn read_turns(
         // metadata line, then `{role, created, content}` messages.
         AdapterKind::Goose if path.file_name().is_some_and(|name| name == "sessions.db") => {
             let rows = sqlite_rows(path, session_id, "content_json", "created_timestamp")?;
-            for (role, content, at, metadata) in rows {
+            for Row { role, content, at, metadata } in rows {
                 let hidden = metadata
                     .and_then(|m| serde_json::from_str::<Value>(&m).ok())
                     .is_some_and(|m| m.get("userVisible") == Some(&Value::Bool(false)));
@@ -165,7 +165,9 @@ pub fn read_turns(
         // `crush.db`: `messages{session_id, role, parts, created_at}`; a text part is
         // `{type:"text", data:{text, hidden?}}`.
         AdapterKind::Crush => {
-            for (role, parts, at, _) in sqlite_rows(path, session_id, "parts", "created_at")? {
+            for Row { role, content: parts, at, .. } in
+                sqlite_rows(path, session_id, "parts", "created_at")?
+            {
                 let parts: Value =
                     parts.and_then(|p| serde_json::from_str(&p).ok()).unwrap_or_default();
                 let texts: Vec<Value> = parts
@@ -188,14 +190,23 @@ pub fn read_turns(
 /// At most this many of a chat's newest rows are read from a SQLite store.
 const MAX_ROWS: usize = 4_000;
 
-/// A chat's `(role, content, created ms, metadata)` rows from a SQLite store's `messages`, oldest
-/// first: `content` and `time` name its columns, and `metadata_json` is read where it exists.
+/// One `messages` row of a SQLite store.
+struct Row {
+    role: String,
+    content: Option<String>,
+    /// Created (ms since the epoch).
+    at: Option<i64>,
+    metadata: Option<String>,
+}
+
+/// A chat's rows from a SQLite store's `messages`, oldest first: `content` and `time` name its
+/// columns, and `metadata_json` is read where it exists.
 fn sqlite_rows(
     path: &Path,
     session_id: &str,
     content: &str,
     time: &str,
-) -> Result<Vec<(String, Option<String>, Option<i64>, Option<String>)>, TranscriptError> {
+) -> Result<Vec<Row>, TranscriptError> {
     let unreadable = |e: rusqlite::Error| TranscriptError::Unreadable(e.to_string());
     let conn = open_read_only(path).map_err(unreadable)?;
     let cols = columns(&conn, "messages").map_err(unreadable)?;
@@ -212,18 +223,18 @@ fn sqlite_rows(
     let mut stmt = conn.prepare(&sql).map_err(unreadable)?;
     let mut rows: Vec<_> = stmt
         .query_map([session_id], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(2)?,
-                match row.get_ref(1)? {
+            Ok(Row {
+                role: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                content: row.get(2)?,
+                at: match row.get_ref(1)? {
                     ValueRef::Integer(value) => Some(seconds_ms(value)),
                     ValueRef::Text(text) => {
                         std::str::from_utf8(text).ok().and_then(parse_rfc3339_ms)
                     }
                     _ => None,
                 },
-                row.get::<_, Option<String>>(3)?,
-            ))
+                metadata: row.get(3)?,
+            })
         })
         .map_err(unreadable)?
         .collect::<rusqlite::Result<_>>()
