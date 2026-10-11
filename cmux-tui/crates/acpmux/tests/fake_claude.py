@@ -15,6 +15,7 @@ file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
 is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
+"hold: PATH" answers once PATH exists, so a test can act while a turn runs.
 """
 import json
 import os
@@ -87,6 +88,11 @@ for line in sys.stdin:
             time.sleep(0.02)
         elif STORE:
             open(stored(SESSION), "w").close()
+        # "hold: PATH" keeps the turn running until PATH exists.
+        if said.startswith("hold: "):
+            import time
+            while not os.path.exists(said[len("hold: "):]):
+                time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:

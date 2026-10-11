@@ -257,7 +257,8 @@ final class AgentTabStore {
         // A tab recorded for this Mac in another machine's tree with no chat yet (saved before
         // cx-k21v): this Mac's New Tab page or chat there would start in this Mac's acpmux.
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
-            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: ""))
+            let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
+            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
             guard let view = makeView(AgentPaneModel(host: refused, allowsTabConversion: false)) else { return nil }
             views[key] = view
             track(key, in: store)
@@ -296,16 +297,14 @@ final class AgentTabStore {
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
             seed: seed,
-            newTab: local ? newTabPages[key]?.page : nil,
+            // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
-        if !local {
-            // The other machine's store keeps its own record of the session (no bind from here).
-            // Its git reads go to that machine's daemon (``gitLink``).
-            model.onSessionChange = nil
-        }
+        // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
+        if !local { model.neverPooled = true }
         guard let view = makeView(model) else { return nil }
         views[key] = view
         track(key, in: store)
@@ -331,7 +330,9 @@ final class AgentTabStore {
             newTabPages[key] = nil
             views[key]?.applyTheme() // now the agent chat surface (R55)
             sessions[key] = session
-            sendSession(session, for: key)
+            // Another machine's store keeps its own record of the session: its daemon bound it at
+            // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
+            if bindsHere(key) { sendSession(session, for: key) }
         }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
@@ -368,7 +369,12 @@ final class AgentTabStore {
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
             return await handler.listProjects(query)
         }
-        model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
+        model.onOpenChat = { [weak self] key in
+            guard let self else { return }
+            // From a New Tab page the chat takes that tab; elsewhere it opens through Open Chat.
+            let page = resolve(provisional)
+            if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
+        }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
         model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
         model.onAppAction = { [weak self] id in

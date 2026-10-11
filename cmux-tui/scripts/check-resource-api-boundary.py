@@ -704,14 +704,20 @@ def _runtime_operation_classes(
 
     variants, _ = enum_registry("ResourceOperation")
     local_variants, _ = enum_registry("LocalOperation")
-    class_method = _balanced_body(
-        text,
-        re.compile(
-            r"\bimpl\s+ResourceOperation\s*\{.*?"
-            r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
-            re.DOTALL,
-        ),
+    class_re = re.compile(
+        r"\bimpl\s+ResourceOperation\s*\{.*?"
+        r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
+        re.DOTALL,
     )
+    # The class table lives in resource.rs or in its own module, resource/class.rs.
+    class_path, class_text = path, text
+    class_method = _balanced_body(text, class_re)
+    module = path.with_suffix("") / "class.rs"
+    if class_method is None and module.is_file():
+        module_text = _read(module, diagnostics)
+        if module_text is not None:
+            class_path, class_text = module, module_text
+            class_method = _balanced_body(module_text, class_re)
     if class_method is None:
         diagnostics.append(
             Diagnostic(path, 1, 1, "boundary.operation-class", "missing ResourceOperation::class")
@@ -731,8 +737,8 @@ def _runtime_operation_classes(
         if wire_class not in TRANSPORT_OPERATION_CLASSES:
             diagnostics.append(
                 _diagnostic_at(
-                    path,
-                    text,
+                    class_path,
+                    class_text,
                     body_offset + branch.start("class"),
                     "boundary.operation-class",
                     f"unsupported runtime operation class {wire_class!r}",
@@ -744,8 +750,8 @@ def _runtime_operation_classes(
             if operation is None:
                 diagnostics.append(
                     _diagnostic_at(
-                        path,
-                        text,
+                        class_path,
+                        class_text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"class registry references unknown ResourceOperation::{variant}",
@@ -755,8 +761,8 @@ def _runtime_operation_classes(
             if variant in assigned_variants:
                 diagnostics.append(
                     _diagnostic_at(
-                        path,
-                        text,
+                        class_path,
+                        class_text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"ResourceOperation::{variant} has more than one class",
@@ -768,8 +774,8 @@ def _runtime_operation_classes(
     if "OperationClass::Mutation" not in body:
         diagnostics.append(
             _diagnostic_at(
-                path,
-                text,
+                class_path,
+                class_text,
                 body_offset,
                 "boundary.operation-class",
                 "ResourceOperation::class must have a Mutation fallback",

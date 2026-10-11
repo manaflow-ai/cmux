@@ -79,6 +79,7 @@ public struct BrowserPageService: Sendable {
         ])
         router.register(waitAndCaptureMethods())
         router.register(tabMethods(router: router))
+        router.register(inputMethods())
         router.register(cookieAndStorageMethods())
     }
 

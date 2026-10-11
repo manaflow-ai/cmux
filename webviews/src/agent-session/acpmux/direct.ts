@@ -278,7 +278,7 @@ function formattedOutput(rawOutput: any): string {
   return typeof text === "string" ? text : "";
 }
 
-function textFromContent(content: any): string {
+export function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
   // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
@@ -1459,6 +1459,7 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       rows: this.rows.sorted(),
+      subagentViews: this.subagents.views(),
       sessions: this.sessions.map((session) => {
         let entry = this.sessionEntries.get(session);
         if (!entry) {
@@ -1870,6 +1871,11 @@ export class AcpmuxDirectClient {
   }
   /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
   /// connection local. A remote-origin connection is never asked (acpmux refuses it).
+  get startsOnSend(): boolean {
+    // A chat on another machine (the host's remote wire): its `session/new` starts the chat there,
+    // so nothing creates one before the first send (cx-k21v).
+    return this.origin === "remote";
+  }
   get prewarmSupported(): boolean {
     return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }

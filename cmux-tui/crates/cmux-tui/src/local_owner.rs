@@ -47,6 +47,55 @@ pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 /// restart, and the first ensure failed).
 pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 
+/// How often a waiting ensure reports that the owner is still restoring
+/// (`RestoreProgress`). A client that watches these reports (the app runs
+/// `server ensure --restore-progress`) bounds its wait by their absence, not by a
+/// fixed timeout shorter than `RESTORE_DEADLINE`.
+pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The owner is alive and still restoring its session.
+pub(crate) struct Restoring {
+    /// The owner's pid when known (its socket identity or this call's spawn).
+    pub pid: Option<u64>,
+    /// Time since this ensure started waiting on the restore.
+    pub waited: Duration,
+}
+
+/// Reports a restoring owner to the caller: the first sighting at once, then
+/// at most once per `PROGRESS_INTERVAL`.
+pub(crate) struct RestoreProgress<'a> {
+    report: &'a dyn Fn(&Restoring),
+    first: std::cell::Cell<Option<Instant>>,
+    last: std::cell::Cell<Option<Instant>>,
+}
+
+impl<'a> RestoreProgress<'a> {
+    pub(crate) fn new(report: &'a dyn Fn(&Restoring)) -> Self {
+        Self { report, first: std::cell::Cell::new(None), last: std::cell::Cell::new(None) }
+    }
+
+    /// No reports (callers that show nothing while they wait).
+    pub(crate) fn silent() -> RestoreProgress<'static> {
+        fn ignore(_: &Restoring) {}
+        RestoreProgress::new(&ignore)
+    }
+
+    fn restoring(&self, pid: Option<u64>) {
+        let now = Instant::now();
+        let first = self.first.get().unwrap_or(now);
+        self.first.set(Some(first));
+        // A few ms of slack: a wait slice that ends just short of the
+        // interval must not skip every other report.
+        let slack = Duration::from_millis(50);
+        if self.last.get().is_some_and(|last| now.duration_since(last) + slack < PROGRESS_INTERVAL)
+        {
+            return;
+        }
+        self.last.set(Some(now));
+        (self.report)(&Restoring { pid, waited: now.duration_since(first) });
+    }
+}
+
 /// Probe interval while an owner this process did not start is still
 /// starting. That owner's readiness is announced only to its own parent
 /// (`OWNER_READY_FD_ARG`); the socket has no readiness event, so a second
@@ -208,8 +257,9 @@ enum Attempt {
     /// A connection was accepted but closed or broke before an identity came
     /// back: a stale or dying peer, or a live owner refusing extra clients.
     Unanswered,
-    /// A cmux-tui server answered but is not lifecycle-ready yet.
-    Starting,
+    /// A cmux-tui server answered but is not lifecycle-ready yet (its pid
+    /// when its identity carried one).
+    Starting(Option<u64>),
     Ready(ReadyOwner),
 }
 
@@ -223,12 +273,15 @@ pub(crate) fn ensure_owner(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
     deadline: Instant,
+    progress: &RestoreProgress<'_>,
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
     let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
     let owner = loop {
-        if let Some(ready) = wait_while_starting(spec, expected_session, restore_deadline)? {
+        if let Some(ready) =
+            wait_while_starting(spec, expected_session, restore_deadline, progress)?
+        {
             return Ok(Ensured::Running(ready));
         }
         if Instant::now() >= restore_deadline {
@@ -246,7 +299,8 @@ pub(crate) fn ensure_owner(
         // awaited outside the lock (next turn), never while holding it.
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Ensured::Running(ready)),
-            Attempt::Starting => {
+            Attempt::Starting(pid) => {
+                progress.restoring(pid);
                 drop(lock);
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
@@ -266,13 +320,21 @@ pub(crate) fn ensure_owner(
     // bound from now, even when this call already waited on an earlier owner.
     let contact_deadline = deadline.max(Instant::now() + ENSURE_DEADLINE);
     let ready = match owner.ready.as_ref() {
-        Some(pipe) => wait_for_spawned_owner(pipe, spec, contact_deadline, restore_deadline),
+        Some(pipe) => wait_for_spawned_owner(
+            pipe,
+            owner.pid,
+            spec,
+            contact_deadline,
+            restore_deadline,
+            progress,
+        ),
         None => wait_until_ready(
             spec,
             Some(&spec.session),
             &|| owner.exited(),
             contact_deadline,
             restore_deadline,
+            progress,
         ),
     };
     match ready {
@@ -302,12 +364,13 @@ fn wait_while_starting(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
     restore_deadline: Instant,
+    progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
-            Attempt::Starting => {}
+            Attempt::Starting(pid) => progress.restoring(pid),
         }
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
@@ -328,12 +391,16 @@ fn wait_until_ready(
     owner_exited: &dyn Fn() -> bool,
     contact_deadline: Instant,
     restore_deadline: Instant,
+    progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
     loop {
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
-            Attempt::Starting => seen_alive = true,
+            Attempt::Starting(pid) => {
+                seen_alive = true;
+                progress.restoring(pid);
+            }
             // Accepted but unanswered: keep what is known about the owner.
             Attempt::Unanswered => {}
             Attempt::Gone => {
@@ -360,16 +427,30 @@ fn wait_until_ready(
 #[cfg(unix)]
 fn wait_for_spawned_owner(
     pipe: &std::fs::File,
+    pid: u32,
     spec: &OwnerSpec,
     contact_deadline: Instant,
     restore_deadline: Instant,
+    progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let expected = Some(spec.session.as_str());
     // The pipe stays open while the owner lives, and the owner writes its
     // byte only after its restore, so a live owner is awaited up to the
     // restore bound, never killed at the shorter contact bound (cx-w760).
-    if !wait_readable(pipe, restore_deadline) {
-        return Err(EnsureError::RestoreTimeout);
+    // The wait wakes once per progress interval to report the live owner.
+    let started = Instant::now();
+    loop {
+        let slice = restore_deadline.min(Instant::now() + PROGRESS_INTERVAL);
+        if wait_readable(pipe, slice) {
+            break;
+        }
+        if Instant::now() >= restore_deadline {
+            return Err(EnsureError::RestoreTimeout);
+        }
+        // Silent for the first slice: a quick owner start is not a restore.
+        if started.elapsed() + Duration::from_millis(50) >= PROGRESS_INTERVAL {
+            progress.restoring(Some(u64::from(pid)));
+        }
     }
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
@@ -380,7 +461,7 @@ fn wait_for_spawned_owner(
     }
     // End of file: this owner exited. It lost the bind to a racing ensure's
     // owner (which announces readiness only to its own parent), or crashed.
-    wait_until_ready(spec, expected, &|| true, contact_deadline, restore_deadline)
+    wait_until_ready(spec, expected, &|| true, contact_deadline, restore_deadline, progress)
 }
 
 /// Whether `pipe` became readable (a byte or end of file) before `deadline`.
@@ -389,7 +470,8 @@ fn wait_readable(pipe: &std::fs::File, deadline: Instant) -> bool {
     use std::os::fd::AsRawFd;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let timeout = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
+        // Round up: a rounded-down wait ends before `deadline`.
+        let timeout = i32::try_from(remaining.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX);
         let mut poll = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         // SAFETY: one valid pollfd for the lifetime of the call.
         match unsafe { libc::poll(&mut poll, 1, timeout) } {
@@ -406,9 +488,11 @@ fn wait_readable(pipe: &std::fs::File, deadline: Instant) -> bool {
 #[cfg(not(unix))]
 fn wait_for_spawned_owner(
     pipe: &std::convert::Infallible,
+    _pid: u32,
     _spec: &OwnerSpec,
     _contact_deadline: Instant,
     _restore_deadline: Instant,
+    _progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     match *pipe {}
 }
@@ -427,7 +511,7 @@ fn attempt(
         Ok(identity) => identity,
         // A timeout is a live but busy server; anything else on a fresh
         // connection is a dying or stale peer (or a full one).
-        Err(IdentifyError::Timeout) => return Ok(Attempt::Starting),
+        Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
     if identity["app"] != "cmux-tui" {
@@ -441,7 +525,9 @@ fn attempt(
     // Servers on this protocol always report lifecycle readiness, so a
     // missing or malformed field is a broken identity, never "ready".
     match identity.get("lifecycle_ready") {
-        Some(Value::Bool(false)) => return Ok(Attempt::Starting),
+        Some(Value::Bool(false)) => {
+            return Ok(Attempt::Starting(identity.get("pid").and_then(Value::as_u64)));
+        }
         Some(Value::Bool(true)) => {}
         _ => return Err(EnsureError::InvalidIdentity),
     }
@@ -548,6 +634,8 @@ struct OwnerProcessState {
 
 struct SpawnedOwner {
     state: std::sync::Arc<OwnerProcessState>,
+    /// The owner's process id.
+    pid: u32,
     /// Read end of the owner's readiness pipe (`OWNER_READY_FD_ARG`).
     #[cfg(unix)]
     ready: Option<std::fs::File>,
@@ -717,7 +805,6 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     // Only the owner holds the write end now, so end of file means it exited.
     #[cfg(unix)]
     drop(ready_writer);
-    #[cfg(unix)]
     let pid = child.id();
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
@@ -741,12 +828,12 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         // returning. This preserves the no-zombie guarantee even under
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
-        SpawnedOwner { state: std::sync::Arc::clone(&state), ready: None }.terminate();
+        SpawnedOwner { state: std::sync::Arc::clone(&state), pid, ready: None }.terminate();
         return Err(io::Error::other("local owner reaper unavailable"));
     }
     #[cfg(unix)]
     let ready = Some(ready);
-    Ok(SpawnedOwner { state, ready })
+    Ok(SpawnedOwner { state, pid, ready })
 }
 
 /// Blocks until the owner exits, without reaping it (`WNOWAIT`), so a
@@ -848,7 +935,7 @@ mod tests {
                 std::thread::spawn(move || reap_on_exit(&state, pid))
             };
             let started = Instant::now();
-            SpawnedOwner { state: Arc::clone(&state), ready: None }.terminate();
+            SpawnedOwner { state: Arc::clone(&state), pid, ready: None }.terminate();
             reaper.join().unwrap();
             assert!(started.elapsed() < Duration::from_secs(5));
             assert!(state.child.lock().unwrap().is_none());
