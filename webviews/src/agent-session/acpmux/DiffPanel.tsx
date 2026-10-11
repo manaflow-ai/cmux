@@ -352,7 +352,8 @@ export function DiffPanel({
           {branch && (
             <div className="acpmux-branch-row">
               <BranchPill branch={branch.branch} base={branch.base} />
-              {source?.pullRequest && <PullRequestButton open={source.pullRequest} />}
+              {/* Keyed by branch: another checkout starts over, never showing the last pull request. */}
+              {source?.pullRequest && <PullRequestButton key={branch.branch} open={source.pullRequest} />}
             </div>
           )}
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}

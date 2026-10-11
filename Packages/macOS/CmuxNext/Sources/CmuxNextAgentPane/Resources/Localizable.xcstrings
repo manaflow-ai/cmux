@@ -22271,6 +22271,137 @@
         }
       }
     },
+    "agentPane.error.gitPullFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الفرع متأخر عن نسخته البعيدة. اسحب التغييرات أولاً، ثم افتح طلب السحب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova grana zaostaje za udaljenom. Prvo povucite promjene, pa otvorite pull request."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne gren er bagud i forhold til fjernlageret. Pull først, og åbn derefter pull requesten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Branch liegt hinter dem Remote zurück. Zuerst pullen, dann den Pull Request öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This branch is behind its remote. Pull first, then open the pull request."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta rama va por detrás de la remota. Haz pull primero y luego abre el pull request."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette branche est en retard sur le dépôt distant. Faites d'abord un pull, puis ouvrez la pull request."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo branch è indietro rispetto al remoto. Esegui prima il pull, poi apri la pull request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブランチはリモートより遅れています。先にプルしてから、プルリクエストを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាខានេះនៅពីក្រោយសាខាពីចម្ងាយ។ សូមទាញជាមុនសិន រួចបើកសំណើទាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브랜치는 원격보다 뒤처져 있습니다. 먼저 풀한 다음 풀 리퀘스트를 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne grenen ligger bak fjernlageret. Pull først, og åpne deretter pull requesten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta gałąź jest za zdalną. Najpierw wykonaj pull, a potem otwórz pull request."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este branch está atrás do remoto. Faça pull primeiro e depois abra o pull request."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта ветка отстаёт от удалённой. Сначала выполните pull, затем откройте пул-реквест."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สาขานี้ตามหลังสาขาระยะไกล ดึงการเปลี่ยนแปลงก่อน แล้วจึงเปิด pull request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dal uzaktaki daldan geride. Önce pull yapın, sonra pull request'i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця гілка відстає від віддаленої. Спершу виконайте pull, потім відкрийте пул-реквест."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhánh này đang chậm hơn nhánh từ xa. Hãy pull trước, rồi mở pull request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支落后于远程分支。请先拉取，再打开拉取请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支落後於遠端分支。請先拉取，再開啟提取請求。"
+          }
+        }
+      }
+    },
     "agentPane.error.gitPullRequestGesture": {
       "extractionState": "manual",
       "localizations": {
