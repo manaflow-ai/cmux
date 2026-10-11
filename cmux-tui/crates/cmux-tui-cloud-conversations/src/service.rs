@@ -293,6 +293,13 @@ impl CloudConversations {
         Ok(json!({"state": "signed_out"}))
     }
 
+    /// Whether the verified cmux app set the current lease
+    /// (`cloud-lease-app-only-v1`): then only the app may use it.
+    pub fn app_holds_lease(&self) -> bool {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        lease.app_held && lease.session.is_some()
+    }
+
     /// `cloud-session-status`. Never returns the token.
     pub fn session_status(&self) -> Value {
         let now = (self.inner.options.now_ms)();
