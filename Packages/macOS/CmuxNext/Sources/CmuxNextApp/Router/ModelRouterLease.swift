@@ -70,6 +70,7 @@ import os
                 wait = Self.retryDelays[min(failures, Self.retryDelays.count - 1)]
                 failures += 1
             }
+            // wakeup-allow: one wait per pass on the injected clock: until the token's renewal time, or the next retry delay after a failure
             do { try await clock.sleep(for: wait, tolerance: .seconds(1)) } catch { return }
         }
     }
