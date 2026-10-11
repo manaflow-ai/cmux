@@ -76,6 +76,10 @@ final class RemoteTmuxController {
     /// view's callback normally reconciles into the manager that owns an existing mirror,
     /// which can differ from the window that initiated New Workspace.
     var pendingMultiplexNewSessionManagers: [String: RemoteTmuxWeakTabManager] = [:]
+    /// Routed sessions that were created but could not be admitted. Keep them out of a
+    /// later reconcile while the in-band kill is still working; clear the tombstone when
+    /// the session disappears from the published view or the host is torn down.
+    var blockedMultiplexNewSessionKeys: Set<String> = []
 
     init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
         self.newSessionEnvironment = newSessionEnvironment
@@ -656,8 +660,10 @@ final class RemoteTmuxController {
                 self.newSessionRequestIDs.removeValue(forKey: managerID)
                 self.newSessionTasks.removeValue(forKey: managerID)
                 if admitted {
+                    self.blockedMultiplexNewSessionKeys.remove(completionKey)
                     onCreated?()
                 } else {
+                    self.blockedMultiplexNewSessionKeys.insert(completionKey)
                     if var intents = self.multiplexIntentsByHost[hostHash],
                        intents.pendingSelect?.sessionName == sessionName {
                         intents.pendingSelect = nil
@@ -679,6 +685,7 @@ final class RemoteTmuxController {
             // A newer request superseded this one after the command was sent. Remove
             // the mirror that briefly surfaced and kill the stale session on the same
             // shared stream; it must never become an unexpected tab.
+            self.blockedMultiplexNewSessionKeys.insert(completionKey)
             if admitted, let mirror = self.teardownMultiplexedMirror(key: completionKey) {
                 self.closeDeadMirrorWorkspace(mirror.mirroredWorkspace, recordHistory: false)
             }
@@ -692,6 +699,7 @@ final class RemoteTmuxController {
         }
         guard sent else {
             pendingMultiplexNewSessionManagers.removeValue(forKey: completionKey)
+            blockedMultiplexNewSessionKeys.remove(completionKey)
             if pendingMultiplexNewSessionRequests[managerID] == requestID {
                 if var intents = multiplexIntentsByHost[hostHash],
                    intents.pendingSelect?.sessionName == sessionName {

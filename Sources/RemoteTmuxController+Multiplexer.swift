@@ -477,6 +477,12 @@ extension RemoteTmuxController {
         guard !pendingMultiplexHostStops.contains(hostHash) else { return }
         purgeDeadMirrors(for: host)
         updateMultiplexEpochIfNeeded(hostHash: hostHash, current: shared.sessionId)
+        let hostPrefix = "\(hostHash)\u{1}"
+        let publishedNames = Set(workspaces.map(\.sessionName))
+        blockedMultiplexNewSessionKeys = blockedMultiplexNewSessionKeys.filter { key in
+            guard key.hasPrefix(hostPrefix) else { return true }
+            return publishedNames.contains(String(key.dropFirst(hostPrefix.count)))
+        }
         // No real sessions remain (e.g. the last was killed out-of-band): tear the
         // view down and close the mirrors' workspaces, matching GA's last-session-end.
         if workspaces.isEmpty {
@@ -524,6 +530,11 @@ extension RemoteTmuxController {
                 )
             }
         }
+        plan.create.removeAll {
+            blockedMultiplexNewSessionKeys.contains(
+                Self.connectionKey(host: host, sessionName: $0.view.sessionName)
+            )
+        }
         storeMultiplexIntents(result.survivingIntents, hostHash: hostHash)
 
         if let view = multiplexedViewsByHost[hostHash] {
@@ -557,18 +568,20 @@ extension RemoteTmuxController {
             let sessionView = create.view
             let key = Self.connectionKey(host: host, sessionName: sessionView.sessionName)
             guard sessionMirrors[key] == nil else { continue }
-            let admissionManager: TabManager?
+            let admissionManager: TabManager
             if let requestedManager = pendingMultiplexNewSessionManagers[key] {
-                admissionManager = requestedManager.value
-            } else {
-                admissionManager = manager
-            }
-            guard let admissionManager else {
-                if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
-                    completion(false)
+                guard let requestedManager = requestedManager.value else {
+                    blockedMultiplexNewSessionKeys.insert(key)
+                    if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
+                        completion(false)
+                    }
                     multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionView.sessionName)
+                    continue
                 }
-                continue
+                admissionManager = requestedManager
+            } else {
+                guard !blockedMultiplexNewSessionKeys.contains(key) else { continue }
+                admissionManager = manager
             }
             // Select ONLY the session a user-initiated New Workspace created, and
             // only if the user is still on the tab the action originated from —
@@ -597,12 +610,16 @@ extension RemoteTmuxController {
                 // was a routed New Workspace, remove the session over the same shared
                 // stream instead of leaving an unreachable orphan behind.
                 channelsByHostSession.removeValue(forKey: key)
+                let wasPendingRouted = pendingMultiplexNewSessionCompletions[key] != nil
+                    || pendingMultiplexNewSessionManagers[key] != nil
+                if wasPendingRouted { blockedMultiplexNewSessionKeys.insert(key) }
                 if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
                     completion(false)
                     multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionView.sessionName)
                 }
                 continue
             }
+            blockedMultiplexNewSessionKeys.remove(key)
             pendingMultiplexNewSessionCompletions.removeValue(forKey: key)?(true)
             pendingMultiplexWorkspaceNamesByHost.removeValue(forKey: hostHash)
         }
@@ -749,6 +766,9 @@ extension RemoteTmuxController {
         }
         pendingMultiplexNewSessionManagers = pendingMultiplexNewSessionManagers.filter {
             !$0.key.hasPrefix("\(hostHash)\u{1}")
+        }
+        blockedMultiplexNewSessionKeys = blockedMultiplexNewSessionKeys.filter {
+            !$0.hasPrefix("\(hostHash)\u{1}")
         }
         releaseLoginOfferIfHostHasNoMirrors(host: host)
         if !multiplexerHostStillInUse(host) {

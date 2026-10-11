@@ -574,6 +574,66 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         #expect(completionResult == true)
     }
 
+    /// If the requesting window closes before admission, the cleanup kill may not be
+    /// reflected in the next view snapshot. That stale session must stay blocked rather
+    /// than falling back into the manager that owns the shared view.
+    @Test func failedMultiplexedAdmissionStaysBlockedUntilTheSessionDisappears() throws {
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: hostA, ownerId: "blocked-routing-test")
+        let shared = RemoteTmuxControlConnection(host: hostA, sessionName: view.view.sessionName)
+        view.connection = shared
+        controller.multiplexedViewsByHost[hostA.connectionHash] = view
+
+        let existingManager = TabManager()
+        let existing = RemoteTmuxLinkedWorkspaceModel.Workspace(
+            sessionName: "existing",
+            windowIds: ["@1"],
+            activeWindowId: "@1",
+            sessionId: 1
+        )
+        controller.applyMultiplexedWorkspaces(
+            host: hostA,
+            manager: existingManager,
+            workspaces: [existing],
+            shared: shared
+        )
+
+        var requester: TabManager? = TabManager()
+        let origin = try #require(requester?.selectedTab?.id)
+        let newName = "cmux-new-closed-requester"
+        let newKey = RemoteTmuxController.connectionKey(host: hostA, sessionName: newName)
+        var completionResult: Bool?
+        controller.pendingMultiplexNewSessionManagers[newKey] = RemoteTmuxWeakTabManager(
+            try #require(requester)
+        )
+        controller.pendingMultiplexNewSessionCompletions[newKey] = { completionResult = $0 }
+        controller.multiplexIntentsByHost[hostA.connectionHash] = .init(
+            pendingSelect: .init(sessionName: newName, originatingTabId: origin)
+        )
+        requester = nil
+
+        let routed = RemoteTmuxLinkedWorkspaceModel.Workspace(
+            sessionName: newName,
+            windowIds: ["@2"],
+            activeWindowId: "@2",
+            sessionId: 2
+        )
+        for _ in 0..<2 {
+            controller.applyMultiplexedWorkspaces(
+                host: hostA,
+                manager: existingManager,
+                workspaces: [existing, routed],
+                shared: shared
+            )
+        }
+
+        #expect(completionResult == false)
+        #expect(existingManager.tabs.first { $0.title == newName } == nil)
+        #expect(controller.sessionMirror(host: hostA, sessionName: newName) == nil)
+        #expect(controller.blockedMultiplexNewSessionKeys.contains(newKey))
+        controller.stopMultiplexedHost(host: hostA)
+    }
+
     /// A delayed shared-view stop can race a view replacement. Its callers still need
     /// their completion, even when the old view is no longer the host-map entry.
     @Test func replacedMultiplexedViewStillRunsStopCompletion() async {
