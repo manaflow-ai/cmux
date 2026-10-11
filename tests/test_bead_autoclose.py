@@ -113,7 +113,7 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertIn("https://github.com/manaflow-ai/cmux/pull/6", comments["cx-slice2"][4])
         self.assertEqual(comments["cx-epic1"][1], "leo")
         self.assertEqual(comments["cx-multi"][1], "leo")  # "unassigned" acts as leo
-        self.assertIn("#9", comments["cx-multi"][4])
+        self.assertIn("not closed", comments["cx-multi"][4])
         self.assertFalse(self.ssh_log.exists(), "the test reached ssh")
 
     def test_an_explicit_closes_line_closes_despite_other_open_pull_requests(self):
@@ -144,7 +144,7 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertNotIn("not on the board", result.stdout)
         later = self.run_script(BEADS_BD_COMMAND=str(self.fake_bd))
         self.assertEqual(later.returncode, 0, later.stderr)
-        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-task1"], later.stdout)
+        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-task1", "cx-body1"], later.stdout)
 
     def test_dry_run_changes_nothing(self):
         result = self.run_script("--dry-run", "--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
