@@ -111,6 +111,8 @@ import {
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
+import { ArtifactPanel } from "./conversation/ArtifactPanel";
+import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -1559,6 +1561,16 @@ function AcpmuxPane() {
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A side question belongs to its chat: another chat drops it.
   if (aside && snapshot.sessionId !== aside.sessionId) setAside(undefined);
+  // The side preview panel (cx-ncc.63) shows a document from the open chat; another chat closes it.
+  // Each open is its own panel (`opened`), which starts on its preview.
+  const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
+  if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
+  const artifactSession = snapshot.sessionId;
+  const openArtifact = useCallback(
+    (next: Artifact) =>
+      setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 })),
+    [artifactSession],
+  );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
   // snapshot instead of clearing a valid repository while the daemon is being replaced.
@@ -3329,44 +3341,47 @@ function AcpmuxPane() {
     [replaying],
   );
   const transcript = (
-    <ImageViewerContext.Provider value={openImage}>
-      <ShellActionsContext.Provider value={shellActions}>
-        <TurnActionsContext.Provider value={turnActions}>
-          <TurnCountsContext.Provider value={turnCountsFor}>
-            <SessionRowsContext.Provider value={snapshot.rows}>
-              <SubagentNavContext.Provider value={setSubagentView}>
-                <VirtualTranscript
-                  rows={transcriptRows}
-                  working={snapshot.isWorking}
-                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                  jumpButton={!quick}
-                  focusComposer={() => composerHandle.current?.focus()}
-                  find={quick ? undefined : find}
-                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                  canLoadOlder={!childRows && snapshot.canLoadOlder}
-                  openAt={
-                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                      ? scrollAnchor
-                      : undefined
-                  }
-                  onAnchor={
-                    quick || childRows || !shownSessionId
-                      ? undefined
-                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                  }
-                  expanded={expanded}
-                  registry={registry}
-                  githubRepository={githubRepository}
-                  // The Quick Composer has no room for the changes view; its file rows stay plain.
-                  onOpenDiff={quick ? undefined : openDiff}
-                  onToggleActivity={toggleActivity}
-                />
-              </SubagentNavContext.Provider>
-            </SessionRowsContext.Provider>
-          </TurnCountsContext.Provider>
-        </TurnActionsContext.Provider>
-      </ShellActionsContext.Provider>
-    </ImageViewerContext.Provider>
+    // Quick Chat's panel has no room beside it: its fences have no Open preview.
+    <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
+      <ImageViewerContext.Provider value={openImage}>
+        <ShellActionsContext.Provider value={shellActions}>
+          <TurnActionsContext.Provider value={turnActions}>
+            <TurnCountsContext.Provider value={turnCountsFor}>
+              <SessionRowsContext.Provider value={snapshot.rows}>
+                <SubagentNavContext.Provider value={setSubagentView}>
+                  <VirtualTranscript
+                    rows={transcriptRows}
+                    working={snapshot.isWorking}
+                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                    jumpButton={!quick}
+                    focusComposer={() => composerHandle.current?.focus()}
+                    find={quick ? undefined : find}
+                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                    canLoadOlder={!childRows && snapshot.canLoadOlder}
+                    openAt={
+                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                        ? scrollAnchor
+                        : undefined
+                    }
+                    onAnchor={
+                      quick || childRows || !shownSessionId
+                        ? undefined
+                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                    }
+                    expanded={expanded}
+                    registry={registry}
+                    githubRepository={githubRepository}
+                    // The Quick Composer has no room for the changes view; its file rows stay plain.
+                    onOpenDiff={quick ? undefined : openDiff}
+                    onToggleActivity={toggleActivity}
+                  />
+                </SubagentNavContext.Provider>
+              </SessionRowsContext.Provider>
+            </TurnCountsContext.Provider>
+          </TurnActionsContext.Provider>
+        </ShellActionsContext.Provider>
+      </ImageViewerContext.Provider>
+    </ArtifactContext.Provider>
   );
   const asks = (
     <>
@@ -4035,6 +4050,7 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {artifact && <ArtifactPanel key={artifact.opened} artifact={artifact} onClose={() => setArtifact(undefined)} />}
         {imageView && (
           <ImageViewer
             images={imageView.images}
