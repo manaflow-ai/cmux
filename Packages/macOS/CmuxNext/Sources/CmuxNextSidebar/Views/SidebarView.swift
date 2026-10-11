@@ -162,9 +162,9 @@ public final class SidebarView: NSView {
     public var updateSurfaces: (any SidebarUpdateSurfaces)? {
         didSet {
             updatedCardView.onHeightChange = { [weak self] in self?.needsLayout = true }
-            // Each page is made once its card shows (`makeHighlights`, `makeIsland`).
-            updateCardView.makeHighlights = updateSurfaces.map { surfaces in { surfaces.island(.ready) } }
-            updatedCardView.makeIsland = updateSurfaces.map { surfaces in { surfaces.island(.updated) } }
+            // Each page is made once its card shows.
+            updateCardView.surfaces = updateSurfaces
+            updatedCardView.surfaces = updateSurfaces
             needsLayout = true
         }
     }

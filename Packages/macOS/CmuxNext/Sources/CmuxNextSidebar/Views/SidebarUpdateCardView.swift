@@ -36,10 +36,10 @@ final class SidebarUpdateCardView: NSView {
     /// Makes ``highlights`` once a card shows: each is a web page, and two
     /// per window built at launch with no update staged cost about 50 ms of
     /// main thread before the first frame.
-    var makeHighlights: (@MainActor () -> any SidebarSurfaceIsland)? {
+    var surfaces: (any SidebarUpdateSurfaces)? {
         didSet {
             highlights?.close()
-            highlights = card == nil ? nil : makeHighlights?()
+            highlights = card == nil ? nil : surfaces?.island(.ready)
         }
     }
 
@@ -102,7 +102,7 @@ final class SidebarUpdateCardView: NSView {
             hideNotes()
             return
         }
-        if highlights == nil { highlights = makeHighlights?() }
+        if highlights == nil { highlights = surfaces?.island(.ready) }
         titleLabel.stringValue = card.title
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil
