@@ -1,13 +1,11 @@
-// The chat list draws each chat's status mark from acpmux's `indicator` (cx-zlox), so it agrees
-// with the Mac tab strip and sidebar, which read the same field. The page is the pane's dev entry
-// (vite.config.acpmux-pane.mjs) with its browser host, talking JSON-RPC over a WebSocket to a
-// stand-in acpmux daemon whose chats carry an `indicator` that their other fields alone would not
-// give, so a mark worked out from `status` instead shows up wrong.
+// A new chat's home lists the other chats waiting on the user by acpmux's `indicator` (cx-zlox),
+// so it agrees with the Mac tab strip and sidebar, which read the same field. The page is the
+// pane's dev entry (vite.config.acpmux-pane.mjs) with its browser host, talking JSON-RPC over a
+// WebSocket to a stand-in acpmux daemon.
 //
-// - `failed`: a turn failed while the agent still runs (status idle): the error mark.
-// - `done`: the agent left after it answered (status disconnected): no error mark.
-// - `lost`: the agent left before it answered: the error mark.
-// - `input`: a question waits: the needs-input mark.
+// - A question waiting on a running agent (`input`) is listed.
+// - A question on a peer that went unreachable (`lost`: nobody can answer it now) is not, though
+//   the summary still counts the pending permission.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -21,7 +19,7 @@ await requireBrowserLane("agent-pane-status-marks.test.ts", async () => {
     await (await chromium.launch({ headless: true })).close();
   } catch {
     console.warn("agent-pane-status-marks: skipping (run `bunx playwright install chromium`)");
-    describe.skip("status marks", () => test("chromium", () => {}));
+    describe.skip("home waiting list", () => test("chromium", () => {}));
     return;
   }
   const { createServer } = await import("vite");
@@ -36,15 +34,18 @@ await requireBrowserLane("agent-pane-status-marks.test.ts", async () => {
     ...fields,
   });
   const sessions = [
-    chat("open", "Open chat", { status: "idle", indicator: null }),
-    chat("failed", "Failed turn", { status: "idle", lastTurn: { status: "failed" }, indicator: "failed" }),
-    chat("answered", "Answered then left", {
-      status: "disconnected",
-      lastTurn: { status: "completed" },
-      indicator: "done",
+    chat("open", "New chat", { status: "idle", turnCount: 0, indicator: null }),
+    chat("asking", "Asks a question", {
+      status: "waiting",
+      pendingPermissions: 1,
+      indicator: "input",
     }),
-    chat("lost", "Left mid-answer", { status: "disconnected", lastTurn: { status: "cancelled" }, indicator: "lost" }),
-    chat("asking", "Asks a question", { status: "waiting", pendingPermissions: 1, indicator: "input" }),
+    chat("stranded", "Stranded on a peer", {
+      status: "unreachable",
+      peer: "build-box",
+      pendingPermissions: 1,
+      indicator: "lost",
+    }),
   ];
 
   function answer(method: string): unknown {
@@ -94,24 +95,14 @@ await requireBrowserLane("agent-pane-status-marks.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  describe("status marks", () => {
-    test("each chat's mark is the indicator acpmux sent", async () => {
+  describe("home waiting list", () => {
+    test("the home lists a chat as waiting only when acpmux says input", async () => {
       const page = await browser!.newPage({ viewport: { width: 1200, height: 800 } });
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=open`);
-      await page.locator('[data-session-id="asking"]').waitFor();
-      const marks = await page.evaluate(() =>
-        Object.fromEntries(
-          [...document.querySelectorAll<HTMLElement>("[data-session-id]")].map((row) => [
-            row.dataset.sessionId,
-            [...(row.querySelector(".acpmux-session-mark")?.classList ?? [])]
-              .find((name) => name.startsWith("acpmux-session-mark-"))
-              ?.slice("acpmux-session-mark-".length) ?? null,
-          ]),
-        ),
-      );
-      expect(marks).toEqual({ open: null, failed: "error", answered: null, lost: "error", asking: "input" });
+      await page.locator(".acpmux-home-title", { hasText: "Asks a question" }).waitFor();
+      expect(await page.locator(".acpmux-home-title").allInnerTexts()).toEqual(["Asks a question"]);
       await page.close();
     });
   });
