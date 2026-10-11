@@ -40,32 +40,47 @@ function versions(
   return [...(went(sessions.find((entry) => entry.sessionId === parent)) ? [parent] : []), ...forks];
 }
 
-/// Each prompt row of the open chat that has another version, with its versions.
+/// The open fork's first own prompt (after its `forked` boundary), with the chat and turn it was
+/// forked at: editing it again forks that chat there, so every version stays a sibling.
+export function forkAnchor(
+  chat: string | undefined,
+  rows: readonly AcpmuxRow[],
+  sessions: readonly AcpmuxSessionEntry[],
+  forkedAtSeq: number | undefined,
+): { row: AcpmuxRow; parentId: string; forkSeq: number } | undefined {
+  const self = sessions.find((entry) => entry.sessionId === chat);
+  if (!self?.parentId || self.forkSeq === undefined || forkedAtSeq === undefined) return undefined;
+  const row = firstPromptAfter(rows, forkedAtSeq);
+  return row && { row, parentId: self.parentId, forkSeq: self.forkSeq };
+}
+
+/// Each prompt row of the open chat that has another version, with its versions. Only while the
+/// chat's history is loaded from its start (`complete`): the turns a fork inherited, and the prompt
+/// after a fork's turn, are counted from the loaded rows.
 export function messageBranches(
   chat: string | undefined,
   rows: readonly AcpmuxRow[],
   sessions: readonly AcpmuxSessionEntry[],
   forkedAtSeq: number | undefined,
+  complete: boolean,
 ): Map<string, MessageBranch> {
   const branches = new Map<string, MessageBranch>();
-  if (!chat) return branches;
-  const add = (row: AcpmuxRow | undefined, chats: string[]) => {
-    const index = chats.indexOf(chat);
-    if (row && chats.length > 1 && index >= 0 && !branches.has(row.id))
-      branches.set(row.id, { sessions: chats, index });
-  };
-  // A fork: its first own prompt is a version of the prompt the chat forked from had there.
-  const self = sessions.find((entry) => entry.sessionId === chat);
-  if (self?.parentId && self.forkSeq !== undefined && forkedAtSeq !== undefined) {
-    add(
-      firstPromptAfter(rows, forkedAtSeq),
-      versions(self.parentId, self.forkSeq, turnsThrough(rows, forkedAtSeq), sessions, chat),
-    );
-  }
-  // The chat's own forks: the prompt after each fork's turn has the fork's prompt as a version.
+  if (!chat || !complete) return branches;
   const forkSeqs = new Set(
     sessions.filter((entry) => entry.parentId === chat && entry.forkSeq !== undefined).map((entry) => entry.forkSeq!),
   );
+  const anchor = forkAnchor(chat, rows, sessions, forkedAtSeq);
+  if (!anchor && forkSeqs.size === 0) return branches;
+  // A prompt can be both a fork's own prompt and the prompt after its own forks' turn (an edit made
+  // in the fork before edits forked the chat it came from): its versions are both groups.
+  const add = (row: AcpmuxRow | undefined, chats: string[]) => {
+    if (!row) return;
+    const merged = [...new Set([...(branches.get(row.id)?.sessions ?? []), ...chats])];
+    const index = merged.indexOf(chat);
+    if (merged.length > 1 && index >= 0) branches.set(row.id, { sessions: merged, index });
+  };
+  if (anchor && forkedAtSeq !== undefined)
+    add(anchor.row, versions(anchor.parentId, anchor.forkSeq, turnsThrough(rows, forkedAtSeq), sessions, chat));
   for (const forkSeq of forkSeqs)
     add(firstPromptAfter(rows, forkSeq), versions(chat, forkSeq, turnsThrough(rows, forkSeq), sessions, chat));
   return branches;
