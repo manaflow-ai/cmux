@@ -31,9 +31,10 @@ concurrency:
 env:
   # The matrix: both default themes (dark and light), both engines, and both compact and normal
   # pane widths so responsive regressions are visible in the same before/after receipt.
-  GALLERY_THEMES: pair
-  GALLERY_ENGINES: chromium,webkit
-  GALLERY_WIDTHS: narrow,normal
+  # TEMPORARY for the add/remove comparison (cx-wqn5): four themes, WebKit, one width. Drop before merge.
+  GALLERY_THEMES: "Apple System Colors,Catppuccin Latte,Rose Pine Moon,Synthwave"
+  GALLERY_ENGINES: webkit
+  GALLERY_WIDTHS: normal
 
 jobs:
   render:
