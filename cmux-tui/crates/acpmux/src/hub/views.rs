@@ -59,6 +59,8 @@ impl Hub {
             "queued": session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             "queuePaused": session.queue_paused(),
+            // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
+            "moving": session.moving().is_some(),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             "steering": session.steering.load(Ordering::SeqCst),

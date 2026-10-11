@@ -43,6 +43,14 @@ struct AgentChatTabActions {
         _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
     }
 
+    /// The "..." menu's Move to Floating Chat: once `float` put session `id` in Start Agent's
+    /// panel, the chat's tab closes as its own Close Tab does.
+    func moveToFloatingChat(_ id: String, via float: (@MainActor (String) -> Bool)?) -> Bool {
+        guard float?(id) == true else { return false }
+        close(tab: tab())
+        return true
+    }
+
     /// Search the Web on selected chat text: a browser tab beside the chat, with the omnibar's
     /// search engine.
     func searchWeb(_ text: String) {
