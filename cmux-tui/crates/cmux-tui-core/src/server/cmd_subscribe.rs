@@ -111,6 +111,11 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                MuxEvent::CloudConversation(_)
+                    if !super::cloud_conversations::delivers(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,

@@ -219,6 +219,47 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect((await thread(carol.token, id, fresh)).json.value.replies.map((m: Message) => m.id)).toEqual([freshReply])
   })
 
+  it("conversation.thread: a retracted reply stays in the thread but not in the stats (cx-59n8.9)", async () => {
+    const send = (token: string, conversation: string, key: string, extra: Record<string, unknown> = {}) =>
+      op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text: key }], ...extra }, key)
+    const retract = async (token: string, conversation: string, message: string) => expect((await op(token, "message.retract", { conversation, message_id: message })).json.ok).toBe(true)
+    const thread = async (token: string, conversation: string, root: string) =>
+      (await read(token, "conversation.thread", { conversation, root })).json.value as { replies: Array<Message & { created_at: string }>; thread: unknown }
+    const stats = async (token: string, conversation: string) => [
+      (await read(token, "conversation.history", { conversation, limit: 50 })).json.value.threads ?? [],
+      (await read(token, "conversation.snapshot", { conversation, tail: 50 })).json.value.threads ?? []
+    ]
+    const { alice, bob, id } = await twoPersonGroup("thread-retract")
+    const root = (await send(alice.token, id, "rr-root")).json.value.message_id as string
+    const r1 = (await send(bob.token, id, "rr-1", { thread_root: root })).json.value.message_id as string
+    const r2 = (await send(alice.token, id, "rr-2", { thread_root: root })).json.value.message_id as string
+    const r3 = (await send(bob.token, id, "rr-3", { thread_root: root })).json.value.message_id as string
+    const before = await thread(alice.token, id, root)
+    const [m1] = before.replies
+
+    // A middle reply retracted: its author leaves the authors, the count drops, the last reply stays.
+    await retract(alice.token, id, r2)
+    const middle = { root, reply_count: 2, last_reply_seq: before.replies[2]!.seq, last_reply_at: before.replies[2]!.created_at, authors: [bob.user] }
+    const afterMiddle = await thread(bob.token, id, root)
+    expect(afterMiddle.replies.map((m) => m.id)).toEqual([r1, r2, r3])
+    expect(afterMiddle.replies[1]!.retracted_at).toBeDefined()
+    expect(afterMiddle.thread).toEqual(middle)
+    expect(await stats(bob.token, id)).toEqual([[middle], [middle]])
+
+    // The last reply retracted: the last reply is the newest one that is not retracted.
+    await retract(bob.token, id, r3)
+    const last = { root, reply_count: 1, last_reply_seq: m1!.seq, last_reply_at: m1!.created_at, authors: [bob.user] }
+    expect((await thread(alice.token, id, root)).thread).toEqual(last)
+    expect(await stats(alice.token, id)).toEqual([[last], [last]])
+
+    // Every reply retracted: the root has no stats entry, and the thread read reports none.
+    await retract(bob.token, id, r1)
+    const none = await thread(alice.token, id, root)
+    expect(none.replies.map((m) => m.id)).toEqual([r1, r2, r3])
+    expect(none.thread).toEqual({ root, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [] })
+    expect(await stats(alice.token, id)).toEqual([[], []])
+  })
+
   it("title.set: any member of a group; refused in a DM", async () => {
     const { alice, bob, id } = await twoPersonGroup("title")
     expect((await op(bob.token, "title.set", { conversation: id, title: "Friday plans" })).json.ok).toBe(true)

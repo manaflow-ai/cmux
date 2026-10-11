@@ -4,11 +4,14 @@ import { conversation } from "@cmux/home-core"
 /**
  * Thread reads of one ConversationDO (cx-59n8.6): the replies of a root and its stats, computed
  * at read time from an expression index over the message rows (no reducer state, so the
- * conformance corpus is unchanged). A retracted reply still counts, as in Slack.
+ * conformance corpus is unchanged). A retracted reply stays in the thread read (shown as deleted)
+ * but does not count in the stats (cx-59n8.9).
  */
 const ROWS = tablesFor().rows
 const MSG = conversation.TABLE_MSG
 const AUTHORS = 3
+/** Replies of a root that count in its stats (not retracted). */
+const LIVE_REPLY = `tbl = ? AND json_extract(json, '$.thread_root') = ? AND json_extract(json, '$.retracted_at') IS NULL`
 export const MAX_THREAD_PAGE = 200
 
 export type ThreadSummary = {
@@ -27,17 +30,17 @@ const ensureIndex = (sql: SqlStore): void => {
   indexed.add(sql)
 }
 
-/** The stats of `root` (reply_count 0 when it has no replies). */
+/** The stats of `root` over its replies that are not retracted (reply_count 0 when none). */
 export const threadSummary = (sql: SqlStore, root: string): ThreadSummary => {
   ensureIndex(sql)
-  const agg = sql.exec<{ c: number; last: number | null }>(`SELECT count(*) AS c, max(n) AS last FROM ${ROWS} WHERE tbl = ? AND json_extract(json, '$.thread_root') = ?`, MSG, root)[0]
+  const agg = sql.exec<{ c: number; last: number | null }>(`SELECT count(*) AS c, max(n) AS last FROM ${ROWS} WHERE ${LIVE_REPLY}`, MSG, root)[0]
   const count = Number(agg?.c ?? 0)
   if (count === 0 || agg?.last === null || agg?.last === undefined) return { root, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [] }
   const last = Number(agg.last)
   const lastAt = sql.exec<{ at: string }>(`SELECT json_extract(json, '$.created_at') AS at FROM ${ROWS} WHERE tbl = ? AND n = ?`, MSG, last)[0]?.at ?? null
   const authors = sql
     .exec<{ a: string }>(
-      `SELECT json_extract(json, '$.author') AS a, min(n) AS first FROM ${ROWS} WHERE tbl = ? AND json_extract(json, '$.thread_root') = ? GROUP BY a ORDER BY first LIMIT ?`,
+      `SELECT json_extract(json, '$.author') AS a, min(n) AS first FROM ${ROWS} WHERE ${LIVE_REPLY} GROUP BY a ORDER BY first LIMIT ?`,
       MSG,
       root,
       AUTHORS

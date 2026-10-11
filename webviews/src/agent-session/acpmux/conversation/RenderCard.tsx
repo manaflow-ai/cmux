@@ -40,12 +40,10 @@ function themeCSS(): string {
   ].join("");
 }
 
-export function RenderCard({ call }: { call: RenderCall }) {
-  const t = useT();
+/// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
+export function useRenderFrame(html: string) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
-  const [expanded, setExpanded] = useState(false);
-  const [running, setRunning] = useState(() => ranRenders.has(call.html));
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
@@ -53,8 +51,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
       const message = data as { type?: unknown; height?: unknown };
-      if (message.type === "cmux-render-ready")
-        target.postMessage({ type: "cmux-render", html: call.html, css: themeCSS() }, "*");
+      if (message.type === "cmux-render-ready") target.postMessage({ type: "cmux-render", html, css: themeCSS() }, "*");
       else if (
         message.type === "cmux-render-size" &&
         typeof message.height === "number" &&
@@ -64,7 +61,15 @@ export function RenderCard({ call }: { call: RenderCall }) {
     };
     addEventListener("message", onMessage);
     return () => removeEventListener("message", onMessage);
-  }, [call.html]);
+  }, [html]);
+  return { frame, height };
+}
+
+export function RenderCard({ call }: { call: RenderCall }) {
+  const t = useT();
+  const { frame, height } = useRenderFrame(call.html);
+  const [expanded, setExpanded] = useState(false);
+  const [running, setRunning] = useState(() => ranRenders.has(call.html));
   const run = () => {
     ranRenders.add(call.html);
     setRunning(true);

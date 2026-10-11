@@ -143,10 +143,12 @@ impl Hub {
             )));
         }
         if !meta.cwd.is_dir() {
-            return Err(RpcError::invalid_params(format!(
+            // `reason` and `cwd` let a client say it in its own words (`cli/errors.rs` `detail`).
+            let e = RpcError::invalid_params(format!(
                 "cwd {} does not exist here; pass a new cwd via fork or edit session.json",
                 meta.cwd.display()
-            )));
+            ));
+            return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
         let session = self.make_session(meta.clone());

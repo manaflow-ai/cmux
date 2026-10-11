@@ -4586,6 +4586,137 @@
         }
       }
     },
+    "remote.status.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection dropped. cmux reconnects on its own; programs keep running on the machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع الاتصال. يعيد cmux الاتصال تلقائيًا، وتستمر البرامج في العمل على الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza je prekinuta. cmux se sam ponovo povezuje; programi nastavljaju raditi na mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen blev afbrudt. cmux genopretter den selv; programmer kører videre på maskinen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung wurde unterbrochen. cmux verbindet sich selbst neu; Programme laufen auf der Maschine weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se perdió la conexión. cmux se reconecta solo; los programas siguen ejecutándose en la máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion a été interrompue. cmux se reconnecte seul ; les programmes continuent de tourner sur la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione si è interrotta. cmux si riconnette da solo; i programmi continuano a funzionare sulla macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が切れました。cmux が自動で再接続します。マシン上のプログラムは動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់បានដាច់។ cmux ភ្ជាប់ឡើងវិញដោយខ្លួនឯង កម្មវិធីនៅតែដំណើរការលើម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 끊겼습니다. cmux가 자동으로 다시 연결하며, 프로그램은 머신에서 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen ble brutt. cmux kobler til på nytt av seg selv; programmer fortsetter å kjøre på maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie zostało przerwane. cmux połączy się ponownie samodzielnie; programy nadal działają na maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão caiu. O cmux se reconecta sozinho; os programas continuam rodando na máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединение прервалось. cmux переподключится сам; программы продолжают работать на машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อขาดหาย cmux จะเชื่อมต่อใหม่เอง โปรแกรมยังคงทำงานบนเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı koptu. cmux kendiliğinden yeniden bağlanır; programlar makinede çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З’єднання обірвалося. cmux перепідключиться сам; програми продовжують працювати на машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối bị ngắt. cmux tự kết nối lại; các chương trình vẫn tiếp tục chạy trên máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已断开。cmux 会自动重新连接；程序会继续在机器上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已中斷。cmux 會自動重新連線；程式會繼續在機器上執行。"
+          }
+        }
+      }
+    },
     "remote.status.unreachable": {
       "extractionState": "manual",
       "localizations": {

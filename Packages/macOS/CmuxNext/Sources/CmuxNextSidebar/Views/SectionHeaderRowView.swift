@@ -68,7 +68,7 @@ final class SectionHeaderRowView: SidebarRowView {
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusTone = nil
             case (_, .connected), (_, .updateAvailable): statusTone = .success
-            case (_, .connecting), (_, .installing), (_, .installRequired): statusTone = .attention
+            case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
             case (_, .offline): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
@@ -76,6 +76,7 @@ final class SectionHeaderRowView: SidebarRowView {
             switch machine.status {
             case .connected: label += ", " + Strings.statusConnected
             case .connecting: label += ", " + Strings.statusConnecting
+            case .reconnecting: label += ", " + Strings.statusReconnecting
             case .offline: label += ", " + Strings.statusOffline
             case .updateAvailable: label += ", " + Strings.statusUpdateAvailable
             case .updateRequired: label += ", " + Strings.statusUpdateRequired
@@ -87,6 +88,7 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             badgeText = switch machine.status {
             case .updateAvailable: Strings.statusUpdateAvailable
+            case .reconnecting: Strings.statusReconnecting
             case .updateRequired: Strings.statusUpdateRequired
             case .installRequired: Strings.statusInstallRequired
             case .installing: Strings.statusInstalling
