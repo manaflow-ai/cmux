@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextMenu } from "../src/ui/ContextMenu";
@@ -134,7 +134,15 @@ test("restores focus after a pointer action", async () => {
   const open = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
     (item) => item.textContent === "Open",
   )!;
-  await act(async () => open.click());
+  await act(async () => open.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+  expect(document.querySelector('[role="menu"]')).toBe(menu);
+  expect(fixtureState.actions).toEqual([]);
+  // Browser pointer activation focuses the row before pointerup/click.
+  open.focus();
+  await act(async () => {
+    open.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    open.click();
+  });
 
   expect(fixtureState.actions).toEqual(["open"]);
   expect(document.querySelector('[role="menu"]')).toBeNull();
@@ -156,6 +164,87 @@ test("restores focus when clicking outside the menu", async () => {
 
   expect(document.querySelector('[role="menu"]')).toBeNull();
   expect(document.activeElement).toBe(target);
+});
+
+test("skips restoration when an action synchronously removes the opener", async () => {
+  const container = installDom();
+  function RemovingFixture() {
+    const [visible, setVisible] = useState(true);
+    return visible ? (
+      <ContextMenu items={[{ id: "remove", label: "Remove", onSelect: () => setVisible(false) }]}>
+        <button type="button" data-target>
+          Target
+        </button>
+      </ContextMenu>
+    ) : (
+      <p data-after>Removed</p>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<RemovingFixture />);
+  });
+  const target = container.querySelector<HTMLButtonElement>("[data-target]")!;
+
+  await act(async () => openContextMenu(target));
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+
+  expect(container.querySelector("[data-target]")).toBeNull();
+  expect(container.querySelector("[data-after]")).not.toBeNull();
+  expect(document.activeElement).toBe(document.body);
+});
+
+test.each(["Escape", "Enter"])("restores focus to a contenteditable opener after %s", async (key) => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ContextMenu items={[{ id: "open", label: "Open", onSelect: () => {} }]}>
+        <div contentEditable data-editor suppressContentEditableWarning>
+          <span data-text>Composer</span>
+        </div>
+      </ContextMenu>,
+    );
+  });
+  const editor = container.querySelector<HTMLElement>("[data-editor]")!;
+
+  await act(async () => openContextMenu(editor.querySelector<HTMLElement>("[data-text]")!));
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
+
+  expect(document.activeElement).toBe(editor);
+});
+
+test("preserves focus deliberately moved by an action", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <>
+        <ContextMenu
+          items={[
+            {
+              id: "edit",
+              label: "Edit",
+              onSelect: () => container.querySelector<HTMLInputElement>("[data-destination]")!.focus(),
+            },
+          ]}
+        >
+          <button type="button" data-target>
+            Target
+          </button>
+        </ContextMenu>
+        <input data-destination aria-label="Destination" />
+      </>,
+    );
+  });
+  await act(async () => openContextMenu(container.querySelector<HTMLButtonElement>("[data-target]")!));
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("[data-destination]"));
 });
 
 test("keeps the native selection menu unless selection mode opts into the app menu", async () => {
