@@ -1127,11 +1127,31 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+          # An earlier run may have published this commit already (a pull
+          # request branch push, then its cmux-tui-pin-* branch after that run
+          # finished). A rebuild is not byte-identical, so uploading it would
+          # stop with immutable-r2-conflict and leave the tree unpublished:
+          # keep the earlier publication instead. Each prefix's manifest.json
+          # sorts after its binaries, so it exists only for a complete upload;
+          # the verify step below checks that publication against it.
+          published_before() {
+            local status=0
+            curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
+              "https://files.cmux.com/$1/manifest.json?earlier=$GITHUB_RUN_ID" 2>/dev/null || status=$?
+            case "$status" in
+              0) echo "::notice title=commit already published::keeping the earlier publication at https://files.cmux.com/$1/"; return 0 ;;
+              22) return 1 ;;
+              *) echo "could not check https://files.cmux.com/$1/manifest.json (curl exit $status)" >&2; exit 1 ;;
+            esac
+          }
           publish_prefix() {
             local directory="$1"
             local prefix="$2"
             local cache="$3"
             local write_once="$4"
+            if [[ "$write_once" == "true" ]] && published_before "$prefix"; then
+              return
+            fi
             for file in "$directory"/*; do
               upload_args=()
               if [[ "$write_once" == "true" ]]; then
@@ -1205,6 +1225,9 @@ jobs:
           publish_legacy_prefix() {
             local prefix="$1"
             local cache="$2"
+            if published_before "$prefix"; then
+              return
+            fi
             for file in "$legacy_assets"/*; do
               python3 scripts/ci/upload-r2-object.py --write-once \
                 --file "$file" \
@@ -1691,6 +1714,12 @@ jobs:
             done
           else
             source_commit="$GITHUB_SHA"
+            # The commit's published binaries, not this run's: an earlier run
+            # may have published this commit (the publish job keeps that
+            # publication), and a rebuild's bytes differ from its manifest.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
+              fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
+            done
             python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
           import json, os, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
@@ -1735,11 +1764,10 @@ jobs:
           if [[ -n "$windows_commit" ]]; then
             [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
-            if [[ "$windows_commit" != "$GITHUB_SHA" ]]; then
-              for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
-                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
-              done
-            fi
+            # Published bytes even for this commit (see the companions above).
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+              fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+            done
             windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
           else
             echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
