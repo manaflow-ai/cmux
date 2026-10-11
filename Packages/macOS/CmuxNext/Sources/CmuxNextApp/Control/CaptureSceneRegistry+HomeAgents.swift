@@ -72,8 +72,9 @@ extension CaptureSceneRegistry {
     /// Opens one terminal per `HomeSceneAgent` and reports each through the
     /// production paths: a user rename, a hook's `report-agent`, and for the
     /// failed one OSC 9;4 error progress from a program left running (a
-    /// shell prompt clears progress), which the daemon parses as any program's. Waits until the mirror shows each
-    /// state; returns the agents' tabs, or an error naming the one missing.
+    /// shell prompt clears progress), which the daemon parses as any
+    /// program's. Waits until the mirror shows each state; returns the
+    /// agents' tabs, or an error naming the one missing.
     func reportSceneAgents(_ controller: WindowController,
                            in pane: PaneController) async -> Result<[(HomeSceneAgent, TabModel)], SceneAgentError> {
         var opened: [(HomeSceneAgent, PaneController, TabModel)] = []
@@ -123,8 +124,14 @@ extension CaptureSceneRegistry {
         // as it is under a user's pointer.
         let wasKey = controller.window?.isKeyWindow ?? false
         if !wasKey {
+            // Activation is asynchronous and can be refused (a capture slot's
+            // app in the background): wait briefly, and report what it got.
             NSApp.activate()
             controller.window?.makeKeyAndOrderFront(nil)
+            frames.start()
+            _ = await frames.settled(until: { controller.window?.isKeyWindow == true },
+                                     start: ContinuousClock.now, window: 0, deadline: 1_000)
+            _ = frames.stop()
         }
         // The window can leave Home after the snapshot (a capture once showed
         // the newest terminal's workspace by the click): show it again first.
