@@ -57,6 +57,8 @@ on:
       - backend/packages/protocol/src/automation-caps.ts
       - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
+      - scripts/cmux-next/autofix-areas.sh
+      - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
       - scripts/cmux-next/ci-target-graph.py
       - scripts/ci/check_cmux_tui_tree_inputs.py
@@ -144,27 +146,14 @@ jobs:
         run: |
           set -euo pipefail
           since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
+          # scripts/cmux-next/autofix-areas.sh maps the changed paths to repairs.
           if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
             echo "No successful run to diff from; running every repair."
-            graph=true strings=true sdk=true shortcuts=true ratchets=true cloud=true fmt=true
+            scripts/cmux-next/autofix-areas.sh --all | tee -a "$GITHUB_OUTPUT"
           else
             echo "Changes since the last successful run at ${since:0:12}."
-            changed="$(git diff --name-only "$since" HEAD)"
-            graph=false strings=false sdk=false shortcuts=false ratchets=false cloud=false fmt=false
-            bot='scripts/cmux-next/base-autofix|\.github/workflows/cmux-next-base-autofix\.yml'
-            grep -qE "^(Packages/|scripts/cmux-next/ci-target-graph\.py|$bot)" <<<"$changed" && graph=true
-            # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
-            grep -qE "^(Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/|$bot)" <<<"$changed" && strings=true
-            # The SDK generator reads the SDK schema and its own emitters.
-            grep -qE "^(cmux-tui/spec/|cmux-tui/bindings/codegen/|$bot)" <<<"$changed" && sdk=true
-            # The docs shortcuts read the catalog export and the action string catalogs.
-            grep -qE "^(plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|$bot)" <<<"$changed" && shortcuts=true
-            # The namespace lint reads the package and iOS app sources.
-            grep -qE "^(Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|$bot)" <<<"$changed" && ratchets=true
-            grep -qE "^(backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/|$bot)" <<<"$changed" && cloud=true
-            grep -qE "^(cmux-tui/|Native/OptChat/|$bot)" <<<"$changed" && fmt=true
+            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | tee -a "$GITHUB_OUTPUT"
           fi
-          { echo "graph=$graph"; echo "strings=$strings"; echo "sdk=$sdk"; echo "shortcuts=$shortcuts"; echo "ratchets=$ratchets"; echo "cloud=$cloud"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py). The whole
       # checkout is mounted at its own path, read-only: the manifest's local

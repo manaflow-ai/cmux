@@ -21,12 +21,11 @@ struct AgentChatTabActions {
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 
-    /// Runs `id` (the diff viewer, Changes) as an agent's beside_caller run, keeping focus in the
-    /// chat: its tab opens selected in tab `target`'s column, or with no target in a new column right
-    /// of the chat; `path` names the repository.
-    func runBeside(_ id: String, path: String?, on target: String?) {
-        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()),
-                                          arguments: path.map { ["path": .string($0)] } ?? [:], origin: .user)
+    /// Runs `id` (Changes' diff viewer, Preview's browser) as an agent's beside_caller run, keeping
+    /// focus in the chat: its tab opens selected in tab `target`'s column, or with no target in a new
+    /// column right of the chat.
+    func runBeside(_ id: String, arguments: [String: ActionValue], on target: String?) {
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)

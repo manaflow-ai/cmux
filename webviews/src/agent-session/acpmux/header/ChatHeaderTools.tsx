@@ -17,6 +17,8 @@ export const HEADER_ACTIONS = {
   terminal: "splitRight",
   browser: "splitBrowserRight",
   changes: "openDiffViewer",
+  /// Not an app action: its own `pane.action` (CmuxNextAgentPane AgentPaneModel.previewAction).
+  preview: "preview",
   rename: "renameTab",
   pin: "palette.toggleTabPin",
   moveRight: "moveSurfaceToPaneRight",
@@ -42,6 +44,16 @@ export type ChatMenuItem =
 export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
   groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
 
+/// A preview's address as its card shows it: host, then the path and query when there is one.
+function previewAddress(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
 /// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
 export type ChatMenuChild = { key: string; label: string; shortcutAction?: string; onSelect: () => void };
 
@@ -50,6 +62,8 @@ export function ChatHeaderTools({
   onBrowser,
   hasChanges = false,
   onChanges,
+  previewUrl,
+  onPreview,
   sideTabs = false,
   onSideTabs,
   onPointerEnter,
@@ -68,6 +82,10 @@ export function ChatHeaderTools({
   hasChanges?: boolean;
   /// Changes runs the diff viewer with the quick action's mode, as Terminal and Browser run their split.
   onChanges?: (mode: QuickActionMode) => void;
+  /// The local page the chat's last turn started or mentioned: Preview shows then, and while its page is open.
+  previewUrl?: string;
+  /// Preview opens `url` beside the chat with the quick action's mode; a click that closes it may name none.
+  onPreview?: (url: string | undefined, mode: QuickActionMode) => void;
   /// Whether the panes beside the chat show: [+] New tab reads Hide tabs, in the same spot.
   sideTabs?: boolean;
   onSideTabs?: () => void;
@@ -122,6 +140,23 @@ export function ChatHeaderTools({
                 onClick={() => onChanges(mode)}
               >
                 <Icon name="diff.file" size={15} />
+              </button>
+            ) : null
+          ) : id === "preview" ? (
+            // Hidden, not disabled, without a page (cx-qom0); an open preview keeps it, to close it here.
+            onPreview && (previewUrl || on(HEADER_ACTIONS.preview, mode)) ? (
+              <button
+                key={id}
+                type="button"
+                className="acpmux-header-tool"
+                aria-label={t("header.preview")}
+                aria-pressed={on(HEADER_ACTIONS.preview, mode)}
+                title={
+                  previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")
+                }
+                onClick={() => onPreview(previewUrl, mode)}
+              >
+                <Icon name="media.play" size={15} />
               </button>
             ) : null
           ) : id === "terminal" ? (
