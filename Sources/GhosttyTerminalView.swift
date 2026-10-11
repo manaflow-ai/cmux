@@ -7990,6 +7990,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateCodexActionCommandHover(at: eventPoint, surface: surface)
     }
 
+    /// Re-sends the pointer with the live modifiers so Ghostty asks the link
+    /// filter again once its answer for the text under the pointer changed.
+    func refreshLinkHover() {
+        guard let surface, let point = currentMousePointInView(), pointIsUsableForWordResolution(point) else { return }
+        let flags = NSEvent.modifierFlags
+        ghostty_surface_mouse_pos(
+            surface,
+            point.x,
+            bounds.height - point.y,
+            hoverModsFromFlags(flags, suppressCommandPathHover: shouldSuppressCommandPathHover(for: flags))
+        )
+    }
+
     private func shouldSuppressCommandPathHover(for flags: NSEvent.ModifierFlags) -> Bool {
         guard flags.contains(.command), let surface else { return false }
         return ghostty_surface_has_selection(surface)
@@ -9299,7 +9312,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         var payload: [String: Any] = [
             "hoverActive": wordPathHoverActive ? "1" : "0",
-            "suppressed": suppressCommandPathHover ? "1" : "0"
+            "suppressed": suppressCommandPathHover ? "1" : "0",
+            // Ghostty's mouse-over-link arrives on a later main-queue turn, so
+            // this is the link the previous hover reported.
+            "linkHoverURL": terminalSurface?.hostedView.linkHoverIndicatorView.url ?? ""
         ]
         if let resolution {
             payload["resolvedPath"] = resolution.path
