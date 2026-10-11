@@ -8,8 +8,10 @@
 //!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
 //!   here at once, held prompts still held. Answers the session summary.
 //! - `_acpmux/transfer_forget {transferId, sessionId}`: the source's question about a move whose
-//!   client went away (`transfer_watch.rs`): any receive of the move is dropped, so a late
-//!   `transfer_finish` fails, and the answer `{landed}` says whether the chat came here.
+//!   client went away (`transfer_watch.rs`): any receive of the move is dropped and a later
+//!   one refused (`transfers/forgot-<transferId>`, swept like the rest), so a late
+//!   `transfer_finish` or `transfer_receive` fails, and the answer `{landed}` says whether the
+//!   chat came here.
 
 use super::transfer_out::{
     MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
@@ -18,12 +20,18 @@ use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
-/// Held by a finish and by a forget, so a forget either sees the move landed or drops its receive
-/// before the finish reads it.
+/// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
+/// receive before the finish reads it, and no receive of it starts after.
 static RECEIVES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
+}
+
+/// Where `transfer_forget` marks a move this daemon must not take.
+fn forgotten(transfer_id: &str) -> Option<PathBuf> {
+    super::transfer::is_plain_id(transfer_id)
+        .then(|| transfers_dir().join(format!("forgot-{transfer_id}")))
 }
 
 /// A receive's directory: its manifest, and the bundle as it arrives.
@@ -94,6 +102,14 @@ impl Hub {
         }
         if files.len() > MAX_FILES || total > MAX_BUNDLE {
             return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
+        }
+        let _receives = RECEIVES.lock().await;
+        let transfer_id = manifest["transferId"].as_str().unwrap_or("");
+        let Some(mark) = forgotten(transfer_id) else {
+            return Err(RpcError::invalid_params(format!("transfer: bad move id {transfer_id:?}")));
+        };
+        if mark.exists() {
+            return Err(transfer_error("forgotten", format!("move {transfer_id} was given up")));
         }
         self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
@@ -198,7 +214,12 @@ impl Hub {
         if transfer_id.is_empty() {
             return Err(RpcError::invalid_params("transfer_forget: transferId is required"));
         }
+        let Some(mark) = forgotten(transfer_id) else {
+            return Err(RpcError::invalid_params("transfer_forget: bad transferId"));
+        };
         let _receives = RECEIVES.lock().await;
+        let made = std::fs::create_dir_all(&mark);
+        made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with("in-")

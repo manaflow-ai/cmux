@@ -6,7 +6,8 @@
 //!   checks every file's size), so the move is aborted and the chat runs here again.
 //! - It was: the target named at begin (`to: {socket}`) is asked with
 //!   `_acpmux/transfer_forget {transferId, sessionId}`, which drops any receive of the move
-//!   there (a late `transfer_finish` then fails) and says whether the chat landed. It landed: the
+//!   there and refuses any later one (a late `transfer_receive` or `transfer_finish` fails), and
+//!   says whether the chat landed. It landed: the
 //!   move commits. It did not: the move aborts. A target that cannot answer, or a move with no
 //!   target named, keeps the chat frozen, and the source asks again after another lease.
 //!
@@ -18,6 +19,13 @@ use super::*;
 
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How long the source waits for the target's answer to `transfer_forget`.
+const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Held while a page is read and noted, and while the watch decides a move was not read to its
+/// end and aborts it: a client never gets a bundle's last page from an aborted move.
+pub(super) static PAGES: StdMutex<()> = StdMutex::new(());
 
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
@@ -70,12 +78,15 @@ async fn ask_target(socket: &Path, session_id: &str, transfer_id: &str) -> Optio
     if !own_socket(socket) {
         return None;
     }
-    let client = crate::client::Client::connect(socket).await.ok()?;
-    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-transfer-watch"}});
-    client.request(crate::rpc::method::INITIALIZE, hello).await.ok()?;
-    let forget = json!({"transferId": transfer_id, "sessionId": session_id});
-    let answer = client.request("_acpmux/transfer_forget", forget).await.ok()?;
-    answer["landed"].as_bool()
+    let ask = async {
+        let client = crate::client::Client::connect(socket).await.ok()?;
+        let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-transfer-watch"}});
+        client.request(crate::rpc::method::INITIALIZE, hello).await.ok()?;
+        let forget = json!({"transferId": transfer_id, "sessionId": session_id});
+        let answer = client.request("_acpmux/transfer_forget", forget).await.ok()?;
+        answer["landed"].as_bool()
+    };
+    tokio::time::timeout(ASK_TIMEOUT, ask).await.ok().flatten()
 }
 
 impl Hub {
@@ -109,7 +120,8 @@ impl Hub {
             && session.status() != SessionStatus::Closed
         {
             let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
-            let idle = last_activity(&dir).and_then(|t| t.elapsed().ok()).unwrap_or(lease);
+            // A stamp ahead of the clock (it stepped back) counts as activity just now.
+            let idle = last_activity(&dir).map_or(lease, |t| t.elapsed().unwrap_or_default());
             if idle < lease {
                 tokio::time::sleep(lease - idle).await;
                 continue;
@@ -129,24 +141,28 @@ impl Hub {
         transfer_id: &str,
         dir: &Path,
     ) -> bool {
-        let landed = match fully_read(dir) {
-            Some(false) => Some(false),
-            _ => {
-                let to = std::fs::read_to_string(dir.join("to")).ok();
-                match to {
-                    Some(socket) => {
-                        ask_target(Path::new(socket.trim()), &session.id, transfer_id).await
-                    }
-                    None => None,
+        {
+            let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
+            if fully_read(dir) == Some(false) {
+                if let Err(e) = self.transfer_abort(session, transfer_id, Some("stalled")) {
+                    tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
                 }
+                return true;
             }
+        }
+        let landed = match std::fs::read_to_string(dir.join("to")) {
+            Ok(socket) => ask_target(Path::new(socket.trim()), &session.id, transfer_id).await,
+            Err(_) => None,
         };
         let ended = match landed {
             Some(true) => {
                 let to = json!({"sessionId": session.id, "by": "watch"});
                 self.transfer_commit(session, transfer_id, to).await.map(|_| ())
             }
-            Some(false) => self.transfer_abort(session, transfer_id, Some("stalled")).map(|_| ()),
+            Some(false) => {
+                let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
+                self.transfer_abort(session, transfer_id, Some("stalled")).map(|_| ())
+            }
             None => return false,
         };
         if let Err(e) = ended {

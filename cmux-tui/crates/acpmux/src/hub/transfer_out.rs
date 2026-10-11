@@ -223,9 +223,14 @@ impl Hub {
             f.read_exact(&mut data)?;
             Ok((data, start, len))
         };
+        let dir = transfers_dir().join(transfer_id);
+        let _pages = super::transfer_watch::PAGES.lock().unwrap_or_else(|e| e.into_inner());
+        // The watch may have aborted the move since `transfer_bundle` found it.
+        if !dir.is_dir() {
+            return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
+        }
         let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
         let next = start + data.len() as u64;
-        let dir = transfers_dir().join(transfer_id);
         super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
