@@ -172,25 +172,18 @@ export const read = createServerFn({ method: "POST" })
   })
 
 /**
- * Token for the live WebSocket panel only. Browsers cannot attach cookies or
- * headers to a cross-origin WebSocket handshake, so the panel needs the access
- * token in the `bearer.<token>` subprotocol. Trade-off: this one response
- * exposes the short-lived (about 10 minute) access token to page script; the
- * refresh token never leaves the HttpOnly cookie. Replace with a
- * channel ticket minted by the API (spec sync-and-transport.md section 5) when
- * it exists.
+ * The credential subprotocol for the live WebSocket panel. Browsers cannot attach cookies or
+ * headers to a cross-origin WebSocket handshake, and Workers invocation logs record every
+ * header but Authorization (cx-dgsp). So this server function mints a single-use ticket
+ * (POST /v1/wire/ticket, 30 s) with the cookie's access token, and page script sees only the
+ * ticket, never the token. A Worker from before cx-dgsp answers 404: then, and only then, the
+ * panel gets the legacy `bearer.<access token>` subprotocol, as before.
  */
-export const wireToken = createServerFn({ method: "POST" }).handler(async (): Promise<{ token: string | null; apiUrl: string }> => {
-    requireSameOrigin()
-  let at = getCookie(ACCESS)
-  if (at) {
-    // Make sure it is still valid for the API before handing it to the socket.
-    const probe = await fetch(`${apiUrl()}/v1/read`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${at}` },
-      body: JSON.stringify({ op: "install.list", params: {} })
-    })
-    if (probe.status === 401) at = undefined
-  }
-  return { token: at ?? (await refreshAccess()) ?? null, apiUrl: apiUrl() }
+export const wireCredential = createServerFn({ method: "POST" }).handler(async (): Promise<{ protocol: string | null; apiUrl: string }> => {
+  requireSameOrigin()
+  const minted = await postImpl<{ ticket?: string }>("/v1/wire/ticket", {})
+  if (minted.status === 200 && typeof minted.body.ticket === "string") return { protocol: `ticket.${minted.body.ticket}`, apiUrl: apiUrl() }
+  if (minted.status !== 404) return { protocol: null, apiUrl: apiUrl() }
+  const legacy = getCookie(ACCESS) ?? (await refreshAccess())
+  return { protocol: legacy ? `bearer.${legacy}` : null, apiUrl: apiUrl() }
 })

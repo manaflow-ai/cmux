@@ -67,7 +67,8 @@ pub trait CloudBackend: Send + Sync {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
-    /// Opens `url` with subprotocols `cmux.wire.v1, bearer.<bearer>`.
+    /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
+    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
     fn connect(
         &self,
         url: &str,
