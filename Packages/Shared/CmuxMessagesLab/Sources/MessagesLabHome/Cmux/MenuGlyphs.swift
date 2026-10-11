@@ -53,7 +53,16 @@ enum MenuGlyphs {
     }
     /// The palette's last cell (Messages, macOS 27): the filled grinning face of the compose
     /// bar's emoji button (private `emoji.face.grinning`), white; else the public symbol.
+    /// MessagesLab 7518134: made once per appearance (it was made at every open, inside the menu's open on main).
+    private static var pickerGlyphs: [String: NSImage] = [:]
     static func emojiPickerGlyph() -> NSImage {
+        let key = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? ""
+        if let i = pickerGlyphs[key] { return i }
+        let i = makeEmojiPickerGlyph()
+        pickerGlyphs[key] = i
+        return i
+    }
+    private static func makeEmojiPickerGlyph() -> NSImage {
         guard let g = FieldChrome.emojiGlyph(tinted: true)
             ?? NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil) else { return NSImage() }
         let side = TapbackPickerView.glyphSize, k = Self.faceSide / max(1, max(g.size.width, g.size.height)) // cmux: no 0 divide
@@ -71,7 +80,14 @@ enum MenuGlyphs {
         return CGRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h)
     }
     /// Another display colour space: drawn again on next use.
-    static func removeAll() { cache.removeAll() }
+    static func removeAll() { cache.removeAll(); pickerGlyphs.removeAll() }
+    /// MessagesLab 7518134 (ChatController.warmUp, and after a display move): the six tapbacks, the
+    /// recent emoji and the picker glyph. Images only.
+    static func warm() {
+        TapbackGlyph.all.forEach { _ = image(.tapback($0)) }
+        RecentEmoji.list.prefix(5).forEach { _ = image(.emoji($0)) }
+        _ = emojiPickerGlyph()
+    }
 }
 
 /// An NSMenuItem with a closure.
@@ -84,16 +100,35 @@ final class MenuAction: NSMenuItem {
         label = title
         super.init(title: title, action: #selector(fire), keyEquivalent: "")
         target = self
-        // A private symbol (Messages' Attach Sticker icon `sticker.badge.plus`) comes from
-        // CoreGlyphsPrivate, as the compose bar's `emoji.face.grinning`.
-        guard let symbol, let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            ?? Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: symbol) else { return }
+        guard let symbol, let icon = Self.icon(symbol) else { return }
         // AppKit on macOS 27 does not draw NSMenuItem images in this menu; Messages (Catalyst)
         // shows them. The icon is drawn at the start of the title instead. VoiceOver reads the words only.
+        let font = NSFont.menuFont(ofSize: 0)
+        let box = icon.size
+        let att = NSTextAttachment()
+        att.image = icon
+        att.bounds = CGRect(x: 0, y: font.descender, width: box.width, height: box.height)
+        let t = NSMutableAttributedString(attachment: att)
+        t.append(NSAttributedString(string: title, attributes: [.font: font]))
+        attributedTitle = t
+        setAccessibilityTitle(title)
+        setAccessibilityLabel(title)
+    }
+    /// MessagesLab 7518134: the title icons, one per symbol and appearance for the app's life (made
+    /// at every open before, inside the menu's open on main). Kept per appearance: labelColor.
+    private static var icons: [String: NSImage] = [:]
+    static func icon(_ symbol: String) -> NSImage? {
+        let key = "\(symbol)|\(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "")"
+        if let i = icons[key] { return i }
+        // A private symbol (Messages' Attach Sticker icon `sticker.badge.plus`) comes from
+        // CoreGlyphsPrivate, as the compose bar's `emoji.face.grinning`.
+        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            ?? Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: symbol) else { return nil }
         let font = NSFont.menuFont(ofSize: 0)
         let cfg = NSImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
         let sym = glyph.withSymbolConfiguration(cfg) ?? glyph
         let box = NSSize(width: Self.iconAdvance, height: ceil(font.ascender - font.descender))
+        // Still a drawing handler: AppKit draws it in the menu row's own appearance.
         let icon = NSImage(size: box, flipped: false) { r in
             let s = sym.size
             let y = (r.height - s.height) / 2
@@ -103,14 +138,12 @@ final class MenuAction: NSMenuItem {
             CGRect(x: 0, y: 0, width: r.width, height: r.height).fill(using: .sourceAtop)
             return true
         }
-        let att = NSTextAttachment()
-        att.image = icon
-        att.bounds = CGRect(x: 0, y: font.descender, width: box.width, height: box.height)
-        let t = NSMutableAttributedString(attachment: att)
-        t.append(NSAttributedString(string: title, attributes: [.font: font]))
-        attributedTitle = t
-        setAccessibilityTitle(title)
-        setAccessibilityLabel(title)
+        icons[key] = icon
+        return icon
+    }
+    /// The message menu's icons, made at the first idle (ChatController.warmUp).
+    static func warm() {
+        ["plus.magnifyingglass", "arrowshape.turn.up.left", MenuSymbols.attachSticker, "square.and.arrow.up"].forEach { _ = icon($0) }
     }
     /// Title start to the words when an icon leads, the icon's ink center from the title start,
     /// and its symbol size (Messages, right-click references; 11.7 pt from right-click-incoming-take1).

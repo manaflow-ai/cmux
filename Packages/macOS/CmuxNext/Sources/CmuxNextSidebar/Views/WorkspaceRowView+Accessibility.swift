@@ -11,10 +11,18 @@ extension WorkspaceRowView {
     /// Show Tabs or Hide Tabs on every row with tabs: the chevron shows only
     /// on hover or selection (cx-fo2t), and a hidden button leaves the
     /// accessibility tree.
+    /// The row's menu as well: the more button shows only on hover (Lawrence 2026-10-11).
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        guard let disclosure, disclosure != .empty, let onToggleTabs, !isShowingPlaceholder else { return super.accessibilityCustomActions() }
-        let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
-        return (super.accessibilityCustomActions() ?? []) + [NSAccessibilityCustomAction(name: name) { onToggleTabs(); return true }]
+        var actions = super.accessibilityCustomActions() ?? []
+        guard !isShowingPlaceholder else { return actions.isEmpty ? nil : actions }
+        if let disclosure, disclosure != .empty, let onToggleTabs {
+            let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
+            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTabs(); return true })
+        }
+        if let onMore {
+            actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
+        }
+        return actions.isEmpty ? nil : actions
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {

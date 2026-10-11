@@ -75794,6 +75794,270 @@
           }
         }
       }
+    },
+    "settings.appearance.themeEdits": {
+      "comment": "Settings row: the user's per-color edits to themes (appearance.themeEdits).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme Edits"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعديلات السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izmjene teme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temaændringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme-Anpassungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ediciones del tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifications du thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiche al tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの編集"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកែប្រែរចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 편집"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temaendringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmiany motywu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edições do tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменения темы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแก้ไขธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema Düzenlemeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміни теми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉnh sửa chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题编辑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題編輯"
+          }
+        }
+      }
+    },
+    "settings.appearance.themeEdits.help": {
+      "comment": "Help for appearance.themeEdits. Keep the JSON example verbatim.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغييراتك على ألوان سمة، مثل \"Rose Pine/background\": \"#1f1d2e\". لا تتغير السمة نفسها أبدًا؛ احذف إدخالًا لإعادة تعيين ذلك اللون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaše izmjene boja teme, npr. \"Rose Pine/background\": \"#1f1d2e\". Sama tema se nikad ne mijenja; uklonite unos da vratite tu boju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine farveændringer til et tema, fx \"Rose Pine/background\": \"#1f1d2e\". Selve temaet ændres aldrig; fjern en post for at nulstille farven."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Farbänderungen an einem Theme, etwa \"Rose Pine/background\": \"#1f1d2e\". Das Theme selbst ändert sich nie; entferne einen Eintrag, um die Farbe zurückzusetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus cambios de color en un tema, como \"Rose Pine/background\": \"#1f1d2e\". El tema nunca cambia; elimina una entrada para restablecer ese color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos modifications de couleur d’un thème, comme \"Rose Pine/background\": \"#1f1d2e\". Le thème lui-même ne change jamais ; supprimez une entrée pour rétablir cette couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue modifiche ai colori di un tema, come \"Rose Pine/background\": \"#1f1d2e\". Il tema non cambia mai; rimuovi una voce per ripristinare quel colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの色の変更（例: \"Rose Pine/background\": \"#1f1d2e\"）。テーマ自体は変わりません。項目を削除するとその色が元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរពណ៌របស់អ្នកលើរចនាប័ទ្ម ដូចជា \"Rose Pine/background\": \"#1f1d2e\"។ រចនាប័ទ្មខ្លួនឯងមិនផ្លាស់ប្ដូរទេ។ លុបធាតុមួយ ដើម្បីកំណត់ពណ៌នោះឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마의 색상 변경 사항(예: \"Rose Pine/background\": \"#1f1d2e\"). 테마 자체는 바뀌지 않으며, 항목을 지우면 그 색상이 원래대로 돌아갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fargeendringene dine i et tema, for eksempel \"Rose Pine/background\": \"#1f1d2e\". Selve temaet endres aldri; fjern en oppføring for å tilbakestille fargen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje zmiany kolorów motywu, np. \"Rose Pine/background\": \"#1f1d2e\". Sam motyw nigdy się nie zmienia; usuń wpis, aby przywrócić ten kolor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas alterações de cor em um tema, como \"Rose Pine/background\": \"#1f1d2e\". O tema em si nunca muda; remova uma entrada para redefinir essa cor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши изменения цветов темы, например \"Rose Pine/background\": \"#1f1d2e\". Сама тема не меняется; удалите запись, чтобы вернуть цвет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนสีของธีมที่คุณทำ เช่น \"Rose Pine/background\": \"#1f1d2e\" ตัวธีมเองไม่เปลี่ยน ลบรายการเพื่อคืนค่าสีนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir temada yaptığınız renk değişiklikleri, örneğin \"Rose Pine/background\": \"#1f1d2e\". Temanın kendisi asla değişmez; bir rengi sıfırlamak için girdisini kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші зміни кольорів теми, наприклад \"Rose Pine/background\": \"#1f1d2e\". Сама тема не змінюється; видаліть запис, щоб повернути колір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các thay đổi màu của bạn cho một chủ đề, như \"Rose Pine/background\": \"#1f1d2e\". Bản thân chủ đề không bao giờ thay đổi; xóa một mục để đặt lại màu đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你对主题颜色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。主题本身不会改变；删除某一项即可恢复该颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你對主題顏色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。主題本身不會改變；刪除某一項即可還原該顏色。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -22,14 +22,14 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
 
     /// The guarded fetch; tests replace its resolver (the one lookup) or its timeout.
     var guarded = GuardedRemoteFetch(maximumBytes: AgentPaneSafeFetch.maximumBytes, timeout: AgentPaneSafeFetch.timeout,
-                                     accept: "image/*")
+                                     accept: GuardedRemoteFetch.imageAccept)
 
     /// The fetch for a reply's web video or audio: the same rules, a larger cap, a longer timeout.
     static var media: AgentPaneSafeFetch {
         var fetch = AgentPaneSafeFetch()
         fetch.guarded.maximumBytes = maximumMediaBytes
         fetch.guarded.timeout = mediaTimeout
-        fetch.guarded.accept = "video/*, audio/*"
+        fetch.guarded.accept = GuardedRemoteFetch.mediaAccept
         return fetch
     }
 

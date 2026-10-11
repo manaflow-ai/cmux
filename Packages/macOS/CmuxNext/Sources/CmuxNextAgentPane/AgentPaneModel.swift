@@ -124,6 +124,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
+    @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
@@ -246,7 +248,13 @@ public final class AgentPaneModel {
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
-                return AgentPaneReply.failure(code: "host_unavailable", message: message)
+                var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
+                // A refused chat of another machine still names that machine on its chip (cx-k21v).
+                if let machine = (error as? any AgentPaneHostRefusal)?.machineName, var failure = reply["error"] as? [String: Any] {
+                    failure["details"] = ["machineName": machine]
+                    reply["error"] = failure
+                }
+                return reply
             }
         case .persistSession(let id):
             if id != sessionId {

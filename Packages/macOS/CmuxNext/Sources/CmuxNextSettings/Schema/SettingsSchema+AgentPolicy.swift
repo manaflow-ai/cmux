@@ -78,6 +78,7 @@ extension SettingsSchema {
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.themeEdits",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",

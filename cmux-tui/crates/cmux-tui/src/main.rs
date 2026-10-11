@@ -10,7 +10,7 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
-mod agent_hook_install;
+use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
 mod agent_start_host;
@@ -2260,9 +2260,17 @@ fn run_server(
     // as the session's owner: `server ensure` sees a restoring owner and
     // waits for it on every platform, and a second owner loses the bind and
     // exits before it touches the registry or a terminal host.
+    // A saved state this build cannot open fails before the bind, so its
+    // recovery text can still tell whether another server holds the socket.
+    if let Some(root) = state_root.as_deref()
+        && let Err(error) =
+            cmux_tui_core::WorkspaceRegistry::check_supported_schema(root, &args.session)
+    {
+        return Err(workspace_schema_startup_error(error, &args.session, &socket_path, Some(root)));
+    }
     let restoring_server =
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
-            .serve_restoring(&args.session)?;
+            .serve_restoring()?;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2292,15 +2300,22 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }
-        .map_err(|error| {
-            workspace_schema_startup_error(
+        };
+    let mux = match mux {
+        Ok(mux) => mux,
+        Err(error) => {
+            // Release the socket first: the recovery text probes it to say
+            // whether a server still listens there, and this process no
+            // longer will.
+            drop(restoring_server);
+            return Err(workspace_schema_startup_error(
                 error,
                 &args.session,
                 &socket_path,
                 state_root.as_deref(),
-            )
-        })?;
+            ));
+        }
+    };
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
