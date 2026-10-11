@@ -1055,8 +1055,11 @@ final class BonsplitTabDragUITests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            waitForCondition(timeout: 2.0) { firstActionButton.exists && firstActionButton.isHittable },
-            "Expected the narrow tab bar's trailing action lane to reveal. window=\(window.frame) gamma=\(gammaTab.frame) delta=\(deltaTab.frame) action=\(firstActionButton.debugDescription)"
+            waitForCondition(timeout: 2.0) {
+                firstActionButton.exists && firstActionButton.isHittable
+                    && lastActionButton.exists && lastActionButton.isHittable
+            },
+            "Expected the narrow tab bar's full trailing action lane to reveal. window=\(window.frame) gamma=\(gammaTab.frame) delta=\(deltaTab.frame) first=\(firstActionButton.debugDescription) last=\(lastActionButton.debugDescription)"
         )
 
         for (tab, expectedTitle) in [(gammaTab, gammaTitle), (deltaTab, deltaTitle)] {
