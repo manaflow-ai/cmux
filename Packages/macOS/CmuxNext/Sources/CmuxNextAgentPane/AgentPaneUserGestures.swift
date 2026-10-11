@@ -194,8 +194,11 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
         return keys
     }
 
-    /// True only when the pane saw `permissionId` offer `optionId` and no kind seen for it denies:
-    /// an allow the person can pick (cx-0q7o: a permission ticket is reserved only for one).
+    /// True when the pane saw `permissionId` offer `optionId` and the stored value says it does not
+    /// deny. The stored value is the AND of "denies" over every sighting of that option, so one
+    /// sighting with a kind that is not `reject_*` makes it an allow here (cx-0q7o: a permission
+    /// ticket is reserved only for such an option). acpmux decides by the real kind of the pending
+    /// prompt.
     public func isKnownAllow(permissionId: String, optionId: String) -> Bool {
         denies.withLock { $0[permissionId]?[optionId] == false }
     }
