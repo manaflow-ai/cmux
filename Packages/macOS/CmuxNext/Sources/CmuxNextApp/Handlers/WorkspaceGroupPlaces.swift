@@ -1,23 +1,14 @@
-import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSidebar
 
 /// A workspace group's places outside the group (cx-a9h6, the group menu's
-/// Section and Reveal in Finder). Show Group in Finder selects every member's
-/// folder in one Finder window. Add Group to Section adds every member to a
-/// sidebar section as workspace items, as Add to Sidebar does for one
-/// workspace, in one undo step. The group stays a group; as with Add to Top,
+/// Section entry). Add Group to Section adds every member to a sidebar
+/// section as workspace items, as Add to Sidebar does for one workspace, in
+/// one undo step. The group stays a group; as with Add to Top,
 /// a member held by a top-region section leaves the workspace list.
 enum WorkspaceGroupPlaces {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("workspaceGroup.revealInFinder", run: { invocation in
-            let members = try WorkspaceGroupHandlers.members(invocation, context)
-            var seen = Set<String>()
-            let folders = members.compactMap { WorkspaceMetadataHandlers.directory(of: $0, context) }.filter { seen.insert($0).inserted }
-            guard !folders.isEmpty else { throw ActionFailure.invalidTarget(RefusalStrings.groupHasNoDirectory) }
-            NSWorkspace.shared.activateFileViewerSelecting(folders.map { URL(fileURLWithPath: $0) })
-        })
         registry.bind("workspaceGroup.addToSection", run: { invocation in try addToSection(invocation, context) })
     }
 
