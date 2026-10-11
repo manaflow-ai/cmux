@@ -12,6 +12,7 @@ nonisolated enum DiffPrefKey {
     static let choices: [String: Set<String>] = [
         "layout": ["split", "unified"],
         "diffIndicators": ["bars", "classic", "none"],
+        "colors": ["theme", "muted", "standard"],
     ]
     /// Files collapsed from their header caret: `<repo root>\u{0}<path>`, at most 500.
     static let collapsedFiles = "collapsedFiles"

@@ -89,23 +89,17 @@ final class AgentTurnStateFeed {
 
     /// One decoded line of the watch (decoded off the main actor).
     nonisolated enum Message: Sendable {
-        /// The watch result: every session's state and the turns that start seen.
-        case page(AgentTurnStates, settled: [Settled], lastMessages: [String: String])
+        /// The watch result: every session's state and last message.
+        case page(AgentTurnStates, lastMessages: [String: String])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged) and last message.
         case change(session: String, state: AgentTurnState?, lastMessage: String?)
-
-        nonisolated struct Settled: Sendable {
-            let session: String
-            let turn: String
-        }
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
                 var states = AgentTurnStates()
                 states.reset(result)
-                self = .page(states, settled: AgentTurnStates.settledTurns(result).map { Settled(session: $0.session, turn: $0.turn) },
-                             lastMessages: AgentTurnStates.lastMessages(result))
+                self = .page(states, lastMessages: AgentTurnStates.lastMessages(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage)
@@ -117,11 +111,8 @@ final class AgentTurnStateFeed {
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let settled, let lastMessages):
+        case .page(let states, let lastMessages):
             backoff.reset()
-            for turn in settled {
-                ProgramStatusSeenStore.shared.markTurnSeen(session: turn.session, turn: turn.turn)
-            }
             if turns.states != states { turns.states = states }
             if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
         case .change(let session, let state, let lastMessage):

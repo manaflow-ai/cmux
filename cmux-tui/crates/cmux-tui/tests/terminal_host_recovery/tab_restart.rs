@@ -7,6 +7,7 @@
 //! is a typed reject.
 
 use super::*;
+use crate::parallel_new_tabs::HostGate;
 
 fn restart_tab(harness: &RecoveryHarness, tab: serde_json::Value) -> serde_json::Value {
     request_response(&harness.socket, serde_json::json!({"id":1,"cmd":"restart-tab","surface":tab}))
@@ -138,4 +139,120 @@ fn a_restart_of_a_running_tab_is_a_typed_reject() {
     );
     assert_eq!(resolved["terminal_incarnation"], incarnation.as_str(), "{resolved}");
     assert!(respawn_lines(&harness, &terminal_id).is_empty());
+}
+
+/// d. cx-6xk9: Restart of a kept process end whose old host is still alive
+/// (its record, endpoint and live marker in place). The old host waits at
+/// an exit gate (a FIFO the test holds closed) after its process ended, so
+/// it stays alive across the restart for as long as the test wants. The
+/// restart must wait for that host to exit: while the gate is closed the
+/// terminal stays launching and its tab never reads a failed restart
+/// ("terminal host identity already exists"); once the gate opens, the same
+/// terminal runs under a new incarnation and a new host.
+#[test]
+fn a_manual_restart_waits_for_the_old_host_of_a_kept_process_exit() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("restart-held-host");
+    let gate_path = harness.dir.join("host-exit-gate");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_HOST_EXIT_GATE", &gate_path);
+    harness.child = Some(command.spawn().expect("spawn the daemon"));
+    wait_for_socket(&harness.socket);
+    // Every host that ends from here on waits at the gate.
+    let gate = HostGate::create(gate_path);
+    let workspace = &create_empty_workspace(&harness.socket, "restart-held", "Restart held");
+    let run = resource_request(
+        &harness.socket,
+        "restart-held-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c","printf 'held-exit-marker\\n'; exit 9"],
+            "on_exit":"keep",
+        }),
+        Some("restart-held-run"),
+    );
+    let public_terminal = run["value"]["terminal_id"].as_str().expect("terminal").to_string();
+    let terminal_id = tab_named(&harness, "Restart held")["terminal_id"]
+        .as_str()
+        .expect("the run tab names its terminal")
+        .to_string();
+    let exited = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
+    let incarnation = exited["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+    let dead = tab_named(&harness, "Restart held");
+    assert_eq!(dead["dead"], true, "{dead}");
+    // The process ended, and its host is still alive at the gate.
+    let (record_path, old_record) = load_terminal_host_records(&harness.host_root())
+        .unwrap_or_default()
+        .into_iter()
+        .find(|(_, record)| record.terminal_id == terminal_id)
+        .expect("the ended terminal's host left its record before the gate");
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &old_record).unwrap(),
+        TerminalHostLiveness::Live,
+        "the gated host does not hold its live marker"
+    );
+
+    let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
+    assert_eq!(restarted["ok"], true, "{restarted}");
+    // While the old host lives, the restart waits: the terminal stays
+    // launching, the old host keeps its record and live marker.
+    let resolve = || {
+        request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        )
+    };
+    // Before the worker begins the terminal still reads exited; a failed
+    // launch would read exited again with a `restart_failed` end.
+    let mut began = false;
+    let held_until = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < held_until || !began {
+        let resolved = resolve();
+        let tab = tab_named(&harness, "Restart held");
+        assert_ne!(
+            tab["end"]["reason"], "restart_failed",
+            "the restart did not wait for the live old host: {resolved} {tab}"
+        );
+        match resolved["lifecycle"].as_str() {
+            Some("launching") => began = true,
+            Some("exited") if !began => {}
+            _ => panic!("the restart did not wait for the live old host: {resolved} {tab}"),
+        }
+        assert_eq!(
+            terminal_host_record_liveness(&record_path, &old_record).unwrap(),
+            TerminalHostLiveness::Live,
+            "the old host left the gate early"
+        );
+        assert!(
+            Instant::now() < held_until + test_timeout(Duration::from_secs(10)),
+            "the restart never began: {resolved} {tab}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Open the gate: the old host exits, and the restart goes on.
+    let open = gate.open();
+    let new_incarnation = wait_for_respawn(&harness, &terminal_id, &incarnation);
+    drop(open);
+    drop(gate);
+    let tab = tab_named(&harness, "Restart held");
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert_eq!(tab["terminal_resource_id"], public_terminal.as_str(), "{tab}");
+    let (_, new_record) = load_terminal_host_records(&harness.host_root())
+        .unwrap_or_default()
+        .into_iter()
+        .find(|(_, record)| record.terminal_id == terminal_id)
+        .expect("the restarted terminal has no host record");
+    assert_eq!(new_record.incarnation, new_incarnation);
+    assert_ne!(new_record.host_pid, old_record.host_pid, "the old host serves the restart");
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["cause"], "user_restart");
+    let surface = tab["surface"].as_u64().expect("the restarted tab has a surface");
+    let text = wait_for_screen(&harness.socket, surface, "held-exit-marker");
+    assert!(text.contains("held-exit-marker"), "the final screen is gone: {text}");
+    echo_value(&harness, surface, "alive", "$$");
 }
