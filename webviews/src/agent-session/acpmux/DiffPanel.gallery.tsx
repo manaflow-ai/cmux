@@ -101,6 +101,33 @@ const loadedSource: ChangesSource = {
   pullRequest: () =>
     new Promise((resolve) => setTimeout(() => resolve({ url: "https://github.com/o/r/pull/7", number: 7 }), 900)),
 };
+// Two hunks in one file, for Stage hunk: the play stages the second with n, n, s.
+const hunksPatch =
+  "diff --git a/docs/review.md b/docs/review.md\n" +
+  "--- a/docs/review.md\n" +
+  "+++ b/docs/review.md\n" +
+  "@@ -1,3 +1,3 @@\n" +
+  "-# Review notes\n" +
+  "+# Review notes (draft)\n" +
+  " \n" +
+  " The first pass is ready for inspection.\n" +
+  "@@ -20,3 +20,4 @@\n" +
+  " ## Follow-ups\n" +
+  " \n" +
+  " - Check the tree.\n" +
+  "+- Verify the changed files tree.\n";
+/// Stage hunk's request, as the host would get it, on the stage's root for the play to read.
+const hunkSource: ChangesSource = {
+  diff: async (scope: ChangeScope) => ({
+    root: "/Users/you/src/cmux",
+    scope,
+    files: [{ path: "docs/review.md", status: "modified", additions: 2, deletions: 1, patch: hunksPatch }],
+  }),
+  stage: async () => undefined,
+  stageHunk: async (path, hunk, unstage) => {
+    document.documentElement.dataset.diffGalleryHunk = JSON.stringify({ path, hunk, unstage });
+  },
+};
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
   diff: async () => {
@@ -153,6 +180,23 @@ const chooseScope = async (ctx: Parameters<Play>[0], scope: string) => {
   await ctx.click({ text: scope });
 };
 
+/// n twice reaches the second hunk; s stages that hunk alone, named from the repository's top.
+const stageSecondHunk: Play = async (ctx) => {
+  await chooseScope(ctx, "Unstaged");
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-hunk-stage").length === 2);
+  await ctx.press("n");
+  await ctx.press("n");
+  await ctx.press("s");
+  await ctx.waitFor(() => ctx.document.documentElement.dataset.diffGalleryHunk !== undefined);
+  const asked = ctx.document.documentElement.dataset.diffGalleryHunk;
+  const expected = JSON.stringify({
+    path: "docs/review.md",
+    hunk: [" ## Follow-ups", " ", " - Check the tree.", "+- Verify the changed files tree."],
+    unstage: false,
+  });
+  if (asked !== expected) throw new Error(`s staged ${asked}, not the second hunk ${expected}`);
+};
+
 const showLoading: Play = async (ctx) => {
   await chooseScope(ctx, "Uncommitted");
   await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-state-body" }));
@@ -177,6 +221,7 @@ export default componentEntry<GalleryProps>({
   covers: [
     "agent-session/acpmux/DiffPanel.tsx#DiffPanel",
     "agent-session/acpmux/changes/PullRequestButton.tsx#PullRequestButton",
+    "agent-session/acpmux/changes/HunkStage.tsx#HunkStage",
   ],
   load: async () => GalleryDiffPanel,
   styles: () => Promise.all([import("./styles.css"), import("./changes/changes.css")]),
@@ -206,6 +251,11 @@ export default componentEntry<GalleryProps>({
       note: "Escape returns to the transcript while the reader owns focus.",
       props: { files },
       play: closeWithEscape,
+    },
+    "stage-hunk": {
+      note: "In Unstaged each hunk has Stage hunk; n moves to the second hunk and s stages it alone.",
+      props: { files, source: hunkSource },
+      play: stageSecondHunk,
     },
     loading: {
       note: "An async git scope keeps its loading state visible until the host answers.",

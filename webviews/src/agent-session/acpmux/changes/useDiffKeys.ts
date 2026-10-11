@@ -1,4 +1,5 @@
-// The changes view's own keys: j and k move between files, n and p between changes. They are
+// The changes view's own keys: j and k move between files, n and p between changes, and s (in
+// Unstaged) or u (in Staged) stages or unstages the hunk n/p stopped at. They are
 // the view's reading keys, like a list's arrows, so they are drawn as they are (DiffKeyHints)
 // rather than bound in Settings, and work only while focus is in the view and not in a field.
 import { useEffect, type RefObject } from "react";
@@ -19,6 +20,8 @@ export function useDiffKeys(
   revealFile: (path: string) => void,
   /// The file last picked, in the tree or with j/k.
   selectedFile: () => string | undefined,
+  /// The key that presses the current hunk's Stage hunk (`s`) or Unstage hunk (`u`), if any.
+  hunkKey?: "s" | "u",
 ) {
   useEffect(() => {
     const node = panel.current;
@@ -29,6 +32,25 @@ export function useDiffKeys(
       if (!scroller || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       // A field in a shadow root (Pierre's) targets its host here; the composed path has the field.
       if (event.isComposing || typing(event.composedPath()[0] ?? event.target)) return;
+      if (event.key === hunkKey) {
+        // The hunk n/p marked while it shows, else the first change in view: its button is the
+        // first hunk action below that change's first row (HunkStage sits under its last one).
+        const box = scroller.getBoundingClientRect();
+        const shows = (top: number) => top >= box.top - 1 && top <= box.top + scroller.clientHeight;
+        const marked = current?.isConnected ? current.getBoundingClientRect().top : undefined;
+        const from =
+          marked !== undefined && shows(marked)
+            ? marked
+            : changeStarts(scroller)
+                .map((row) => row.getBoundingClientRect().top)
+                .find(shows);
+        event.preventDefault();
+        if (from === undefined) return;
+        [...scroller.querySelectorAll<HTMLButtonElement>(".acpmux-hunk-stage")]
+          .find((button) => button.getBoundingClientRect().top > from)
+          ?.click();
+        return;
+      }
       if (!["j", "k", "n", "p"].includes(event.key)) return;
       const step = event.key === "j" || event.key === "n" ? 1 : -1;
       const box = scroller.getBoundingClientRect();
@@ -74,5 +96,5 @@ export function useDiffKeys(
       node.removeEventListener("keydown", onKey);
       current?.removeAttribute(CURRENT_CHANGE);
     };
-  }, [panel, body, revealFile, selectedFile]);
+  }, [panel, body, revealFile, selectedFile, hunkKey]);
 }

@@ -14804,6 +14804,138 @@
         }
       }
     },
+    "agentPane.error.gitHunkMoved": {
+      "comment": "Agent pane: Stage hunk could not find the hunk in the file's diff any more (cx-ncc.74)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد هذا التغيير في الملف. حدّث ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta promjena više nije u datoteci. Osvježite i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den ændring er ikke længere i filen. Opdater, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Änderung ist nicht mehr in der Datei. Aktualisiere und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That change is no longer in the file. Refresh and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese cambio ya no está en el archivo. Actualiza e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette modification n’est plus dans le fichier. Actualisez et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella modifica non è più nel file. Aggiorna e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その変更はもうファイルにありません。更新してもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរនោះលែងនៅក្នុងឯកសារហើយ។ ផ្ទុកឡើងវិញ ហើយសាកល្បងម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 변경 사항이 더 이상 파일에 없습니다. 새로고침한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den endringen er ikke lenger i filen. Oppdater og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tej zmiany nie ma już w pliku. Odśwież i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa alteração não está mais no arquivo. Atualize e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этого изменения больше нет в файле. Обновите и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนแปลงนั้นไม่อยู่ในไฟล์แล้ว รีเฟรชแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu değişiklik artık dosyada değil. Yenileyip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цієї зміни більше немає у файлі. Оновіть і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thay đổi đó không còn trong tệp. Hãy làm mới rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该更改已不在文件中。请刷新后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該變更已不在檔案中。請重新整理後再試一次。"
+          }
+        }
+      }
+    },
     "agentPane.error.gitStageOutside": {
       "extractionState": "manual",
       "localizations": {

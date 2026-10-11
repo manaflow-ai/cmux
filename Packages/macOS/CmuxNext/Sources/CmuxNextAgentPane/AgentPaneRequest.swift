@@ -154,7 +154,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case turnUndo(AgentPaneTurnUndo)
     /// `turn.undo` whose params break its contract; nothing is read or written.
     case invalidTurnUndo
-    /// `git.stage` / `git.unstage`: the Changes view's Stage and Unstage (AgentPaneGitStage.swift);
+    /// `git.stage` / `git.unstage` / `git.stageHunk` / `git.unstageHunk`: the Changes view's Stage
+    /// and Unstage, of files or one hunk (AgentPaneGitStage.swift);
     /// nil when its params break the contract, and nothing runs.
     case gitStage(AgentPaneGitStage?)
     /// `git.pullRequest`: the Changes view's Create PR (AgentPaneGitPullRequest.swift); nil when its

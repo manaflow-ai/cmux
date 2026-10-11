@@ -7,6 +7,7 @@ import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
+import { HunkStage } from "./HunkStage";
 import { useT } from "../i18n";
 import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
@@ -57,16 +58,18 @@ export function EditBlock({
   const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
   const workerPool = paneHighlightPool(lineDiffType, language);
   const reviewing = review !== undefined;
+  // A git scope's hunks stage one by one; a new or deleted file stages whole, from its header.
+  const staging = !reviewing && on.stageHunk !== undefined && !file.created && !file.deleted;
   const annotations = useMemo(
     () =>
-      reviewing
+      reviewing || staging
         ? edit.hunks.flatMap((hunk, hunkIndex) =>
             hunk.reviewKeys?.length === 0
               ? []
               : (hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? []),
           )
         : [],
-    [reviewing, edit, file, index],
+    [reviewing, staging, edit, file, index],
   );
   const options = useMemo(
     () => ({
@@ -109,6 +112,11 @@ export function EditBlock({
             lineAnnotations={annotations}
             renderAnnotation={(annotation) => {
               const anchor = annotation.metadata;
+              const hunk = edit.hunks.find((_, hunkIndex) => hunkKey(file, index, hunkIndex) === anchor?.key);
+              if (staging && on.stageHunk && anchor && hunk) {
+                const { unstage, run } = on.stageHunk;
+                return <HunkStage anchor={anchor} unstage={unstage} onPress={() => run(file.path, hunk)} />;
+              }
               return review && focusAfter && anchor ? (
                 <HunkActions
                   anchor={anchor}

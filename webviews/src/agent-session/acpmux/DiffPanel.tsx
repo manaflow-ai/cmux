@@ -4,7 +4,7 @@
 // filterable @pierre/trees file tree.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
-import type { TurnFile } from "./diff";
+import type { DiffHunk, TurnFile } from "./diff";
 import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
@@ -177,7 +177,6 @@ export function DiffPanel({
   const panel = useRef<HTMLElement>(null);
   // j/k move between files as picking them in the tree does; n/p between changes.
   const selectedFile = useStableCallback(() => selected);
-  useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
     const node = panel.current;
     return node ? bindDiffPanelEscape(node, onClose) : undefined;
@@ -200,24 +199,40 @@ export function DiffPanel({
   // its absolute path; git.stage takes it from the repository's top, as git.diff listed it. A
   // rename is both of its paths, or half of it would stay behind.
   const unstages = scope === "staged" ? true : scope === "unstaged" || scope === "uncommitted" ? false : undefined;
-  const stageFile = useStableCallback((path: string) => {
-    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
-    const root = load.changeSet.root?.replace(/\/+$/, "");
-    const inRepository = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
-    const previous = load.changeSet.files.find((file) => file.path === inRepository)?.previousPath;
+  // Stage hunk and Unstage hunk (cx-ncc.74): Unstaged stages a hunk, Staged unstages it. Uncommitted
+  // has none: its hunks are HEAD against the worktree, part of which may be staged already.
+  const hunkUnstages = scope === "staged" ? true : scope === "unstaged" ? false : undefined;
+  const inRepository = (path: string, root: string | undefined) => {
+    const top = root?.replace(/\/+$/, "");
+    return top && path.startsWith(`${top}/`) ? path.slice(top.length + 1) : path;
+  };
+  const changeIndex = (asked: Promise<unknown>) => {
     latestOpen.current += 1;
     setOpenFailure(undefined);
-    source
-      .stage(previous ? [inRepository, previous] : [inRepository], unstages)
-      .then(retry, (error: unknown) =>
-        setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
-      );
+    asked.then(retry, (error: unknown) =>
+      setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
+    );
+  };
+  const stageFile = useStableCallback((path: string) => {
+    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
+    const named = inRepository(path, load.changeSet.root);
+    const previous = load.changeSet.files.find((file) => file.path === named)?.previousPath;
+    changeIndex(source.stage(previous ? [named, previous] : [named], unstages));
+  });
+  const stageHunk = useStableCallback((path: string, hunk: DiffHunk) => {
+    if (!source?.stageHunk || hunkUnstages === undefined || load.state !== "loaded") return;
+    const lines = hunk.lines.map((line) => (line.type === "add" ? "+" : line.type === "del" ? "-" : " ") + line.text);
+    changeIndex(source.stageHunk(inRepository(path, load.changeSet.root), lines, hunkUnstages));
   });
   const canStage = source?.stage !== undefined && unstages !== undefined;
+  const canStageHunk = source?.stageHunk !== undefined && hunkUnstages !== undefined;
+  const hunkKey = canStageHunk ? (hunkUnstages ? "u" : "s") : undefined;
+  useDiffKeys(panel, body, revealFromTree, selectedFile, hunkKey);
   const on = useMemo<FileActions>(
     () => ({
       openFile,
       stage: canStage ? { unstage: unstages === true, run: stageFile } : undefined,
+      stageHunk: canStageHunk ? { unstage: hunkUnstages === true, run: stageHunk } : undefined,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -241,7 +256,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile, canStage, unstages, stageFile],
+    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -395,7 +410,7 @@ export function DiffPanel({
       {hunkReview && (
         <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
       )}
-      {files.length > 0 && !scopeState && <DiffKeyHints />}
+      {files.length > 0 && !scopeState && <DiffKeyHints hunkKey={hunkKey} />}
     </section>
   );
 }
