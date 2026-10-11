@@ -91,6 +91,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    /// When each terminal's agent last started a turn the person prompted (ms since 1970),
+    /// for Jump to Last Prompt. Kept by surface, so a tab rebuilt by a resync keeps it.
+    @ObservationIgnored public private(set) var lastPromptBySurface: [SurfaceID: UInt64] = [:]
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
@@ -235,7 +238,9 @@ public final class DaemonStore: StateResourceQueries {
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
+        let old = agentsBySurface
         agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
+        for status in agentsBySurface.values { notePrompt(from: old[status.surface], to: status) }
         for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
     }
 
@@ -307,5 +312,22 @@ public final class DaemonStore: StateResourceQueries {
                 && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
         }
         if !unchanged { sidebarSections = sections }
+    }
+
+    /// Records `new` as a prompt when it starts a prompted turn, keeping the newest time.
+    func notePrompt(from old: AgentStatus?, to new: AgentStatus) {
+        guard Self.startsPromptedTurn(from: old, to: new) else { return }
+        let at = new.updatedAtMs > 0 ? new.updatedAtMs : UInt64(Date().timeIntervalSince1970 * 1000)
+        lastPromptBySurface[new.surface] = at
+    }
+
+    /// A hook-reported agent works only after a submitted prompt (`agent.turn.started`:
+    /// UserPromptSubmit and its kin), so each hook `working` report with a new time is one.
+    /// Other reporters say `working` through a turn too, so only their start of work
+    /// counts; out of `blocked` is an approval resuming the same turn.
+    static func startsPromptedTurn(from old: AgentStatus?, to new: AgentStatus) -> Bool {
+        guard new.state == .working else { return false }
+        if new.source == "hook" { return old?.state != .working || old?.updatedAtMs != new.updatedAtMs }
+        return old?.state != .working && old?.state != .blocked
     }
 }

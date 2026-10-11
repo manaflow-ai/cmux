@@ -233,6 +233,7 @@ extension DaemonStore {
             // follows with `tree-changed`/`tab-changed`, which settle the state.
             return .none
         case .agentChanged(let status):
+            notePrompt(from: agentsBySurface[status.surface], to: status)
             agentsBySurface[status.surface] = status
             tabsBySurface[status.surface]?.setAgent(status)
             return .none

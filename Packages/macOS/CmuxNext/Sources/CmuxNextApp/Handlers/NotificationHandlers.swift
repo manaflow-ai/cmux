@@ -26,12 +26,15 @@ enum NotificationHandlers {
             }
         })
         registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
-        // The live tab whose agent was prompted last; a closed one is no longer in the tree.
+        // The live tab whose agent was prompted last (a closed one is no longer in the tree),
+        // shown as a user jump: its window comes forward and its pane takes focus.
         registry.bind("jumpToLastPrompt", run: { _ in
             _ = try context.requireConnection()
-            let prompted = context.allTabs.compactMap { located in located.tab.lastPromptAtMs.map { (located, $0) } }
+            let store = context.daemon.store
+            let prompted = context.allTabs.compactMap { located in store.lastPromptBySurface[located.tab.surface].map { (located, $0) } }
             guard let last = prompted.max(by: { $0.1 < $1.1 })?.0 else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
-            context.reveal(last)
+            guard ActionRunScope.viewChangeAllowed() else { return }
+            context.services.revealTab(last.tab.id)
         })
         registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)

@@ -41,9 +41,6 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
-    /// When the tab's agent last started a turn the person prompted (ms since 1970), for
-    /// Jump to Last Prompt (`TabModel.startsPromptedTurn`); nil when it never did.
-    public internal(set) var lastPromptAtMs: UInt64?
     /// What the tab's agent is touching now; nil when it is not acting (`agent-presence-v1`).
     public internal(set) var presence: AgentPresence?
     /// Browser page zoom or terminal font scale saved on the tab record;
@@ -185,20 +182,7 @@ public final class TabModel: Identifiable {
     }
 
     func setAgent(_ value: AgentStatus?) {
-        if let value, Self.startsPromptedTurn(from: agent, to: value) {
-            lastPromptAtMs = value.updatedAtMs > 0 ? value.updatedAtMs : UInt64(Date().timeIntervalSince1970 * 1000)
-        }
         if agent != value { agent = value }
-    }
-
-    /// A hook-reported agent works only after a submitted prompt (`agent.turn.started`:
-    /// UserPromptSubmit and its kin), so each hook `working` report is one. Other
-    /// reporters say `working` through a turn too, so only their start of work
-    /// counts; out of `blocked` is an approval resuming the same turn.
-    static func startsPromptedTurn(from old: AgentStatus?, to new: AgentStatus) -> Bool {
-        guard new.state == .working else { return false }
-        if new.source == "hook" { return old?.state != .working || old?.updatedAtMs != new.updatedAtMs }
-        return old?.state != .working && old?.state != .blocked
     }
 
     func setPresence(_ value: AgentPresence?) {
