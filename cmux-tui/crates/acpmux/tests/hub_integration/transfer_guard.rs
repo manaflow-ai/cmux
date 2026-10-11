@@ -59,6 +59,7 @@ fn config(policy: &str, extra: Value) -> Config {
             "fake": {"argv": ["python3", FAKE], "env": env},
             "claude": {"argv": ["python3", FAKE], "env": env},
             "fcodex": {"argv": ["python3", FAKE], "env": env, "family": "codex"},
+            "plain": {"argv": ["python3", FAKE], "env": env, "family": "plain"},
         },
         "defaultHarness": "fake",
         "permissionPolicy": policy,
@@ -349,13 +350,14 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
     let root = Scratch::home("policy");
     let (_b, mut dst) = daemon(config("approve-all", json!({})), None).await;
     let g = || guard("web", &[root.path()]);
+    let normal = json!({"currentModeId": "normal", "availableModes": []});
 
-    let m = meta(root.path(), json!({}));
+    let m = meta(root.path(), json!({"modes": normal}));
     let rid = receive(&mut dst, g(), &m, &[]).await.unwrap();
     let s = finish(&mut dst, &rid, json!({})).await.unwrap();
     assert_eq!(s["policy"], "ask", "no policy is ask, not this daemon's approve-all: {s}");
 
-    let m = meta(root.path(), json!({"permissionPolicy": "deny-all"}));
+    let m = meta(root.path(), json!({"permissionPolicy": "deny-all", "modes": normal}));
     let rid = receive(&mut dst, g(), &m, &[]).await.unwrap();
     assert_eq!(finish(&mut dst, &rid, json!({})).await.unwrap()["policy"], "deny-all");
 
@@ -407,6 +409,17 @@ async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
     let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
     let s = finish(&mut dst, &rid, json!({})).await.unwrap();
     assert_eq!(s["family"], "fake", "{s}");
+
+    // Under the Web a chat with no recorded mode is refused when its family has asking modes
+    // (dispatch would let it through on its policy alone), and taken when its family has none.
+    let m = meta(root.path(), json!({}));
+    let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
+    let r = finish(&mut dst, &rid, json!({})).await;
+    assert!(r.as_ref().is_err_and(|e| e.contains("transfer.mode")), "{r:?}");
+    let m = meta(root.path(), json!({"harness": "plain"}));
+    let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
+    let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+    assert_eq!(s["family"], "plain", "{s}");
 
     // A family the Web never drives is refused for a web guard at once.
     let m = meta(root.path(), json!({"harness": "fcodex"}));
@@ -483,21 +496,53 @@ async fn a_guarded_finish_restores_only_the_chats_own_agent_file_without_its_mod
     let file = format!("native/claude-project/.claude/projects/-elsewhere/{sid}.jsonl");
     let m = meta(root.path(), claude(&sid));
     let rid = receive(&mut dst, g(), &m, &[(file.as_str(), transcript.as_bytes())]).await.unwrap();
-    finish(&mut dst, &rid, json!({})).await.unwrap();
+    let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+    assert_eq!(s["agentSessionId"], sid.as_str(), "its own restored file resumes: {s}");
     let restored = std::fs::read_to_string(project.join(format!("{sid}.jsonl"))).unwrap();
     assert!(!restored.contains("permissionMode"), "a resumed chat takes no mode: {restored}");
     assert!(restored.contains("\"hi\"") && restored.contains("\"done\""), "{restored}");
     assert_eq!(restored.lines().count(), 2, "{restored}");
 
-    // A file here is never overwritten.
+    // An agent session that is here already is not this chat's to resume: refused, and the
+    // file here is kept.
     let sid = uuid::Uuid::now_v7().to_string();
     std::fs::create_dir_all(&project).unwrap();
     std::fs::write(project.join(format!("{sid}.jsonl")), "mine\n").unwrap();
     let file = format!("native/claude-project/.claude/projects/-elsewhere/{sid}.jsonl");
     let m = meta(root.path(), claude(&sid));
+    let id = m["id"].as_str().unwrap().to_owned();
     let rid = receive(&mut dst, g(), &m, &[(file.as_str(), transcript.as_bytes())]).await.unwrap();
-    finish(&mut dst, &rid, json!({})).await.unwrap();
+    let r = finish(&mut dst, &rid, json!({})).await;
+    assert!(r.as_ref().is_err_and(|e| e.contains("transfer.session")), "{r:?}");
     assert_eq!(std::fs::read_to_string(project.join(format!("{sid}.jsonl"))).unwrap(), "mine\n");
+    assert!(dst.request(method::MUX_INFO, json!({"sessionId": id})).await.is_err());
+
+    // With no agent file in the bundle, the chat starts its agent fresh: an agent session here
+    // with that id (the one above) is never resumed.
+    let m = meta(root.path(), claude(&sid));
+    let rid = receive(&mut dst, g(), &m, &[]).await.unwrap();
+    let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+    assert!(s["agentSessionId"].is_null(), "{s}");
+
+    // A file that cannot be written fails the finish, imports nothing and leaves no part file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let sid = uuid::Uuid::now_v7().to_string();
+        let file = format!("native/claude-project/.claude/projects/-elsewhere/{sid}.jsonl");
+        let m = meta(root.path(), claude(&sid));
+        let id = m["id"].as_str().unwrap().to_owned();
+        let rid =
+            receive(&mut dst, g(), &m, &[(file.as_str(), transcript.as_bytes())]).await.unwrap();
+        let before: Vec<_> = std::fs::read_dir(&project).unwrap().flatten().collect();
+        std::fs::set_permissions(&project, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let r = finish(&mut dst, &rid, json!({})).await;
+        std::fs::set_permissions(&project, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(r.as_ref().is_err_and(|e| e.contains("transfer.native")), "{r:?}");
+        assert!(dst.request(method::MUX_INFO, json!({"sessionId": id})).await.is_err());
+        let after: Vec<_> = std::fs::read_dir(&project).unwrap().flatten().collect();
+        assert_eq!(after.len(), before.len(), "no part file is left");
+    }
 
     // An agent session id that is not one, or a file of another agent, is refused at finish.
     let sid = uuid::Uuid::now_v7().to_string();
@@ -578,6 +623,52 @@ async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web()
         let r = finish(&mut dst, &rid, json!({})).await;
         assert!(r.as_ref().is_err_and(|e| e.contains(error)), "{extra}: {r:?}");
     }
+}
+
+/// Receives an unguarded hand-made bundle and finishes it.
+async fn receive_unguarded(c: &mut TestClient, meta: &Value) -> Value {
+    let (manifest, all) = bundle_manifest(meta, &[]);
+    let r = c.request("_acpmux/transfer_receive", json!({"manifest": manifest})).await.unwrap();
+    let rid = r["receiveId"].as_str().unwrap().to_owned();
+    for (path, data) in &all {
+        let page =
+            json!({"receiveId": rid, "path": path, "offset": 0, "data": BASE64.encode(data)});
+        c.request("_acpmux/transfer_write", page).await.unwrap();
+    }
+    finish(c, &rid, json!({})).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_guarded_move_back_replaces_its_own_moved_away_agent_file() {
+    let root = Scratch::home("back");
+    let home = dirs::home_dir().unwrap();
+    let project = home.join(".claude/projects").join(claude_project_dir(root.path()));
+    let _project = Scratch(project.clone());
+    let (_a, mut a) = daemon(config("ask", json!({})), None).await;
+    let (_b, mut b) = daemon(config("ask", json!({})), None).await;
+    let sid = uuid::Uuid::now_v7().to_string();
+
+    // A Claude chat here moves away; its transcript stays here.
+    let m = meta(root.path(), json!({"harness": "claude", "agentSessionId": sid}));
+    let id = m["id"].as_str().unwrap().to_owned();
+    receive_unguarded(&mut a, &m).await;
+    move_chat(&mut a, &mut b, &id, None, json!({})).await.unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join(format!("{sid}.jsonl")), "before the move\n").unwrap();
+
+    // It comes back guarded with its newer transcript: the moved-away copy's file gives way.
+    let newer = "{\"type\":\"assistant\",\"message\":{\"content\":\"later\"}}\n";
+    let file = format!("native/claude-project/.claude/projects/-elsewhere/{sid}.jsonl");
+    let rid =
+        receive(&mut a, guard("peer", &[root.path()]), &m, &[(file.as_str(), newer.as_bytes())])
+            .await
+            .unwrap();
+    let s = finish(&mut a, &rid, json!({})).await.unwrap();
+    assert_eq!(s["agentSessionId"], sid.as_str(), "{s}");
+    assert_ne!(s["status"], "closed", "{s}");
+    assert_eq!(std::fs::read_to_string(project.join(format!("{sid}.jsonl"))).unwrap(), newer);
+    let parts: Vec<_> = std::fs::read_dir(&project).unwrap().flatten().collect();
+    assert_eq!(parts.len(), 1, "no part file is left: {parts:?}");
 }
 
 /// A client of `hub` from `origin`, without the person's handshake.
