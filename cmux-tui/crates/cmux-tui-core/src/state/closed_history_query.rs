@@ -29,15 +29,22 @@ fn in_scope(window: Option<&str>) -> &'static str {
     }
 }
 
+/// The public `ClosedTabRecord` of one stored tab. A page tab names its
+/// page, so Recently Closed can title it by the page rather than by its
+/// `about:blank` placeholder (cx-h7y9).
 fn public_tab(tab: &Value) -> Value {
-    json!({
+    let mut public = json!({
         "kind": tab["kind"],
         "name": tab["name"],
         "cwd": tab["cwd"],
         "url": tab["url"],
         "browser_profile_id": tab["browser_profile_id"],
         "pinned": tab["pinned"].as_bool().unwrap_or(false),
-    })
+    });
+    if let Some(page) = tab["conversation"]["page"].as_str() {
+        public["page"] = json!(page);
+    }
+    public
 }
 
 /// The public `ClosedMemberRecord` of one stored member.

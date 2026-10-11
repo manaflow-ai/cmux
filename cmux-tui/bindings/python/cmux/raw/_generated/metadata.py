@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8'
+IR_SHA256 = 'd7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb'
 
 
 @dataclass(frozen=True)
@@ -529,6 +529,20 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-conversation-thread': CommandMetadata(
+        'cloud-conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-conversation-unsubscribe': CommandMetadata(
         'cloud-conversation-unsubscribe',
         'local-admin',
@@ -807,6 +821,20 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-thread': CommandMetadata(
+        'conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-typing': CommandMetadata(
@@ -1847,6 +1875,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
             'workspace': CommandFieldMetadata(None, None),

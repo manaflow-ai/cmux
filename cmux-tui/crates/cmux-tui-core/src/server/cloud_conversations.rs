@@ -18,6 +18,32 @@ use crate::conversation_store::LOCAL_USER;
 
 pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY;
 
+/// Advertised with `cloud-conversations-v1`: only the verified cmux app
+/// connection sets or clears the human's lease and sends `origin: "user"`
+/// (home-cloud-proxy.md section 3, cmux#13742).
+pub(super) const APP_ONLY_LEASE_CAPABILITY: &str = "cloud-lease-app-only-v1";
+
+/// Whether `client` is the verified cmux app (the `frontend` actor: a
+/// role-main Unix connection whose code signature or install key was
+/// proved in `client-hello`), the same check the feed handoff uses.
+fn is_app(mux: &Mux, client: u64) -> bool {
+    matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. })
+}
+
+/// `origin: "user"` says the human acted in the app; any other connection
+/// is refused, never silently re-tagged.
+fn check_origin(mux: &Mux, client: u64, origin: Option<&str>) -> anyhow::Result<()> {
+    if origin != Some("user") || is_app(mux, client) {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: "origin \"user\" requires the verified cmux app connection".into(),
+        retryable: false,
+    }
+    .into())
+}
+
 /// `cloud-session-set`: the app's cloud session lease. The token moves into
 /// the cloud link's zeroizing buffer and is never echoed or logged.
 #[derive(Deserialize)]
@@ -69,6 +95,17 @@ pub(super) struct HistoryParams {
     conversation: String,
     before_seq: u64,
     limit: u32,
+}
+
+/// `cloud-conversation-thread` (`conversation-thread-v1`).
+#[derive(Deserialize)]
+pub(super) struct ThreadParams {
+    conversation: String,
+    root: String,
+    #[serde(default)]
+    after_seq: Option<u64>,
+    #[serde(default)]
+    limit: Option<u32>,
 }
 
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
@@ -131,11 +168,11 @@ pub(super) fn session_set(
 ) -> anyhow::Result<Value> {
     let SessionSetParams { api_base_url, access_token, expires_at, client_version } = params;
     let lease = SessionParams { api_base_url, access_token, expires_at, client_version };
-    Ok(service(mux, client)?.set_session(lease)?)
+    Ok(service(mux, client)?.set_session_by(lease, is_app(mux, client))?)
 }
 
 pub(super) fn session_clear(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.clear_session())
+    Ok(service(mux, client)?.clear_session_by(is_app(mux, client))?)
 }
 
 pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
@@ -155,8 +192,15 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     Ok(service(mux, client)?.history(&conversation, before_seq, limit)?)
 }
 
+pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Result<Value> {
+    let ThreadParams { conversation, root, after_seq, limit } = params;
+    Ok(service(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
+}
+
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.op(&OpRequest::from(params))?)
+    let service = service(mux, client)?;
+    check_origin(mux, client, params.origin.as_deref())?;
+    Ok(service.op(&OpRequest::from(params))?)
 }
 
 pub(super) fn subscribe(
@@ -203,6 +247,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
         Command::CloudInboxList(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
+            | Command::CloudConversationThread(_)
             | Command::CloudConversationOp(_)
             | Command::CloudMuxAck(_)
     )
@@ -254,6 +299,7 @@ pub(super) fn start(
 ) -> bool {
     let precheck = service(mux, client).and_then(|service| {
         if let Command::CloudConversationOp(params) = &cmd {
+            check_origin(mux, client, params.origin.as_deref())?;
             service.check_op(&OpRequest {
                 conversation: params.conversation.clone(),
                 idempotency_key: params.idempotency_key.clone(),
@@ -319,3 +365,7 @@ fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>
 #[cfg(test)]
 #[path = "cloud_conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cloud_lease_gate_tests.rs"]
+mod lease_gate_tests;

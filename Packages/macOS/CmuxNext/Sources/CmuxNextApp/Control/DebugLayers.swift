@@ -23,7 +23,7 @@ enum DebugLayers {
     }
 
     /// `LayoutPassGuard`: the most layout calls one view had in one
-    /// run-loop turn, the loops it caught (view class, window, ancestry)
+    /// window layout (one `layoutIfNeeded`), the loops it caught (view class, window, ancestry)
     /// and the busiest view classes since launch or the last reset.
     static func layoutPasses() -> JSONValue {
         let guardian = LayoutPassGuard.shared
@@ -119,7 +119,7 @@ enum DebugLayers {
             "id": .string(controller.state.id),
             "window_number": .number(Double(window.windowNumber)),
             "frame": rect(window.frame),
-            // Layout calls of one view in one turn the guard allows in this window.
+            // Layout calls of one view in one window layout the guard allows in this window.
             "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: window)))),
             "placement": .string(layer.placement.rawValue),
             "overlay_panel": layer.overlayPanel.map { .number(Double($0.windowNumber)) } ?? .null,

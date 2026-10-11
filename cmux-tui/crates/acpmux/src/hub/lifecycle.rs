@@ -46,10 +46,11 @@ impl Hub {
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
-        let (recorded, fork) = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
-            Adoption::Existing(existing) => return Ok(existing),
-            Adoption::Found { cwd, fork } => (cwd, fork),
-        };
+        let (recorded, fork, adopted_file, chat_store) =
+            match self.adoption(adopt.as_ref(), agent, &family, &env, remote).await? {
+                Adoption::Existing(existing) => return Ok(existing),
+                Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
+            };
         // A fork resumes nothing as itself: its process forks the adopted id
         // into a new conversation, so the adopted id is not this session's.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
@@ -79,7 +80,7 @@ impl Hub {
             policy,
             remote,
         });
-        meta.session_env = session_env;
+        (meta.session_env, meta.chat_store) = (session_env, chat_store);
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -160,6 +161,13 @@ impl Hub {
         // An agent that started fresh instead of resuming fails creation.
         if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
             self.check_resumed(&session, a, agent).await?;
+            // The adopted chat shows its past at once: Claude Code's resume replays nothing (Codex
+            // resumes through ACP session/load, which streams the history itself).
+            if family == "claude"
+                && let Some(file) = adopted_file.clone()
+            {
+                self.replay_adopted(&session, &family, file).await;
+            }
         }
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
@@ -985,7 +993,7 @@ fn claude_resume_refusal(
     }
     let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
     if ran_elsewhere {
-        let store = crate::adopt::HarnessHomes::from_env().with_env(&[&profile.env]).claude;
+        let store = meta.claude_store(&profile.env);
         if !crate::adopt::claude_session_exists(&store, sid) {
             return Some("is not in this profile's Claude store");
         }

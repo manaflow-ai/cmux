@@ -25,6 +25,10 @@ final class OnboardingService {
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
 
+    /// Where `workspace.importClassic` reads classic's saved session; nil
+    /// reads the one classic saved last (tests point it at a fixture).
+    var classicSessions: ClassicSessionImporter?
+
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 

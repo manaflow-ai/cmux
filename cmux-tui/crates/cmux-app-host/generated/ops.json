@@ -112,6 +112,7 @@
     "conversation.send",
     "conversation.settings.set",
     "conversation.snapshot",
+    "conversation.thread",
     "conversation.typing",
     "diffs.cycle_variant",
     "diffs.open_changes",

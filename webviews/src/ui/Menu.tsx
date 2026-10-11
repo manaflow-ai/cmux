@@ -320,14 +320,20 @@ export function MenuRadioItem({
   className,
   disabled,
   shortcut,
+  closeOnClick,
   children,
-}: { value: string } & Omit<MenuItemProps, "onSelect">) {
+}: {
+  value: string;
+  /** Close the menu when picked (Base UI keeps a radio menu open by default). */
+  closeOnClick?: boolean;
+} & Omit<MenuItemProps, "onSelect">) {
   const context = use(MenuContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
       value={value}
       disabled={disabled}
+      closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;

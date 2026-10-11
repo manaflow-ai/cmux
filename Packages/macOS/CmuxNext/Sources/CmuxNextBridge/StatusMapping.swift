@@ -93,7 +93,7 @@ public struct StatusMapping {
         default: break
         }
         switch visibleTurn(tab) {
-        case .failed?: return .failure
+        case .failed?, .lost?: return .failure
         case .done?: return .success
         default: return nil
         }
@@ -157,7 +157,7 @@ public struct StatusMapping {
         switch turn {
         case .working: .working
         case .needsInput: .waiting
-        case .failed: .error
+        case .failed, .lost: .error
         case .done: .success
         }
     }

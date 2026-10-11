@@ -56,6 +56,14 @@ lease, a peer-credential check of the app's pid or code signature, or restrictin
 `cloud-session-set`/`-clear` and `origin:"user"` to the app. Part 1 ships only the bound-agent
 refusal.
 
+Part 2 (`cloud-lease-app-only-v1`, cx-59n8.7, proposed in cmux#13742): a lease the verified cmux
+app connection set (the `frontend` actor of `client-hello`, the same check as the feed handoff)
+belongs to the app; another connection's `cloud-session-set`/`-clear` is refused with
+`cloud_conversation_rejected` / `forbidden` while it exists. `cloud-conversation-op` with
+`origin:"user"` is refused on every connection that is not the verified app. Still open: an
+unbound same-uid process may read through the app's lease and send ops with another origin
+(`cli`, `script`) that the cloud records as the human.
+
 Types (shapes are home-core's, identical to home.md section 2 where they overlap):
 
 ```
