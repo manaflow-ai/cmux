@@ -152,21 +152,86 @@ struct CloudWelcomeTests {
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
     }
 
-    @Test("clip frames are large, 16:10, sharp at 2x and fit their window")
-    func clipFramesFitTheirLayouts() {
-        // The smallest recorded clip is 1010x640 pixels.
-        let clipPixels = CGSize(width: 1010, height: 640)
-        let horizontalPadding: CGFloat = 32 * 2
-        let layouts: [(media: CGSize, window: CGFloat, besideList: CGFloat)] = [
-            (CloudWelcomeView.stackedMediaSize, CloudWelcomeView.windowWidth, 0),
-            // Beside the list the titles keep at least 240 points.
-            (CloudWelcomeView.listMediaSize, CloudWelcomeView.listWindowWidth, 240 + 24),
-        ]
-        for layout in layouts {
-            #expect(layout.media.width >= 480, "The clip should read as the dialog's focal point")
-            #expect(abs(layout.media.width / layout.media.height - 1.6) < 0.01)
-            #expect(layout.media.width * 2 <= clipPixels.width && layout.media.height * 2 <= clipPixels.height)
-            #expect(layout.media.width + layout.besideList + horizontalPadding <= layout.window)
+    @Test("the default welcome shows the feature list beside a large, sharp clip")
+    func defaultLayout() {
+        let layout = CloudWelcomeLayout.resolve(prefersFeatureList: true, textScale: 1, available: CGSize(width: 1470, height: 920))
+        #expect(layout == CloudWelcomeLayout(showsFeatureList: true, windowWidth: 840, mediaSize: CGSize(width: 480, height: 300)))
+        // Half the smallest recorded clip's pixels, so 2x stays sharp.
+        #expect(layout.mediaSize.width * 2 <= 1010 && layout.mediaSize.height * 2 <= 640)
+    }
+
+    @Test("large cmux text shrinks the clip beside the list, then stacks the list")
+    func largeTextAdaptsLayout() {
+        let screen = CGSize(width: 1470, height: 920)
+        let medium = CloudWelcomeLayout.resolve(prefersFeatureList: true, textScale: 1.3, available: screen)
+        #expect(medium.showsFeatureList)
+        #expect(medium.mediaSize.width < CloudWelcomeLayout.listMaxMediaWidth)
+
+        let large = CloudWelcomeLayout.resolve(prefersFeatureList: true, textScale: 2, available: screen)
+        #expect(!large.showsFeatureList)
+        #expect(large.windowWidth == CloudWelcomeLayout.stackedWindowWidth)
+    }
+
+    @Test("the welcome fits small screens", arguments: [
+        CGSize(width: 1024, height: 640), CGSize(width: 800, height: 600), CGSize(width: 1280, height: 520),
+    ])
+    func smallScreensFit(screen: CGSize) {
+        for scale in [1.0, 1.5, 2.0] as [CGFloat] {
+            for prefersList in [true, false] {
+                let layout = CloudWelcomeLayout.resolve(prefersFeatureList: prefersList, textScale: scale, available: screen)
+                #expect(layout.windowWidth <= screen.width - CloudWelcomeLayout.screenMargin)
+                #expect(layout.mediaSize.width <= layout.windowWidth - CloudWelcomeLayout.horizontalPadding * 2)
+                #expect(abs(layout.mediaSize.width / layout.mediaSize.height - CloudWelcomeLayout.mediaAspect) < 0.02)
+                if layout.showsFeatureList {
+                    // The titles keep their column at this text size.
+                    #expect(layout.mediaSize.width + CloudWelcomeLayout.listSpacing + CloudWelcomeLayout.listColumnWidth * scale
+                        <= layout.windowWidth - CloudWelcomeLayout.horizontalPadding * 2)
+                }
+            }
         }
+    }
+
+    @Test("Reduce Motion holds the clip still until the viewer presses Play")
+    @MainActor
+    func reduceMotionHoldsStill() {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        playback.setReducesMotion(true)
+        #expect(playback.isPaused)
+        // Picking another feature still shows it still.
+        playback.startNewSlide(at: 1)
+        #expect(playback.isPaused)
+        #expect(playback.elapsed(at: Date()) == 0)
+
+        playback.setPaused(false)
+        #expect(!playback.isPaused)
+        // Once the viewer chose Play, later slides play too.
+        playback.startNewSlide(at: 2)
+        #expect(!playback.isPaused)
+        playback.setPaused(true)
+        #expect(playback.isPaused)
+    }
+
+    @Test("turning Reduce Motion off resumes only its own hold")
+    @MainActor
+    func reduceMotionOffResumes() {
+        let held = CloudWelcomeMediaCarousel.Playback()
+        held.setReducesMotion(true)
+        held.setReducesMotion(false)
+        #expect(!held.isPaused)
+
+        let viewerPaused = CloudWelcomeMediaCarousel.Playback()
+        viewerPaused.setPaused(true)
+        viewerPaused.setReducesMotion(true)
+        viewerPaused.setReducesMotion(false)
+        #expect(viewerPaused.isPaused)
+    }
+
+    @Test("without Reduce Motion a new slide plays")
+    @MainActor
+    func newSlidePlays() {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        playback.setPaused(true)
+        playback.startNewSlide(at: 1)
+        #expect(!playback.isPaused)
     }
 }

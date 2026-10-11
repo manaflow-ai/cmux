@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -58,21 +59,29 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Help and launch share the same feature-list layout.
     func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
         window?.close()
-        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
+        let screen = parent?.screen ?? NSScreen.main
+        let window = makeWindow(
+            availableSize: screen?.visibleFrame.size,
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots
+        )
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow(sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
+    private func makeWindow(availableSize: CGSize?, sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
+            availableSize: availableSize,
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
+        // A cmux-owned SwiftUI root: its text follows cmux's text size setting.
+        .cmuxFontMagnificationEnvironment()
         let hosting = NSHostingView(rootView: rootView)
         // The content clears the traffic lights with its own top padding, so it
         // needs no titlebar safe area. Tracking it also loops in the app: the
@@ -159,6 +168,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 /// the plan once on show, so the view itself stays free of app objects.
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
+    let availableSize: CGSize?
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
     let onNotNow: () -> Void
@@ -174,7 +184,8 @@ private struct CloudWelcomeAccountView: View {
             onNotNow: onNotNow,
             onNext: onNext,
             sliderShowsFeatureList: sliderShowsFeatureList,
-            sliderListUsesDots: sliderListUsesDots
+            sliderListUsesDots: sliderListUsesDots,
+            availableSize: availableSize
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.

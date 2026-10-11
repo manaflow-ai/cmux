@@ -73,7 +73,7 @@ struct CloudWelcomeMediaCarousel: View {
     /// Where a slide's clip lives. The app reads its bundle; the lab a folder.
     let mediaURL: (CloudWelcomeSlide) -> URL?
     /// The clip's frame; the welcome passes a larger one beside the feature list.
-    var mediaSize = CloudWelcomeView.stackedMediaSize
+    var mediaSize = CGSize(width: CloudWelcomeLayout.stackedMaxMediaWidth, height: 312)
     /// True: plays through on its own, a click on the clip pauses. False: each
     /// clip loops until the viewer moves on with the arrows or dots.
     var autoplays = true
@@ -117,6 +117,9 @@ struct CloudWelcomeMediaCarousel: View {
                 stacked
             }
         }
+        .onChange(of: reduceMotion, initial: true) { _, on in
+            playback.setReducesMotion(on)
+        }
         .task { await observePlayback() }
         .task(id: currentSlide.id) { await loadDuration() }
         .task(id: AdvanceKey(slide: currentSlide.id, isPaused: playback.isPaused, duration: duration, movieFailed: movieFailed)) {
@@ -132,17 +135,18 @@ struct CloudWelcomeMediaCarousel: View {
                 .padding(.top, 16)
             caption
                 .padding(.top, 12)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(currentSlide.title)
+                .accessibilityValue(currentSlide.caption)
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: show((index + 1) % slides.count)
+                    case .decrement: show((index - 1 + slides.count) % slides.count)
+                    @unknown default: break
+                    }
+                }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(currentSlide.title)
-        .accessibilityValue(currentSlide.caption)
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: show((index + 1) % slides.count)
-            case .decrement: show((index - 1 + slides.count) % slides.count)
-            @unknown default: break
-            }
-        }
+        .accessibilityElement(children: .contain)
     }
 
     private var currentSlide: CloudWelcomeSlide { slides[index] }
@@ -193,7 +197,7 @@ struct CloudWelcomeMediaCarousel: View {
                             .foregroundStyle(.secondary)
                             .lineSpacing(1)
                             .fixedSize(horizontal: false, vertical: true)
-                            .transition(Self.captionTransition)
+                            .transition(reduceMotion ? .opacity : Self.captionTransition)
                     }
                 }
                 .padding(.vertical, 7)
@@ -218,6 +222,8 @@ struct CloudWelcomeMediaCarousel: View {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return ZStack {
             slideMedia(currentSlide)
+                // An illustration of the slide's text, which VoiceOver reads instead.
+                .accessibilityHidden(true)
                 .id(currentSlide.id)
                 .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.985)))
         }
@@ -237,24 +243,23 @@ struct CloudWelcomeMediaCarousel: View {
         .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
     }
 
-    /// Autoplay: a pause button while the pointer is over the clip (a play button
-    /// stays while paused). Manual: previous and next arrows on hover.
+    /// Autoplay: a Pause (or Play) button that is always there, so keyboard and
+    /// VoiceOver users can stop the motion too. Manual: arrows on hover.
     @ViewBuilder
     private var mediaControls: some View {
         if autoplays {
-            if isHoveringMedia || playback.isPaused {
-                controlButton(
-                    symbol: playback.isPaused ? "play.fill" : "pause.fill",
-                    label: playback.isPaused
-                        ? String(localized: "cloud.welcome.slider.play", defaultValue: "Play")
-                        : String(localized: "cloud.welcome.slider.pause", defaultValue: "Pause")
-                ) {
-                    setPaused(!playback.isPaused)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .transition(.opacity)
+            controlButton(
+                symbol: playback.isPaused ? "play.fill" : "pause.fill",
+                label: playback.isPaused
+                    ? String(localized: "cloud.welcome.slider.play", defaultValue: "Play")
+                    : String(localized: "cloud.welcome.slider.pause", defaultValue: "Pause")
+            ) {
+                setPaused(!playback.isPaused)
             }
+            // Quiet until the pointer is over the clip or it is paused.
+            .opacity(isHoveringMedia || playback.isPaused ? 1 : 0.75)
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         } else if isHoveringMedia, slides.count > 1, !showsFeatureList {
             HStack {
                 controlButton(
@@ -294,7 +299,7 @@ struct CloudWelcomeMediaCarousel: View {
     @ViewBuilder
     private func slideMedia(_ slide: CloudWelcomeSlide) -> some View {
         if let url = mediaURL(slide) {
-            Player(url: url, playback: playback)
+            Player(url: url, playback: playback, reduceMotion: reduceMotion)
         } else {
             placeholder(slide)
         }
@@ -337,8 +342,11 @@ struct CloudWelcomeMediaCarousel: View {
                 }
                 .buttonStyle(.plain)
                 .help(slide.title)
+                .accessibilityLabel(slide.title)
+                .accessibilityAddTraits(offset == index ? .isSelected : [])
             }
         }
+        .accessibilityElement(children: .contain)
         .animation(.spring(response: 0.45, dampingFraction: 0.82), value: index)
     }
 
@@ -440,7 +448,8 @@ struct CloudWelcomeMediaCarousel: View {
         guard newIndex != index else { return }
         playback.detach()
         durationLoadFailed = false
-        // Picking a slide plays it, even if the last one was paused.
+        // Picking a slide plays it, even if the last one was paused (with
+        // Reduce Motion it shows still until the viewer presses Play).
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.88)) {
             playback.startNewSlide(at: newIndex)
         }
@@ -615,6 +624,7 @@ struct CloudWelcomeMediaCarousel: View {
     private struct Player: NSViewRepresentable {
         let url: URL
         let playback: Playback
+        let reduceMotion: Bool
 
         func makeNSView(context: Context) -> NSView {
             if url.pathExtension.lowercased() == "gif" {
@@ -624,7 +634,7 @@ struct CloudWelcomeMediaCarousel: View {
                 view.imageScaling = .scaleProportionallyUpOrDown
                 return view
             }
-            return MovieView(url: url, playback: playback)
+            return MovieView(url: url, playback: playback, reduceMotion: reduceMotion)
         }
 
         func updateNSView(_ nsView: NSView, context: Context) {}
@@ -638,7 +648,7 @@ struct CloudWelcomeMediaCarousel: View {
             private var loopObservation: NSKeyValueObservation?
             private weak var playback: Playback?
 
-            init(url: URL, playback: Playback) {
+            init(url: URL, playback: Playback, reduceMotion: Bool) {
                 self.playback = playback
                 playerLayer = AVPlayerLayer(player: player)
                 super.init(frame: .zero)
@@ -681,7 +691,7 @@ struct CloudWelcomeMediaCarousel: View {
                         playback.didFinish(player)
                     }
                 }
-                playback.attach(player)
+                playback.attach(player, reduceMotion: reduceMotion)
             }
 
             deinit {
@@ -751,6 +761,13 @@ extension CloudWelcomeMediaCarousel {
         private(set) var index = 0
         private(set) var isPaused = false
         private(set) var movieFailed = false
+        /// Reduce Motion is on: clips hold their first frame until the viewer
+        /// presses Play, and nothing moves on by itself.
+        private(set) var reducesMotion = false
+        /// The viewer's last Play (true) or Pause (false) on this slide; either
+        /// outranks Reduce Motion. Picking a slide clears a Pause.
+        private var viewerChoice: Bool?
+        private var holdsStill: Bool { reducesMotion && viewerChoice != true }
         private var pausedElapsed: Double?
         private var startedAt: Date?
         private var advanceTimer: CloudWelcomeAdvanceTimer?
@@ -804,9 +821,23 @@ extension CloudWelcomeMediaCarousel {
             advanceContinuation = nil
         }
 
-        func attach(_ player: AVPlayer) {
+        /// `reduceMotion` is the view's current setting, which can reach a new
+        /// player before ``setReducesMotion(_:)`` has run for the first time.
+        func attach(_ player: AVPlayer, reduceMotion: Bool) {
             self.player = player
-            if isPaused { player.pause() } else { player.play() }
+            if isPaused || (reduceMotion && viewerChoice != true) { player.pause() } else { player.play() }
+        }
+
+        /// Follows the system Reduce Motion setting: on holds the clip still
+        /// (unless the viewer chose Play), off resumes it unless the viewer paused.
+        func setReducesMotion(_ on: Bool) {
+            guard on != reducesMotion else { return }
+            reducesMotion = on
+            if holdsStill {
+                hold(true)
+            } else if !on, isPaused, viewerChoice != false {
+                hold(false)
+            }
         }
 
         /// A new slide is showing; the outgoing movie no longer drives the pager.
@@ -825,7 +856,13 @@ extension CloudWelcomeMediaCarousel {
             movieFailed = true
         }
 
+        /// The viewer's Play or Pause.
         func setPaused(_ paused: Bool) {
+            viewerChoice = !paused
+            hold(paused)
+        }
+
+        private func hold(_ paused: Bool) {
             guard paused != isPaused else { return }
             let now = Date()
             if paused {
@@ -848,10 +885,11 @@ extension CloudWelcomeMediaCarousel {
                 index = newIndex
             }
             movieFailed = false
+            if viewerChoice == false { viewerChoice = nil }
             startedAt = Date()
-            pausedElapsed = nil
-            isPaused = false
-            player?.play()
+            pausedElapsed = holdsStill ? 0 : nil
+            isPaused = holdsStill
+            if isPaused { player?.pause() } else { player?.play() }
         }
 
         /// Returns elapsed playhead time, including a held value while paused.

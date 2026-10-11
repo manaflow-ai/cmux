@@ -470,7 +470,7 @@ private struct CloudMachinesEnablementReasons: View {
                 title: String(localized: "cloud.enable.reason.team", defaultValue: "Shared with your team"),
                 detail: String(
                     localized: "cloud.enable.reason.team.detail",
-                    defaultValue: "Invite teammates, and share any port with a private link."
+                    defaultValue: "Invite teammates to the same machine and work together."
                 )
             )
         }

@@ -36,17 +36,18 @@ struct CloudWelcomeView: View {
     var sliderShowsFeatureList = true
     var sliderListUsesDots = false
 
-    nonisolated static let windowWidth: CGFloat = 680
-    /// The list layouts put the features beside the clip, so they need more room.
-    nonisolated static let listWindowWidth: CGFloat = 840
-    /// The clip frames: about 16:10 like the recorded clips (most are 1010x640;
-    /// the fill crops the rest a little), and no wider than half their pixels
-    /// so they stay sharp on a Retina display.
-    nonisolated static let stackedMediaSize = CGSize(width: 500, height: 312)
-    nonisolated static let listMediaSize = CGSize(width: 480, height: 300)
+    /// The screen room the window may take (its visible frame); nil means
+    /// unconstrained, as in the lab.
+    var availableSize: CGSize?
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnificationPercent
 
     var body: some View {
         let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
+        let layout = CloudWelcomeLayout.resolve(
+            prefersFeatureList: sliderShowsFeatureList,
+            textScale: CGFloat(magnificationPercent) / 100,
+            available: availableSize
+        )
         return VStack(spacing: 0) {
             CloudWelcomeHeader()
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -57,9 +58,9 @@ struct CloudWelcomeView: View {
                 CloudWelcomeMediaCarousel(
                     slides: CloudWelcomeSlide.all,
                     mediaURL: mediaURL,
-                    mediaSize: sliderShowsFeatureList ? Self.listMediaSize : Self.stackedMediaSize,
+                    mediaSize: layout.mediaSize,
                     autoplays: sliderAutoplays,
-                    showsFeatureList: sliderShowsFeatureList,
+                    showsFeatureList: layout.showsFeatureList,
                     listUsesDots: sliderListUsesDots
                 )
                 .padding(.bottom, 28)
@@ -70,7 +71,7 @@ struct CloudWelcomeView: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 24)
         }
-        .frame(width: sliderShowsFeatureList && hasMedia ? Self.listWindowWidth : Self.windowWidth)
+        .frame(width: hasMedia ? layout.windowWidth : CloudWelcomeLayout.stackedWindowWidth)
         .background(windowBackground)
         .accessibilityIdentifier("CloudWelcomeWindow")
     }
@@ -117,7 +118,7 @@ struct CloudWelcomeView: View {
                     symbol: "person.2",
                     text: String(
                         localized: "cloud.enable.reason.team.detail",
-                        defaultValue: "Invite teammates, and share any port with a private link."
+                        defaultValue: "Invite teammates to the same machine and work together."
                     )
                 )
             }
@@ -130,19 +131,39 @@ struct CloudWelcomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The note beside the buttons; with large text or long translations the
+    /// buttons drop below the note rather than clip.
     private var footer: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 1) {
-                ForEach(noteLines, id: \.self) { line in
-                    Text(line)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 10) {
+                note
+                Spacer(minLength: 16)
+                buttons
             }
-            .cmuxFont(size: 12)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 16)
+            VStack(alignment: .trailing, spacing: 12) {
+                note
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                buttons
+            }
+        }
+    }
+
+    private var note: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(noteLines, id: \.self) { line in
+                Text(line)
+            }
+        }
+        .cmuxFont(size: 12)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 10) {
             Button(action: onNotNow) {
                 Text(String(localized: "common.notNow", defaultValue: "Not Now"))
+                    .cmuxFont(size: 14)
                     .padding(.horizontal, 8)
             }
             .buttonStyle(.bordered)
@@ -154,7 +175,7 @@ struct CloudWelcomeView: View {
                 onNext(nextStep)
             } label: {
                 Text(primaryLabel)
-                    .fontWeight(.semibold)
+                    .cmuxFont(size: 14, weight: .semibold)
                     .padding(.horizontal, 14)
                     .frame(minWidth: 120)
             }
@@ -166,6 +187,7 @@ struct CloudWelcomeView: View {
             // Return meant for the terminal must not enable Cloud or open pricing.
             .accessibilityIdentifier("CloudWelcomePrimaryButton")
         }
+        .fixedSize()
     }
 
     private var primaryLabel: String {
@@ -192,6 +214,71 @@ struct CloudWelcomeView: View {
         case .signIn, .upgrade, .openCloud:
             return [available]
         }
+    }
+}
+
+/// The welcome's size for the room it has. The feature list sits beside the
+/// clip only while its titles keep a readable column at the current cmux text
+/// size; short of that the clip shrinks to a floor, then the list gives way to
+/// the stacked layout (clip, dots and caption). The clip also shrinks so the
+/// window fits the screen's height.
+struct CloudWelcomeLayout: Equatable {
+    var showsFeatureList: Bool
+    var windowWidth: CGFloat
+    var mediaSize: CGSize
+
+    nonisolated static let stackedWindowWidth: CGFloat = 680
+    nonisolated static let listWindowWidth: CGFloat = 840
+    /// The largest clips: no wider than half the recorded clips' pixels (most
+    /// are 1010x640) so they stay sharp on a Retina display.
+    nonisolated static let stackedMaxMediaWidth: CGFloat = 500
+    nonisolated static let listMaxMediaWidth: CGFloat = 480
+    /// Below this the clip is too small to read beside the list.
+    nonisolated static let listMinMediaWidth: CGFloat = 380
+    nonisolated static let stackedMinMediaWidth: CGFloat = 280
+    /// About 16:10, like the clips (the fill crops the rest a little).
+    nonisolated static let mediaAspect: CGFloat = 1.6
+    nonisolated static let horizontalPadding: CGFloat = 32
+    nonisolated static let listSpacing: CGFloat = 24
+    /// The feature titles' column at 100% text.
+    nonisolated static let listColumnWidth: CGFloat = 240
+    /// Room kept between the window and the screen edges.
+    nonisolated static let screenMargin: CGFloat = 40
+    /// The window's height besides the clip at 100% text: title, pager and
+    /// caption (stacked) or the list's overflow, and the footer.
+    nonisolated static let stackedChromeHeight: CGFloat = 330
+    nonisolated static let listChromeHeight: CGFloat = 240
+
+    nonisolated static func resolve(
+        prefersFeatureList: Bool,
+        textScale: CGFloat,
+        available: CGSize?
+    ) -> CloudWelcomeLayout {
+        let scale = max(textScale, 1)
+        let room = available.map {
+            CGSize(width: $0.width - screenMargin, height: $0.height - screenMargin)
+        } ?? CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        func widthFittingHeight(chrome: CGFloat) -> CGFloat {
+            (room.height - chrome * scale) * mediaAspect
+        }
+        if prefersFeatureList {
+            let window = min(listWindowWidth, room.width)
+            let besideList = window - horizontalPadding * 2 - listSpacing - listColumnWidth * scale
+            let media = min(listMaxMediaWidth, besideList, widthFittingHeight(chrome: listChromeHeight)).rounded(.down)
+            if media >= listMinMediaWidth {
+                return CloudWelcomeLayout(showsFeatureList: true, windowWidth: window, mediaSize: size(width: media))
+            }
+        }
+        let window = min(stackedWindowWidth, room.width)
+        let media = max(
+            stackedMinMediaWidth,
+            min(stackedMaxMediaWidth, window - horizontalPadding * 2, widthFittingHeight(chrome: stackedChromeHeight))
+        ).rounded(.down)
+        return CloudWelcomeLayout(showsFeatureList: false, windowWidth: window, mediaSize: size(width: media))
+    }
+
+    private nonisolated static func size(width: CGFloat) -> CGSize {
+        CGSize(width: width, height: (width / mediaAspect).rounded(.down))
     }
 }
 
