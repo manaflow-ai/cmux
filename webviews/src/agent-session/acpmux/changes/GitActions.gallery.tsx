@@ -45,10 +45,10 @@ const includeNew: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.body.textContent?.includes("src/notes/draft.md"));
 };
 
-/// Escape in the message closes the form (not the changes view); the scope radios are one
-/// native radio group that arrows move through.
+/// The scope radios are one native radio group that arrows move through; Escape in the message
+/// closes the form. WebKit does not focus a radio on click, so the play focuses Staged.
 const keyboard: Play = async (ctx) => {
-  await ctx.click({ role: "radio", name: "Staged" });
+  await ctx.focus({ role: "radio", name: "Staged" });
   await ctx.press("ArrowRight");
   await ctx.waitFor(() => (ctx.find({ role: "radio", name: "All" }) as HTMLInputElement).checked);
   await ctx.focus(message());
@@ -78,15 +78,27 @@ export default componentEntry<Props>({
       note: "All with Include new files lists the new files before Commit is offered.",
       props: { formOpen: true },
       play: includeNew,
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+        },
+      },
     },
     keyboard: {
       note: "Arrows move the scope radios; Escape in the message closes the form.",
       props: { formOpen: true },
       play: keyboard,
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+        },
+      },
     },
     busy: {
-      note: "A commit in flight: the buttons wait.",
-      props: { formOpen: false, state: { phase: "busy", op: "commit" } },
+      note: "A commit in flight: the form and buttons wait.",
+      props: { formOpen: true, state: { phase: "busy", op: "commit" } },
     },
     "push-refused": {
       note: "A refused push with git's output, Retry and Refresh.",
