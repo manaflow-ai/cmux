@@ -239,5 +239,7 @@ extension CmuxSettingsFileStore {
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
         "remoteTmux.multiplexer.beta.enabled",
+        "remoteTmux.beta.originHostTitles.enabled",
+        "remoteTmux.beta.originColors.enabled",
     ]
 }
