@@ -38,6 +38,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
+import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -3274,7 +3275,11 @@ function AcpmuxPane() {
                   callNative,
                   cwd: newTab.cwd,
                   show: (next) => {
+                    // The parts both templates show slide to their new place (newtab/templateMotion.ts).
+                    const screen = document.querySelector<HTMLElement>(".nt-screen");
+                    const before = templatePlaces(screen);
                     flushSync(() => setNewTab((current) => current && { ...current, template: next }));
+                    playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
                     // The dot took focus; the field gets it back (the screen listens for this event).
                     window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
                   },

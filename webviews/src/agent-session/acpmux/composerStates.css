@@ -13,6 +13,8 @@
   --agent-motion-focus: 100ms;
   --agent-motion-in: 120ms;
   --agent-motion-out: 80ms;
+  /* The native move spring's timed equivalent (MotionSpring.move). */
+  --agent-motion-move: 190ms;
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
 }

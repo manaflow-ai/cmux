@@ -201,6 +201,36 @@ def drag():
     record("drag", "back", lambda: paced_drag(x + width * 2, y, x, y), seconds=2.0)
 
 
+def newtab():
+    # The New Tab page's template dots switch its layout in place. The dots
+    # show with newTab.templateSwitcher on; a page prewarmed after the tunable
+    # write has them: the first new tab adopts the page warmed at launch, the
+    # second one warmed since (newTabPage would reuse the open page). Clicks land on the
+    # dots: 18 pt wide, 4 pt apart, centered at the pane's bottom (screen.css).
+    # A pick saves tabs.newTabTemplate to the host user's shared settings, so
+    # the run ends on "default", the value it had.
+    rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": True})
+    rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
+    try:
+        for _ in range(2):
+            action("newTab")
+            time.sleep(2.0)  # test harness: the page loads and the next one warms
+        save_layout("newtab")
+        panes = [pane for window in (rpc("debug.pane_chrome") or {}).get("windows") or [] for pane in window.get("panes") or []]
+        if not panes:
+            print("newtab: skipped, pane_chrome reports no pane", flush=True)
+            return
+        left, top, width, height = panes[0]["border"]
+        dots = ["default", "composer", "threads", "console", "classic", "terminal"]
+        def pick(template):
+            x = left + width / 2 - 55 + 22 * dots.index(template)
+            return rpc("debug.mouse", {"action": "click", "x": x, "y": top + height - 21})
+        for template in ("threads", "composer", "console", "default"):
+            record("newtab", template, lambda: pick(template))
+    finally:
+        rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": None})
+
+
 def key(name, *modifiers):
     """A key press through the window's key path, as a person types it."""
     return rpc("debug.key", {"key": name, "modifiers": list(modifiers)})
@@ -323,7 +353,7 @@ def hover():
     rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": None})
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "newtab": newtab}
 
 
 def main():
