@@ -128,6 +128,66 @@ const hunkSource: ChangesSource = {
     document.documentElement.dataset.diffGalleryHunk = JSON.stringify({ paths, hunk, unstage });
   },
 };
+/// The Branch scope with the pull request's review threads: one on the added line (23), one
+/// resolved on the first hunk's line 1, one outdated whose line is gone, one on a file changed here
+/// since the pull request's head (moved), and one on a file the scope does not list.
+const threadsSource: ChangesSource = {
+  diff: hunkSource.diff,
+  reviewThreads: async () => ({
+    url: "https://github.com/o/r/pull/7",
+    number: 7,
+    threads: [
+      {
+        path: "docs/review.md",
+        line: 23,
+        side: "additions",
+        resolved: false,
+        outdated: false,
+        comments: [
+          {
+            author: "reviewer",
+            body: "Which tree? Name the panel.",
+            url: "https://github.com/o/r/pull/7#discussion_r1",
+          },
+          { author: "you", body: "The changed files tree.", url: null },
+        ],
+      },
+      {
+        path: "docs/review.md",
+        line: 1,
+        side: "additions",
+        resolved: true,
+        outdated: false,
+        comments: [{ author: "reviewer", body: "Drop (draft) before merging.", url: null }],
+      },
+      {
+        path: "docs/review.md",
+        line: null,
+        side: "additions",
+        resolved: false,
+        outdated: true,
+        comments: [{ author: "reviewer", body: "This section moved.", url: null }],
+      },
+      {
+        path: "docs/review.md",
+        line: 20,
+        side: "additions",
+        resolved: false,
+        outdated: false,
+        moved: true,
+        comments: [{ author: "reviewer", body: "Rename this heading.", url: null }],
+      },
+      {
+        path: "src/other.ts",
+        line: 4,
+        side: "additions",
+        resolved: false,
+        outdated: false,
+        comments: [{ author: "reviewer", body: "Not in this diff.", url: null }],
+      },
+    ],
+  }),
+};
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
   diff: async () => {
@@ -197,6 +257,27 @@ const stageSecondHunk: Play = async (ctx) => {
   if (asked !== expected) throw new Error(`s staged ${asked}, not the second hunk ${expected}`);
 };
 
+/// Each thread under its line in the diff; the outdated and moved ones above the file's diff,
+/// and the one on an unlisted file in its own group first.
+const showReviewThreads: Play = async (ctx) => {
+  await chooseScope(ctx, "Branch");
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 5);
+  const texts = (selector: string) =>
+    [...ctx.document.querySelectorAll(`${selector} .acpmux-review-body`)].map((body) => body.textContent);
+  const inDiff = texts(".acpmux-diff-pierre");
+  const aboveFile = texts(".acpmux-diff-file > .acpmux-review-unplaced");
+  const otherFiles = texts(".acpmux-diff-body > .acpmux-review-unplaced");
+  const placed = JSON.stringify([inDiff.sort(), aboveFile, otherFiles]);
+  const want = JSON.stringify([
+    ["Drop (draft) before merging.", "The changed files tree.", "Which tree? Name the panel."],
+    ["This section moved.", "Rename this heading."],
+    ["Not in this diff."],
+  ]);
+  if (placed !== want) throw new Error(`threads placed ${placed}, not ${want}`);
+  if (!ctx.document.querySelector(".acpmux-diff-pierre .acpmux-review-thread[data-resolved] details:not([open])"))
+    throw new Error("the resolved thread is not folded");
+};
+
 const showLoading: Play = async (ctx) => {
   await chooseScope(ctx, "Uncommitted");
   await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-state-body" }));
@@ -222,6 +303,7 @@ export default componentEntry<GalleryProps>({
     "agent-session/acpmux/DiffPanel.tsx#DiffPanel",
     "agent-session/acpmux/changes/PullRequestButton.tsx#PullRequestButton",
     "agent-session/acpmux/changes/HunkStage.tsx#HunkStage",
+    "agent-session/acpmux/changes/ReviewThread.tsx#ReviewThread",
   ],
   load: async () => GalleryDiffPanel,
   styles: () => Promise.all([import("./styles.css"), import("./changes/changes.css")]),
@@ -256,6 +338,11 @@ export default componentEntry<GalleryProps>({
       note: "In Unstaged each hunk has Stage hunk; n moves to the second hunk and s stages it alone.",
       props: { files, source: hunkSource },
       play: stageSecondHunk,
+    },
+    "review-threads": {
+      note: "Branch shows the pull request's review threads under their lines; an outdated one sits above the diff.",
+      props: { files, source: threadsSource },
+      play: showReviewThreads,
     },
     loading: {
       note: "An async git scope keeps its loading state visible until the host answers.",

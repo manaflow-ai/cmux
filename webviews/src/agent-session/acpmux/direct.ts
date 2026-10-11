@@ -1006,11 +1006,12 @@ export class AcpmuxDirectClient {
     return this.git(unstage ? "git.unstageHunk" : "git.stageHunk", { paths, hunk });
   }
 
-  /// Opens the pull request of the selected session's pushed branch (`{url, number}`). Only the
-  /// native host on this Mac runs it, as for Stage.
-  gitPullRequest(): Promise<unknown> {
+  /// Opens the pull request of the selected session's pushed branch (`{url, number}`), or with
+  /// `threads` reads its review threads (`{url, number, threads}`). Only the native host on this
+  /// Mac runs it, as for Stage.
+  gitPullRequest(threads = false): Promise<unknown> {
     if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
-    return this.git("git.pullRequest", {});
+    return this.git("git.pullRequest", threads ? { action: "threads" } : {});
   }
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
