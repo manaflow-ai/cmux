@@ -170,8 +170,10 @@ const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
 const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 64;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 512 * 1024 * 1024;
+// A fresh test registry is already close to 1 MiB (one page per table and
+// index); the test bound leaves room for new tables.
 #[cfg(test)]
-const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
+const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 2 * 1024 * 1024;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(test)]

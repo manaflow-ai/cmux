@@ -75,6 +75,7 @@ mod state;
 pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 mod surface;
+mod terminal_activity;
 #[cfg(unix)]
 mod terminal_backend;
 mod terminal_end;
