@@ -174,6 +174,20 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
+        MuxEvent::AgentPresenceChanged { surface, presence } => {
+            let presence = presence.as_deref();
+            json!({
+                "event": "agent-presence-changed",
+                "surface": surface,
+                "activity": presence.map(|presence| presence.activity.as_str()),
+                "agent": presence.and_then(|presence| presence.agent.as_deref()),
+                "session": presence.and_then(|presence| presence.session.as_deref()),
+                "tool": presence.and_then(|presence| presence.tool.as_deref()),
+                "path": presence.and_then(|presence| presence.path.as_deref()),
+                "line": presence.and_then(|presence| presence.line),
+                "updated_at_ms": presence.map(|presence| presence.updated_at_ms),
+            })
+        }
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",

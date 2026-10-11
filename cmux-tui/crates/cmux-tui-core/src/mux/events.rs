@@ -56,6 +56,12 @@ pub enum MuxEvent {
         agent: Option<Arc<str>>,
         updated_at_ms: u64,
     },
+    /// What the agent in one surface's terminal is touching now; `None`
+    /// clears it (`agent-presence-v1`).
+    AgentPresenceChanged {
+        surface: SurfaceId,
+        presence: Option<Arc<super::AgentPresence>>,
+    },
     Bell(SurfaceId),
     Notification(NotificationEvent),
     GraphicsStatus(GraphicsStatus),
