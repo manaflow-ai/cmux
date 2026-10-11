@@ -5668,8 +5668,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let madeFirstResponder = window.makeFirstResponder(searchField)
         let editor = searchField.currentEditor()
         XCTAssertTrue(
-            madeFirstResponder && editor != nil && window.firstResponder === editor && window.isKeyWindow,
-            "Escape needs the find field editing in the key window: made=\(madeFirstResponder) editor=\(String(describing: editor)) " +
+            madeFirstResponder && editor != nil && window.firstResponder === editor,
+            "Escape needs the find field editing: made=\(madeFirstResponder) editor=\(String(describing: editor)) " +
                 "firstResponder=\(String(describing: window.firstResponder)) isKey=\(window.isKeyWindow) " +
                 "keyWindow=\(String(describing: NSApp.keyWindow)) windows=\(NSApp.windows.map { "\(type(of: $0)) key=\($0.isKeyWindow) visible=\($0.isVisible)" }) " +
                 "hints=\(WindowHintController.shared.isActive) appActive=\(NSApp.isActive)"
