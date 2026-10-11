@@ -52,8 +52,11 @@ class BrowserRestoredSession {
     func restore(_ entries: [BrowserSavedEntry], current: Int) {
         guard let tab, entries.indices.contains(current), !tab.isClosed else { return }
         // A page that kept the engine's own list (woken from hibernation,
-        // `BrowserRestoreState`) has these entries already.
-        guard !tab.nativeHistory.back, !tab.nativeHistory.forward else { return }
+        // `BrowserRestoreState`) has some of these entries already: only
+        // the saved ones before that list come back.
+        if let native = tab.nativeNavigationList(), native.entries.count > 1 {
+            return restoreAround(native, entries: entries, current: current)
+        }
         // Only web pages come back as Back and Forward entries: a replace
         // to another scheme may not navigate at all.
         let kept = entries.indices.filter { $0 == current || Self.isWebPage(entries[$0].url) }
@@ -65,6 +68,21 @@ class BrowserRestoredSession {
         }
         if let y = entries[current].scrollY, y > 0 {
             if case .finished = tab.state.phase { restoreScroll(y) } else { pendingScrollY = y }
+        }
+        applyAvailability()
+    }
+
+    /// `native` is the run of saved entries that ends or contains `current`:
+    /// the saved entries before its first become Back entries before the
+    /// engine's own. A list that does not match the saved one adds nothing.
+    private func restoreAround(_ native: BrowserNavigationList, entries: [BrowserSavedEntry], current: Int) {
+        let start = current - native.current
+        guard start > 0, start + native.entries.count <= entries.count,
+              native.entries.indices.allSatisfy({ native.entries[$0].url == entries[start + $0].url }) else { return }
+        let back = entries[..<start].filter { Self.isWebPage($0.url) }
+        history = BrowserRestoredHistory(entries: back + [entries[current]], current: back.count)
+        for entry in back where entry.scrollY != nil {
+            knownScrollY[entry.url] = entry.scrollY
         }
         applyAvailability()
     }
