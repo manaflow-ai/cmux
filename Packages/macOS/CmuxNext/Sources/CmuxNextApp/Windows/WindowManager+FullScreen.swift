@@ -61,6 +61,6 @@ private enum RestoredFullScreen {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             settle.schedule(after: delay) { continuation.resume() }
         }
-        _ = settle  // alive until it fires: its deinit drops the deadline
+        settle.cancel()  // keeps it alive until it fires: its deinit drops the deadline
     }
 }
