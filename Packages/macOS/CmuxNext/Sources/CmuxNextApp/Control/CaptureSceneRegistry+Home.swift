@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextSettings
@@ -10,11 +11,12 @@ import CmuxNextSettings
 extension CaptureSceneRegistry {
     static let homeChiefScene = "home-chief"
 
-    /// Shows the Chief on the window's Home page after a hook reports the
-    /// showcase pane's terminal as waiting for input (the real `report-agent`
-    /// path), then waits until the app shows both: the terminal's blocked
-    /// state reached the mirror, and the first-run panel is on screen in the
-    /// window. An error names what never appeared.
+    /// Shows the Chief on the window's Home page after a hook reports a
+    /// showcase terminal (opened if the window has none) as waiting for
+    /// input (the real `report-agent` path), then waits until the app shows
+    /// both: the terminal's blocked state reached the mirror, and the
+    /// first-run panel is on screen in the window. An error names what never
+    /// appeared.
     func showHomeChief(windowID: String) async -> CmuxNextSettings.JSONValue {
         guard let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
@@ -23,6 +25,15 @@ extension CaptureSceneRegistry {
         guard let chief = TopHomePageView.chief(home) else {
             return .object(["error": .string("no Chief conversation"), "home_available": .bool(home.isAvailable),
                             "why": .string(home.unavailableMessage)])
+        }
+        // The showcase pane may hold only its agent chat: open a terminal the
+        // way the sidebar's New Terminal Tab does, and wait for its record.
+        if showcaseTerminal(controller) == nil {
+            _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user))
+            frames.start()
+            _ = await frames.settled(until: { [self] in showcaseTerminal(controller) != nil },
+                                     start: ContinuousClock.now, window: 0, deadline: 5_000)
+            _ = frames.stop()
         }
         guard let terminal = showcaseTerminal(controller) else {
             return .object(["error": .string("no live terminal in the capture window to report as waiting")])
