@@ -148,6 +148,17 @@ own prompts. Delivery paths:
   on the machine. The route never logs, traces, stores or retries the key, and
   the provider call is not one the provider stores. Only the machine's single
   owner may start or check a keyed daemon there; a team machine refuses.
+- A Cloud machine on the Cloud app server link (cx-0q7o slice 2e): the key
+  goes to the cmux-next API Worker
+  (`POST /v1/cloud/machines/{machine}/acpmux/keyed-start`) with the person's
+  own session, never through the local daemon, `apps-run` or a Cloud op (ops
+  and their params are recorded). The team's Cloud object passes it on only as
+  the stdin of the same provider exec, records no op and keeps one audit row
+  without it. The Worker's invocation logs record the URL and every header but
+  the session, so the app puts the key only in the body, and staging and
+  production run with invocation logs off. The Worker also refuses (does not
+  use) a request with a key-like value in the URL, a query or a header. Single
+  owner as above.
 
 Accepted residuals:
 

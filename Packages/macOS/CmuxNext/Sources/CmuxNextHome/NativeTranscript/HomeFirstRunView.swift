@@ -72,6 +72,8 @@ final class HomeFirstRunView: NSView {
     func setAgents(_ list: [HomeAgentGlance]) {
         let shown = HomeAgentGlance.shortlist(list)
         guard shown != agents else { return }
+        // A rebuild drops the old rows; keep keyboard focus on the same agent, or the column.
+        let focused = zip(agents, agentRows).first { window?.firstResponder === $0.1 }?.0.id
         agents = shown
         agentRows = shown.map { glance in
             let row = HomeFirstRunRow(title: glance.title, icon: glance.icon)
@@ -88,6 +90,9 @@ final class HomeFirstRunView: NSView {
         arrange()
         applyStoredColors()
         needsLayout = true
+        if let focused {
+            window?.makeFirstResponder(zip(shown, agentRows).first { $0.0.id == focused }?.1 ?? agent)
+        }
     }
 
     /// The stack's views in order, with the gaps between groups.
@@ -189,7 +194,8 @@ final class HomeFirstRunView: NSView {
 /// One first-run row: a glyph, a label and the action's shortcut on a raised
 /// small-radius rect with a hairline (never a capsule), taking the hover
 /// fill under the pointer. A bezel NSButton draws gray when the window is
-/// not key and reads as disabled. Clicks and VoiceOver's press run `onClick`.
+/// not key and reads as disabled. Clicks, VoiceOver's press, and Return or Space while it has
+/// keyboard focus run `onClick`; Tab reaches it and Up and Down move between the rows.
 final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()
@@ -211,7 +217,7 @@ final class HomeFirstRunRow: NSView {
         }
     }
 
-    static let height: CGFloat = 34
+    static let height: CGFloat = 28
     static let cornerRadius: CGFloat = 8
     private var scale: CGFloat = 1
     private var fill = NSColor.clear
@@ -300,6 +306,35 @@ final class HomeFirstRunRow: NSView {
 
     override func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick() }
+    }
+
+    // MARK: Keyboard
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        let radius = Self.cornerRadius * scale
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
+        // Return only: Home sends printable keys, Space included, to the message box first.
+        switch event.keyCode {
+        case 36, 76: if !event.isARepeat { onClick() } // Return, keypad Enter
+        case 125: focusSibling(by: 1) // Down
+        case 126: focusSibling(by: -1) // Up
+        default: super.keyDown(with: event)
+        }
+    }
+
+    /// Moves keyboard focus to the previous or next first-run row in the same column.
+    private func focusSibling(by step: Int) {
+        let rows = superview?.subviews.compactMap { $0 as? HomeFirstRunRow }.filter { !$0.isHiddenOrHasHiddenAncestor } ?? []
+        guard let index = rows.firstIndex(where: { $0 === self }), rows.indices.contains(index + step) else { return }
+        window?.makeFirstResponder(rows[index + step])
     }
 
     override func accessibilityPerformPress() -> Bool {

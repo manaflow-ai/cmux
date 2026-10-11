@@ -115,6 +115,18 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // This action opens its GUI approval checklist, without writing.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // Search Files… (Cmd-P, as in the Codex app, cx-ncc.69): the chat folder's files, and a
+            // pick mentions one in the prompt. Only while an agent chat has the keyboard; elsewhere
+            // Cmd-P stays Go to Workspace. Scripts call `file.search` on the page's host instead.
+            ActionDescriptor(
+                id: "agentPane.searchFiles",
+                title: String(localized: "action.agentPane.searchFiles", defaultValue: "Search Files…", bundle: .module),
+                keywords: ["agent", "chat", "file", "files", "search", "find", "mention", "open", "quick"],
+                defaultShortcut: Shortcut("p", modifiers: [.command]),
+                category: .agents, symbol: "doc.text.magnifyingglass", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
