@@ -1,7 +1,10 @@
 // The left rail: Channels (group conversations) and Direct messages (the Chief first, then each
-// agent and person). Unread rows are bold; mentions show a count. One button opens the switcher.
+// agent and person). Unread rows are bold; mentions show a count. A section header folds its
+// section; a folded section still shows the open and the unread rows. One button opens the switcher.
+import { useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
+import { HomeIcon } from "./icons";
 import { conversationName, railSections } from "./model";
 import type { HomeConversation } from "./types";
 
@@ -17,6 +20,13 @@ export interface RailProps {
 export function Rail({ conversations, me, selected, strings, onSelect, onOpenSwitcher }: RailProps) {
   const { channels, direct } = railSections(conversations.values());
   const { t } = strings;
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const fold = (section: string) =>
+    setFolded((current) => {
+      const next = new Set(current);
+      if (!next.delete(section)) next.add(section);
+      return next;
+    });
   return (
     <nav className="hc-rail" aria-label={t("page.title")}>
       <header className="hc-rail-header">
@@ -30,6 +40,8 @@ export function Rail({ conversations, me, selected, strings, onSelect, onOpenSwi
         {conversations.size === 0 && <p className="hc-rail-empty">{t("rail.empty")}</p>}
         <Section
           title={t("rail.channels")}
+          folded={folded.has("channels")}
+          onFold={() => fold("channels")}
           rows={channels}
           me={me}
           selected={selected}
@@ -38,6 +50,8 @@ export function Rail({ conversations, me, selected, strings, onSelect, onOpenSwi
         />
         <Section
           title={t("rail.direct")}
+          folded={folded.has("direct")}
+          onFold={() => fold("direct")}
           rows={direct}
           me={me}
           selected={selected}
@@ -51,6 +65,8 @@ export function Rail({ conversations, me, selected, strings, onSelect, onOpenSwi
 
 function Section({
   title,
+  folded,
+  onFold,
   rows,
   me,
   selected,
@@ -58,6 +74,8 @@ function Section({
   onSelect,
 }: {
   title: string;
+  folded: boolean;
+  onFold(): void;
   rows: HomeConversation[];
   me?: string;
   selected?: string;
@@ -65,11 +83,19 @@ function Section({
   onSelect(id: string): void;
 }) {
   if (rows.length === 0) return null;
+  const shown = folded ? rows.filter((row) => row.id === selected || (row.unread > 0 && !row.muted)) : rows;
   return (
-    <section className="hc-rail-section">
-      <h2>{title}</h2>
+    <section className={`hc-rail-section${folded ? " folded" : ""}`}>
+      <h2>
+        <button type="button" className="hc-rail-fold" aria-expanded={!folded} onClick={onFold}>
+          <span className="hc-rail-caret" aria-hidden="true">
+            <HomeIcon name="chevronRight" size={14} />
+          </span>
+          {title}
+        </button>
+      </h2>
       <ul>
-        {rows.map((row) => (
+        {shown.map((row) => (
           <li key={row.id}>
             <RailRow row={row} me={me} active={row.id === selected} strings={strings} onSelect={onSelect} />
           </li>
@@ -95,6 +121,8 @@ function RailRow({
   const name = conversationName(row, me);
   const other = row.kind === "group" ? undefined : row.participants.find((p) => p.id !== me);
   const unread = row.unread > 0 && !row.muted;
+  // Mentions count everywhere; in a direct message every unread message is for me.
+  const badge = row.mentions > 0 ? row.mentions : row.kind !== "group" && unread ? row.unread : 0;
   return (
     <button
       type="button"
@@ -111,9 +139,12 @@ function RailRow({
       )}
       <span className="hc-rail-name">{name}</span>
       {row.kind === "chief" && <span className="hc-tag">{strings.t("chief.badge")}</span>}
-      {row.mentions > 0 && (
-        <span className="hc-badge" aria-label={strings.format("unread.mentions", String(row.mentions))}>
-          {row.mentions}
+      {badge > 0 && (
+        <span
+          className="hc-badge"
+          aria-label={strings.format(row.mentions > 0 ? "unread.mentions" : "unread.messages", String(badge))}
+        >
+          {badge}
         </span>
       )}
     </button>
