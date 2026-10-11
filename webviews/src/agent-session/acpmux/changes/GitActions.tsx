@@ -2,7 +2,9 @@
 // (a message, Staged or All, Include new files), and one status line for the latest write: busy,
 // done, or why it failed, with Retry when it may pass on a second try and Refresh when the view
 // is stale.
-import React, { useId, useRef, useState } from "react";
+import React, { useId, useRef, useState, type KeyboardEvent } from "react";
+import { ChoiceGroup } from "../../../ui/ChoiceGroup";
+import { KeyboardScope } from "../../../ui/KeyboardScope";
 import { useT } from "../i18n";
 import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
@@ -164,6 +166,18 @@ function CommitForm({
   }
   // With new files included, a list that a reload dropped (or that was never read) is read now.
   useStartWhenDue(withNew && newFiles === undefined, () => list());
+  // Cmd-Return commits; Return alone adds a line for the message body. Escape closes the form,
+  // not the changes view.
+  const messageKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" && event.metaKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      submit();
+    } else if (event.key === "Escape" && !busy) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseForm();
+    }
+  };
   const options = [
     { value: "staged" as const, label: t("git.commit.staged") },
     { value: "all" as const, label: t("git.commit.all") },
@@ -177,32 +191,28 @@ function CommitForm({
         submit();
       }}
     >
-      <textarea
-        ref={messageRef}
-        className="acpmux-git-message"
-        aria-label={t("git.commit.message")}
-        aria-invalid={tooLong}
-        placeholder={t("git.commit.placeholder")}
-        rows={2}
-        value={message}
-        disabled={busy}
-        onChange={(event) => setMessage(event.target.value)}
-        onKeyDown={(event) => {
-          // Cmd-Return commits; Return alone adds a line for the message body. Escape closes
-          // the form, not the changes view.
-          if (event.key === "Enter" && event.metaKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            submit();
-          } else if (event.key === "Escape" && !busy) {
-            event.preventDefault();
-            event.stopPropagation();
-            onCloseForm();
-          }
-        }}
-      />
+      <KeyboardScope className="acpmux-git-message-keys" handleKeyDown={messageKeys}>
+        <textarea
+          ref={messageRef}
+          className="acpmux-git-message"
+          aria-label={t("git.commit.message")}
+          aria-invalid={tooLong}
+          placeholder={t("git.commit.placeholder")}
+          rows={2}
+          value={message}
+          disabled={busy}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+      </KeyboardScope>
       {tooLong && <span className="acpmux-git-form-note">{t("git.commit.tooLong")}</span>}
       <div className="acpmux-git-form-row">
-        <div className="acpmux-git-scope" role="radiogroup" aria-label={t("git.commit.scope")}>
+        <ChoiceGroup
+          className="acpmux-git-scope"
+          label={t("git.commit.scope")}
+          busy={busy}
+          onSubmit={submit}
+          onCancel={onCloseForm}
+        >
           {options.map(({ value, label }) => (
             <label key={value} className="acpmux-git-scope-option" data-checked={scope === value}>
               <input
@@ -217,7 +227,7 @@ function CommitForm({
               <span id={`${scopeName}-${value}`}>{label}</span>
             </label>
           ))}
-        </div>
+        </ChoiceGroup>
         {scope === "all" && (
           <label className="acpmux-git-include-new">
             <input

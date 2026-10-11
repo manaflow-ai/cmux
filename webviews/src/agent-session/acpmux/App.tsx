@@ -123,6 +123,7 @@ import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
+import { artifactVersions } from "./conversation/artifactVersions";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -1666,6 +1667,18 @@ function AcpmuxPane() {
   const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
   if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
   const artifactSession = snapshot.sessionId;
+  // Its versions (cx-ncc.64): the chat's finished replies' documents of its kind and title.
+  const artifactRows = artifact ? snapshot.rows : undefined;
+  const artifactVersionList = useMemo(
+    () =>
+      artifact && artifactRows
+        ? artifactVersions(
+            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
+            artifact,
+          )
+        : undefined,
+    [artifact, artifactRows],
+  );
   const openArtifact = useCallback(
     (next: Artifact) =>
       setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 })),
@@ -4215,6 +4228,7 @@ function AcpmuxPane() {
           <ArtifactPanel
             key={artifact.opened}
             artifact={artifact}
+            versions={artifactVersionList}
             onClose={() => setArtifact(undefined)}
             onSave={saveDocumentNatively}
           />
