@@ -91,7 +91,8 @@ impl Remote {
         path: &str,
     ) -> anyhow::Result<Option<BTreeMap<String, RemoteEntry>>> {
         let mut entries = BTreeMap::new();
-        let mut page = match self.call("fs.list", json!({ "path": path, "limit": LIST_LIMIT })) {
+        let request = json!({ "path": path, "limit": LIST_LIMIT, "filter": { "hidden": true } });
+        let mut page = match self.call("fs.list", request) {
             Ok(page) => page,
             Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
             Err(error) => return Err(error),
