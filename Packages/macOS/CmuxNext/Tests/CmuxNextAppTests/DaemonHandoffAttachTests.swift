@@ -62,7 +62,11 @@ struct DaemonHandoffAttachTests {
         let kept = store.workspaces.first { $0.name == "kept" }
         let terminals = kept?.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.terminalID) ?? []
 
+        // Close the app's connection before the daemon exits, or its
+        // reconnect's `server ensure` starts a daemon that outlives the test.
+        let connection = services.daemon.connection
         services.daemon.shutdownConnection()
+        await connection?.close()
         for controller in services.windows.controllers { controller.window?.close() }
         await Self.shutDown(launcher)
 

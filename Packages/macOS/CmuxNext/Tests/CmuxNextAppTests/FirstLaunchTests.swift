@@ -41,6 +41,19 @@ struct FirstLaunchTests {
         }
     }
 
+    /// Ends the session's daemon and its terminals on a fixed-endpoint
+    /// connection: after the daemon exits, its reconnect fails instead of
+    /// `server ensure` starting another daemon.
+    private static func shutDown(_ launcher: DaemonLauncher) async {
+        guard let running = try? await launcher.ensure() else { return }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: running.socket))
+        if (try? await connection.start()) != nil {
+            _ = try? await connection.request(ShutdownDaemonRequest(pid: running.pid, generation: running.generation, endTerminals: true),
+                                              timeout: .seconds(10))
+        }
+        await connection.close()
+    }
+
     private static func tabs(_ store: DaemonStore) -> Int {
         store.workspaces.reduce(0) { $0 + $1.screens.reduce(0) { $0 + $1.panes.reduce(0) { $0 + $1.tabs.count } } }
     }
@@ -78,12 +91,15 @@ struct FirstLaunchTests {
         let workspaces = store.workspaces.count
         let tabs = Self.tabs(store)
 
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
-        }
+        // Close the app's connection before the daemon exits. Its reconnect
+        // runs `server ensure`, which otherwise starts a fresh daemon after the
+        // shutdown that outlives the test (cn-first-* daemons leaked on CI minis
+        // for days, their state dir already removed by the defer above).
+        let connection = services.daemon.connection
         services.daemon.shutdownConnection()
+        await connection?.close()
         for controller in services.windows.controllers { controller.window?.close() }
+        await Self.shutDown(launcher)
 
         #expect(workspaces == 1)
         #expect(tabs == 1)
