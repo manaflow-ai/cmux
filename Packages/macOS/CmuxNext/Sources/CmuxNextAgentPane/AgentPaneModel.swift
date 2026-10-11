@@ -308,19 +308,10 @@ public final class AgentPaneModel {
             guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
-        case .newTabInputReady(let token):
-            guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }
-            onNewTabInputReady?(token)
-            return AgentPaneReply.success()
-        case .rememberNewTab(let agent):
-            guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
-            onRememberNewTab(agent)
-            return AgentPaneReply.success()
+        case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
+        case .rememberNewTab(let agent): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(agent); return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
-        case .jump(let target, let id):
-            guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
-            onJump(target, id)
-            return AgentPaneReply.success()
+        case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
         case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -339,7 +330,7 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": cwd])
-        case .harnessHealth(let id, let refresh): return await AgentPaneHarnessHealth.respond(id, refresh: refresh, remote: remoteChat)
+        case .harnessHealth(let id, let refresh): return await harnessHealthReply(id, refresh: refresh)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
@@ -351,10 +342,7 @@ public final class AgentPaneModel {
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
             return AgentPaneReply.success()
-        case .editShortcut(let kind):
-            guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }
-            onEditShortcut(kind)
-            return AgentPaneReply.success()
+        case .editShortcut(let kind): guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }; onEditShortcut(kind); return AgentPaneReply.success()
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
