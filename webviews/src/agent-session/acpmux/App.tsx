@@ -283,6 +283,9 @@ const removeQueued = (promptId: string) =>
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
+/// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
+const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
   void callNative(QUICK_MESSAGES.openInWindow, { sessionId }).catch(() => undefined);
@@ -3320,6 +3323,7 @@ function AcpmuxPane() {
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
           draft={draft}
+          onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
             if (command.action === "btw") {
               const question = args?.trim();
