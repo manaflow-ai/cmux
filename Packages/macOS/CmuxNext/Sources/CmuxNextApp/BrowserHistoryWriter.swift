@@ -47,9 +47,13 @@ final class BrowserHistoryWriter {
     }
 
     /// The user left the app: save the shown page with its scroll position.
+    /// A save still measuring covers a quick switch back and away again.
     private func appDidResignActive() {
-        leaving?.cancel()
-        leaving = Task { [weak self] in await self?.flushNow() }
+        guard leaving == nil else { return }
+        leaving = Task { [weak self] in
+            await self?.flushNow()
+            self?.leaving = nil
+        }
     }
 
     /// Sends the history now with the shown page's scroll position (quit).
