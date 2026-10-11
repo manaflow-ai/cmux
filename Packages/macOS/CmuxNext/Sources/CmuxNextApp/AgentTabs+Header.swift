@@ -8,7 +8,7 @@ import CmuxNextDaemon
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) })
         let toggles = AgentChatSplitToggles()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
