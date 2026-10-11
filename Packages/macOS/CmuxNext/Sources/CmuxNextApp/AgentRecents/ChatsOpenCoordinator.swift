@@ -48,7 +48,8 @@ enum ChatOpenRoute: Equatable {
         case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .adopt(let adopt, let cwd, _):
             return openTab(adopt).map { .reveal(tab: $0) }
-                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
+                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key),
+                                 command: nil, env: [:])
         case .terminal(_, _, let cwd):
             return .newWorkspace(name: chat.title, cwd: cwd ?? chat.cwd,
                                  seed: AgentPaneSeed(cwd: cwd ?? chat.cwd, harness: chat.acpHarness, pastChat: chat.key), command: nil, env: [:])

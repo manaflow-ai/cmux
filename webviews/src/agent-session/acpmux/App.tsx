@@ -1613,6 +1613,9 @@ function AcpmuxPane() {
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
   const [pastTurns, setPastTurns] = useState<PastTurn[]>();
+  /// The past turns are an adopted chat's own, replayed once its folder's trust question is
+  /// answered: they show only while that question is up, so a trusted folder never flashes them.
+  const [pastWaitsForTrust, setPastWaitsForTrust] = useState(false);
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
   /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
@@ -2693,6 +2696,7 @@ function AcpmuxPane() {
             : undefined,
         );
         setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
+        setPastWaitsForTrust(host.adopt !== undefined && host.adopt !== null);
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -4201,7 +4205,7 @@ function AcpmuxPane() {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
-                ) : freshView && pastTurns ? (
+                ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
