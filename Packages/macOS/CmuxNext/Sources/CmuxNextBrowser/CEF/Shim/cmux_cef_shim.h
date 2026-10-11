@@ -313,6 +313,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// File > Print… (CefBrowserHost::Print): Chromium's print preview over the
+// page, as the page's own window.print(). Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);

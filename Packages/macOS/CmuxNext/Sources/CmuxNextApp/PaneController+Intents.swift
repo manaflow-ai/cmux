@@ -257,14 +257,14 @@ extension PaneController {
         // Home keeps its tabs: no promote entries.
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
-            // Hibernation discards a page; a terminal has none.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]))
+            // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
-        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"]))
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action]))
         return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
     }
 

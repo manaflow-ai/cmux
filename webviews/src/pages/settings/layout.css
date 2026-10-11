@@ -410,6 +410,13 @@
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
+/* The right-clicked (pinned) preview: its ball is ringed in the text color while the app shows it. */
+.theme-option-row[data-previewing] .theme-ball {
+  border-radius: 50%;
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
+}
+
 .theme-option-row {
   display: flex;
   align-items: center;
