@@ -46,6 +46,9 @@ public enum HomeEvent: Hashable, Sendable {
     case intentsRevoked(Set<IdempotencyKey>)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
+    /// An agent's running reply (ephemeral, never stored): Home grows it in
+    /// the agent's bubble until the reply is posted.
+    case draft(HomeDraftUpdate)
 }
 
 /// One search hit over Home messages.
