@@ -292,6 +292,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -360,6 +361,82 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "thought-row": {
+      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(
+                "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.",
+              ),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
+        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
+        if (ctx.document.body.textContent?.includes("jittered backoff"))
+          throw new Error("a closed thought shows only its first line");
+        await ctx.click({ selector: "button.cv-thought" });
+        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+      },
+    },
+    "thought-find": {
+      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      checks: {
+        longFrameFailMs: {
+          value: 120,
+          reason:
+            "Typing the query opens the turn's closed Worked for fold, which lays out the whole transcript (72-91 ms measured); its cost is tracked as a Find follow-up, not this row.",
+        },
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+        },
+      },
+      snapshot: chat([
+        user(prompt, 2),
+        activity(
+          [
+            thought(
+              "Check how the helper parses errors first.\n\nOn second thought, the retry wrapper swallows the status.",
+            ),
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+          ],
+          1.5,
+        ),
+        assistant("Retries now stop on a 4xx.", 1),
+        summary(0.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("find");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.type("thought");
+        const active = () => {
+          const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
+            .CSS.highlights;
+          return [...(highlights?.get("acpmux-find-active") ?? [])][0];
+        };
+        await ctx.waitFor(() => active() !== undefined);
+        const at = active()!.startContainer.parentElement;
+        if (!at?.closest(".cv-thought__body"))
+          throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
+      },
     },
     "working-tools": {
       note: "Tool calls running in a live turn.",

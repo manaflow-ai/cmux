@@ -145,8 +145,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
-    /// `git.diff` or `git.status` whose params the bridge refused (no
-    /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
+    /// `git.commit` or `git.push` with `{session_id, …, idempotency_key}`: the
+    /// changes view's Commit and Push, which the App runs on the session host.
+    case gitWrite(AgentPaneGitWrite)
+    /// A git read or write whose params the bridge refused (no absolute
+    /// `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
     /// Reads the selected local session's GitHub `origin` for Markdown reference links.
     case githubRepository(cwd: String)
@@ -179,10 +182,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).
     case reply(AgentPaneReplyRequest)
-    /// The ACP inspector's export (JSON Lines, at most
-    /// ``maximumLogBytes`` UTF-8 bytes) to save where the user picks, under
-    /// `suggestedName` (a plain file name ending in `.jsonl`).
-    case saveLog(text: String, suggestedName: String)
+    /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
+    /// text to save where the user picks (``AgentPaneSave``).
+    case saveFile(AgentPaneSave)
     /// `pane.showContextUsage` with `{show}`: the composer's Hide or Show Context Usage, which the
     /// host writes to cmux.json (`agentPane.showContextUsage`).
     case showContextUsage(Bool)
@@ -213,24 +215,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page keeps about 2M characters of wire log; JSON escaping and
     /// multi-byte text can grow that, but not past this.
     public static let maximumLogBytes = 16 * 1024 * 1024
-
-    /// The save panel's name when the page sends none or an unusable one.
-    public static let defaultLogName = "acp.jsonl"
-
-    /// `name` as a plain `.jsonl` file name: path separators and control
-    /// characters removed, at most 120 characters, ``defaultLogName`` when
-    /// nothing usable is left.
-    static func logFileName(_ name: String?) -> String {
-        var scalars = String.UnicodeScalarView()
-        scalars.append(contentsOf: (name ?? "").unicodeScalars.filter { scalar in
-            scalar != "/" && scalar != ":" && scalar != "\\" && !CharacterSet.controlCharacters.contains(scalar)
-        })
-        let cleaned = String(scalars).trimmingCharacters(in: .whitespaces)
-        var base = cleaned.hasSuffix(".jsonl") ? String(cleaned.dropLast(6)) : cleaned
-        base = String(base.prefix(114))
-        while base.hasPrefix(".") { base.removeFirst() }
-        return base.isEmpty ? defaultLogName : base + ".jsonl"
-    }
 
     public static let handlerName = "agentSession"
 

@@ -18,14 +18,14 @@ extension AgentPaneModel {
     }
 
     /// Preserves save cancellation as a successful false reply for the page.
-    func saveLog(_ text: String, suggestedName: String) async -> [String: Any] {
-        // The page copies the log instead on any failure, so these messages
+    func saveFile(_ save: AgentPaneSave) async -> [String: Any] {
+        // The page copies the text instead on any failure, so these messages
         // are diagnostics, like the unsupported one below.
-        guard let onSaveLog else { return AgentPaneReply.failure(code: "unsupported", message: "Saving the log is unavailable") }
+        guard let onSaveFile else { return AgentPaneReply.failure(code: "unsupported", message: "Saving is unavailable") }
         do {
-            return AgentPaneReply.success(try await onSaveLog(text, suggestedName))
+            return AgentPaneReply.success(try await onSaveFile(save))
         } catch {
-            return AgentPaneReply.failure(code: "save_failed", message: "Could not save the log: \(error.localizedDescription)")
+            return AgentPaneReply.failure(code: "save_failed", message: "Could not save the file: \(error.localizedDescription)")
         }
     }
 }
