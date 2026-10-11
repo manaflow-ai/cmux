@@ -8161,13 +8161,13 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne chat arbejder i %@, som ikke findes på denne Mac, så den blev i den anden version. Opret mappen her, og flyt derefter chatten igen."
+            "value": "Denne chat arbejder i %@, som ikke findes på denne Mac, så den blev i den anden build. Opret mappen her, og flyt derefter chatten igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Chat arbeitet in %@, das es auf diesem Mac nicht gibt, daher ist er im anderen Build geblieben. Lege den Ordner hier an und verschiebe den Chat dann erneut."
+            "value": "Dieser Chat arbeitet in %@; diesen Ordner gibt es auf diesem Mac nicht, daher ist der Chat im anderen Build geblieben. Lege den Ordner hier an und verschiebe den Chat dann erneut."
           }
         },
         "en": {
@@ -8185,7 +8185,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette discussion travaille dans %@, qui n'existe pas sur ce Mac ; elle est donc restée dans l'autre version. Créez ce dossier ici, puis déplacez à nouveau la discussion."
+            "value": "Cette discussion travaille dans %@, qui n’existe pas sur ce Mac ; elle est donc restée dans l’autre build. Créez ce dossier ici, puis déplacez à nouveau la discussion."
           }
         },
         "it": {
@@ -8215,7 +8215,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne chatten jobber i %@, som ikke finnes på denne Macen, så den ble værende i den andre versjonen. Opprett mappen her, og flytt chatten på nytt."
+            "value": "Denne chatten jobber i %@, som ikke finnes på denne Macen, så den ble værende i den andre builden. Opprett mappen her, og flytt chatten på nytt."
           }
         },
         "pl": {
@@ -8245,7 +8245,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu sohbet %@ içinde çalışıyor ve bu klasör bu Mac'te yok, bu yüzden sohbet diğer sürümde kaldı. Klasörü burada oluşturun, ardından sohbeti yeniden taşıyın."
+            "value": "Bu sohbet %@ içinde çalışıyor ve bu klasör bu Mac’te yok, bu yüzden sohbet diğer derlemede kaldı. Klasörü burada oluşturun, ardından sohbeti yeniden taşıyın."
           }
         },
         "uk": {

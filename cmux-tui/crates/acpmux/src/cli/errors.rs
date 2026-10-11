@@ -117,6 +117,7 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         let code =
             if daemon.is_some_and(|d| d.0.code == -32602) { Code::Usage } else { Code::Runtime };
         let mut app = AppError::new(code, reason, msg);
+        app.retryable = data["retryable"] == true;
         app.data = Some(data.clone());
         return app;
     }

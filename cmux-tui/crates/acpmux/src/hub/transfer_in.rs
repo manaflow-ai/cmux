@@ -187,8 +187,9 @@ impl Hub {
                 let meta: Value = serde_json::from_slice(&raw).ok()?;
                 meta["cwd"].as_str().map(PathBuf::from)
             });
-            if !cwd.is_some_and(|c| c.is_dir()) {
-                return Err(transfer_error("cwd", "the chat's folder is not here; pass cwd"));
+            if !cwd.as_ref().is_some_and(|c| c.is_dir()) {
+                let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
+                return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             self.kill(&old, true).await?;
         }

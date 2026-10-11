@@ -64,7 +64,12 @@ impl Daemon {
             .args(["daemon", "run", "--log", "warn"])
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", &socket)
+            // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
+            .env("ACPMUX_AGENT_HOSTS", "0")
             .env_remove("ACPMUX_LOGIN_ENV")
+            .env_remove("XPC_SERVICE_NAME")
+            .env_remove("ACPMUX_LOCAL_ROUTER")
+            .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -116,5 +121,5 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     // The chat stays on the source, not frozen.
     let info = src.call("_acpmux/info", json!({"sessionId": id})).await;
     assert_ne!(info["status"], "closed", "{info}");
-    assert!(info.get("moving").is_none_or(Value::is_null), "{info}");
+    assert_eq!(info["moving"], false, "{info}");
 }
