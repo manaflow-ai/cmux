@@ -24,20 +24,25 @@ struct PasswordCSVFiles {
     /// The guided steps (source, the source's export steps, the open panel), then the import of
     /// the picked file and its move to the Trash.
     func chooseImport(profile: String) throws {
-        let cef = services.cache.cef
         let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter())
         services.registry.track(Task { @MainActor in
             guard let url = await guide.run() else { return nil }
-            guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
-            let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
-            do {
-                let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
-                Self.trash(url, report: report)
-                return nil
-            } catch {
-                return ActionWorkFailure(PasswordCSVStrings.failure(error))
-            }
+            return await importFile(url, profile: profile)
         })
+    }
+
+    /// Imports a CSV the person picked, then moves it to the Trash; the failure, if any.
+    func importFile(_ url: URL, profile: String) async -> ActionWorkFailure? {
+        let cef = services.cache.cef
+        guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
+        let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
+        do {
+            let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
+            Self.trash(url, report: report)
+            return nil
+        } catch {
+            return ActionWorkFailure(PasswordCSVStrings.failure(error))
+        }
     }
 
     /// Counts only. Sign-ins saved with another password get their own line:
