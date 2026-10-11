@@ -92,6 +92,11 @@ export function ThemeStudio() {
     if (name) store.preview(THEME_KEY, name);
     else store.previewEnd(THEME_KEY);
   };
+  const previewApp = (name: string | null) => {
+    setPreviewing(name ? { name, target: "app" } : null);
+    if (name) store.preview(APP_THEME_KEY, name);
+    else store.previewEnd(APP_THEME_KEY);
+  };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
   const picker = (id: string, value: string | null, onPick: (name: string | null) => void) => (
@@ -241,7 +246,7 @@ export function ThemeStudio() {
                     configLabel={text(appRow.default_label) || t("settingsPage.theme.matchTerminal")}
                     configColors={terminal}
                     onPick={(name) => void (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
-                    onPreview={(name) => setPreviewing(name ? { name, target: "app" } : null)}
+                    onPreview={previewApp}
                   />
                 </div>
               </div>

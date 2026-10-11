@@ -18,6 +18,7 @@ extension SettingsController {
                                                  configDirectory: file.url.deletingLastPathComponent())
         applier.apply(previewed)
         previewingKey = descriptor.id
+        previewSnapshot = previewed
         return true
     }
 
@@ -25,6 +26,7 @@ extension SettingsController {
     public func endPreview() {
         guard previewingKey != nil else { return }
         previewingKey = nil
+        previewSnapshot = nil
         applier.apply(snapshot)
     }
 
@@ -40,6 +42,7 @@ extension SettingsController {
         }
         previewingKey = nil
         await reload()
+        previewSnapshot = nil
     }
 
     /// `root` with `path` set to `value` (nil removes it), creating objects

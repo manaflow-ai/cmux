@@ -1,6 +1,7 @@
 // One theme choice of the Theme section: a button with the theme's swatch and name, and a popover
-// to search every bundled theme. The highlighted row previews in the section's hero (onPreview)
-// and live in the app (cmux.settings.preview) until the popover closes; Return or a click picks.
+// to search every bundled theme. The highlighted row (the pointer or the arrow keys) previews in the
+// section's hero and live in the app (onPreview) until the popover closes; a right-click pins a row's
+// preview so it stays while the pointer moves on. Return or a click picks; Escape reverts.
 import { useState } from "react";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
@@ -38,6 +39,8 @@ export function ThemePicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  // The right-clicked theme: previewed whenever no row is highlighted.
+  const [pinned, setPinned] = useState<string | null>(null);
   const typed = query.trim().toLowerCase();
   const shown = [CONFIG, ...names.filter((name) => name.toLowerCase().includes(typed))].filter(
     (name) => name !== CONFIG || typed === "",
@@ -45,6 +48,7 @@ export function ThemePicker({
   const close = () => {
     setOpen(false);
     setQuery("");
+    setPinned(null);
     onPreview(null);
   };
   const pick = (name: string) => {
@@ -82,7 +86,7 @@ export function ThemePicker({
           onQuery={setQuery}
           onSubmit={pick}
           onCancel={close}
-          onHighlight={(name) => onPreview(name && name !== CONFIG ? name : null)}
+          onHighlight={(name) => onPreview(name && name !== CONFIG ? name : pinned)}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"
@@ -96,7 +100,16 @@ export function ThemePicker({
                 {value === null && <Icon name="check" className="theme-option-check" />}
               </span>
             ) : (
-              <span className="theme-option-row" data-theme-option={name}>
+              <span
+                className="theme-option-row"
+                data-theme-option={name}
+                data-previewing={name === pinned ? "" : undefined}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPinned(name);
+                  onPreview(name);
+                }}
+              >
                 <ThemeBall name={name} colors={colors?.get(name)} />
                 <span className="theme-option-name">{name}</span>
                 {name === value && <Icon name="check" className="theme-option-check" />}

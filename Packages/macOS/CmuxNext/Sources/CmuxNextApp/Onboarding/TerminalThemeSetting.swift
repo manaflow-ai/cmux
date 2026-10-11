@@ -57,9 +57,10 @@ final class TerminalThemeSetting {
     /// first window, which must not draw a frame in the defaults), then
     /// follows their changes.
     func follow(_ settings: SettingsController) {
-        take(settings.snapshot)
+        take(settings.applied)
+        // `applied`: a live preview (a theme picker's highlighted row) shows too.
         observation = Task { [weak self] in
-            for await snapshot in ObservationStream({ settings.snapshot }) { self?.take(snapshot) }
+            for await snapshot in ObservationStream({ settings.applied }) { self?.take(snapshot) }
         }
     }
 

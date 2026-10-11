@@ -51,4 +51,15 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8).contains("Nord"))
         #expect(try !String(contentsOf: url, encoding: .utf8).contains("Rose Pine"))
     }
+
+    @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        #expect(settings.applied.chromeTheme == nil)
+        #expect(settings.preview(try descriptor("appearance.appTheme"), .string("Rose Pine")))
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        #expect(settings.snapshot.chromeTheme == nil)
+        settings.endPreview()
+        #expect(settings.applied.chromeTheme == nil)
+    }
 }
