@@ -204,7 +204,9 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     paths = pr_trigger.get("paths")
     assert paths and paths[0] == "cmux-tui/**"
     push_trigger = triggers["push"]
-    assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
+    # Every branch of this repository (forks never push here); tree-preflight
+    # is the filter: a push whose tree is published builds nothing.
+    assert push_trigger.get("branches") == ["**"]
     assert "paths" not in push_trigger
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
@@ -267,6 +269,24 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     ).split()
     assert "cmux-tui-app-host-aarch64-apple-darwin" in companions
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in companions
+
+
+def test_same_repo_branch_pushes_publish_their_trees() -> None:
+    # A pull request head's tree is published by its branch push, so its
+    # same-tree checks need no hand-pushed cmux-tui-pin-* ref.
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    trusted = ("github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || "
+               "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')")
+    for job in ("publish", "publish-tree", "notify-unpublished-tree"):
+        body = workflow_job(artifacts, job)
+        assert f"github.event_name == 'push' || {trusted})" in body, job
+    # A dispatch from another branch stays build-only.
+    notice = workflow_job(artifacts, "publish-ref-notice")
+    assert f"!(github.event_name == 'push' || {trusted})" in notice
+    # Branch-published trees are their own family (the R2 pruner's candidates).
+    tree = workflow_job(artifacts, "publish-tree")
+    assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
+    assert '"ref": os.environ["GITHUB_REF"]' in tree
 
 
 def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
