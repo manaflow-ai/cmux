@@ -314,6 +314,14 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 reactions: Vec::new(),
                 origin: None,
             };
+            // A sender that had read everything before its send has read its
+            // own message too, for every client of this owner. One that had
+            // not keeps its cursor, so a message it never read (an agent's
+            // unhandled turn) stays unread. The change stays `message`;
+            // clients read the cursor from the head (corpus notes, cx-59n8.4).
+            if head.read_cursors.get(request.actor).copied().unwrap_or(0) >= head.last_seq {
+                next.read_cursors.insert(request.actor.to_string(), next.last_seq);
+            }
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
         }

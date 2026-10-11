@@ -121,7 +121,11 @@ enum RowDraw {
         case .typing:
             drawTypingBubble(ctx, top: top + 4)
         case let .threadPreview(pv):
-            PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width)
+            if pv.outgoing {
+                PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
+            } else {
+                PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width)
+            }
         }
     }
 
@@ -468,6 +472,61 @@ enum PartRenderer {
         if pv.count >= 2 {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
+                          kern: RowDraw.captionKern)
+        }
+    }
+
+    /// The preview of my own root (macOS 27, outgoing-thread-reply-take4, 2x window capture of
+    /// "Maybe: Instinct", 2026-10-11): the outlined bubble with an outgoing tail at the right edge
+    /// (outline outside 225-608 pt, its colour 44, 77, 121), the text 8.5 pt in from the outline, its
+    /// baseline 16 pt under the outline's top (32 px at 2x in both captures after this), in blue
+    /// (glyph core 48, 102, 203); "N Replies" right-aligned at 6 pt left of the edge (602 pt),
+    /// baseline 13.75 pt under the outline's bottom; no stub. Media and card roots take the same side,
+    /// tail and label (not measured: the take has a text root).
+    static func drawOutgoingThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, rightEdge: CGFloat) {
+        let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
+        if pv.isThumbnail, case let .attachment(a) = pv.part {
+            ctx.saveGState()
+            BubblePath.make(body: box, outgoing: true, tail: true).addClip()
+            Fixture.incoming.setFill()
+            ctx.fill(box.insetBy(dx: -10, dy: -10))
+            if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
+                let s = max(box.width / img.size.width, box.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
+            }
+            ctx.restoreGState()
+        } else if pv.isText {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.outgoingStroke.setStroke()
+            path.stroke()
+            TextDraw.line(pv.textLine, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5, baseline: box.minY + 16, in: ctx)
+        } else {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.outgoingStroke.setStroke()
+            path.stroke()
+            let thumb = CGRect(x: box.minX + 6.5, y: box.minY + 10.5, width: 26, height: 26)
+            ctx.saveGState()
+            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
+            UIColor(white: 0.56, alpha: 1).setFill()
+            ctx.fill(thumb)
+            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
+                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+            }
+            ctx.restoreGState()
+            let (title, sub) = pv.lines
+            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
+            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+        }
+        if pv.count >= 2 {
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+            let s = Strings.replies(pv.count)
+            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
+            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
                           kern: RowDraw.captionKern)
         }
     }
@@ -934,4 +993,7 @@ enum PreviewStyle {
     static let repliesBlue = Fixture.p3(63, 143, 247)
     /// A text root's line (screencapture -l, macOS 27: glyph core 129).
     static let textGray = UIColor(white: 129 / 255, alpha: 1)
+    /// My root's preview (outgoing-thread-reply-take4, screencapture -l, macOS 27): outline and glyph core.
+    static let outgoingStroke = Fixture.p3(44, 77, 121)
+    static let outgoingText = Fixture.p3(48, 102, 203)
 }

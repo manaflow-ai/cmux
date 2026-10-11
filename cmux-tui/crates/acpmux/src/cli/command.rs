@@ -299,6 +299,18 @@ pub enum Command {
         name: Option<String>,
     },
     #[command(hide = true)]
+    Transfer {
+        session: String,
+        #[arg(long)]
+        to: PathBuf,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long, short)]
+        name: Option<String>,
+        #[arg(long)]
+        interrupt: bool,
+    },
+    #[command(hide = true)]
     Harnesses,
     #[command(hide = true)]
     Reload,
@@ -528,6 +540,21 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// Move a chat, with its history, queue and draft, to the daemon at another socket.
+    Transfer {
+        session: String,
+        /// The other daemon's socket (a sibling build's).
+        #[arg(long)]
+        to: PathBuf,
+        /// The chat's folder there, when it has another path.
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long, short)]
+        name: Option<String>,
+        /// Stop a running turn instead of refusing the move.
+        #[arg(long)]
+        interrupt: bool,
+    },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,
@@ -735,6 +762,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
+            SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
+                Command::Transfer { session, to, cwd, name, interrupt }
+            }
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }

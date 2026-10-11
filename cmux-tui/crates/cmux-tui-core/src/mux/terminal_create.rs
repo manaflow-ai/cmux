@@ -236,25 +236,23 @@ impl Mux {
         {
             hook();
         }
-        let (workspace_key, inherited_pane) = {
+        let workspace_key = {
             let state = self.state.lock().unwrap();
             let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
-            (workspace.key.clone(), workspace.active_screen_ref().map(|screen| screen.active_pane))
+            workspace.key.clone()
         };
-        let inherited_cwd = inherited_pane.and_then(|pane| self.pane_cwd(pane));
+        let cwd = self.new_terminal_cwd(cwd, None, Some(workspace));
         let surface = match reservation {
             Some(reservation) => self.spawn_surface_in_workspace_reserved(
                 &workspace_key,
-                cwd.or(inherited_cwd),
+                cwd,
                 size,
                 argv,
                 reservation,
             )?,
-            None => {
-                self.spawn_surface_in_workspace(&workspace_key, cwd.or(inherited_cwd), size, argv)?
-            }
+            None => self.spawn_surface_in_workspace(&workspace_key, cwd, size, argv)?,
         };
         self.pending_workspace_surfaces.lock().unwrap().insert(surface.id, workspace);
         let pending_surface = self.pending_workspace_surface(surface.id);

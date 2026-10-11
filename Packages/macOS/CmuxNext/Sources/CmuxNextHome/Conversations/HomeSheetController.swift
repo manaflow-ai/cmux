@@ -15,7 +15,7 @@ public class HomeSheetController: NSViewController {
     let stack = NSStackView()
     let statusLabel = NSTextField(wrappingLabelWithString: "")
     let cancelButton = NSButton(title: HomeConversationStrings.cancel, target: nil, action: nil)
-    let primaryButton = NSButton(title: "", target: nil, action: nil)
+    let primaryButton = ThemedDefaultButton(title: "", target: nil, action: nil)
     let buttons = NSStackView()
     private(set) var isRunning = false
     // task-owner: the sheet's one running action; cancelled when the sheet closes

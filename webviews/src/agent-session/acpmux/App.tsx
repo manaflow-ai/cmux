@@ -31,7 +31,7 @@ import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
-import { NewTabScreen } from "./newtab/NewTabScreen";
+import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -131,8 +131,8 @@ import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SUBAGENT_ROW, withSubagentRows } from "./subagents/subagentRows";
-import { SubagentGroupHeader, SubagentListRow } from "./subagents/SubagentGroup";
+import { SUBAGENT_OF, SUBAGENT_ROW, childView, withSubagentRows } from "./subagents/subagentRows";
+import { SubagentGroupHeader, SubagentListRow, SubagentNavContext, SubagentOfRow } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -258,6 +258,13 @@ export async function saveLogNatively(text: string, suggestedName: string): Prom
   } catch {
     return "unavailable";
   }
+}
+
+/// The machine a refused handshake names (`details.machineName`), for the composer's chip.
+function refusedMachine(error: unknown): string | undefined {
+  const details = (error as { details?: unknown } | null)?.details;
+  const name = details && typeof details === "object" ? (details as { machineName?: unknown }).machineName : undefined;
+  return typeof name === "string" && name ? name : undefined;
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -477,6 +484,13 @@ const SubagentRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// The child view's "Subagent of" pill; a click goes back to the parent's view.
+const SubagentOfPillRow = memo(
+  function SubagentOfPillRow({ row }: RowProps) {
+    return <SubagentOfRow row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text,
+);
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
@@ -505,6 +519,7 @@ const defaultRegistry: NativeRegistry = {
   [MOVE_ROW]: MoveRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
+  [SUBAGENT_OF]: SubagentOfPillRow,
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
@@ -514,9 +529,13 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 type TranscriptRange = { anchorId: string; focusId: string };
 
 /// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
-/// floating action for prompts and tool rows where no adjacent copy control exists.
+/// floating action for prompts and tool rows where no adjacent copy control exists. The child
+/// view's "Subagent of" pill is navigation, with nothing to copy.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
-  row.kind !== "assistant" && row.kind !== "turnSummary" && transcriptCopyText(row).length > 0;
+  row.kind !== "assistant" &&
+  row.kind !== "turnSummary" &&
+  row.kind !== SUBAGENT_OF &&
+  transcriptCopyText(row).length > 0;
 
 /// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
 /// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
@@ -1402,6 +1421,20 @@ function AcpmuxPane() {
   const asideAsks = useRef(0);
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
+  const handshakenRef = useRef(false);
+  /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
+  const pendingSubmits = useRef<Array<() => void>>([]);
+  const whenHandshaken = (run: () => void) => {
+    if (handshakenRef.current) run();
+    else pendingSubmits.current.push(run);
+  };
+  /// The New Tab screen's actions with its submits (a prompt, a recent session) held until the
+  /// handshake: the field types from its first render, a chat needs acpmux.
+  const withSubmitAfterHandshake = (actions: NewTabScreenActions): NewTabScreenActions => ({
+    ...actions,
+    onAsk: (...args) => whenHandshaken(() => actions.onAsk(...args)),
+    onOpenSession: (...args) => whenHandshaken(() => actions.onOpenSession(...args)),
+  });
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
@@ -1503,6 +1536,8 @@ function AcpmuxPane() {
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
+  const [subagentView, setSubagentView] = useState<string>();
   // Footer actions show only while acpmux is reachable. The client reports failures in the
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
@@ -1577,7 +1612,14 @@ function AcpmuxPane() {
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
+  const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  const childRows = useMemo(
+    () =>
+      subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
+    [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName],
+  );
   const transcriptRows = useMemo(() => {
+    if (childRows) return childRows;
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
     const rows = groups?.supported
@@ -1598,6 +1640,7 @@ function AcpmuxPane() {
       sessionMoves,
     );
   }, [
+    childRows,
     snapshot.rows,
     expanded,
     snapshot.isWorking,
@@ -1606,6 +1649,19 @@ function AcpmuxPane() {
     chatShellRuns,
     sessionMoves,
   ]);
+  /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
+  const lineage = useMemo(
+    () => ({
+      views: snapshot.subagentViews,
+      current: childRows ? subagentView : undefined,
+      chat: chatName,
+      onOpen: setSubagentView,
+    }),
+    [snapshot.subagentViews, childRows, subagentView, chatName],
+  );
+  // Another chat never opens on a subagent of this one.
+  const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // Find in Chat over the transcript; the page actions read it through `findRef`.
   const find = useChatFind(transcriptRows);
   const findRef = useRef(find);
@@ -2293,6 +2349,9 @@ function AcpmuxPane() {
             : undefined,
         );
         setHandshaken(true);
+        handshakenRef.current = true;
+        // Submits made on the New Tab page before acpmux answered go now, in order.
+        for (const run of pendingSubmits.current.splice(0)) run();
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
@@ -2618,6 +2677,7 @@ function AcpmuxPane() {
             return sessionId;
           },
           leave: () => client.leave(),
+          startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {
@@ -2680,6 +2740,8 @@ function AcpmuxPane() {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           setHostError(errorMessage(error) || String(error));
+          // A refused chat of another machine still names that machine on its chip (cx-k21v).
+          setMachineName((current) => refusedMachine(error) ?? current);
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
@@ -2780,6 +2842,14 @@ function AcpmuxPane() {
     if (!quick) void readTabState().catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
+  // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
+  // says so once; later changes are pushed, and a reread per chat could land after a newer push.
+  useEffect(() => {
+    if (quick)
+      void callNative("quick.floatingState")
+        .then(setFloatingState)
+        .catch(() => undefined);
+  }, [quick]);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -2896,6 +2966,16 @@ function AcpmuxPane() {
           shortcutAction: HEADER_ACTIONS.newWindow,
           onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
         },
+        ...(headerState().floatingChat && snapshot.sessionId
+          ? [
+              {
+                key: "floatingChat",
+                label: t("chatMenu.floatingChat"),
+                icon: "site.permission.windowmanagement",
+                onSelect: () => runHeaderAction(HEADER_ACTIONS.floatingChat),
+              },
+            ]
+          : []),
       ],
       tools,
       [
@@ -2944,6 +3024,9 @@ function AcpmuxPane() {
     setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
+        // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
+        // waits for the first send.
+        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
         if (folder) await callNative("chat.new", { cwd: folder });
         if (text) await callNative("chat.send", { text });
       })().catch(() => undefined);
@@ -3021,6 +3104,8 @@ function AcpmuxPane() {
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
+        // A chat on another machine starts only with a send (cx-k21v); it has no agent-home folder here.
+        if (directClient.current?.startsOnSend) return setProjectDraft(undefined);
         void callNative("chat.new", { noProject: true })
           .then(() => setProjectDraft(undefined))
           .catch(() => undefined);
@@ -3053,22 +3138,24 @@ function AcpmuxPane() {
         <TurnActionsContext.Provider value={turnActions}>
           <TurnCountsContext.Provider value={turnCountsFor}>
             <SessionRowsContext.Provider value={snapshot.rows}>
-              <VirtualTranscript
-                rows={transcriptRows}
-                working={snapshot.isWorking}
-                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                jumpButton={!quick}
-                focusComposer={() => composerHandle.current?.focus()}
-                find={quick ? undefined : find}
-                sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                canLoadOlder={snapshot.canLoadOlder}
-                expanded={expanded}
-                registry={registry}
-                githubRepository={githubRepository}
-                // The Quick Composer has no room for the changes view; its file rows stay plain.
-                onOpenDiff={quick ? undefined : openDiff}
-                onToggleActivity={toggleActivity}
-              />
+              <SubagentNavContext.Provider value={setSubagentView}>
+                <VirtualTranscript
+                  rows={transcriptRows}
+                  working={snapshot.isWorking}
+                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                  jumpButton={!quick}
+                  focusComposer={() => composerHandle.current?.focus()}
+                  find={quick ? undefined : find}
+                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                  canLoadOlder={!childRows && snapshot.canLoadOlder}
+                  expanded={expanded}
+                  registry={registry}
+                  githubRepository={githubRepository}
+                  // The Quick Composer has no room for the changes view; its file rows stay plain.
+                  onOpenDiff={quick ? undefined : openDiff}
+                  onToggleActivity={toggleActivity}
+                />
+              </SubagentNavContext.Provider>
             </SessionRowsContext.Provider>
           </TurnCountsContext.Provider>
         </TurnActionsContext.Provider>
@@ -3459,7 +3546,8 @@ function AcpmuxPane() {
           {showNewTab && newTab.templateSwitcher && !newTab.history && (
             <TemplateDots
               current={shownTemplate(newTab)}
-              onPick={(template) =>
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+              onPick={(template, fromKeys) =>
                 pickNewTabTemplate(template, {
                   callNative,
                   cwd: newTab.cwd,
@@ -3467,10 +3555,14 @@ function AcpmuxPane() {
                     // The parts both templates show slide to their new place (newtab/templateMotion.ts).
                     const screen = document.querySelector<HTMLElement>(".nt-screen");
                     const before = templatePlaces(screen);
+                    const dot = fromKeys ? document.activeElement : null;
                     flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    // The dot took focus; the field gets it back (the screen listens for this event),
-                    // before the parts slide, so focusing never scrolls toward where they were.
-                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                    // A clicked dot took focus; the field gets it back (the screen listens for this
+                    // event), before the parts slide, so focusing never scrolls toward where they were.
+                    // The arrow keys keep focus on the dots, to switch on, even when the page they
+                    // show focused its field as it mounted (Classic, and the screen after it).
+                    if (dot instanceof HTMLElement) dot.focus({ preventScroll: true });
+                    else window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
                     playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
                   },
                 })
@@ -3494,9 +3586,9 @@ function AcpmuxPane() {
               home={newTab.home}
               tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-              // Typed keys stay in the host's buffer until acpmux answered: a prompt sent before the
-              // handshake would have no client to start its chat.
-              inputToken={handshaken ? newTab.inputToken : undefined}
+              // The field takes keys from its first render (the host's buffer hands them over at
+              // once); only a submit waits for acpmux (`whenHandshaken`).
+              inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
               projects={newTabProjects}
@@ -3508,19 +3600,21 @@ function AcpmuxPane() {
               }
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
-              {...newTabScreenActions({
-                callNative,
-                cwd: newTab.cwd,
-                chatCwd: startFolder,
-                requestFolder,
-                leave: () => setNewTab(undefined),
-                selectSession,
-                showAllChats,
-                runShell: (command, cwd) => {
-                  if (cwd) setProjectDraft(cwd);
-                  shellRuns.start(command, cwd ? { cwd } : {});
-                },
-              })}
+              {...withSubmitAfterHandshake(
+                newTabScreenActions({
+                  callNative,
+                  cwd: newTab.cwd,
+                  chatCwd: startFolder,
+                  requestFolder,
+                  leave: () => setNewTab(undefined),
+                  selectSession,
+                  showAllChats,
+                  runShell: (command, cwd) => {
+                    if (cwd) setProjectDraft(cwd);
+                    shellRuns.start(command, cwd ? { cwd } : {});
+                  },
+                }),
+              )}
             />
           ) : showNewTab ? (
             <NewTabPage
@@ -3534,7 +3628,7 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               chips={ComposerChips}
-              onSubmit={openFromNewTab}
+              onSubmit={(...args: Parameters<typeof openFromNewTab>) => whenHandshaken(() => openFromNewTab(...args))}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
@@ -3548,7 +3642,7 @@ function AcpmuxPane() {
               }
               onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
-              inputToken={handshaken ? newTab.inputToken : undefined}
+              inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
@@ -3627,6 +3721,7 @@ function AcpmuxPane() {
                           onOpenChanges={toggleLastChanges}
                           onOpenOutput={quick ? undefined : openOutput}
                           onOpenImage={quick ? undefined : openImage}
+                          lineage={lineage}
                         />
                       }
                       menu={chatMenu}

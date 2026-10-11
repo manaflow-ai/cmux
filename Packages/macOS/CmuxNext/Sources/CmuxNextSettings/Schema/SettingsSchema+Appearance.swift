@@ -38,6 +38,14 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
             ),
             SettingDescriptor(
+                ThemeEditsSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.themeEdits", "Theme Edits"),
+                help: SettingsText.keyed("settings.appearance.themeEdits.help",
+                                        "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."),
+                kind: .stringMap, default: .object([:]),
+                keywords: ["theme", "custom", "edit", "color", "colour", "palette", "background", "foreground", "cursor", "selection"]
+            ),
+            SettingDescriptor(
                 AccentSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.accent", "Accent"),
                 help: SettingsText.keyed("settings.appearance.accent.help",
