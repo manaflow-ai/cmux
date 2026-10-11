@@ -297,17 +297,26 @@ def layout_of(node, terminals: list[Terminal]) -> tuple[list[Terminal], dict | N
     as their own workspaces, browsers do not come over) folds into its sibling;
     a terminal the tree misses joins the first pane.
     """
-    by_panel = {t.panel: t for t in terminals if t.panel}
+    # A damaged file can repeat an id or hold a non-string one: the first
+    # terminal with an id is the one the tree places; the rest join the first pane.
+    by_panel: dict[str, Terminal] = {}
+    for t in terminals:
+        if isinstance(t.panel, str):
+            by_panel.setdefault(t.panel, t)
     ordered: list[Terminal] = []
 
     def walk(node):
         if not isinstance(node, dict):
             return None
         if node.get("type") == "pane":
-            panes = [by_panel.pop(p) for p in (node.get("pane") or {}).get("panelIds") or [] if p in by_panel]
+            pane = node.get("pane")
+            ids = pane.get("panelIds") if isinstance(pane, dict) else None
+            panes = [by_panel.pop(p) for p in ids if isinstance(p, str) and p in by_panel] if isinstance(ids, list) else []
             ordered.extend(panes)
             return {"terminals": [len(ordered) - len(panes) + i for i in range(len(panes))]} if panes else None
-        split = node.get("split") or {}
+        split = node.get("split")
+        if not isinstance(split, dict):
+            return None
         first, second = walk(split.get("first")), walk(split.get("second"))
         if not (first and second):
             return first or second
@@ -317,7 +326,8 @@ def layout_of(node, terminals: list[Terminal]) -> tuple[list[Terminal], dict | N
                 "first": first, "second": second}
 
     tree = walk(node)
-    missed = [t for t in terminals if t.panel in by_panel or not t.panel]
+    placed = {id(t) for t in ordered}
+    missed = [t for t in terminals if id(t) not in placed]
     if not tree or "terminals" in tree:
         return ordered + missed, None
     first = tree

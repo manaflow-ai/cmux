@@ -95,6 +95,8 @@ What the layout leaves out:
 - The `cmux action run newTab` fallback opens one workspace per terminal, with
   no splits.
 - A canvas workspace (classic's freeform layout) comes over as tabs in one pane.
+- A terminal the saved layout doesn't place (a damaged session file) joins the
+  first pane as a tab.
 
 ## 5. Move live classic sessions (optional)
 
