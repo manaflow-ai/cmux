@@ -21,9 +21,10 @@ pub(super) async fn run(
     )
     .await?;
     let id = resolve_id(&src, session).await?;
-    let begin = src
-        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": interrupt}))
-        .await?;
+    // The source asks the target itself if this client goes away midway (`hub/transfer_watch.rs`).
+    let socket = std::path::absolute(to)?;
+    let begin_params = json!({"sessionId": id, "interrupt": interrupt, "to": {"socket": socket}});
+    let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
     let abort = async || {
         let abort = json!({"sessionId": id, "transferId": transfer_id});
