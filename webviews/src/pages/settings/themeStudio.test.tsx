@@ -7,7 +7,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, ops, renderPage, run } = await import("./testing");
+const { click, fire, ops, renderPage, run } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -93,4 +93,20 @@ test("a theme shows as a round ball: its background, its text color and its six 
   expect(accent.getAttribute("data-ball-hue")).toBe("5");
   const radius = (dot: Element) => Number(dot.getAttribute("r"));
   for (const dot of ring) if (dot !== accent) expect(radius(accent)).toBeGreaterThan(radius(dot));
+});
+
+test("a theme previews live in the app before it is picked: hover or arrows, right-click pins it, Escape reverts", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  await click(theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!);
+  const option = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  // Right-click a theme: the app shows it, without a write, and it stays while the pointer moves on.
+  await fire(option("Dracula"), "contextmenu");
+  expect(previews().at(-1)).toEqual({ key: "appearance.appTheme", value: "Dracula" });
+  expect(option("Dracula").closest("[data-previewing]")).not.toBeNull();
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+  // Escape reverts: the preview ends and nothing was written.
+  await fire(document.querySelector<HTMLElement>(".theme-search")!, "keydown", { key: "Escape" });
+  expect(ops(page.provider, "cmux.settings.preview.end").length).toBeGreaterThan(0);
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
 });

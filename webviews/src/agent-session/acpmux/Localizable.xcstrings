@@ -97532,398 +97532,398 @@
         }
       }
     },
-    "floating.includeContext" : {
-      "comment" : "Agent pane",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Include focused tab"
+    "floating.focusedTab": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focused tab"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تضمين علامة التبويب النشطة"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة التبويب النشطة"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Uključi fokusiranu karticu"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusirana kartica"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Medtag fokuseret fane"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokuseret fane"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fokussierten Tab einbeziehen"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokussierter Tab"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Incluir pestaña enfocada"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pestaña enfocada"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Inclure l’onglet actif"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onglet actif"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Includi scheda attiva"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scheda attiva"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "フォーカス中のタブを含める"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカス中のタブ"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "រួមបញ្ចូលផ្ទាំងដែលកំពុងផ្តោត"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលកំពុងផ្តោត"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "포커스된 탭 포함"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스된 탭"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ta med fokusert fane"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusert fane"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dołącz aktywną kartę"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktywna karta"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Incluir aba em foco"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aba em foco"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Включить активную вкладку"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активная вкладка"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "รวมแท็บที่โฟกัสอยู่"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บที่โฟกัสอยู่"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Odaktaki sekmeyi ekle"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaktaki sekme"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Додати активну вкладку"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активна вкладка"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Bao gồm thẻ đang chọn"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ đang chọn"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "包含当前标签页"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当前标签页"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "包含目前分頁"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前分頁"
           }
         }
       }
     },
-    "floating.focusedTab" : {
-      "comment" : "Agent pane",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Focused tab"
+    "floating.includeContext": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include focused tab"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "علامة التبويب النشطة"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تضمين علامة التبويب النشطة"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fokusirana kartica"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi fokusiranu karticu"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fokuseret fane"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medtag fokuseret fane"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fokussierter Tab"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokussierten Tab einbeziehen"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pestaña enfocada"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Incluir pestaña enfocada"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Onglet actif"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inclure l’onglet actif"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Scheda attiva"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Includi scheda attiva"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "フォーカス中のタブ"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカス中のタブを含める"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ផ្ទាំងដែលកំពុងផ្តោត"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រួមបញ្ចូលផ្ទាំងដែលកំពុងផ្តោត"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "포커스된 탭"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스된 탭 포함"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fokusert fane"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta med fokusert fane"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Aktywna karta"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dołącz aktywną kartę"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Aba em foco"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Incluir aba em foco"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Активная вкладка"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить активную вкладку"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แท็บที่โฟกัสอยู่"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รวมแท็บที่โฟกัสอยู่"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Odaktaki sekme"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaktaki sekmeyi ekle"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Активна вкладка"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати активну вкладку"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Thẻ đang chọn"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bao gồm thẻ đang chọn"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "当前标签页"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含当前标签页"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "目前分頁"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含目前分頁"
           }
         }
       }
     },
-    "floating.key.include" : {
-      "comment" : "Agent pane",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "include tab"
+    "floating.key.include": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "include tab"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تضمين علامة التبويب"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تضمين علامة التبويب"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "uključi karticu"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uključi karticu"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "medtag fane"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "medtag fane"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tab einbeziehen"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab einbeziehen"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "incluir pestaña"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "incluir pestaña"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "inclure l’onglet"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "inclure l’onglet"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "includi scheda"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "includi scheda"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "タブを含める"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブを含める"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "រួមបញ្ចូលផ្ទាំង"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រួមបញ្ចូលផ្ទាំង"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "탭 포함"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 포함"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ta med fane"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ta med fane"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "dołącz kartę"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dołącz kartę"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "incluir aba"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "incluir aba"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "включить вкладку"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "включить вкладку"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "รวมแท็บ"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รวมแท็บ"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "sekmeyi ekle"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sekmeyi ekle"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "додати вкладку"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "додати вкладку"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "bao gồm thẻ"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bao gồm thẻ"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "包含标签页"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含标签页"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "包含分頁"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含分頁"
           }
         }
       }
@@ -108614,6 +108614,534 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重新開啟"
+          }
+        }
+      }
+    },
+    "sideQuestion.label": {
+      "comment": "Agent pane: label of a side question (/btw) shown above the composer, asked without adding it to the chat",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side question"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سؤال جانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usputno pitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidespørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebenfrage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregunta aparte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Question annexe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domanda a parte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドの質問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណួរបន្ទាប់បន្សំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "곁가지 질문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidespørsmål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pytanie poboczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pergunta paralela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Побочный вопрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำถามข้างเคียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan soru"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Побічне питання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Câu hỏi bên lề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旁支问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旁支問題"
+          }
+        }
+      }
+    },
+    "sideQuestion.asking": {
+      "comment": "Agent pane: a side question (/btw) waits for the agent's answer",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asking…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ السؤال…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pitam…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spørger…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird gefragt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preguntando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Question en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesta in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "質問中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងសួរ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "질문하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spør…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pytanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Perguntando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спрашиваем…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังถาม…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Soruluyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитуємо…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang hỏi…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在询问…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在詢問…"
+          }
+        }
+      }
+    },
+    "sideQuestion.add": {
+      "comment": "Agent pane: button that sends a side question (/btw) to the chat as a prompt",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة إلى المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj u razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Føj til chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zum Chat hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter au chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi alla chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットに追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមទៅការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅에 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til i chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj do czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar ao chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить в чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มลงในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbete ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати до чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm vào cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "添加到聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "加入聊天"
+          }
+        }
+      }
+    },
+    "sideQuestion.dismiss": {
+      "comment": "Agent pane: button that closes a side question (/btw) and its answer",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إغلاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fermer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dispensar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bỏ qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
           }
         }
       }

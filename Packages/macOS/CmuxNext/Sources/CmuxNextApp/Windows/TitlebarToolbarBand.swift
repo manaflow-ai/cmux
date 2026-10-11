@@ -213,8 +213,8 @@ final class TitlebarBandButton: NSButton {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
     }
 
-    /// A right-click or long-press menu (Back / Forward lists).
-    var menuProvider: (() -> NSMenu?)?
+    /// A right-click or long-press menu (Back / Forward lists); the sidebar toggle's opens on right-click only.
+    var menuProvider: (() -> NSMenu?)?, longPressOpensMenu = true
 
     override func rightMouseDown(with event: NSEvent) {
         guard isEnabled else { return }
@@ -225,7 +225,7 @@ final class TitlebarBandButton: NSButton {
     /// A long press shows the menu like a browser's Back button; a click runs.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        guard menuProvider != nil, let window else { return super.mouseDown(with: event) }
+        guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
         let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }

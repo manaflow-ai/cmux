@@ -1996,6 +1996,13 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
+  /// Asks a side question about the open session (`/btw`). acpmux answers it in a throwaway copy
+  /// of the chat (`_acpmux/ask`), so the chat never holds it. Resolves to the answer's text.
+  async ask(question: string): Promise<string> {
+    if (!this.selectedSessionId) return "";
+    const result = await this.request("_acpmux/ask", { sessionId: this.selectedSessionId, text: question });
+    return typeof result?.text === "string" ? result.text : "";
+  }
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
   }

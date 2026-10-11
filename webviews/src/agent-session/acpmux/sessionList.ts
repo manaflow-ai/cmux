@@ -65,6 +65,8 @@ export const PINNED_TAG = "pinned";
 export const ARCHIVED_TAG = "archived";
 /** The tag New side chat sets on its fork (the value is the chat's session). */
 export const SIDE_TAG = "side";
+/** acpmux's tag on the fork a side question (`/btw`) is asked in, while it lives. */
+const ASIDE_TAG = "aside";
 
 /** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
 export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
@@ -103,7 +105,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worktree: text(session.worktree),
     pinned: session.pinned === true || tagged(session.tags, PINNED_TAG),
     archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
-    side: session.side === true || tagged(session.tags, SIDE_TAG),
+    // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
+    side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
   };
