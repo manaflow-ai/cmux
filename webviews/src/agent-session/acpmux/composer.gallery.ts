@@ -75,6 +75,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
