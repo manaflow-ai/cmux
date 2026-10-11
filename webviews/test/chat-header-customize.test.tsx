@@ -90,13 +90,6 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
     '.ui-context-menu [role="menuitem"][aria-label="Hide Browser"]',
   );
   expect(hideBrowser?.disabled).toBe(true);
-  act(() =>
-    doc
-      .querySelector<HTMLElement>(".ui-context-menu-backdrop")
-      ?.dispatchEvent(
-        new (doc.defaultView!.PointerEvent ?? doc.defaultView!.MouseEvent)("pointerdown", { bubbles: true }),
-      ),
-  );
   rightClick("Browser");
   pick("Reset Buttons");
   expect(lists.at(-1)).toBe("terminal:toggle browser:toggle changes:toggle preview:toggle newTab:toggle");
