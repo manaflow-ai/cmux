@@ -12,12 +12,12 @@
   display: grid;
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .breadcrumbs-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
-  font-size: 14px;
+  font-size: var(--text-content);
   font-weight: 600;
 }
 
@@ -37,7 +37,7 @@
   padding: 3px 5px;
   border-radius: 5px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
   text-overflow: ellipsis;
 }
 
@@ -57,11 +57,11 @@
   align-items: center;
   padding: 0 2px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 46%, transparent));
-  font-size: 14px;
+  font-size: var(--text-content);
 }
 
 .breadcrumbs-gallery-receipt {
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
