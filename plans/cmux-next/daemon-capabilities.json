@@ -14,6 +14,7 @@
     "close-reason-v1",
     "cloud-conversations-v1",
     "conversation-search-v1",
+    "conversation-threads-v1",
     "conversation-tabs-v1",
     "creation-attempt-keys-v1",
     "creation-receipts-v1",
