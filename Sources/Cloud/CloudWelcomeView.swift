@@ -309,7 +309,9 @@ enum CloudWelcomeBadgeStyle {
     nonisolated static let lightFillOpacity: CGFloat = 0.7
     /// The darkest gray the glass shows through the fill (checked, with margin).
     nonisolated static let darkestBackdropWhite: CGFloat = 0.5
-    nonisolated static let minimumContrast: CGFloat = 4.5
+    /// WCAG AA is 4.5:1. The text renders lighter in the glass than its color
+    /// (measured 4.15:1 from a modeled 5.1:1), so the model aims higher.
+    nonisolated static let minimumContrast: CGFloat = 6.5
 
     /// The fill as it looks over the darkest backdrop.
     nonisolated static var worstFill: NSColor {
