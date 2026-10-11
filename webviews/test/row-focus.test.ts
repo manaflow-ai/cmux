@@ -120,6 +120,21 @@ await requireBrowserLane("row-focus.test.ts", async () => {
         await page.close();
       });
 
+      test("in the agent pane a keyboard-focused highlighted menu row has no ring", async () => {
+        // The pane loads desktop.css but not ui.css, so nothing else removes the engine's own
+        // focus ring (macOS WebKit draws it in the system blue) from the row a menu opens on.
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html style="${HOST}"><head><style>${paneCss}</style></head><body>
+<div class="acpmux-shell"><div class="ui-popup" role="menu">
+  <div class="ui-menu-item" role="menuitemradio" aria-checked="true" tabindex="0" data-highlighted id="medium">Medium</div>
+</div></div>
+</body></html>`);
+        await page.keyboard.press("Tab");
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe("medium");
+        expect((await look(page, "#medium")).endsWith(" none")).toBe(true);
+        await page.close();
+      });
+
       test("a list container without an always-highlighted row keeps its ring; one with it does not", async () => {
         const page = await browser.newPage();
         await page.setContent(`<!doctype html><html style="${HOST}"><head><style>${css}</style></head><body>

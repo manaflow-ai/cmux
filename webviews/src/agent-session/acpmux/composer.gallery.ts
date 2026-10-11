@@ -145,6 +145,17 @@ export default agentPaneEntry({
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
     },
+    focused: {
+      note: "The prompt focused: no ring drawn inside the composer box.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-md" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        await ctx.waitFor(() => ctx.document.activeElement === field);
+        const outline = ctx.document.defaultView!.getComputedStyle(field).outlineStyle;
+        if (outline !== "none") throw new Error(`the focused prompt draws an outline (${outline})`);
+      },
+    },
     // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
     "context-menu": {
       note: "Right-click on selected prompt text: Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention.",
