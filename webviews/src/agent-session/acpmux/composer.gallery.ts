@@ -315,6 +315,17 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-keyboard": {
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it, ⌘Return sends it now and Delete removes it.",
+      snapshot: { ...steering(true), queue: waiting },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.press("ArrowUp");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-edit"));
+      },
+    },
     "queued-long": {
       note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
       snapshot: chat(working, {
