@@ -194,9 +194,29 @@ export function DiffPanel({
       setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.openFailed"));
     });
   });
+  // Stage or Unstage a file (cx-tcwj): Unstaged and Uncommitted stage it, Staged unstages it,
+  // and the scope reloads. A failure says why where a failed open does. The view names a file by
+  // its absolute path; git.stage takes it from the repository's top, as git.diff listed it. A
+  // rename is both of its paths, or half of it would stay behind.
+  const unstages = scope === "staged" ? true : scope === "unstaged" || scope === "uncommitted" ? false : undefined;
+  const stageFile = useStableCallback((path: string) => {
+    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
+    const root = load.changeSet.root?.replace(/\/+$/, "");
+    const inRepository = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+    const previous = load.changeSet.files.find((file) => file.path === inRepository)?.previousPath;
+    latestOpen.current += 1;
+    setOpenFailure(undefined);
+    source
+      .stage(previous ? [inRepository, previous] : [inRepository], unstages)
+      .then(retry, (error: unknown) =>
+        setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
+      );
+  });
+  const canStage = source?.stage !== undefined && unstages !== undefined;
   const on = useMemo<FileActions>(
     () => ({
       openFile,
+      stage: canStage ? { unstage: unstages === true, run: stageFile } : undefined,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -220,7 +240,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile],
+    [viewed, openFile, canStage, unstages, stageFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
