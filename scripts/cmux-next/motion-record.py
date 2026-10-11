@@ -363,7 +363,39 @@ def dock():
         record("dock", "undock-" + edge, lambda: action("column.undock"))
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab}
+def sidebar():
+    # Workspace rows open and close their slots: a new one at the end, one
+    # closed in the middle (rows below close the gap), the last one closed.
+    for _ in range(3):
+        action("newWorkspace")
+        time.sleep(0.4)  # test harness: one workspace at a time
+    save_layout("sidebar")
+    record("sidebar", "insert", lambda: action("newWorkspace"))
+    # The second workspace row is selected with a click (no action selects it by place).
+    rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    workspaces = [r for r in rows if str(r.get("key", "")).startswith("workspace")]
+    print("workspace rows:", len(workspaces), flush=True)
+    if len(workspaces) > 2:
+        f = workspaces[1]["window_frame"]
+        rpc("debug.mouse", {"action": "click", "x": f["x"] + 40, "y": f["y"] + f["height"] / 2})
+        time.sleep(0.4)  # test harness: the selection settles
+    record("sidebar", "remove-middle", lambda: action("closeWorkspace", args={"confirm": True}))
+    action("workspace.selectLast")
+    time.sleep(0.3)  # test harness: the selection settles
+    record("sidebar", "remove-last", lambda: action("closeWorkspace", args={"confirm": True}))
+
+
+def palette():
+    # The palette opens over the window and closes again (its panel is a
+    # child window, so stills by window id back the recording up).
+    save_layout("palette")
+    record("palette", "open", lambda: action("commandPalette"))
+    print("palette open:", json.dumps(rpc("debug.windows"))[:400], flush=True)
+    record("palette", "close", lambda: key("escape"))
+    print("palette closed:", json.dumps(rpc("debug.windows"))[:400], flush=True)
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette}
 
 
 def main():
