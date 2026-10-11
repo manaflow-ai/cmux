@@ -38,6 +38,7 @@ import type {
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { SHELL_KEY_TTL_SECONDS, sshKeyFingerprint } from "./drivers/scp";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -5084,6 +5085,64 @@ export function prepareScpEndpoint(input: {
       metadata: { transport: "wireguard-scp", expiresAtUnix: endpoint.expiresAtUnix },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+/**
+ * Authorizes a short-lived Ed25519 key that may open one PTY as cmux on the
+ * machine (the rescue shell when the cmux-tui daemon does not answer). Same
+ * access rule, resume and private-network path as SCP. The audit record holds
+ * the key fingerprint and expiry, never the key.
+ */
+export function prepareShellEndpoint(input: {
+  readonly publicKey: string;
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+  readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    const prepareShell = providers.prepareShell;
+    if (!prepareShell) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareShell" }));
+    if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    // A resumed machine draws from the caller's current plan pool (#17238).
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh", {
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
+    });
+    const expires = new Date(Date.now() + SHELL_KEY_TTL_SECONDS * 1000);
+    // Audit first: every key the guest may accept has a record. A failed audit
+    // write grants nothing; a guest failure after it leaves a record for a key
+    // that may or may not have been written (it expires with `expires`).
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.shell_endpoint",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: {
+        transport: "wireguard-ssh",
+        keyFingerprint: sshKeyFingerprint(input.publicKey),
+        expiresAtUnix: Math.floor(expires.getTime() / 1000),
+      },
+    });
+    return yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "ssh",
+      prepareShell(vm.provider, input.providerVmId, input.publicKey, expires),
+      input.maxActiveVms,
+      input.callerPlanId,
+    );
   });
 }
 
