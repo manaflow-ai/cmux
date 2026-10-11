@@ -17,7 +17,9 @@ pub(super) enum Adoption {
     /// Create a session, in the adopted conversation's recorded cwd if any;
     /// `fork`: a new conversation forked from it (`--fork-session`).
     /// `file`: the adopted conversation's transcript, replayed as history (`adopt_replay`).
-    Found { cwd: Option<PathBuf>, fork: bool, file: Option<PathBuf> },
+    /// `store`: the chat index's store that holds it when the profile's
+    /// store does not (cx-vx54).
+    Found { cwd: Option<PathBuf>, fork: bool, file: Option<PathBuf>, store: Option<PathBuf> },
 }
 
 impl Hub {
@@ -27,6 +29,7 @@ impl Hub {
         &self,
         family: &str,
         agent_session_id: &str,
+        remote: bool,
     ) -> Result<Option<String>, RpcError> {
         if family.is_empty() {
             return Ok(None);
@@ -34,24 +37,30 @@ impl Hub {
         let homes = self.harness_homes.lock().unwrap().clone();
         let family = family.to_owned();
         let id = agent_session_id.to_owned();
-        let found = tokio::task::spawn_blocking(move || crate::adopt::find(&family, &id, &homes))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(RpcError::invalid_params)?;
+        let index = self.chats.get().filter(|_| !remote).cloned();
+        let (found, _) = tokio::task::spawn_blocking(move || {
+            let others = indexed_stores(index.as_deref(), &family, &id);
+            crate::adopt::find_any(&family, &id, &homes, &others)
+        })
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(RpcError::invalid_params)?;
         Ok(found.cwd.map(|cwd| cwd.to_string_lossy().into_owned()))
     }
 
     /// Checks `adopt` against the resolved harness and its store. No adopt
-    /// resolves to `Found(None)`.
+    /// resolves to `Found(None)`. `remote` (a Web-class connection) adopts
+    /// only from a profile's store, never from another store of the index.
     pub(super) async fn adoption(
         &self,
         adopt: Option<&AdoptRequest>,
         agent: &str,
         family: &str,
         env: &[&BTreeMap<String, String>],
+        remote: bool,
     ) -> Result<Adoption, RpcError> {
         let Some(a) = adopt else {
-            return Ok(Adoption::Found { cwd: None, fork: false, file: None });
+            return Ok(Adoption::Found { cwd: None, fork: false, file: None, store: None });
         };
         if let Some(asked) = &a.harness
             && asked != agent
@@ -70,13 +79,15 @@ impl Hub {
             return Ok(Adoption::Existing(existing));
         }
         // The store the resuming harness reads: its spawn env's home, else
-        // the daemon's. The store walk, the record read and the process
-        // table are blocking I/O.
+        // the daemon's, else a store the chat index holds the chat in. The
+        // store walk, the record read and the process table are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
+        let index = self.chats.get().filter(|_| !remote).cloned();
         let (fam, id, check) =
             (family.to_owned(), a.agent_session_id.clone(), a.if_live == IfLive::Refuse);
-        let (found, live) = tokio::task::spawn_blocking(move || {
-            let found = crate::adopt::find(&fam, &id, &homes)?;
+        let ((found, store), live) = tokio::task::spawn_blocking(move || {
+            let others = indexed_stores(index.as_deref(), &fam, &id);
+            let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
             let live = check
                 .then(|| {
                     let procs = crate::adopt_live::processes();
@@ -88,7 +99,7 @@ impl Hub {
                     )
                 })
                 .flatten();
-            Ok::<_, String>((found, live))
+            Ok::<_, String>(((found, store), live))
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
@@ -101,6 +112,7 @@ impl Hub {
             cwd: found.cwd,
             fork: a.if_live == IfLive::Fork,
             file: Some(found.file),
+            store,
         })
     }
 
@@ -129,6 +141,26 @@ impl Hub {
             adopt.agent_session_id
         )))
     }
+}
+
+/// The stores acpmux's chat index holds the `family` chat `id` in (none
+/// before the index starts): a subrouter account home or a root the person
+/// added, which adopt may resume from though no profile's store is one.
+fn indexed_stores(
+    index: Option<&crate::chats::ChatService>,
+    family: &str,
+    id: &str,
+) -> Vec<PathBuf> {
+    let harness = match family {
+        "claude" => cmux_chat_index::AdapterKind::ClaudeCode,
+        "codex" => cmux_chat_index::AdapterKind::Codex,
+        _ => return Vec::new(),
+    };
+    let key = cmux_chat_index::ChatKey { harness, session_id: id.to_owned() };
+    index
+        .and_then(|index| index.get(&key))
+        .map(|chat| crate::chats::store_dirs(&chat))
+        .unwrap_or_default()
 }
 
 /// The new session's cwd: the one given, else the adopted conversation's

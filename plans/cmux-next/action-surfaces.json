@@ -2480,6 +2480,33 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace import-classic",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.importClassic",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import Workspaces from Classic cmux",
+      "title_key" : "action.workspace.importClassic",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace new-above",
       "context_menu" : "offered",
       "context_menus" : [
