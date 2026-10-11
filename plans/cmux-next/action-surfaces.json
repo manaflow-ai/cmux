@@ -18612,6 +18612,33 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-harness-update-all",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.updateAll",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Update Agent CLIs",
+      "title_key" : "action.agent.harness.updateAll",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "cloud new-workspace",
       "context_menu" : "offered",
@@ -23192,7 +23219,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != page && !codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -23224,7 +23261,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != page && !codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
