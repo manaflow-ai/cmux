@@ -14,7 +14,7 @@ const CMUX = `${PROJECTS}/cmux`;
 type Props = {
   mode?: PickerMode;
   start?: string;
-  delayMs?: number;
+  loading?: boolean;
   fail?: boolean;
   direction?: UiDirection;
 };
@@ -40,6 +40,7 @@ function entriesAt(path: string): PickerEntry[] {
       entry(PROJECTS, "docs", "dir"),
       entry(PROJECTS, "README.md", "file"),
       entry(PROJECTS, "roadmap.md", "file"),
+      entry(PROJECTS, "preview.png", "file"),
     ];
   if (path === CMUX)
     return Array.from({ length: 360 }, (_, index) => entry(CMUX, `surface-${String(index).padStart(3, "0")}`, "dir"));
@@ -72,12 +73,13 @@ function listing(path: string | null, hidden: boolean): PickerListing {
   };
 }
 
-function GalleryPathPicker({ mode = "folder", start = HOME, delayMs = 0, fail = false, direction = "ltr" }: Props) {
+function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fail = false, direction = "ltr" }: Props) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [receipt, setReceipt] = useState("Ready");
   const strings = viewerEmptyStrings([direction === "rtl" ? "ar" : "en"]);
   const list = async (path: string | null, options: { hidden: boolean }) => {
-    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    // Keep the loading preview stable for the base/head/repeat screenshot matrix.
+    if (loading) return new Promise<PickerListing>(() => {});
     if (fail) throw new Error("fixture listing failed");
     return listing(path, options.hidden);
   };
@@ -98,7 +100,7 @@ function GalleryPathPicker({ mode = "folder", start = HOME, delayMs = 0, fail = 
               ],
             })}
             strings={strings}
-            recents={[CMUX, `${PROJECTS}/messageslab`].slice(0, mode === "folder" ? 1 : 2)}
+            recents={mode === "folder" ? [CMUX] : [`${PROJECTS}/README.md`, `${PROJECTS}/messageslab/index.ts`]}
             start={start}
             onChoose={(path) => setReceipt(`Chosen: ${path}`)}
             onCancel={() => setReceipt("Cancelled")}
@@ -112,7 +114,12 @@ function GalleryPathPicker({ mode = "folder", start = HOME, delayMs = 0, fail = 
   );
 }
 
+const ready: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('.ve-picker[data-phase="ready"]'));
+};
+
 const locations: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.waitFor(() => ctx.find({ role: "option", name: "Projects" }));
   await ctx.click({ role: "option", name: "Projects" });
   await ctx.press("Enter");
@@ -120,18 +127,21 @@ const locations: Play = async (ctx) => {
 };
 
 const filter: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.focus({ selector: ".ve-picker-field" });
   await ctx.type("cmux");
   await ctx.waitFor(() => ctx.find({ role: "option", name: /cmux/ }));
 };
 
 const hidden: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.focus({ selector: ".ve-picker-field" });
   await ctx.type(".");
   await ctx.waitFor(() => ctx.find({ role: "option", name: ".config" }));
 };
 
 const pathCompletion: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.focus({ selector: ".ve-picker-field" });
   await ctx.type(`${PROJECTS}/cm`);
   await ctx.waitFor(() => ctx.find({ role: "option", name: "cmux/" }));
@@ -141,7 +151,110 @@ const pathCompletion: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "cmux");
 };
 
+const recentFolders: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: '[data-row="recents"]' });
+  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.find({ selector: `[data-row="recent"][title="${CMUX}"]` }));
+};
+
+const recentFile: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: '[data-row="recents"]' });
+  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.find({ role: "option", name: "README.md" }));
+  if (ctx.document.querySelector('[data-row="recent"][title$="index.ts"]')) {
+    throw new Error("The markdown picker must omit non-markdown recent files");
+  }
+  await ctx.press("Enter");
+  await ctx.waitFor(
+    () => ctx.find({ testId: "path-picker-gallery-receipt" }).textContent === `Chosen: ${PROJECTS}/README.md`,
+  );
+};
+
+const chooseFile: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type("README", { selector: ".ve-picker-field" });
+  await ctx.waitFor(() => ctx.find({ role: "option", name: "README.md" }));
+  await ctx.press("Enter");
+  await ctx.waitFor(
+    () => ctx.find({ testId: "path-picker-gallery-receipt" }).textContent === `Chosen: ${PROJECTS}/README.md`,
+  );
+};
+
+const chooseAnyFile: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type("messageslab", { selector: ".ve-picker-field" });
+  await ctx.press("Enter");
+  await ctx.waitFor(
+    () => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "messageslab",
+  );
+  await ctx.type("index", { selector: ".ve-picker-field" });
+  await ctx.waitFor(() => ctx.find({ role: "option", name: "index.ts" }));
+  await ctx.press("Enter");
+  await ctx.waitFor(
+    () =>
+      ctx.find({ testId: "path-picker-gallery-receipt" }).textContent === `Chosen: ${PROJECTS}/messageslab/index.ts`,
+  );
+};
+
+const parentFolder: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.focus({ selector: ".ve-picker-field" });
+  await ctx.press("Backspace");
+  await ctx.waitFor(() => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "Projects");
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[role="option"][aria-selected="true"]')?.getAttribute("title") === CMUX,
+  );
+};
+
+const parentPathQuery: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type(`${CMUX}/`, { selector: ".ve-picker-field" });
+  await ctx.waitFor(() => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "cmux");
+  await ctx.press("Meta+ArrowUp");
+  await ctx.waitFor(() => ctx.find({ selector: ".ve-picker-field" }).getAttribute("value") === "~/Projects/");
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[role="option"][aria-selected="true"]')?.getAttribute("title") === CMUX,
+  );
+};
+
+const breadcrumbNavigation: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.focus({ selector: ".ve-picker-field" });
+  await ctx.click({ role: "button", name: "Projects" });
+  await ctx.waitFor(() => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "Projects");
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[role="option"][aria-selected="true"]')?.getAttribute("title") === CMUX,
+  );
+  if (ctx.document.activeElement !== ctx.find({ selector: ".ve-picker-field" })) {
+    throw new Error("Breadcrumb navigation must keep the query field focused");
+  }
+};
+
+const emptyFolder: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: `[data-row="place"][title="${HOME}/Desktop"]` });
+  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.document.querySelector('.ve-picker[data-phase="ready"] .ve-picker-empty'));
+};
+
+const chooseEmptyFolder: Play = async (ctx) => {
+  await emptyFolder(ctx);
+  await ctx.press("Enter");
+  await ctx.waitFor(
+    () => ctx.find({ testId: "path-picker-gallery-receipt" }).textContent === `Chosen: ${HOME}/Desktop`,
+  );
+};
+
+const noMatches: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type("does-not-exist", { selector: ".ve-picker-field" });
+  await ctx.waitFor(() => ctx.find({ selector: ".ve-picker-empty" }));
+};
+
 const virtualized: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.click({ role: "option", name: "surface-000" });
   await ctx.press("Tab");
   await ctx.waitFor(
@@ -151,11 +264,16 @@ const virtualized: Play = async (ctx) => {
   await ctx.waitFor(() => {
     const input = ctx.find({ selector: ".ve-picker-field" });
     const id = input.getAttribute("aria-activedescendant");
-    return id !== null && ctx.document.getElementById(id)?.getAttribute("aria-setsize") === "300";
+    const active = id ? ctx.document.getElementById(id) : null;
+    return active?.getAttribute("aria-setsize") === "300" && active.getAttribute("aria-posinset") === "300";
   });
+  if (ctx.document.querySelectorAll('[role="option"]').length >= 300) {
+    throw new Error("Large folders must keep offscreen options virtualized");
+  }
 };
 
 const rtlCompletion: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.focus({ selector: ".ve-picker-field" });
   await ctx.type("cmux");
   await ctx.waitFor(() => ctx.find({ role: "option", name: /cmux/ }));
@@ -164,6 +282,7 @@ const rtlCompletion: Play = async (ctx) => {
 };
 
 const cancel: Play = async (ctx) => {
+  await ready(ctx);
   await ctx.focus({ selector: ".ve-picker-field" });
   await ctx.type("does-not-exist");
   await ctx.press("Escape");
@@ -205,9 +324,28 @@ export default componentEntry<Props>({
     filter: { props: { start: PROJECTS }, play: filter },
     hidden: { props: {}, play: hidden },
     "path-completion": { props: { start: PROJECTS }, play: pathCompletion },
-    "any-file": { props: { mode: "anyFile", start: PROJECTS } },
-    loading: { props: { delayMs: 500 } },
-    error: { props: { fail: true } },
+    "recent-folders": { props: {}, play: recentFolders },
+    "recent-file": { props: { mode: "file", start: PROJECTS }, play: recentFile },
+    "markdown-file": { props: { mode: "file", start: PROJECTS }, play: chooseFile },
+    "any-file": { props: { mode: "anyFile", start: PROJECTS }, play: chooseAnyFile },
+    "parent-folder": { props: { start: CMUX }, play: parentFolder },
+    "parent-path-query": { props: { start: PROJECTS }, play: parentPathQuery },
+    breadcrumb: { props: { start: CMUX }, play: breadcrumbNavigation },
+    "empty-folder": { props: {}, play: emptyFolder },
+    "choose-empty-folder": { props: {}, play: chooseEmptyFolder },
+    "no-matches": { props: { start: PROJECTS }, play: noMatches },
+    loading: {
+      props: { loading: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ selector: '.ve-picker[data-phase="loading"] .ve-picker-empty' }));
+      },
+    },
+    error: {
+      props: { fail: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ selector: '.ve-picker[data-phase="failed"] .ve-picker-empty' }));
+      },
+    },
     virtualized: { props: { start: CMUX }, play: virtualized },
     rtl: { props: { direction: "rtl", start: PROJECTS }, play: rtlCompletion },
     cancel: { props: {}, play: cancel },
