@@ -49,10 +49,13 @@ public nonisolated struct AgentPaneRemoteApprovals: Sendable {
         case failed(String)
     }
 
+    /// The machine id the app binds this machine's key to (`AcpmuxRemotePersonKeys`).
+    public let machineID: String
     public let label: String
     public let restart: @Sendable () async -> Failure?
 
-    public init(label: String, restart: @escaping @Sendable () async -> Failure?) {
+    public init(machineID: String, label: String, restart: @escaping @Sendable () async -> Failure?) {
+        self.machineID = machineID
         self.label = label
         self.restart = restart
     }

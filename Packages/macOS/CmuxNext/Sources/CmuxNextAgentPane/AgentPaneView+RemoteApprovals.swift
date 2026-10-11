@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// cx-0q7o: an allow went to an agent daemon run on another machine that holds no person key of
-/// this app (started outside cmux), so that daemon refuses it. The pane says remote approvals are
+/// this app for that run, so that daemon refuses it. The pane says remote approvals are
 /// off there and, when the chat's machine offers it, restarts that daemon with a key of this app.
 extension AgentPaneView {
     func showRemoteApprovalsOff(_ approvals: AgentPaneRemoteApprovals?) {

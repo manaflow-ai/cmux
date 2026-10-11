@@ -36,12 +36,19 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
               let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
               let nonce = params["decisionNonce"] as? String, let instance = params["personInstance"] as? String
         else { return }
+        // A context that is not in acpmux's form is dropped: no proof is ever made over it.
+        guard Self.isHex(nonce, count: 64), Self.isHex(instance, count: 32),
+              !session.contains("\u{0}"), !permission.contains("\u{0}") else { return }
         let key = session + "\u{0}" + permission
         state.withLock { state in
             guard state.byKey.updateValue(Context(nonce: nonce, instance: instance), forKey: key) == nil else { return }
             state.order.append(key)
             if state.order.count > Self.limit { state.byKey.removeValue(forKey: state.order.removeFirst()) }
         }
+    }
+
+    private static func isHex(_ text: String, count: Int) -> Bool {
+        text.utf8.count == count && text.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
     }
 
     /// The newest nonce and run of `permission` of `session`.

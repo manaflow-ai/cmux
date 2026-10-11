@@ -64,7 +64,7 @@ import CmuxNextCompat
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
     /// Told when an allow went to another daemon run without the person's proof: that daemon
-    /// holds no key of this app (it was started outside cmux), so it refuses the allow.
+    /// holds no key of this app for that run, so it refuses the allow.
     public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }

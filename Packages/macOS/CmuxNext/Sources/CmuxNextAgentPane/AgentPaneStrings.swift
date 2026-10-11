@@ -96,7 +96,7 @@ extension AgentPaneView {
     }
 
     /// cx-0q7o: an allow went to an agent daemon on another machine that holds no key of this
-    /// app (it was started outside cmux), so it refuses the allow.
+    /// app for that run (not started by this app, or restarted since), so it refuses the allow.
     static func remoteApprovalsOffTitle(_ machine: String) -> String {
         String(format: String(localized: "agentPane.remoteApprovals.off.title", defaultValue: "Remote approvals are off on %@",
                               bundle: .module), machine)
@@ -104,7 +104,7 @@ extension AgentPaneView {
 
     static func remoteApprovalsOffDetail(_ machine: String) -> String {
         String(format: String(localized: "agentPane.remoteApprovals.off.detail",
-                              defaultValue: "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here.",
+                              defaultValue: "Approvals from cmux are off for the agent daemon on %@. Restart turns them on.",
                               bundle: .module), machine)
     }
 

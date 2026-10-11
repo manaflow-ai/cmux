@@ -262,6 +262,7 @@ extension AgentPaneTransport {
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
+        var ticketPick = false
         if !facts.isFirst {
             let granted: Bool
             if let ticket = facts.ticket {
@@ -269,12 +270,14 @@ extension AgentPaneTransport {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
                     return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
                 }
-                // B2: only set_mode, set_config_option and a prompt held for the trust answer (its
-                // promptId) redeem a ticket, for their exact pick, into a session of this pane. A
-                // ticket is spent even when it does not match.
+                // B2: only set_mode, set_config_option, a prompt held for the trust answer (its
+                // promptId) and a permission answer (its session, prompt and option) redeem a
+                // ticket, for their exact pick, into a session of this pane. A ticket is spent even
+                // when it does not match.
                 let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
+                ticketPick = granted
             } else {
                 granted = !facts.needsGesture || gestures.consume()
             }
@@ -304,8 +307,9 @@ extension AgentPaneTransport {
         }
         // cx-0q7o: an allow for a prompt of another daemon run carries the person's decision
         // proof, made here (the key never reaches the page), when this app holds that run's key.
+        // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
-            signRelayedAllow(box, sessionId: facts.sessionId)
+            signRelayedAllow(box, sessionId: facts.sessionId, ticketPick: ticketPick)
         }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
@@ -336,15 +340,19 @@ extension AgentPaneTransport {
         return .sent
     }
 
-    /// The decision proof of an allow for a prompt of another daemon run (a peer of the local
-    /// daemon, or the acpmux of a chat on another machine), from the newest `permission_pending`
-    /// of that prompt. The daemon's own prompts need none (this connection is the person). A run
-    /// without a key of this app gets the allow unproved (it refuses it), and the pane says so.
-    private func signRelayedAllow(_ box: FrameBox, sessionId: String?) {
+    /// The decision proof of an allow for a prompt of another daemon run, from the newest
+    /// `permission_pending` of that prompt. The daemon's own prompts need none (this connection
+    /// is the person). Signed only in a chat on another machine, only with the key bound to that
+    /// chat's own machine and to the run that asks, and only for the prompt and option the person
+    /// picked (`ticketPick`). A peer of this Mac's daemon has no key of this app (the app has no
+    /// exec channel of its own there). Otherwise the allow goes unproved (that daemon refuses
+    /// it), and the pane says so.
+    private func signRelayedAllow(_ box: FrameBox, sessionId: String?, ticketPick: Bool) {
         guard let session = sessionId, let permission = box.param("permissionId"), let option = box.param("optionId"),
               let context = decisions.context(session: session, permission: permission),
               context.instance != decisions.localInstance else { return }
-        guard let key = AcpmuxRemotePersonKeys.shared.key(instance: context.instance) else {
+        guard ticketPick, let machine = remoteApprovals?.machineID,
+              let key = AcpmuxRemotePersonKeys.shared.key(machine: machine, instance: context.instance) else {
             onRemoteApprovalsOff?(remoteApprovals)
             return
         }

@@ -19919,127 +19919,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ のエージェントデーモンは cmux の外で起動されたため、承認があなたからのものだと証明できません。ここで承認するには cmux から再起動してください。"
+            "value": "%@ のエージェントデーモンでは cmux からの承認がオフです。再起動するとオンになります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here."
+            "value": "Approvals from cmux are off for the agent daemon on %@. Restart turns them on."
           }
         }
       }

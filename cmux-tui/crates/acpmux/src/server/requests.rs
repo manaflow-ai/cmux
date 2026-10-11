@@ -153,8 +153,10 @@ async fn dispatch_request(
                     "_acpmux/person_holds is accepted only over the local unix socket",
                 ));
             }
-            // A few answers per connection: it is an HMAC oracle over
-            // caller-chosen nonces (in its own domain only).
+            // A few answers per connection. Not a security bound (a new
+            // connection gets 8 more): the answers are an HMAC over
+            // caller-chosen nonces that is valid only in its own domain, so
+            // they never serve as a decision or connection proof.
             let calls = conn.holds_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if calls >= crate::hub::person::HOLDS_PER_CONNECTION {
                 return Err(RpcError::new(

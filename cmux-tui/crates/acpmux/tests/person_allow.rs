@@ -1062,7 +1062,7 @@ async fn a_local_allow_with_a_wrong_nonce_or_a_wrong_proof_is_refused_and_stays_
     let d = Daemon::start("lock", Some(KEY));
     let mut relay = Rpc::connect(&d.socket).await;
     let id = new_session(&mut relay, &d).await;
-    relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let rid = relay.send("session/prompt", prompt(&id, "ask: write")).await;
     let pending = relay.note("_acpmux/permission_pending", |_| true).await;
     let pid = pending["permissionId"].as_str().unwrap().to_owned();
     let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
@@ -1081,7 +1081,11 @@ async fn a_local_allow_with_a_wrong_nonce_or_a_wrong_proof_is_refused_and_stays_
     let r =
         relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &forged)).await;
     assert_eq!(reason(&r), REASON, "{r}");
-    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid]);
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+    // The refused tries spent nothing: the person's proof for this nonce counts.
+    let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
+    relay.ok("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
 }
 
 /// The answer to `_acpmux/person_holds` (cx-0q7o slice 2c), as

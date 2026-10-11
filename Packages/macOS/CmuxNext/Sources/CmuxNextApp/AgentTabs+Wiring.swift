@@ -119,7 +119,7 @@ extension AgentTabStore {
                                           machine: tab.agentSession?.hostName ?? daemon.machineID, endpoint: endpoint)
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
             if let link = services.machines.sshSession(daemon.machineID) ?? services.machines.server(daemon.machineID)?.link {
-                host.approvals = AgentPaneRemoteApprovals(label: link.host.label) { [weak services, weak link] in
+                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label) { [weak services, weak link] in
                     guard let services, let link else { return .failed("") }
                     return await services.ssh.restartWithApprovals(link)
                 }

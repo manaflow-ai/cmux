@@ -1,5 +1,5 @@
 public import Foundation
-import CryptoKit
+import CommonCrypto
 import Security
 import Synchronization
 
@@ -7,7 +7,8 @@ import Synchronization
 /// `hub/person.rs`). The 32 bytes live in one buffer this object allocates, never in an array,
 /// `Data` or `String` (each is copy-on-write and keeps copies nobody zeroes). The buffer is zeroed
 /// with `memset_s` when the object is released: the store releases it when the key is replaced or
-/// dropped. HMACs go through CryptoKit's `SymmetricKey`, whose own copy CryptoKit zeroes on release.
+/// dropped. HMACs run with CommonCrypto's `CCHmac` straight on this buffer: no other copy of the
+/// key is made.
 public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-allow: the buffer is written once in init, then only read; zeroed in deinit
     static let length = 32
     private let bytes: UnsafeMutableRawBufferPointer
@@ -34,13 +35,16 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
 
     /// Lowercase hex HMAC-SHA256(key, domain 0 part 0 part ...), as acpmux builds its messages.
     func mac(domain: String, parts: [String]) -> String {
-        var message = Data(domain.utf8)
+        var message = Array(domain.utf8)
         for part in parts {
             message.append(0)
             message.append(contentsOf: part.utf8)
         }
-        let key = SymmetricKey(data: UnsafeRawBufferPointer(bytes))
-        return HMAC<SHA256>.authenticationCode(for: message, using: key).map { String(format: "%02x", $0) }.joined()
+        var out = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        message.withUnsafeBytes { text in
+            CCHmac(CCHmacAlgorithm(kCCHmacAlgSHA256), bytes.baseAddress, bytes.count, text.baseAddress, text.count, &out)
+        }
+        return out.map { String(format: "%02x", $0) }.joined()
     }
 
     /// `personDecision` of a relayed allow (acpmux `decision_proof`).
@@ -127,9 +131,10 @@ public nonisolated final class AcpmuxRemotePersonKeys: Sendable {
         _ = old
     }
 
-    /// The key of the daemon run `instance`, if this app started it with one.
-    public func key(instance: String) -> AcpmuxSecretKey? {
-        entries.withLock { $0.values.first { $0.instance == instance }?.key }
+    /// The key bound to `machine`, when its bound daemon run is `instance` (the run that asks).
+    /// Never a key of another machine.
+    public func key(machine: String, instance: String) -> AcpmuxSecretKey? {
+        entries.withLock { entries in entries[machine].flatMap { $0.instance == instance ? $0.key : nil } }
     }
 
     /// The daemon run of `machine` that holds this app's key.

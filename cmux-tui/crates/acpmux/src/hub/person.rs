@@ -90,6 +90,11 @@
 //! (the harness catch-all, [`harness_forward_check`]).
 //!
 //! Residual risks (not covered here):
+//! - Remote approvals (cx-0q7o) stop agents and scripts that cannot write the
+//!   remote user's home folder or cmux-tui binary. An agent that runs as the
+//!   same user and can write those files can capture the key on the next
+//!   restart. Such an agent already has that user's power on that host, and
+//!   the key is valid only for that one daemon run.
 //! - Same-uid file writes: an agent that edits config.json, a profile file
 //!   or the store directly. That needs an OS boundary between the agent and
 //!   the user's files.
@@ -172,7 +177,8 @@ pub const DECISION_FIELD: &str = "personDecision";
 pub const NO_KEY: &str = "person.no_key";
 /// `error.data.reason` of `_acpmux/person_holds` past its per-connection limit.
 pub const HOLDS_LIMIT: &str = "person.holds_limit";
-/// `_acpmux/person_holds` answers per connection.
+/// `_acpmux/person_holds` answers per connection. Not a security bound: the
+/// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
 
 /// At most this many spent decision nonces are kept.

@@ -1682,15 +1682,28 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
-  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
+  /// pick first takes a gesture ticket for this prompt and option (`transport.gesture`): the host
+  /// signs an allow for another machine's agent daemon only for that exact pick (cx-0q7o).
   async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
-    if (this.selectedSessionId)
-      await this.request("_acpmux/permission_respond", {
-        sessionId: this.selectedSessionId,
-        permissionId,
-        ...(optionId === undefined ? {} : { optionId }),
-        ...(answers === undefined ? {} : { answers }),
-      });
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    const ticket =
+      optionId === undefined || answers !== undefined
+        ? undefined
+        : await postNative<{ ticket?: string }>("transport.gesture", {
+            intent: { method: "_acpmux/permission_respond", params: { sessionId, permissionId, optionId } },
+          }).then(
+            (reply) => reply?.ticket,
+            () => undefined,
+          );
+    await this.request("_acpmux/permission_respond", {
+      sessionId,
+      permissionId,
+      ...(optionId === undefined ? {} : { optionId }),
+      ...(answers === undefined ? {} : { answers }),
+      ...gestureMeta(ticket),
+    });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     await this.permissions.respond(groupId, revision, decision);
