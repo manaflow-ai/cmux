@@ -15,6 +15,8 @@ import os
     private let clock: any Clock<Duration>
     private let logger: Logger
     private var loop: Task<Void, Never>?
+    /// The relay process the bearer went to last.
+    private var routerPID: Int?
 
     /// Renew this long before the token's `exp`.
     nonisolated static let renewMargin: TimeInterval = 90
@@ -58,7 +60,11 @@ import os
                 let token = try await tokens.accessToken(forceRefresh: forceRefresh)
                 let expiresAtMs = HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())
                 let expiresAt = expiresAtMs / 1000
-                try await router.setUpstream(origin: origin, bearer: token, expiresAt: expiresAt)
+                let pid = try await router.setUpstream(origin: origin, bearer: token, expiresAt: expiresAt)
+                if let pid, let last = routerPID, pid != last {
+                    logger.info("model router lease: the local relay restarted (pid \(last) -> \(pid)); bearer sent again")
+                }
+                routerPID = pid
                 failures = 0
                 let remaining = TimeInterval(expiresAt) - Date().timeIntervalSince1970
                 forceRefresh = remaining <= Self.renewMargin * 2
@@ -70,8 +76,27 @@ import os
                 wait = Self.retryDelays[min(failures, Self.retryDelays.count - 1)]
                 failures += 1
             }
-            // wakeup-allow: one wait per pass on the injected clock: until the token's renewal time, or the next retry delay after a failure
-            do { try await clock.sleep(for: wait, tolerance: .seconds(1)) } catch { return }
+            // wakeup-allow: one wait per pass: until the token's renewal time, the relay's exit, or the next retry delay after a failure
+            do { try await waitForRenewal(wait) } catch { return }
+        }
+    }
+
+    /// Waits until the renewal time, or less: a relay process that ends (a
+    /// daemon replaced it) wakes the loop at once, because the new relay has
+    /// no bearer. A relay that cannot be watched leaves only the clock.
+    private func waitForRenewal(_ wait: Duration) async throws {
+        let clock = clock
+        let router = router
+        let pid = routerPID
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            // task-owner: the group; cancelled when the other wait ends first
+            group.addTask { try await clock.sleep(for: wait, tolerance: .seconds(1)) }
+            // task-owner: the group; ends when the relay exits, or sleeps like the clock when it cannot be watched
+            group.addTask {
+                if await !router.waitUntilGone(pid: pid) { try await clock.sleep(for: wait, tolerance: .seconds(1)) }
+            }
+            _ = try await group.next()
+            group.cancelAll()
         }
     }
 }
