@@ -132,10 +132,12 @@ enum AppActions {
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
         // The workspace list takes the keyboard; a hidden sidebar shows first.
+        // Keyboard focus there survives the workspace switches its arrows make.
         registry.bind("focusSidebar") {
-            guard let sidebar = services.windows.active?.sidebar else { return }
-            if sidebar.model.isHidden { sidebar.model.toggle() }
-            sidebar.container.sidebarView.focusList()
+            guard let window = services.windows.active else { return }
+            if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
+            window.sidebar.container.sidebarView.focusList()
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
         }
     }
 }
