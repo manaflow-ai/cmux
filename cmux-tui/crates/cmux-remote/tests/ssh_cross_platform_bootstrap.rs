@@ -113,18 +113,32 @@ struct OnDemandFixture {
 
 impl OnDemandFixture {
     fn new() -> Self {
-        let directory = tempfile::tempdir().unwrap();
         let (os, uname_os, target) = if std::env::consts::OS == "macos" {
             ("linux", "Linux", "cmux-tui-aarch64-unknown-linux-musl")
         } else {
             ("macos", "Darwin", "cmux-tui-aarch64-apple-darwin")
         };
+        Self::with_remote(os, uname_os, target, b"local executable must not be uploaded")
+    }
+
+    /// An Apple silicon SSH host, served by a client whose own executable is
+    /// `client` and whose app bundles no macOS payload.
+    fn macos_remote(client: &[u8]) -> Self {
+        Self::with_remote("macos", "Darwin", "cmux-tui-aarch64-apple-darwin", client)
+    }
+
+    fn with_remote(
+        os: &'static str,
+        uname_os: &'static str,
+        target: &'static str,
+        client: &[u8],
+    ) -> Self {
+        let directory = tempfile::tempdir().unwrap();
         let payload: &'static [u8] = b"published remote platform executable";
         let digest = format!("{:x}", Sha256::digest(payload));
         let artifacts = directory.path().join("app/cmux-tui-ssh");
         fs::create_dir_all(&artifacts).unwrap();
-        fs::write(directory.path().join("app/cmux-tui"), b"local executable must not be uploaded")
-            .unwrap();
+        fs::write(directory.path().join("app/cmux-tui"), client).unwrap();
         fs::write(
             artifacts.join("manifest.json"),
             serde_json::to_vec(&serde_json::json!({
@@ -212,6 +226,88 @@ esac
         names.sort();
         names
     }
+}
+
+const CPU_TYPE_X86_64: u32 = 0x0100_0007;
+const CPU_TYPE_ARM64: u32 = 0x0100_000c;
+
+/// A minimal single-architecture Mach-O: the 64-bit magic, the CPU type, a body.
+fn thin_macho(cpu: u32, body: &[u8]) -> Vec<u8> {
+    let mut bytes = 0xfeed_facf_u32.to_le_bytes().to_vec();
+    bytes.extend(cpu.to_le_bytes());
+    bytes.extend(body);
+    bytes
+}
+
+/// A universal binary holding `slices`, each aligned to 4 KiB like lipo's output.
+fn fat_macho(slices: &[(u32, &[u8])]) -> Vec<u8> {
+    let mut header = 0xcafe_babe_u32.to_be_bytes().to_vec();
+    header.extend(u32::try_from(slices.len()).unwrap().to_be_bytes());
+    let mut body = Vec::new();
+    for (cpu, slice) in slices {
+        let offset = 4096 * (1 + body.len().div_ceil(4096));
+        body.resize(offset - 4096, 0);
+        for field in
+            [*cpu, 0, u32::try_from(offset).unwrap(), u32::try_from(slice.len()).unwrap(), 12]
+        {
+            header.extend(field.to_be_bytes());
+        }
+        body.extend(*slice);
+    }
+    header.resize(4096, 0);
+    header.extend(body);
+    header
+}
+
+#[tokio::test]
+async fn ssh_macos_payload_is_the_matching_slice_of_the_universal_client() {
+    let arm64 = thin_macho(CPU_TYPE_ARM64, b"arm64 slice of this signed client");
+    let x86_64 = thin_macho(CPU_TYPE_X86_64, b"x86_64 slice of this signed client");
+    let fixture = OnDemandFixture::macos_remote(&fat_macho(&[
+        (CPU_TYPE_X86_64, &x86_64),
+        (CPU_TYPE_ARM64, &arm64),
+    ]));
+    // Nothing is published: only the client itself can serve the macOS host,
+    // and only its arm64 slice is uploaded.
+    for host in ["first", "second"] {
+        let (config, installed, _) = fixture.host(host);
+        assert_eq!(
+            SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+            BootstrapOutcome::Installed
+        );
+        assert_eq!(fs::read(&installed).unwrap(), arm64);
+    }
+    assert_eq!(
+        fixture.cached_files(),
+        vec![format!("{:x}-cmux-tui-aarch64-apple-darwin", Sha256::digest(&arm64))]
+    );
+}
+
+#[tokio::test]
+async fn ssh_macos_payload_is_the_client_itself_when_it_matches_the_remote() {
+    let client = thin_macho(CPU_TYPE_ARM64, b"Apple silicon client");
+    let fixture = OnDemandFixture::macos_remote(&client);
+    let (config, installed, _) = fixture.host("native");
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&installed).unwrap(), client);
+    assert!(fixture.cached_files().is_empty(), "{:?}", fixture.cached_files());
+}
+
+#[tokio::test]
+async fn ssh_macos_payload_downloads_an_architecture_the_client_lacks() {
+    // An Intel-only app connecting to an Apple silicon Mac fetches the pinned
+    // published build, as for Linux hosts.
+    let fixture = OnDemandFixture::macos_remote(&thin_macho(CPU_TYPE_X86_64, b"Intel-only client"));
+    fixture.publish(fixture.payload);
+    let (config, installed, _) = fixture.host("other-arch");
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&installed).unwrap(), fixture.payload);
 }
 
 #[tokio::test]
