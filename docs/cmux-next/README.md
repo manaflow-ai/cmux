@@ -65,10 +65,10 @@ older one can't read.
 
 In cmux-next, open the command palette (⇧⌘P) and run **Import Workspaces from Classic cmux**, or
 run `cmux workspace import-classic`. It reads classic's last saved session without changing it and
-opens its workspaces, with their splits and tabs. Claude Code and Codex chats come back as chats that
-resume their session. A toast says what came over and what stayed in classic.
-[classic-to-next.md](classic-to-next.md) lists what comes over, and has an agent playbook for
-choosing workspaces or bringing launch commands too.
+opens its workspaces with their panes and tabs. A terminal that ran Claude Code or Codex usually
+comes back as a chat that resumes its session. A toast says when it's done and what stayed in
+classic. [classic-to-next.md](classic-to-next.md) lists exactly what comes over, and has an agent
+playbook for choosing workspaces or bringing launch commands too.
 
 ## Moving between two cmux-next builds
 
