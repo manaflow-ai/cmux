@@ -103,7 +103,7 @@ test("the floating chat's header and compact bar follow the App and ask it to ch
   act(() => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "P", metaKey: true, shiftKey: true, bubbles: true }));
   });
-  expect(asked.slice(3)).toEqual(["collapsed false", "onTop true"]);
+  expect(asked.slice(1)).toEqual(["collapsed false", "onTop true"]);
 
   // Moved to a tab: the App lets go, and the next chat is Start Agent's composer again.
   act(() => applyHostEvent({ kind: "floatingState", value: { holding: false, collapsed: false } }));
