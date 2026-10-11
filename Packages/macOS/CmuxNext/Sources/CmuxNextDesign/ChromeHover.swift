@@ -73,7 +73,7 @@ public final class ChromeHover {
     /// `hoverOut` as the fill clears (instant by default, so a fast sweep
     /// leaves no trail); `hover`, a fast ease, as it shows or eases back from
     /// a press.
-    public static func fade(to color: CGColor?, pressed: Bool = false) -> MotionFade? {
+    static func fade(to color: CGColor?, pressed: Bool = false) -> MotionFade? {
         fade(showing: (color?.alpha ?? 0) > 0, pressed: pressed)
     }
 
@@ -97,11 +97,15 @@ public final class ChromeHover {
             Motion.transaction(nil) { layer.backgroundColor = target }
             return
         }
-        // Fade to or from the same color at alpha 0, not to black, starting
-        // from what is on screen so a reversal mid-fade never jumps.
-        let clear = (color ?? layer.backgroundColor.flatMap(NSColor.init(cgColor:)) ?? .clear).withAlphaComponent(0).cgColor
-        let start = layer.presentation()?.backgroundColor ?? layer.backgroundColor ?? clear
-        Motion.set(layer, "backgroundColor", to: target ?? clear, fade: token, from: start)
+        // Fade to or from the same color at alpha 0, not to black (a `.clear`
+        // rest color is black at alpha 0), starting from what is on screen so
+        // a reversal mid-fade never jumps.
+        let onScreen = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        let hue = [target, onScreen, layer.backgroundColor].compactMap { $0 }.first { $0.alpha > 0 }
+        let clear = hue?.copy(alpha: 0) ?? NSColor.clear.cgColor
+        let end = target.flatMap { $0.alpha > 0 ? $0 : nil } ?? clear
+        let start = onScreen.flatMap { $0.alpha > 0 ? $0 : nil } ?? clear
+        Motion.set(layer, "backgroundColor", to: end, fade: token, from: start)
     }
 
     /// The fill as drawn now (model value), and where it is drawn.

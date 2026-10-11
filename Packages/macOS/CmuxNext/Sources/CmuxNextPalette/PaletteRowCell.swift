@@ -71,6 +71,7 @@ final class PaletteTableRowView: NSTableRowView {
         fill.cornerRadius = PaletteLayout.rowCornerRadius
         fill.cornerCurve = .continuous
         fill.actions = ["bounds": NSNull(), "position": NSNull()]
+        fill.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.insertSublayer(fill, at: 0)
     }
 

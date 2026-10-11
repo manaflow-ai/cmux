@@ -23,7 +23,7 @@ final class TabCell {
         }
     }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
-    var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
+    var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab has no fill.
@@ -216,10 +216,14 @@ final class TabCell {
         updateColors(animated: true)
     }
 
-    func updateColors(animated: Bool) {
-        let token = animated ? ChromeHover.fade(showing: isLifted || fillsSelection || isHovered) : nil
+    /// `showing` is whether the fill that changed shows: the tab's by
+    /// default, the close button's for its own hover.
+    func updateColors(animated: Bool, showing: Bool? = nil) {
+        let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isHovered)) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.duration) ?? 0) == 0 { backgroundLayer.removeAnimation(forKey: "backgroundColor") }
+        if (token.map(Motion.duration) ?? 0) == 0 {
+            for layer in [backgroundLayer, closeBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
+        }
         Motion.transaction(token) { applyColors() }
     }
 
