@@ -53,9 +53,13 @@ enum PaneTabBar {
     }
 
     /// The pane's kind for its default: agent chats only, browsers only
-    /// (New Tab pages count as neither), anything else a terminal pane.
+    /// (New Tab pages count as neither beside other tabs), anything else a
+    /// terminal pane. A pane of New Tab pages only is an agent pane: the page
+    /// is the chat it becomes, so its tab bar never changes on the first send
+    /// (cx-ncc.58).
     static func kind(_ tabs: [(isChat: Bool, isBrowser: Bool, isPage: Bool)]) -> PaneTabBarKind {
         let held = tabs.filter { !$0.isPage }
+        if held.isEmpty, !tabs.isEmpty { return .agent }
         if !held.isEmpty, held.allSatisfy({ $0.isChat }) { return .agent }
         if !held.isEmpty, held.allSatisfy({ $0.isBrowser && !$0.isChat }) { return .browser }
         return .terminal
