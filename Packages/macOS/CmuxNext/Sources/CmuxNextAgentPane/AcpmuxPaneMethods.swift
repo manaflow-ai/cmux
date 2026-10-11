@@ -27,8 +27,9 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
-        // Withdraw a queued prompt of a session in the pane's scope (direct.ts removeQueued).
-        "_acpmux/queue_remove",
+        // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
+        // removeQueued, editQueued).
+        "_acpmux/queue_remove", "_acpmux/queue_edit",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -168,7 +169,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
