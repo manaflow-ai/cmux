@@ -22,6 +22,9 @@ final class ChatsFeed {
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
     private var requestID = 2
+    /// The seq of the last index change in the mirror (acpmux numbers every change; the page
+    /// names the last one it holds). Nil from a daemon that does not number them.
+    private var seq: UInt64?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-chats")
 
@@ -72,9 +75,10 @@ final class ChatsFeed {
 
     /// One decoded line of the watch.
     nonisolated enum Message: Sendable {
-        /// A page response: the whole mirror, sorted off the main actor.
-        case page(store: AcpmuxChatsStore, ready: Bool, enabled: Bool)
-        case change(AcpmuxChatsStore.Change)
+        /// A page response: the whole mirror, decoded off the main actor in acpmux's order.
+        case page(store: AcpmuxChatsStore, ready: Bool, enabled: Bool, seq: UInt64?)
+        /// One index change and its seq (nil for activity, which is not an index change).
+        case change(AcpmuxChatsStore.Change, seq: UInt64?)
         case lagged
 
         init?(line: Data) {
@@ -83,13 +87,15 @@ final class ChatsFeed {
                let result = message["result"] as? [String: Any] {
                 var store = AcpmuxChatsStore()
                 store.reset(result)
-                self = .page(store: store, ready: result["ready"] as? Bool ?? false, enabled: result["enabled"] as? Bool ?? true)
+                self = .page(store: store, ready: result["ready"] as? Bool ?? false, enabled: result["enabled"] as? Bool ?? true,
+                             seq: (result["seq"] as? NSNumber)?.uint64Value)
                 return
             }
             switch message["method"] as? String {
             case "_acpmux/chat_changed":
-                guard let change = (message["params"] as? [String: Any]).flatMap(AcpmuxChatsStore.change(from:)) else { return nil }
-                self = .change(change)
+                let params = message["params"] as? [String: Any]
+                guard let change = params.flatMap(AcpmuxChatsStore.change(from:)) else { return nil }
+                self = .change(change, seq: (params?["seq"] as? NSNumber)?.uint64Value)
             case "_acpmux/chats_lagged":
                 self = .lagged
             default:
@@ -122,14 +128,25 @@ final class ChatsFeed {
         var lagged = false
         for message in drain.values {
             switch message {
-            case .page(let page, let ready, let enabled):
+            case .page(let page, let ready, let enabled, let pageSeq):
+                // A change numbered past the page reached us before it (the page was read
+                // first, its line came later): that change is not in it, so list again.
+                let stale = pageSeq.map { pageSeq in seq.map { $0 > pageSeq } ?? false } ?? false
                 store = page
+                seq = pageSeq
                 isReady = ready
                 isEnabled = enabled
                 backoff.reset()
-                lagged = false
+                lagged = stale
                 changed = true
-            case .change(let change):
+            case .change(let change, let changeSeq):
+                if let changeSeq, let last = seq {
+                    // At or below the mirror's seq: the page already holds it.
+                    if changeSeq <= last { continue }
+                    // A jump: a change was lost; list again (the page brings it).
+                    if changeSeq != last + 1 { lagged = true }
+                    seq = changeSeq
+                }
                 store.apply(change)
                 changed = true
             case .lagged:
@@ -161,6 +178,7 @@ final class ChatsFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
+        seq = nil // a restarted daemon numbers from 0 again
         reconnect?.cancel()
         reconnect = Task { [weak self] in
             guard var backoff = self?.backoff else { return }
