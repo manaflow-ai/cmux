@@ -35,12 +35,6 @@ nonisolated public struct BundledWhatsNewSource: WhatsNewSource {
         var versions: [String]
     }
 
-    /// Where a bundled media path resolves (`media/<version>/<file>`).
-    public func mediaURL(_ path: String) -> URL? {
-        guard WhatsNewDocument.Media.isSafe(path), let directory else { return nil }
-        return directory.appending(path: path)
-    }
-
     public func documents(after: WhatsNewVersion?, through: WhatsNewVersion) async -> [WhatsNewDocument] {
         await read(after: after, through: through)
     }

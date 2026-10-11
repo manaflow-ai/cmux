@@ -54,14 +54,7 @@ nonisolated extension CloudHomeSource {
     }
 
     #if DEBUG
-    /// Conversations queued for or in a hydration read (tests).
-    var queuedHydrations: Int { state.withLock { $0.hydrating.count } }
 
-    /// Runs `seam` inside every later `snapshot(of:)`, between marking the
-    /// conversation viewed and subscribing it (tests).
-    func setSnapshotWillSubscribe(_ seam: (@Sendable () async -> Void)?) {
-        state.withLock { $0.snapshotWillSubscribe = seam }
-    }
     #endif
 
     /// The cloud part of the inbox as this source knows it now (no read).

@@ -41,17 +41,4 @@ struct RoomMembership: Equatable, Sendable {
     mutating func pin(_ workspace: Workspace, to room: ProfileID) {
         pins[workspace] = room
     }
-
-    /// A room left the list: its pins go to `target`, or are removed (the
-    /// workspaces return to their followers); it stops following.
-    mutating func removeRoom(_ room: ProfileID, movingPinsTo target: ProfileID?) {
-        follows[room] = nil
-        for (workspace, pinned) in pins where pinned == room { pins[workspace] = target }
-    }
-
-    /// Membership for a daemon that has no personal state yet (before the
-    /// home session serves rules): `default` follows every session.
-    static func followingAll(_ sessions: [String]) -> RoomMembership {
-        RoomMembership(follows: [.defaultProfile: Set(sessions)])
-    }
 }
