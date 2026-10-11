@@ -69,8 +69,8 @@ final class PaletteActionsMenuView: NSView {
         let inset = Metrics.space2
         let padding = PaletteLayout.horizontalPadding
         var y = Metrics.space4
-        let titleHeight = title.intrinsicContentSize.height
-        title.frame = NSRect(x: padding, y: y, width: bounds.width - 2 * padding, height: titleHeight)
+        let titleHeight = PaletteText.height(title)
+        title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: bounds.width - 2 * padding, height: titleHeight))
         y = Metrics.space4 + PaletteLayout.headerRowHeight
         for row in rowViews {
             row.frame = NSRect(x: inset, y: y, width: bounds.width - 2 * inset, height: PaletteLayout.actionsMenuRowHeight)
@@ -80,9 +80,9 @@ final class PaletteActionsMenuView: NSView {
         separator.frame = NSRect(x: 0, y: y, width: bounds.width, height: Metrics.dividerThickness)
         applyColors()
         y += Metrics.dividerThickness
-        let filterHeight = filter.intrinsicContentSize.height
-        filter.frame = NSRect(x: padding, y: y + (PaletteLayout.actionsMenuRowHeight - filterHeight) / 2,
-                              width: bounds.width - 2 * padding, height: filterHeight)
+        let filterHeight = PaletteText.height(filter)
+        filter.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.actionsMenuRowHeight - filterHeight) / 2,
+                                                   width: bounds.width - 2 * padding, height: filterHeight))
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -157,12 +157,12 @@ final class PaletteMenuRow: NSView {
         if !keys.isHidden {
             let size = keys.intrinsicContentSize
             right -= size.width
-            keys.frame = NSRect(x: right, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+            keys.frame = pixelAligned(NSRect(x: right, y: (bounds.height - size.height) / 2, width: size.width, height: size.height))
             right -= Metrics.space4
         }
         let x = icon.frame.maxX + Metrics.space4
-        let height = label.intrinsicContentSize.height
-        label.frame = NSRect(x: x, y: (bounds.height - height) / 2, width: max(0, right - x), height: height)
+        let height = PaletteText.height(label)
+        label.frame = pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: max(0, right - x), height: height))
     }
 }
 

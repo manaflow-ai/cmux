@@ -2,7 +2,9 @@
 //! over a real headless daemon socket (cx-59n8.2): a thread reply carries
 //! `thread_root` in its event, in history and in the snapshot; a reply into
 //! a reply is refused; and a send moves only the sender's own read cursor,
-//! so no client counts its own messages as unread.
+//! so no client counts its own messages as unread, and only when the sender
+//! had read everything before it (cx-59n8.4): a sender behind keeps its
+//! cursor, so a message it has not read stays unread to it.
 
 use super::*;
 use serde_json::{Value, json};
@@ -137,7 +139,13 @@ fn thread_replies_carry_thread_root_and_a_send_reads_only_for_its_sender() {
     assert_eq!(unread(&mut home, &conversation, "user_local"), 0, "my own message is unread");
     assert_eq!(unread(&mut home, &conversation, "agent_mux"), 1);
 
-    // B replies in the thread: the event carries thread_root.
+    // B reads the root, then replies in the thread: the event carries thread_root.
+    let read = agent.reply(
+        "conversation-op",
+        json!({"conversation": conversation, "idempotency_key": "read-1",
+               "op": {"kind": "read_cursor.set", "seq": 1}}),
+    );
+    assert_eq!(read["ok"], true, "{read}");
     let reply = send(&mut agent, &conversation, "reply-1", "in thread", Some(&root_id));
     assert_eq!(reply["ok"], true, "{reply}");
     let reply_event = home.message_event();
@@ -168,4 +176,15 @@ fn thread_replies_carry_thread_root_and_a_send_reads_only_for_its_sender() {
         assert!(messages[0].get("thread_root").is_none(), "{:?}", messages[0]);
         assert_eq!(messages[1]["thread_root"], json!(root_id), "{:?}", messages[1]);
     }
+
+    // A is behind (B's reply is unread to A): A's send keeps A's cursor, so
+    // B's reply stays unread to A.
+    let behind = send(&mut home, &conversation, "behind-1", "late", None);
+    assert_eq!(behind["ok"], true, "{behind}");
+    home.message_event();
+    assert_eq!(
+        unread(&mut home, &conversation, "user_local"),
+        2,
+        "a sender behind keeps its cursor"
+    );
 }

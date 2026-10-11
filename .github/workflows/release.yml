@@ -90,6 +90,46 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # A release bundles the cmux-tui of its own commit (cx-urd.9.1), as
+  # nightly-next does: the daemon published for this commit's cmux-tui tree
+  # (pin-cmux-tui.sh resolve-exact; the publishing commit may be an older
+  # commit with the same tree key, its attested manifest carries the same
+  # sha256). Every pushed branch's cmux-tui-artifacts run publishes its head's
+  # tree, so a tag cut from a pushed commit is normally published already. An
+  # unpublished tree waits up to CMUX_TUI_TREE_WAIT_SECONDS, then fails with
+  # the publish command; a release never ships another commit's daemon.
+  resolve-release-cmux-tui-client:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    timeout-minutes: 55
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+      key: ${{ steps.resolve.outputs.key }}
+      source_commit: ${{ steps.resolve.outputs.source_commit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Resolve this commit's cmux-tui client
+        id: resolve
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Prints commit=, key=, source_commit= (this commit), tip_key=, behind=0
+          # and behind_hours=0 lines and writes them to the step summary.
+          resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          printf '%s\n' "$resolved"
+          grep -Eq '^commit=[0-9a-f]{40}$' <<<"$resolved"
+          grep -Eq '^key=[0-9a-f]{40}$' <<<"$resolved"
+          grep -Fxq "source_commit=$RELEASE_SHA" <<<"$resolved"
+          printf '%s\n' "$resolved" >> "$GITHUB_OUTPUT"
+
   build-sign-notarize:
     permissions:
       contents: write
@@ -98,7 +138,7 @@ jobs:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
-    needs: build-ghostty-cli-helper
+    needs: [build-ghostty-cli-helper, resolve-release-cmux-tui-client]
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
@@ -303,6 +343,21 @@ jobs:
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
+      # THIRD_PARTY_LICENSES.md for exactly what this release bundles: the
+      # daemon, app host and Cloud server come from this commit's cmux-tui tree
+      # (resolve-release-cmux-tui-client), so the notices do too, with exact
+      # closures from `cargo tree` (build-acpmux.sh needs cargo on this runner).
+      # The Release build copies the regenerated file; verify-app-bundle-licenses.sh
+      # checks the signed bundle against scripts/cmux-next/notices/bundle-map.json.
+      - name: Generate third-party notices (this commit's cmux-tui)
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -384,15 +439,17 @@ jobs:
           # install-cmux-tui-client.sh verifies the manifest's build-provenance
           # attestation with gh before trusting it.
           GH_TOKEN: ${{ github.token }}
+          CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-release-cmux-tui-client.outputs.commit }}
+          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-release-cmux-tui-client.outputs.key }}
         run: |
           set -euo pipefail
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
-          # A release bundles the universal client of the cmux-tui commit the app
-          # was built and tested against (scripts/cmux-next/cmux-tui.pin) or fails.
-          cmux_tui_commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
-          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
+          # A release bundles the universal client of its own commit's cmux-tui
+          # tree (resolve-release-cmux-tui-client) or fails.
+          cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
+          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-release-cmux-tui-client produced no commit" >&2; exit 1; }
           ./scripts/install-cmux-tui-client.sh \
             build-universal/Build/Products/Release/cmux.app \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
@@ -400,8 +457,8 @@ jobs:
             --require-capability wireguard-hub \
             --require-acpmux
           ./scripts/cmux-next/write-cmux-tui-version.sh \
-            build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit"
-          # The pinned daemon must serve every capability the app relies on.
+            build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
+          # The bundled daemon must serve every capability the app relies on.
           ./scripts/cmux-next/check-daemon-capabilities.sh \
             --binary build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui
 

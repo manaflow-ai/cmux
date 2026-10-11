@@ -54,9 +54,51 @@ struct PaneArrival: Equatable {
         let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
         let added = after.keys.filter { before[$0] == nil }
         guard added.count == 1, before.keys.allSatisfy({ after[$0] != nil }), let pane = added.first, let target = after[pane],
-              var arrival = of(target: target, previous: before, next: after) else { return [:] }
+              var arrival = of(target: target, previous: before, next: after) ?? docking(pane, target: target, from: old, to: new)
+        else { return [:] }
         if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
         return [pane: arrival]
+    }
+
+    /// A close (an unsplit): panes only went away, and every pane left grows
+    /// over the space they gave up from where it was, nothing moving across.
+    /// It then springs like a split in reverse instead of snapping. A strip
+    /// column closed mid-strip slides its neighbors along, so it still snaps.
+    static func closing(_ previous: [PaneID: CGRect], from old: ScreenGeometry, to new: ScreenGeometry, offset: CGFloat) -> Bool {
+        let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
+        guard !after.isEmpty, after.count < before.count else { return false }
+        return after.allSatisfy { pane, rect in
+            guard let was = before[pane] else { return false }
+            return rect.insetBy(dx: -1, dy: -1).contains(was)
+        }
+    }
+
+    /// A pane opening a new docked column where no one pane gave up the
+    /// space (the strip reflows its columns around it): it grows in from the
+    /// screen edge the column docks to, and the strip springs aside with it.
+    /// Overlay columns float on glass that does not grow, so they land in place.
+    static func docking(_ pane: PaneID, target: CGRect, from old: ScreenGeometry, to new: ScreenGeometry) -> PaneArrival? {
+        // Only a column the new pane opens alone: a pane moved in beside it would fly in unlinked.
+        guard let entry = new.dockFrame(containing: pane), entry.dock.mode != .overlay,
+              !old.dock.contains(where: { $0.column == entry.column }),
+              new.fixedPanes.allSatisfy({ $0 == pane || new.dockFrame(containing: $0)?.column != entry.column }) else { return nil }
+        if target.maxX <= new.clipMinX + 1 {
+            return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: 0, height: target.height),
+                               edgeOffset: CGVector(dx: -target.width, dy: 0))
+        }
+        if target.minX >= new.clipMaxX - 1 {
+            return PaneArrival(seed: CGRect(x: target.maxX, y: target.minY, width: 0, height: target.height),
+                               edgeOffset: CGVector(dx: target.width, dy: 0))
+        }
+        if target.maxY <= new.clipMinY + 1 {
+            return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: target.width, height: 0),
+                               edgeOffset: CGVector(dx: 0, dy: -target.height))
+        }
+        if target.minY >= new.clipMaxY - 1 {
+            return PaneArrival(seed: CGRect(x: target.minX, y: target.maxY, width: target.width, height: 0),
+                               edgeOffset: CGVector(dx: 0, dy: target.height))
+        }
+        return nil
     }
 
     private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {
@@ -98,13 +140,19 @@ struct PaneArrival: Equatable {
         arrivals.isEmpty ? [] : Set(new.dock.map(\.column)).subtracting(old.dock.map(\.column))
     }
 
-    /// The frames of the docked panes of `arriving` inside one of the new dock columns `docks`.
+    /// The frames that move the strip's clip and covers while a new dock column (`docks`) grows
+    /// in: one per docked column, the new columns' arriving pane and any dock still springing to
+    /// its new size (a second dock shrinks the first, both sharing the width), so the strip never
+    /// shows past a dock's moving edge.
     static func growing(_ arriving: Set<PaneID>, frames: [PaneID: AnimatedFrame], in geometry: ScreenGeometry,
                         docks: Set<ColumnID>) -> [AnimatedFrame] {
-        let fresh = geometry.dock.filter { docks.contains($0.column) }
-        guard !fresh.isEmpty else { return [] }
-        return arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { frames[$0] }
-            .filter { frame in fresh.contains { $0.frame.intersects(frame.targetRect) } }
+        guard geometry.dock.contains(where: { docks.contains($0.column) }) else { return [] }
+        var moving: [ColumnID: AnimatedFrame] = [:]
+        for pane in geometry.fixedPanes {
+            guard let frame = frames[pane], let column = geometry.dockFrame(containing: pane)?.column, moving[column] == nil else { continue }
+            if docks.contains(column) ? arriving.contains(pane) : frame.rect != frame.targetRect { moving[column] = frame }
+        }
+        return Array(moving.values)
     }
 
     /// What each docked column hides of the strip, its inner edge moved with

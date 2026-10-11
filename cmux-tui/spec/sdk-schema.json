@@ -1409,6 +1409,15 @@
      "nullable": true,
      "since": 9
     },
+    "terminal_host_fallback": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason."
+    },
     "short_id": {
      "type": {
       "kind": "scalar",
@@ -25363,6 +25372,47 @@
     "additional_properties": false
    }
   },
+  "history-changed": {
+   "since": 12,
+   "capability": "history-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "history-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "conversation-changed": {
    "since": 12,
    "capability": "local-conversations-v1",
@@ -25455,6 +25505,52 @@
       "type": {
        "kind": "scalar",
        "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "conversation-draft": {
+   "since": 12,
+   "capability": "conversation-draft-events-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-draft"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "item": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
       },
       "presence": "required",
       "nullable": false

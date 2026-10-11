@@ -114,6 +114,7 @@ export const Message = Schema.Struct({
   author: ParticipantId,
   parts: Schema.Array(Part),
   reply_to: Schema.optionalKey(PartRef),
+  thread_root: Schema.optionalKey(MessageId),
   created_at: Timestamp,
   edited_at: Schema.optionalKey(Timestamp),
   retracted_at: Schema.optionalKey(Timestamp),

@@ -62,6 +62,9 @@ export type SwitchPort = {
   prewarm(harness: string, cwd?: string): void;
   /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
   prewarmSupported(): boolean;
+  /// A new chat starts only with its first send (a chat on another machine, cx-k21v): a pick
+  /// before it is remembered, and the send starts the session.
+  startsOnSend?(): boolean;
 };
 
 /// Injected time, so the debounce is testable and the store never keeps a timer while idle.
@@ -208,6 +211,13 @@ export class HarnessSwitch {
   connect(port: SwitchPort): void {
     this.port = port;
     const intent = this.intent;
+    // A chat on another machine whose start answered on a connection that dropped: the new
+    // connection already shows that chat (empty, same agent), so the switch takes it instead of
+    // starting again, which the machine refuses (a false failure, cx-k21v).
+    if (intent && !intent.sessionId && port.startsOnSend?.()) {
+      const shown = port.shown();
+      if (shown?.empty && (!shown.harness || shown.harness === intent.harness)) intent.sessionId = shown.sessionId;
+    }
     if (intent && intent.phase !== "failed" && intent.phase !== "trust" && !intent.running) void this.run(intent);
   }
   /// The connection dropped: whatever was in flight runs again on the next client.
@@ -297,7 +307,7 @@ export class HarnessSwitch {
       this.port?.leave();
     }
     this.changed();
-    if (intent.sessionId && !intent.running) void this.run(intent);
+    if ((intent.sessionId || this.port?.startsOnSend?.()) && !intent.running) void this.run(intent);
     return promise;
   }
 
@@ -459,8 +469,10 @@ export class HarnessSwitch {
   private async run(intent: Intent): Promise<void> {
     const port = this.port;
     if (!port || intent.running) return;
-    intent.running = port;
     let sessionId = intent.sessionId;
+    // A chat on another machine starts with the first send, never with a pick (cx-k21v).
+    if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
+    intent.running = port;
     if (!sessionId) {
       try {
         sessionId = await port.create(intent.harness, intent.cwd);

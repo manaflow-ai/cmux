@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce. */
+/* cmux-tui mux protocol 12, IR 0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8. */
 
 
 import type * as T from "./types.js";
@@ -178,6 +178,13 @@ export type ConversationChangedEvent = { event: "conversation-changed" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationDraftEvent = { event: "conversation-draft" } & {
+  "conversation": string;
+  "item": T.JsonValue;
+  "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationTypingEvent = { event: "conversation-typing" } & {
   "conversation": string;
   "on": boolean;
@@ -230,6 +237,12 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
   "remaining"?: bigint;
   "retry_exhausted"?: boolean;
   "summary"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type HistoryChangedEvent = { event: "history-changed" } & {
+  "kinds": Array<string>;
+  "revision": bigint;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
@@ -615,6 +628,7 @@ export type KnownCmuxEvent =
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -622,6 +636,7 @@ export type KnownCmuxEvent =
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -689,10 +704,12 @@ export type KnownSubscribeEvent =
   | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent

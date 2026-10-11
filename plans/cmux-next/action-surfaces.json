@@ -7071,6 +7071,33 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab restart",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.restart",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Restart Shell Here",
+      "title_key" : "action.tab.restart",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app show-tab",
       "context_menu" : "focusMove",
       "context_menus" : [
@@ -12727,6 +12754,33 @@
       "palette_suggested" : null,
       "title" : "Open Link in Default Browser",
       "title_key" : "action.openLinkInDefaultBrowser",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-print",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserPrint",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Print…",
+      "title_key" : "action.browserPrint",
       "title_table" : "ActionCatalog"
     },
     {
@@ -23138,7 +23192,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != page && !codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -23170,7 +23234,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != page && !codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -26930,7 +27004,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.addPage",
+          "id" : "browserPrint",
           "kind" : "action",
           "order" : 10,
           "visible_when" : {
@@ -26947,9 +27021,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "toggleBrowserDeveloperTools",
+          "id" : "bookmark.addPage",
           "kind" : "action",
           "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "browserFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 13
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "toggleBrowserDeveloperTools",
+          "kind" : "action",
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27258,7 +27349,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 13,
+          "order" : 15,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
@@ -31028,7 +31119,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.toRight",
+          "id" : "tab.restart",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -31041,7 +31132,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "duplicateTab",
+          "id" : "newTab.toRight",
           "kind" : "action",
           "order" : 1,
           "visible_when" : {
@@ -31085,6 +31176,19 @@
               "id" : "openBrowser.chromium",
               "kind" : "action",
               "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "duplicateTab",
+              "kind" : "action",
+              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

@@ -14,15 +14,18 @@ extension ReleaseNotesStore: ChangelogSource {}
 /// The owner side of the changelog page (`cmux.changelog.*`, R114), read only:
 /// `list` (recent builds, newest first, and the running build) and `get {build}`
 /// (one build's verified notes). A highlight's action survives only when it is
-/// in ``PageDescriptor/changelogTryItActions``.
+/// in ``PageDescriptor/changelogTryItActions``. Media arrive inlined (``ReleaseMediaStore``).
 @MainActor
 final class ChangelogPageProvider: PageProvider {
     private let source: (any ChangelogSource)?
     private let currentBuild: String
+    /// Inlines checked release media as `data:` URLs (the page's CSP admits no remote image).
+    private let media: ReleaseMediaStore?
 
-    init(source: (any ChangelogSource)?, currentBuild: String) {
+    init(source: (any ChangelogSource)?, currentBuild: String, media: ReleaseMediaStore? = nil) {
         self.source = source
         self.currentBuild = currentBuild
+        self.media = media
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -35,6 +38,7 @@ final class ChangelogPageProvider: PageProvider {
             guard var notes = await source?.notes(for: build) else {
                 throw PageError(code: "cmux.changelog.not_found", message: "No verified notes for this build", retryable: true)
             }
+            if let media { notes = await media.inlined(notes) }
             notes.highlights = notes.highlights.map { highlight in
                 var highlight = highlight
                 if let action = highlight.action, !PageDescriptor.changelogTryItActions.contains(action.id) { highlight.action = nil }

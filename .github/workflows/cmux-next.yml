@@ -813,6 +813,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
 
+      - name: No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+        id: no-swift-closed-history
+        continue-on-error: true
+        run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -888,6 +893,7 @@ jobs:
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
+          bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
           bash scripts/cmux-next/tests/continue-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
@@ -900,6 +906,7 @@ jobs:
           bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
           bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
+          bash scripts/cmux-next/tests/app-capability-references.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
@@ -1050,6 +1057,7 @@ jobs:
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+            ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center

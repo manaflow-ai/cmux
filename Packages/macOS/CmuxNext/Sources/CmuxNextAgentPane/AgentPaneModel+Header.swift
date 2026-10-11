@@ -18,6 +18,9 @@ public struct AgentPaneHeaderHooks {
     public var preview: @MainActor (String?, Bool) -> Void
     /// The right-click menu's quick actions, saved to `agent-pane/layout.json`; whether they were.
     public var saveQuickActions: @MainActor ([AgentPaneQuickAction]) async -> Bool
+    /// The "..." menu's Move to Floating Chat (cx-b9qi): Start Agent's panel holds session `id` and
+    /// the tab closes; false when it could not (the floating chat is off).
+    public var moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -25,7 +28,8 @@ public struct AgentPaneHeaderHooks {
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
-                saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil) {
+                saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
+                moveToFloatingChat: (@MainActor (String) -> Bool)? = nil) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -33,6 +37,20 @@ public struct AgentPaneHeaderHooks {
         self.sideTabs = sideTabs
         self.preview = preview
         self.saveQuickActions = saveQuickActions ?? { _ in false }
+        self.moveToFloatingChat = moveToFloatingChat
+    }
+
+    /// The "..." menu's Move to Floating Chat (`pane.action {id: "floatingChat"}`).
+    static let floatingChatAction = "floatingChat"
+
+    /// The header's `pane.action` ids that are not app actions on its tab, for chat `session` (nil:
+    /// the New Tab page): Move to Floating Chat. Nil for any other id.
+    @MainActor func respond(toOther id: String, session: String?) -> [String: Any]? {
+        guard id == Self.floatingChatAction else { return nil }
+        guard let session, let moveToFloatingChat, moveToFloatingChat(session) else {
+            return AgentPaneReply.failure(code: "unavailable", message: "The floating chat is off")
+        }
+        return AgentPaneReply.success()
     }
 }
 
@@ -71,7 +89,7 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
-                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
+                return header?.respond(toOther: id, session: newTab == nil ? sessionId : nil) ?? AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
             // The Terminal split names the chat's folder; agent-home is the chat's only.
             let folder = folderForOtherTabs(cwd)

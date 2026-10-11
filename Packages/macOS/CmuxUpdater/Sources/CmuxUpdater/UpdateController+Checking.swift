@@ -226,6 +226,11 @@ extension UpdateController: UpdateDriverEventDelegate {
             beginCheckWhenReady(pendingCheckIntent)
             return
         }
+        if pendingBackgroundCheck {
+            pendingBackgroundCheck = false
+            checkInBackground()
+            return
+        }
 
         if finishedIntent == .installLatest, attemptCoordinator.isMonitoring {
             switch model.state {

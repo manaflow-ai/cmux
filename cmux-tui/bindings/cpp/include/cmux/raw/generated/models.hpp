@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce";
+inline constexpr std::string_view kProtocolIrSha256 = "0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -511,6 +511,7 @@ struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
+struct ConversationDraftEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
@@ -518,6 +519,7 @@ struct EmptyEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
+struct HistoryChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
@@ -1801,6 +1803,13 @@ struct ConversationCreateResult {
     friend bool operator==(const ConversationCreateResult&, const ConversationCreateResult&) = default;
 };
 
+struct ConversationDraftEvent {
+    std::string conversation{};
+    JsonValue item{};
+    std::string participant{};
+    friend bool operator==(const ConversationDraftEvent&, const ConversationDraftEvent&) = default;
+};
+
 struct ConversationDraftRequest {
     std::string conversation{};
     bool done{};
@@ -2536,6 +2545,12 @@ struct GuestUrlSubscribeResult {
     friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
 };
 
+struct HistoryChangedEvent {
+    std::vector<std::string> kinds{};
+    std::uint64_t revision{};
+    friend bool operator==(const HistoryChangedEvent&, const HistoryChangedEvent&) = default;
+};
+
 struct HistorySearchRange {
     std::uint32_t end{};
     std::uint32_t start{};
@@ -2922,6 +2937,7 @@ struct Tab {
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
     Id surface{};
+    Field<std::string> terminal_host_fallback{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
@@ -8117,6 +8133,12 @@ struct Codec<ConversationChangedEvent> {
 };
 
 template <>
+struct Codec<ConversationDraftEvent> {
+    static Result<Json> encode(const ConversationDraftEvent& value);
+    static Result<ConversationDraftEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationTypingEvent> {
     static Result<Json> encode(const ConversationTypingEvent& value);
     static Result<ConversationTypingEvent> decode(const Json& value);
@@ -8156,6 +8178,12 @@ template <>
 struct Codec<GraphicsStatusEvent> {
     static Result<Json> encode(const GraphicsStatusEvent& value);
     static Result<GraphicsStatusEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<HistoryChangedEvent> {
+    static Result<Json> encode(const HistoryChangedEvent& value);
+    static Result<HistoryChangedEvent> decode(const Json& value);
 };
 
 template <>

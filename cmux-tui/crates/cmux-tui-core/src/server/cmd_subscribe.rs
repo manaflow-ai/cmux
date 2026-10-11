@@ -83,7 +83,29 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
-                MuxEvent::Conversation(event) if event.is_draft() => continue,
+                // A draft goes only to a trusted local connection that asked
+                // for drafts in set-client-info (the admission of
+                // `conversation.events`; old clients never see the event).
+                MuxEvent::Conversation(event) if event.is_draft() => {
+                    let wanted = trusted_pairing_client
+                        && event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
+                        );
+                    match event.as_ref() {
+                        crate::conversation_store::ConversationEvent::Draft {
+                            conversation,
+                            participant,
+                            item,
+                        } if wanted => json!({
+                            "event": "conversation-draft",
+                            "conversation": conversation,
+                            "participant": participant,
+                            "item": item,
+                        }),
+                        _ => continue,
+                    }
+                }
                 MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
                     if !trusted_pairing_client =>
                 {
@@ -268,6 +290,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
+        }),
+        MuxEvent::HistoryChanged { revision, kinds } => json!({
+            "event": "history-changed",
+            "revision": revision,
+            "kinds": kinds,
         }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",

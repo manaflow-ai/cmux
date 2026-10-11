@@ -74,6 +74,7 @@ public final class BookmarkEditBubble: NSObject, NSPopoverDelegate {
         let hosting = NSHostingController(rootView: BookmarkEditView(model: model))
         hosting.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hosting
+        popover.animates = Motion.animatesMovement
         popover.show(relativeTo: CmuxPopoverAnchor.rect(in: anchor), of: anchor,
                      preferredEdge: anchor.isFlipped ? .maxY : .minY)
     }

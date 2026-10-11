@@ -69,7 +69,6 @@ webviews/src/**/generated/strings.json merge=cmux-generated-v1
 plans/cmux-next/action-surfaces.json merge=cmux-generated-v1
 plans/cmux-next/actions.md merge=cmux-generated-v1
 plans/cmux-next/links.json merge=cmux-generated-v1
-plans/cmux-next/daemon-capabilities.json merge=cmux-generated-v1
 schemas/settings/settings-schema.json merge=cmux-generated-v1
 docs/mdm/com.manaflow.cmux.json merge=cmux-generated-v1
 docs/mdm/com.manaflow.cmux.plist merge=cmux-generated-v1
@@ -86,6 +85,13 @@ cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
 cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
+# The daemon capability export (DaemonCapabilityExportTests) is one sorted
+# array per list. Keeping one side whole dropped the other side's new entries
+# on rebases (cx-urd.9.3), so scripts/merge-daemon-capabilities.py merges each
+# list as a set and conflicts only on a capability that ends in two lists.
+# Same trusted registration as xcstrings-v2; an unconfigured clone merges it
+# by line, which conflicts instead of dropping an entry.
+plans/cmux-next/daemon-capabilities.json merge=cmux-capabilities-v1
 # Ratchet baselines list known debt per entry. Keeping one side whole would
 # drop the other side's fixes (style ratchets only warn under their ceiling),
 # so scripts/merge-baseline.py merges entry by entry and writes a conflict only

@@ -13,6 +13,9 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     private let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
     /// The floating chat (cx-b9qi, `QuickComposerPanel+Floating`).
     var holdsChat = false
+    /// Folded to its compact bar; `expandedHeight` is the height it opens back to.
+    var isCollapsed = false
+    var expandedHeight: CGFloat?
     let frames = FloatingChatFrames(defaults: .standard)
     let grip = FloatingChatGrip()
 
@@ -32,7 +35,6 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = true
-        animationBehavior = .utilityWindow
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         setAccessibilityIdentifier("cmux.quickComposer")
@@ -51,6 +53,8 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     override var canBecomeMain: Bool { false }
 
     func present(_ content: NSView, focus: NSView?) {
+        // Read per show: the panel is reused, and motion settings change live.
+        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         if content.superview !== surface.contentView {
             surface.contentView.subviews.forEach { $0.removeFromSuperview() }
             content.frame = surface.contentView.bounds

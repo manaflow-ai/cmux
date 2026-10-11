@@ -24,6 +24,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "end-terminals",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
+    // `server ensure`: private app contract, restore progress lines on stdout.
+    "restore-progress",
     "confirm-close",
     "complete",
     "clear-name",
@@ -88,4 +90,17 @@ pub(super) fn positional_rename(
         ));
     }
     Ok(())
+}
+
+/// A flag whose value must be one of `allowed`.
+pub(super) fn validate_one_of(
+    flag: &str,
+    value: &str,
+    allowed: &[&str],
+) -> Result<(), super::UsageError> {
+    if allowed.contains(&value) {
+        Ok(())
+    } else {
+        Err(super::UsageError::new(format!("{flag} must be one of {}", allowed.join(", "))))
+    }
 }

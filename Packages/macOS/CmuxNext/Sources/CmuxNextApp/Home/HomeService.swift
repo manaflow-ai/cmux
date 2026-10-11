@@ -232,6 +232,11 @@ final class HomeService {
         case .conversationTyping(let typing):
             sessions[typing.conversation]?.setTyping(typing.participant, on: typing.on)
             homeSource.publish(.typing(ConversationID(typing.conversation), ParticipantID(typing.participant), on: typing.on))
+        case .conversationDraft(let draft):
+            homeSource.publish(.draft(HomeDraftUpdate(
+                conversation: ConversationID(draft.conversation), participant: ParticipantID(draft.participant),
+                turn: IdempotencyKey(draft.item.turn), segment: draft.item.segment, seq: draft.item.seq,
+                isTalk: draft.item.kind == "talk", text: draft.item.text, fresh: draft.item.fresh, done: draft.item.done)))
         case .cloudConversations(let event):
             handleCloud(event)
         default:

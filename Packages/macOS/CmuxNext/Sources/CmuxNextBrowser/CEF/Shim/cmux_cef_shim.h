@@ -46,7 +46,8 @@ typedef enum {
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
   CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
-  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, s1 = text, s2 = url
+  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
+                                  // interstitial for it, s1 = text, s2 = url
   CMUX_SHIM_PROGRESS = 11,        // a = progress * 1000
   CMUX_SHIM_FULLSCREEN = 12,      // a = 1 entering
   CMUX_SHIM_DEVTOOLS_RESULT = 13, // request = message id, a = success, s1 = JSON
@@ -313,6 +314,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// File > Print… (CefBrowserHost::Print): Chromium's print preview over the
+// page, as the page's own window.print(). Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
@@ -591,6 +595,13 @@ CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
 // as Chrome does) so the next load verifies the server again. REPLY with
 // `reply` follows once both finished, a = 1. Returns 0 when not started.
 CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int browser_id, int reply);
+// Proceed on the host's certificate warning page. Chromium fails a main-frame
+// load with a certificate error (the host shows its warning) unless this was
+// called for the browser, `host` and error `code` first: that error then
+// continues (Chromium remembers it for the profile), or, with
+// `chromium_decides`, goes to Chromium's own interstitial, which knows
+// whether HSTS allows proceeding. Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int browser_id, const char* host, int code, int chromium_decides);
 CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
 // Renderer processes of a tab (resource hover cards). Writes at most

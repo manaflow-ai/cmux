@@ -60,6 +60,17 @@
     "git.files.list",
     "git.files.search",
     "git.status",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -530,6 +541,12 @@
       ]
     },
     {
+      "name": "history-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "browser-state",
       "streams": [
         "attach-browser"
@@ -580,6 +597,12 @@
     },
     {
       "name": "conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-draft",
       "streams": [
         "subscribe"
       ]

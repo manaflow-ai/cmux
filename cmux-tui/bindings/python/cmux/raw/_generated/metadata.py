@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce'
+IR_SHA256 = '0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8'
 
 
 @dataclass(frozen=True)
@@ -3392,6 +3392,7 @@ EVENTS = {
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
+    'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
@@ -3399,6 +3400,7 @@ EVENTS = {
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
+    'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),

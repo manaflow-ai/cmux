@@ -10,7 +10,7 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
-mod agent_hook_install;
+use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
 mod agent_start_host;
@@ -1856,11 +1856,7 @@ fn run_main() {
 
 fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut reader = stdin.lock();
-    let mut writer = stdout.lock();
-    cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
@@ -2254,6 +2250,23 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // Bind and serve the session socket before the restore below (registry
+    // load, terminal host adoption), which can take minutes on a loaded
+    // machine (cx-n3bs). For that whole time the socket names this process
+    // as the session's owner: `server ensure` sees a restoring owner and
+    // waits for it on every platform, and a second owner loses the bind and
+    // exits before it touches the registry or a terminal host.
+    // A saved state this build cannot open fails before the bind, so its
+    // recovery text can still tell whether another server holds the socket.
+    if let Some(root) = state_root.as_deref()
+        && let Err(error) =
+            cmux_tui_core::WorkspaceRegistry::check_supported_schema(root, &args.session)
+    {
+        return Err(workspace_schema_startup_error(error, &args.session, &socket_path, Some(root)));
+    }
+    let restoring_server =
+        cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
+            .serve_restoring()?;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2283,15 +2296,22 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }
-        .map_err(|error| {
-            workspace_schema_startup_error(
+        };
+    let mux = match mux {
+        Ok(mux) => mux,
+        Err(error) => {
+            // Release the socket first: the recovery text probes it to say
+            // whether a server still listens there, and this process no
+            // longer will.
+            drop(restoring_server);
+            return Err(workspace_schema_startup_error(
                 error,
                 &args.session,
                 &socket_path,
                 state_root.as_deref(),
-            )
-        })?;
+            ));
+        }
+    };
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2329,14 +2349,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
-    {
-        Ok(server) => server,
-        Err(error) => {
-            mux.shutdown();
-            return Err(error);
-        }
-    };
+    let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
     let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
@@ -2804,12 +2817,24 @@ fn start_detached_owner_session(
         chief_tools_socket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
-    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
+    // A restore can take minutes on a loaded machine: say so once instead of
+    // a silent terminal (cx-n3bs).
+    let told = std::cell::Cell::new(false);
+    let report = |_: &local_owner::Restoring| {
+        if !told.replace(true) {
+            eprintln!("{}", messages.owner_restoring);
+        }
+    };
+    let progress = local_owner::RestoreProgress::new(&report);
+    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         match error {
             local_owner::EnsureError::Spawn(_error) => {
                 anyhow::bail!("{}", messages.owner_spawn_failed())
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
+            local_owner::EnsureError::RestoreTimeout => {
+                anyhow::bail!("{}", messages.owner_restore_timeout)
+            }
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
             local_owner::EnsureError::DifferentSession => {
                 anyhow::bail!("{}", messages.different_session)

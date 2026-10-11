@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { GalleryEntry } from "../src/gallery/format";
-import { filterBrowseItems, nextBrowseVariant, resolveBrowseVariant } from "../src/gallery/shell/browseModel";
+import {
+  browseItems,
+  filterBrowseItems,
+  nextBrowseVariant,
+  resolveBrowseVariant,
+} from "../src/gallery/shell/browseModel";
 
 const entries = [
   {
@@ -17,7 +22,7 @@ const entries = [
     title: "Transcript motion",
     area: "Transcript",
     covers: [],
-    variants: { idle: {}, streaming: {} },
+    variants: { idle: {}, streaming: { play: true } },
   },
 ] as unknown as GalleryEntry[];
 
@@ -46,6 +51,28 @@ describe("gallery browse variants", () => {
     ]);
     expect(filterBrowseItems(entries, "composer").map(({ entry, variant }) => [entry.id, variant])).toEqual([
       ["composer.picker", "keyboard"],
+    ]);
+  });
+
+  test("expands every real variant for the all-variants contact sheet", () => {
+    expect(browseItems(entries, "variants").map(({ entry, variant }) => `${entry.id}#${variant}`)).toEqual([
+      "composer.picker#keyboard",
+      "composer.picker#disabled",
+      "transcript.motion#idle",
+      "transcript.motion#streaming",
+    ]);
+    expect(filterBrowseItems(entries, "STREAMING", "all", "variants").map(({ variant }) => variant)).toEqual([
+      "streaming",
+    ]);
+    expect(filterBrowseItems(entries, "transcript", "all", "variants").map(({ variant }) => variant)).toEqual([
+      "idle",
+      "streaming",
+    ]);
+    expect(filterBrowseItems(entries, "", "motion", "variants").map(({ variant }) => variant)).toEqual(["streaming"]);
+    expect(filterBrowseItems(entries, "", "static", "variants").map(({ variant }) => variant)).toEqual([
+      "keyboard",
+      "disabled",
+      "idle",
     ]);
   });
 });

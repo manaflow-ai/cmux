@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce.
+// cmux-tui mux protocol 12, IR 0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -243,6 +243,14 @@ pub struct ConversationChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationDraftEvent {
+    pub conversation: String,
+    pub item: T::JsonValue,
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTypingEvent {
     pub conversation: String,
     pub on: bool,
@@ -323,6 +331,13 @@ pub struct GraphicsStatusEvent {
     pub retry_exhausted: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryChangedEvent {
+    pub kinds: Vec<String>,
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -810,6 +825,7 @@ pub enum Event {
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
+    ConversationDraft(ConversationDraftEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -817,6 +833,7 @@ pub enum Event {
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
+    HistoryChanged(HistoryChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
@@ -888,6 +905,7 @@ impl Event {
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
+            Self::ConversationDraft(_) => Some("conversation-draft"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -895,6 +913,7 @@ impl Event {
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
+            Self::HistoryChanged(_) => Some("history-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
@@ -965,6 +984,7 @@ impl Event {
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -972,6 +992,7 @@ impl Event {
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
+            Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
@@ -1192,6 +1213,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("conversation-draft") => match serde_json::from_value::<ConversationDraftEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationDraft(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("conversation-typing") => match serde_json::from_value::<ConversationTypingEvent>(raw.clone()) {
             Ok(event) => Event::ConversationTyping(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1242,6 +1271,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("graphics-status") => match serde_json::from_value::<GraphicsStatusEvent>(raw.clone()) {
             Ok(event) => Event::GraphicsStatus(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("history-changed") => match serde_json::from_value::<HistoryChangedEvent>(raw.clone()) {
+            Ok(event) => Event::HistoryChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

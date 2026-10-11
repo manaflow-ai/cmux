@@ -60,6 +60,9 @@ public nonisolated enum ColumnScrollEvent: Hashable, Sendable {
     case sync(ColumnStrip, focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool = true, anchor: ColumnID? = nil)
     /// Center the column holding the pane once.
     case center(PaneID, animated: Bool)
+    /// Scroll the column holding the pane into view once, the least that shows it, without
+    /// focusing it: a tab opened beside a chat that keeps focus (cx-27j7).
+    case reveal(PaneID, animated: Bool)
     case gestureBegan
     case gestureChanged(deltaX: CGFloat, time: TimeInterval)
     case gestureEnded(time: TimeInterval, animated: Bool)
