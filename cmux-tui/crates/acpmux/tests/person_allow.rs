@@ -835,9 +835,8 @@ async fn a_relayed_allow_counts_only_with_the_persons_decision_proof_and_only_on
         .call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce, &replayed))
         .await;
     assert_eq!(reason(&r), REASON, "{r}");
-    let r = relay
-        .call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &good))
-        .await;
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &good)).await;
     assert_eq!(reason(&r), REASON, "{r}");
     let ok = decision_proof(KEY, &instance, &id, &pid2, "yes", &nonce2);
     relay.ok("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &ok)).await;
