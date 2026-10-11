@@ -18,6 +18,9 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Fired when the queue's head may have changed (a prompt left the queue,
+    /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
+    pub(super) queue_moved: Notify,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
